@@ -10,6 +10,9 @@
     "format:check": "prettier --check .",
     "test": "vitest run"
   },
+  "dependencies": {
+    "zod": "^4.4.3"
+  },
   "devDependencies": {
     "typescript": "~6.0.2",
     "vitest": "^4.1.10"
