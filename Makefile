@@ -47,10 +47,11 @@ lint: lint-api lint-js
 
 lint-api: $(VENV_BIN)/activate
 	cd $(API_DIR) && $(VENV_BIN)/ruff check .
+	$(VENV_BIN)/ruff check --config $(API_DIR)/pyproject.toml scripts
 
 lint-js: $(NODE_MARKER)
 	env npm run lint --workspaces --if-present
 	env npm run format:check --workspaces --if-present
 
-check-contract:
-	@echo "check-contract: stub — real Zod/Pydantic/tool-schema diff lands in T0.2"
+check-contract: $(VENV_BIN)/activate $(NODE_MARKER)
+	$(VENV_BIN)/python scripts/check_contract.py
