@@ -19,7 +19,7 @@ endif
 
 .PHONY: dev test lint check-contract test-api test-js lint-api lint-js
 
-$(VENV_BIN)/activate: $(API_DIR)/requirements-dev.txt
+$(VENV_BIN)/activate: $(API_DIR)/requirements.txt $(API_DIR)/requirements-dev.txt
 	$(PYTHON) -m venv $(API_DIR)/.venv
 	$(VENV_BIN)/pip install --quiet --upgrade pip
 	$(VENV_BIN)/pip install --quiet -r $(API_DIR)/requirements-dev.txt
