@@ -1,0 +1,1246 @@
+{
+  "project": {
+    "id": "proj-longpour",
+    "title": "The Long Pour",
+    "format": {
+      "genre": "drama",
+      "runtimeMinutes": 60,
+      "actCount": 4,
+      "coldOpen": true,
+      "tag": false,
+      "serialization": 0.8
+    },
+    "enabledComponents": [
+      "existential_question",
+      "audience_goals",
+      "motivations",
+      "desiderata",
+      "continuity_ledger"
+    ],
+    "premise": "When Marta Vega comes home to run her late father's harbor bar with the brother she barely knows, she discovers $40,000 missing from the books — and that protecting family and finding the truth may be opposite directions.",
+    "seriesBible": {
+      "existentialQuestion": {
+        "text": "Is loyalty owed to family, or earned by them?",
+        "locked": true
+      },
+      "worldRules": [
+        {
+          "text": "Harbor's End is a fading fishing town where everyone's debts are common knowledge but never spoken aloud.",
+          "locked": false
+        },
+        {
+          "text": "The Long Pour is the last neutral ground in town: cops, fishermen, and creditors all drink there.",
+          "locked": false
+        }
+      ],
+      "storiesToAvoid": [
+        "prodigal-child-returns redemption arcs played straight",
+        "small-town-noir where the cop is secretly the villain",
+        "sibling rivalry resolved by a deathbed letter"
+      ],
+      "characters": [
+        {
+          "id": "char-marta",
+          "name": "Marta Vega",
+          "locked": false,
+          "embodiment": "Believes loyalty must be earned; audits everyone, including herself.",
+          "presentation": "Composed, precise, the competent one who left and made it.",
+          "hiding": "She was fired from her Chicago firm for covering a colleague's fraud — loyalty already cost her once.",
+          "traits": "Answers questions with questions; folds napkins into perfect squares when thinking; never raises her voice.",
+          "seriesArc": "From auditing her family at arm's length to choosing them with her eyes open."
+        },
+        {
+          "id": "char-dan",
+          "name": "Dan Vega",
+          "locked": false,
+          "embodiment": "Believes loyalty is owed, absolutely — which is how he justifies what he did.",
+          "presentation": "Easygoing bartender everyone loves; the one who stayed.",
+          "hiding": "He took the $40,000 to pay off his father's secret debt to the Aldan brothers before it passed to Marta.",
+          "traits": "Deflects with jokes; polishes glasses that are already clean; remembers everyone's usual.",
+          "seriesArc": "From protecting the family with lies to trusting them with the truth — too late to avoid the cost."
+        },
+        {
+          "id": "char-reyes",
+          "name": "Detective Ana Reyes",
+          "locked": false,
+          "embodiment": "Believes loyalty is a conflict of interest; the job is the only clean allegiance.",
+          "presentation": "Patient, unhurried, drinks soda water at the end of the bar.",
+          "hiding": "Grew up next door to the Vegas; her father drowned on a boat Marta's father should never have cleared to sail.",
+          "traits": "Lets silences do the interrogating; pays her tab in exact change.",
+          "seriesArc": "From working the case around the Vegas to deciding what she owes them — and what they owe her."
+        },
+        {
+          "id": "char-luz",
+          "name": "Luz Vega",
+          "locked": false,
+          "embodiment": "Loyalty is a habit of the hands: cook the meal, keep the peace, ask nothing.",
+          "presentation": "The matriarch who holds the family together with soup and silence.",
+          "hiding": "She knew about her husband's debt for years and burned the ledger pages that proved it.",
+          "traits": "Speaks Spanish when she wants the truth and English when she wants peace; feeds people instead of answering them.",
+          "seriesArc": "From keeper of the family's silences to the one who breaks them."
+        }
+      ],
+      "relationships": [
+        {
+          "between": [
+            "char-marta",
+            "char-dan"
+          ],
+          "label": "siblings",
+          "reallyLike": "Co-owners who are strangers: Dan resents that leaving looked like success, Marta resents that staying looked like love. Each thinks they are protecting the other.",
+          "locked": false
+        },
+        {
+          "between": [
+            "char-marta",
+            "char-reyes"
+          ],
+          "label": "childhood friends",
+          "reallyLike": "Two people who keep score. Reyes has jurisdiction, Marta has the books; each needs what the other holds, and both pretend it's friendship.",
+          "locked": false
+        },
+        {
+          "between": [
+            "char-dan",
+            "char-luz"
+          ],
+          "label": "son and mother",
+          "reallyLike": "Conspirators who have never once discussed the conspiracy. She suspects what he took and why; he suspects she knows; dinner continues.",
+          "locked": false
+        }
+      ],
+      "audienceGoals": [
+        "Find out where the money went and why Dan took it.",
+        "See whether Marta chooses the truth or her brother when they split.",
+        "Understand what Reyes wants from the Vega family."
+      ],
+      "narratorGoals": [
+        "Reveal Dan's theft to the audience by end of act one while keeping Marta in the dark.",
+        "Make every act of protection also an act of betrayal.",
+        "Keep Reyes's history with the family submerged until midseason."
+      ],
+      "worldQA": [
+        {
+          "q": "Who are the Aldan brothers?",
+          "a": "Marina loan sharks who front as a boat-repair yard; the father's debt to them predates his death by a decade.",
+          "locked": false
+        },
+        {
+          "q": "Why is the bar failing?",
+          "a": "It isn't — the books only look bad because of the missing $40,000. The bar is the healthiest business on the harbor, which is why the Aldans want it.",
+          "locked": true
+        }
+      ]
+    },
+    "seasons": [
+      {
+        "id": "season-1",
+        "index": 0,
+        "locked": false,
+        "seasonArc": "The missing $40,000 unravels into the father's secret debt, pulling Marta from auditor to accomplice as the Aldan brothers move to take the bar.",
+        "characterArcs": [
+          {
+            "characterId": "char-marta",
+            "arc": "Discovers the theft, hunts the thief, becomes the family's liar-in-chief to protect him.",
+            "locked": false
+          },
+          {
+            "characterId": "char-dan",
+            "arc": "His one protective lie compounds weekly until the arrest that ends the season.",
+            "locked": false
+          }
+        ],
+        "episodes": [
+          {
+            "id": "ep-1",
+            "index": 0,
+            "locked": false,
+            "title": "Last Call",
+            "premise": "On her first night back, Marta finds the $40,000 hole in the books and quietly begins hunting the thief — not knowing she is closing a trap around her own brother.",
+            "seasonFunction": "Pilot: establish the triangle (Marta, Dan, Reyes), reveal the theft to the audience, end with Marta finding the first thread.",
+            "storylines": [
+              {
+                "id": "A",
+                "summary": "Marta discovers the missing money and starts pulling the thread.",
+                "characterIds": [
+                  "char-marta",
+                  "char-dan"
+                ]
+              },
+              {
+                "id": "B",
+                "summary": "Reyes works the marina robbery from the end of the bar, watching the Vegas.",
+                "characterIds": [
+                  "char-reyes"
+                ]
+              }
+            ],
+            "scenes": [
+              {
+                "id": "scene-1",
+                "index": 0,
+                "act": 0,
+                "storyline": "A",
+                "locked": false,
+                "location": "INT. THE LONG POUR - NIGHT",
+                "time": "Night, closing time",
+                "socialSituation": "Nearly empty bar; Dan closing alone; Marta arrives unannounced with a suitcase.",
+                "whatHappens": "Marta walks back into the bar for the first time in eight years; the reunion is warm on the surface and wary underneath. Alone at the office computer after Dan goes up, she sees a $40,000 transfer out of the bar's account.",
+                "audienceLearns": "Marta has been gone eight years; the siblings co-own the bar now; money has left the account.",
+                "audienceFeels": "Warmth curdling into unease.",
+                "motivations": [
+                  {
+                    "characterId": "char-marta",
+                    "objective": "Come home without admitting it's a retreat.",
+                    "stakes": "If Dan asks why she's really back, the Chicago story unravels.",
+                    "obstacle": "Dan's genuine, disarming welcome."
+                  },
+                  {
+                    "characterId": "char-dan",
+                    "objective": "Get Marta upstairs and away from the office before she looks at anything.",
+                    "stakes": "The transfer is a week old and unhidden.",
+                    "obstacle": "Marta heads for the office out of habit."
+                  }
+                ],
+                "beats": [
+                  {
+                    "id": "beat-1-1",
+                    "index": 0,
+                    "locked": false,
+                    "whatHappens": "Marta enters mid-closing; Dan covers his shock with the reunion ritual — her old stool, her old drink.",
+                    "audienceLearns": "Eight years away; father dead; the bar is theirs now.",
+                    "audienceFeels": "The ache of a homecoming nobody rehearsed.",
+                    "scriptText": "INT. THE LONG POUR - NIGHT\n\nChairs upside-down on tables. DAN VEGA (38) counts the till. The door chime. He doesn't look up.\n\nDAN\nWe're closed.\n\nMARTA VEGA (41), suitcase in hand, sets a coaster straight on the bar.\n\nMARTA\nYou're out of the good rum. I can see it from here.\n\nDan looks up. A long beat. Then he reaches under the bar and sets out her stool — the one with the taped seam.",
+                    "scriptLocked": false
+                  },
+                  {
+                    "id": "beat-1-2",
+                    "index": 1,
+                    "locked": true,
+                    "whatHappens": "Alone in the office, Marta opens the books to make herself useful and finds the $40,000 transfer, dated a week ago. She hears Dan on the stairs and closes the laptop.",
+                    "audienceLearns": "Marta has seen the transfer; Dan doesn't know she's seen it.",
+                    "audienceFeels": "The first held breath of the season.",
+                    "scriptText": "INT. THE LONG POUR - BACK OFFICE - LATER\n\nMarta, jacket still on, wakes the ancient laptop. Muscle memory: ledger, accounts, reconcile.\n\nShe stops. Leans in.\n\nON SCREEN: OUTGOING TRANSFER — $40,000.00 — MEMO: (blank)\n\nFootsteps on the stairs. She closes the laptop, slow and quiet, and is examining a dusty photo of their father when Dan leans in.\n\nDAN\nYour room's made up. Been made up for a while.\n\nMARTA\n(not turning)\nGood night, Danny.",
+                    "scriptLocked": true
+                  }
+                ]
+              },
+              {
+                "id": "scene-2",
+                "index": 1,
+                "act": 1,
+                "storyline": "A",
+                "locked": false,
+                "location": "INT. THE LONG POUR - BASEMENT - NIGHT",
+                "time": "Same night, 3 AM",
+                "socialSituation": "Dan alone; the bar dark above him.",
+                "whatHappens": "Unable to sleep with Marta in the building, Dan moves the cash — banded stacks in a zip bag — from the office safe to the belly of the basement ice machine.",
+                "audienceLearns": "Dan took the money and it is physically in the building.",
+                "audienceFeels": "Complicity — we now know what Marta doesn't.",
+                "motivations": [
+                  {
+                    "characterId": "char-dan",
+                    "objective": "Move the money somewhere his auditor sister will never look.",
+                    "stakes": "If Marta finds it, the debt story comes out before he can pay it quietly.",
+                    "obstacle": "There is no good hiding place in a building she grew up in."
+                  }
+                ],
+                "beats": [
+                  {
+                    "id": "beat-2-1",
+                    "index": 0,
+                    "locked": false,
+                    "whatHappens": "Dan empties the safe, hesitates at the furnace, then unscrews the ice machine's back panel and tapes the bag inside.",
+                    "audienceLearns": "The money is in the ice machine.",
+                    "audienceFeels": "Dread with a countdown attached.",
+                    "scriptText": "INT. THE LONG POUR - BASEMENT - NIGHT\n\nDan, in the dark, a penlight in his teeth. He opens the old safe. A zip bag: banded hundreds.\n\nHe looks at the furnace. No. The keg shelf. No.\n\nThe ICE MACHINE hums in the corner. He unscrews its back panel with a bar knife and tapes the bag against the frost line.",
+                    "scriptLocked": false
+                  }
+                ]
+              },
+              {
+                "id": "scene-3",
+                "index": 2,
+                "act": 1,
+                "storyline": "A",
+                "locked": false,
+                "location": "INT. THE LONG POUR - BAR - DAY",
+                "time": "Next morning, before opening",
+                "socialSituation": "Siblings alone; the first real conversation in eight years.",
+                "whatHappens": "Marta probes the state of the business over coffee, giving Dan every chance to mention the transfer. He performs ease and mentions the foreclosure notice instead, blaming the bank. She learns the bar is two months from foreclosure — which the missing money would exactly cover.",
+                "audienceLearns": "The bar is two months from foreclosure; Dan is lying by omission to her face.",
+                "audienceFeels": "The sick tension of watching someone fail a test they don't know they're taking.",
+                "motivations": [
+                  {
+                    "characterId": "char-marta",
+                    "objective": "Get Dan to volunteer the truth about the transfer without revealing she's seen it.",
+                    "stakes": "If she has to accuse him, they're enemies; if he confesses, they're partners.",
+                    "obstacle": "Dan is a better liar than she remembered."
+                  },
+                  {
+                    "characterId": "char-dan",
+                    "objective": "Sell Marta the foreclosure story and recruit her against the bank.",
+                    "stakes": "She reads spreadsheets for a living; the story has to hold.",
+                    "obstacle": "She keeps asking the exact wrong questions with the exact right casualness."
+                  }
+                ],
+                "beats": [
+                  {
+                    "id": "beat-3-1",
+                    "index": 0,
+                    "locked": false,
+                    "whatHappens": "Over coffee, Dan slides the foreclosure notice across the bar and pitches Marta on fighting the bank together — the family cause, ready-made.",
+                    "audienceLearns": "Two months to foreclosure; Dan is weaponizing the crisis he caused.",
+                    "audienceFeels": "Reluctant admiration for the audacity of it.",
+                    "scriptText": "INT. THE LONG POUR - BAR - DAY\n\nTwo coffees. Dan slides a folded letter across the bar like it's a menu.\n\nDAN\nBank gave us sixty days. Dad's refinance, the balloon thing — it's a scam with a letterhead.\n\nMARTA\n(reading)\nSixty days.\n\nDAN\nYou're the numbers person. I figured — you and me. Vega and Vega.\n\nMarta folds the letter into a perfect square. Says nothing.",
+                    "scriptLocked": false
+                  }
+                ]
+              },
+              {
+                "id": "scene-4",
+                "index": 3,
+                "act": 2,
+                "storyline": "A",
+                "locked": false,
+                "location": "INT. THE LONG POUR - VARIOUS - NIGHT",
+                "time": "That night, after close",
+                "socialSituation": "Marta alone in the closed bar; Dan out on a delivery run.",
+                "whatHappens": "Marta searches the building the way she'd audit a client — methodically, room by room — looking for anything that explains the transfer. She finds the office safe empty and freshly wiped, and stops at the basement door as headlights sweep the windows: Dan is back early.",
+                "audienceLearns": "Marta is now actively investigating her own brother; the safe was emptied recently.",
+                "audienceFeels": "Heist tension inverted — we're rooting for her not to find it.",
+                "motivations": [
+                  {
+                    "characterId": "char-marta",
+                    "objective": "Find physical evidence of where the money went before confronting anyone.",
+                    "stakes": "Accusing Dan on a hunch would burn the only family she has left.",
+                    "obstacle": "Dan could return any minute, and the building is full of his hiding places."
+                  }
+                ],
+                "beats": [
+                  {
+                    "id": "beat-4-1",
+                    "index": 0,
+                    "locked": false,
+                    "whatHappens": "Reyes, parked outside the marina across the street on the robbery stakeout, notices the bar's lights cycling room by room after hours and makes a note.",
+                    "audienceLearns": "Reyes is watching the street for the marina robbery — and now watching the bar.",
+                    "audienceFeels": "A second clock starting.",
+                    "scriptText": "EXT. HARBOR STREET - NIGHT\n\nAn unmarked sedan. DETECTIVE ANA REYES (40) nurses a soda water, eyes on the dark marina gate.\n\nAcross the street, THE LONG POUR: the office light dies. The storeroom light blooms. Then the kitchen.\n\nReyes watches the lights walk through the building. She writes something small in a small notebook.",
+                    "scriptLocked": false
+                  },
+                  {
+                    "id": "beat-4-2",
+                    "index": 1,
+                    "locked": false,
+                    "whatHappens": "Marta works the safe combination from memory — their mother's birthday — and finds it empty and smelling of cleaner. Headlights rake the windows; she kills her flashlight at the basement door.",
+                    "audienceLearns": "The safe was emptied and wiped recently; Marta is one door from the money.",
+                    "audienceFeels": "The near-miss held breath.",
+                    "scriptText": "INT. THE LONG POUR - BACK OFFICE - NIGHT\n\nMarta dials the safe without hesitating. Luz's birthday. It opens on the second try.\n\nEmpty. She leans in: the shelf gleams. Wiped.\n\nHEADLIGHTS sweep the front windows. An engine dies.\n\nMarta clicks off her flashlight at the top of the basement stairs, hand on the cold knob, and listens to keys in the front door.",
+                    "scriptLocked": false
+                  }
+                ]
+              },
+              {
+                "id": "scene-5",
+                "index": 4,
+                "act": 3,
+                "storyline": "A",
+                "locked": false,
+                "location": "INT. THE LONG POUR - KITCHEN - NIGHT",
+                "time": "Minutes later",
+                "socialSituation": "Siblings, both lying, both certain the other is hiding something; Luz asleep upstairs.",
+                "whatHappens": "Caught out of place, Marta claims insomnia; Dan claims the delivery ran short. The small lies escalate into the eight-years fight they've both been avoiding — who left, who stayed, whose bar it really is — and it ends with Marta saying 'your bar' like a verdict.",
+                "audienceLearns": "Neither sibling can back down without exposing their secret; the partnership is now adversarial.",
+                "audienceFeels": "The fight hurts because both of them are right.",
+                "motivations": [
+                  {
+                    "characterId": "char-marta",
+                    "objective": "End the conversation without revealing what she was looking for.",
+                    "stakes": "One wrong word tells Dan she's investigating.",
+                    "obstacle": "He keeps asking why she was in the office at 1 AM."
+                  },
+                  {
+                    "characterId": "char-dan",
+                    "objective": "Find out what she saw without asking what she saw.",
+                    "stakes": "If she's seen the books, the clock on his lie just halved.",
+                    "obstacle": "Marta interrogates by letting him talk."
+                  }
+                ],
+                "beats": [
+                  {
+                    "id": "beat-5-1",
+                    "index": 0,
+                    "locked": false,
+                    "whatHappens": "The cover stories collapse into the real fight: eight years of resentment, ending on Marta's cold 'your bar.'",
+                    "audienceLearns": "The sibling wound predates the money and will outlast it.",
+                    "audienceFeels": "Grief wearing anger's clothes.",
+                    "scriptText": "",
+                    "scriptLocked": false
+                  }
+                ]
+              },
+              {
+                "id": "scene-6",
+                "index": 5,
+                "act": 4,
+                "storyline": "B",
+                "locked": false,
+                "location": "INT. THE LONG POUR - BAR - DAY",
+                "time": "Next day, opening shift",
+                "socialSituation": "Public: regulars, Luz cooking, Reyes at the end of the bar in civilian clothes.",
+                "whatHappens": "Reyes, off-shift, mentions the marina robbery to Dan conversationally — and asks, lightly, whether the bar's cameras caught anything the night the lights were 'walking around' after close. Dan comps her drink with a steady hand. From the kitchen door, Marta watches her brother lie to a detective without blinking, and understands she is not the only one keeping the family's books.",
+                "audienceLearns": "Reyes has connected the after-hours lights to the Vegas; Marta now knows Dan can lie this well.",
+                "audienceFeels": "The trap's outline becomes visible to everyone but Dan.",
+                "motivations": [
+                  {
+                    "characterId": "char-reyes",
+                    "objective": "Rattle the bar gently and watch what moves.",
+                    "stakes": "Push too hard and the neutral ground closes to her.",
+                    "obstacle": "She likes these people, which she knows is the problem."
+                  },
+                  {
+                    "characterId": "char-dan",
+                    "objective": "Give Reyes nothing while giving her everything she orders.",
+                    "stakes": "One camera question answered wrong puts the basement on a warrant.",
+                    "obstacle": "Marta is watching him do it."
+                  }
+                ],
+                "beats": []
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "headSnapshotId": "snap-root"
+  },
+  "ledger": [
+    {
+      "id": "fact-01",
+      "fact": "Marta has been away from Harbor's End for eight years",
+      "factType": "state",
+      "sourceSpan": {
+        "episodeId": "ep-1",
+        "sceneId": "scene-1",
+        "beatId": "beat-1-1",
+        "startLine": null,
+        "endLine": null,
+        "charStart": null,
+        "charEnd": null
+      },
+      "sourceText": "",
+      "knownBy": [
+        "char-marta",
+        "char-dan",
+        "char-luz"
+      ],
+      "audienceKnows": true,
+      "provenance": "writer_confirmed",
+      "confidence": 0.96,
+      "status": "active",
+      "supersedes": null,
+      "supersededBy": null
+    },
+    {
+      "id": "fact-02",
+      "fact": "The stolen $40,000 is hidden inside the bar's basement ice machine",
+      "factType": "state",
+      "sourceSpan": {
+        "episodeId": "ep-1",
+        "sceneId": "scene-2",
+        "beatId": "beat-2-1",
+        "startLine": 6,
+        "endLine": 6,
+        "charStart": 219,
+        "charEnd": 304
+      },
+      "sourceText": "He unscrews its back panel with a bar knife and tapes the bag against the frost line.",
+      "knownBy": [
+        "char-dan"
+      ],
+      "audienceKnows": true,
+      "provenance": "writer_confirmed",
+      "confidence": 0.94,
+      "status": "active",
+      "supersedes": null,
+      "supersededBy": null
+    },
+    {
+      "id": "fact-03",
+      "fact": "Marta saw the $40,000 outgoing transfer in the bar's books",
+      "factType": "knowledge",
+      "sourceSpan": {
+        "episodeId": "ep-1",
+        "sceneId": "scene-1",
+        "beatId": "beat-1-2",
+        "startLine": 6,
+        "endLine": 6,
+        "charStart": 159,
+        "charEnd": 216
+      },
+      "sourceText": "ON SCREEN: OUTGOING TRANSFER — $40,000.00 — MEMO: (blank)",
+      "knownBy": [
+        "char-marta"
+      ],
+      "audienceKnows": true,
+      "provenance": "writer_confirmed",
+      "confidence": 0.95,
+      "status": "active",
+      "supersedes": null,
+      "supersededBy": null
+    },
+    {
+      "id": "fact-04",
+      "fact": "Dan does not know that Marta saw the transfer",
+      "factType": "knowledge",
+      "sourceSpan": {
+        "episodeId": "ep-1",
+        "sceneId": "scene-1",
+        "beatId": "beat-1-2",
+        "startLine": null,
+        "endLine": null,
+        "charStart": null,
+        "charEnd": null
+      },
+      "sourceText": "",
+      "knownBy": [
+        "char-marta"
+      ],
+      "audienceKnows": true,
+      "provenance": "writer_confirmed",
+      "confidence": 0.86,
+      "status": "active",
+      "supersedes": null,
+      "supersededBy": null
+    },
+    {
+      "id": "fact-05",
+      "fact": "Marta and Dan co-own The Long Pour, inherited on their father's death",
+      "factType": "relationship",
+      "sourceSpan": {
+        "episodeId": "ep-1",
+        "sceneId": "scene-1",
+        "beatId": "beat-1-1",
+        "startLine": null,
+        "endLine": null,
+        "charStart": null,
+        "charEnd": null
+      },
+      "sourceText": "",
+      "knownBy": [
+        "char-marta",
+        "char-dan",
+        "char-luz",
+        "char-reyes"
+      ],
+      "audienceKnows": true,
+      "provenance": "writer_authored",
+      "confidence": 1.0,
+      "status": "active",
+      "supersedes": null,
+      "supersededBy": null
+    },
+    {
+      "id": "fact-06",
+      "fact": "Reyes is running a night stakeout on the marina robbery from Harbor Street",
+      "factType": "state",
+      "sourceSpan": {
+        "episodeId": "ep-1",
+        "sceneId": "scene-4",
+        "beatId": "beat-4-1",
+        "startLine": 2,
+        "endLine": 2,
+        "charStart": 93,
+        "charEnd": 121
+      },
+      "sourceText": "eyes on the dark marina gate",
+      "knownBy": [
+        "char-reyes"
+      ],
+      "audienceKnows": true,
+      "provenance": "inferred",
+      "confidence": 0.72,
+      "status": "pending_review",
+      "supersedes": null,
+      "supersededBy": null
+    },
+    {
+      "id": "fact-07",
+      "fact": "Dan has never been in trouble with the law",
+      "factType": "state",
+      "sourceSpan": {
+        "episodeId": "ep-1",
+        "sceneId": "scene-3",
+        "beatId": "beat-3-1",
+        "startLine": null,
+        "endLine": null,
+        "charStart": null,
+        "charEnd": null
+      },
+      "sourceText": "",
+      "knownBy": [
+        "char-marta",
+        "char-luz"
+      ],
+      "audienceKnows": true,
+      "provenance": "writer_authored",
+      "confidence": 1.0,
+      "status": "active",
+      "supersedes": null,
+      "supersededBy": null
+    },
+    {
+      "id": "fact-08",
+      "fact": "The Long Pour is sixty days from foreclosure",
+      "factType": "world_rule",
+      "sourceSpan": {
+        "episodeId": "ep-1",
+        "sceneId": "scene-3",
+        "beatId": "beat-3-1",
+        "startLine": 5,
+        "endLine": 5,
+        "charStart": 110,
+        "charEnd": 134
+      },
+      "sourceText": "Bank gave us sixty days.",
+      "knownBy": [
+        "char-marta",
+        "char-dan"
+      ],
+      "audienceKnows": true,
+      "provenance": "writer_confirmed",
+      "confidence": 0.92,
+      "status": "active",
+      "supersedes": null,
+      "supersededBy": null
+    }
+  ],
+  "snapshots": [
+    {
+      "id": "snap-root",
+      "parentId": null,
+      "instruction": "fixture seed: The Long Pour, episode 1 in progress",
+      "doc": {
+        "id": "proj-longpour",
+        "title": "The Long Pour",
+        "format": {
+          "genre": "drama",
+          "runtimeMinutes": 60,
+          "actCount": 4,
+          "coldOpen": true,
+          "tag": false,
+          "serialization": 0.8
+        },
+        "enabledComponents": [
+          "existential_question",
+          "audience_goals",
+          "motivations",
+          "desiderata",
+          "continuity_ledger"
+        ],
+        "premise": "When Marta Vega comes home to run her late father's harbor bar with the brother she barely knows, she discovers $40,000 missing from the books — and that protecting family and finding the truth may be opposite directions.",
+        "seriesBible": {
+          "existentialQuestion": {
+            "text": "Is loyalty owed to family, or earned by them?",
+            "locked": true
+          },
+          "worldRules": [
+            {
+              "text": "Harbor's End is a fading fishing town where everyone's debts are common knowledge but never spoken aloud.",
+              "locked": false
+            },
+            {
+              "text": "The Long Pour is the last neutral ground in town: cops, fishermen, and creditors all drink there.",
+              "locked": false
+            }
+          ],
+          "storiesToAvoid": [
+            "prodigal-child-returns redemption arcs played straight",
+            "small-town-noir where the cop is secretly the villain",
+            "sibling rivalry resolved by a deathbed letter"
+          ],
+          "characters": [
+            {
+              "id": "char-marta",
+              "name": "Marta Vega",
+              "locked": false,
+              "embodiment": "Believes loyalty must be earned; audits everyone, including herself.",
+              "presentation": "Composed, precise, the competent one who left and made it.",
+              "hiding": "She was fired from her Chicago firm for covering a colleague's fraud — loyalty already cost her once.",
+              "traits": "Answers questions with questions; folds napkins into perfect squares when thinking; never raises her voice.",
+              "seriesArc": "From auditing her family at arm's length to choosing them with her eyes open."
+            },
+            {
+              "id": "char-dan",
+              "name": "Dan Vega",
+              "locked": false,
+              "embodiment": "Believes loyalty is owed, absolutely — which is how he justifies what he did.",
+              "presentation": "Easygoing bartender everyone loves; the one who stayed.",
+              "hiding": "He took the $40,000 to pay off his father's secret debt to the Aldan brothers before it passed to Marta.",
+              "traits": "Deflects with jokes; polishes glasses that are already clean; remembers everyone's usual.",
+              "seriesArc": "From protecting the family with lies to trusting them with the truth — too late to avoid the cost."
+            },
+            {
+              "id": "char-reyes",
+              "name": "Detective Ana Reyes",
+              "locked": false,
+              "embodiment": "Believes loyalty is a conflict of interest; the job is the only clean allegiance.",
+              "presentation": "Patient, unhurried, drinks soda water at the end of the bar.",
+              "hiding": "Grew up next door to the Vegas; her father drowned on a boat Marta's father should never have cleared to sail.",
+              "traits": "Lets silences do the interrogating; pays her tab in exact change.",
+              "seriesArc": "From working the case around the Vegas to deciding what she owes them — and what they owe her."
+            },
+            {
+              "id": "char-luz",
+              "name": "Luz Vega",
+              "locked": false,
+              "embodiment": "Loyalty is a habit of the hands: cook the meal, keep the peace, ask nothing.",
+              "presentation": "The matriarch who holds the family together with soup and silence.",
+              "hiding": "She knew about her husband's debt for years and burned the ledger pages that proved it.",
+              "traits": "Speaks Spanish when she wants the truth and English when she wants peace; feeds people instead of answering them.",
+              "seriesArc": "From keeper of the family's silences to the one who breaks them."
+            }
+          ],
+          "relationships": [
+            {
+              "between": [
+                "char-marta",
+                "char-dan"
+              ],
+              "label": "siblings",
+              "reallyLike": "Co-owners who are strangers: Dan resents that leaving looked like success, Marta resents that staying looked like love. Each thinks they are protecting the other.",
+              "locked": false
+            },
+            {
+              "between": [
+                "char-marta",
+                "char-reyes"
+              ],
+              "label": "childhood friends",
+              "reallyLike": "Two people who keep score. Reyes has jurisdiction, Marta has the books; each needs what the other holds, and both pretend it's friendship.",
+              "locked": false
+            },
+            {
+              "between": [
+                "char-dan",
+                "char-luz"
+              ],
+              "label": "son and mother",
+              "reallyLike": "Conspirators who have never once discussed the conspiracy. She suspects what he took and why; he suspects she knows; dinner continues.",
+              "locked": false
+            }
+          ],
+          "audienceGoals": [
+            "Find out where the money went and why Dan took it.",
+            "See whether Marta chooses the truth or her brother when they split.",
+            "Understand what Reyes wants from the Vega family."
+          ],
+          "narratorGoals": [
+            "Reveal Dan's theft to the audience by end of act one while keeping Marta in the dark.",
+            "Make every act of protection also an act of betrayal.",
+            "Keep Reyes's history with the family submerged until midseason."
+          ],
+          "worldQA": [
+            {
+              "q": "Who are the Aldan brothers?",
+              "a": "Marina loan sharks who front as a boat-repair yard; the father's debt to them predates his death by a decade.",
+              "locked": false
+            },
+            {
+              "q": "Why is the bar failing?",
+              "a": "It isn't — the books only look bad because of the missing $40,000. The bar is the healthiest business on the harbor, which is why the Aldans want it.",
+              "locked": true
+            }
+          ]
+        },
+        "seasons": [
+          {
+            "id": "season-1",
+            "index": 0,
+            "locked": false,
+            "seasonArc": "The missing $40,000 unravels into the father's secret debt, pulling Marta from auditor to accomplice as the Aldan brothers move to take the bar.",
+            "characterArcs": [
+              {
+                "characterId": "char-marta",
+                "arc": "Discovers the theft, hunts the thief, becomes the family's liar-in-chief to protect him.",
+                "locked": false
+              },
+              {
+                "characterId": "char-dan",
+                "arc": "His one protective lie compounds weekly until the arrest that ends the season.",
+                "locked": false
+              }
+            ],
+            "episodes": [
+              {
+                "id": "ep-1",
+                "index": 0,
+                "locked": false,
+                "title": "Last Call",
+                "premise": "On her first night back, Marta finds the $40,000 hole in the books and quietly begins hunting the thief — not knowing she is closing a trap around her own brother.",
+                "seasonFunction": "Pilot: establish the triangle (Marta, Dan, Reyes), reveal the theft to the audience, end with Marta finding the first thread.",
+                "storylines": [
+                  {
+                    "id": "A",
+                    "summary": "Marta discovers the missing money and starts pulling the thread.",
+                    "characterIds": [
+                      "char-marta",
+                      "char-dan"
+                    ]
+                  },
+                  {
+                    "id": "B",
+                    "summary": "Reyes works the marina robbery from the end of the bar, watching the Vegas.",
+                    "characterIds": [
+                      "char-reyes"
+                    ]
+                  }
+                ],
+                "scenes": [
+                  {
+                    "id": "scene-1",
+                    "index": 0,
+                    "act": 0,
+                    "storyline": "A",
+                    "locked": false,
+                    "location": "INT. THE LONG POUR - NIGHT",
+                    "time": "Night, closing time",
+                    "socialSituation": "Nearly empty bar; Dan closing alone; Marta arrives unannounced with a suitcase.",
+                    "whatHappens": "Marta walks back into the bar for the first time in eight years; the reunion is warm on the surface and wary underneath. Alone at the office computer after Dan goes up, she sees a $40,000 transfer out of the bar's account.",
+                    "audienceLearns": "Marta has been gone eight years; the siblings co-own the bar now; money has left the account.",
+                    "audienceFeels": "Warmth curdling into unease.",
+                    "motivations": [
+                      {
+                        "characterId": "char-marta",
+                        "objective": "Come home without admitting it's a retreat.",
+                        "stakes": "If Dan asks why she's really back, the Chicago story unravels.",
+                        "obstacle": "Dan's genuine, disarming welcome."
+                      },
+                      {
+                        "characterId": "char-dan",
+                        "objective": "Get Marta upstairs and away from the office before she looks at anything.",
+                        "stakes": "The transfer is a week old and unhidden.",
+                        "obstacle": "Marta heads for the office out of habit."
+                      }
+                    ],
+                    "beats": [
+                      {
+                        "id": "beat-1-1",
+                        "index": 0,
+                        "locked": false,
+                        "whatHappens": "Marta enters mid-closing; Dan covers his shock with the reunion ritual — her old stool, her old drink.",
+                        "audienceLearns": "Eight years away; father dead; the bar is theirs now.",
+                        "audienceFeels": "The ache of a homecoming nobody rehearsed.",
+                        "scriptText": "INT. THE LONG POUR - NIGHT\n\nChairs upside-down on tables. DAN VEGA (38) counts the till. The door chime. He doesn't look up.\n\nDAN\nWe're closed.\n\nMARTA VEGA (41), suitcase in hand, sets a coaster straight on the bar.\n\nMARTA\nYou're out of the good rum. I can see it from here.\n\nDan looks up. A long beat. Then he reaches under the bar and sets out her stool — the one with the taped seam.",
+                        "scriptLocked": false
+                      },
+                      {
+                        "id": "beat-1-2",
+                        "index": 1,
+                        "locked": true,
+                        "whatHappens": "Alone in the office, Marta opens the books to make herself useful and finds the $40,000 transfer, dated a week ago. She hears Dan on the stairs and closes the laptop.",
+                        "audienceLearns": "Marta has seen the transfer; Dan doesn't know she's seen it.",
+                        "audienceFeels": "The first held breath of the season.",
+                        "scriptText": "INT. THE LONG POUR - BACK OFFICE - LATER\n\nMarta, jacket still on, wakes the ancient laptop. Muscle memory: ledger, accounts, reconcile.\n\nShe stops. Leans in.\n\nON SCREEN: OUTGOING TRANSFER — $40,000.00 — MEMO: (blank)\n\nFootsteps on the stairs. She closes the laptop, slow and quiet, and is examining a dusty photo of their father when Dan leans in.\n\nDAN\nYour room's made up. Been made up for a while.\n\nMARTA\n(not turning)\nGood night, Danny.",
+                        "scriptLocked": true
+                      }
+                    ]
+                  },
+                  {
+                    "id": "scene-2",
+                    "index": 1,
+                    "act": 1,
+                    "storyline": "A",
+                    "locked": false,
+                    "location": "INT. THE LONG POUR - BASEMENT - NIGHT",
+                    "time": "Same night, 3 AM",
+                    "socialSituation": "Dan alone; the bar dark above him.",
+                    "whatHappens": "Unable to sleep with Marta in the building, Dan moves the cash — banded stacks in a zip bag — from the office safe to the belly of the basement ice machine.",
+                    "audienceLearns": "Dan took the money and it is physically in the building.",
+                    "audienceFeels": "Complicity — we now know what Marta doesn't.",
+                    "motivations": [
+                      {
+                        "characterId": "char-dan",
+                        "objective": "Move the money somewhere his auditor sister will never look.",
+                        "stakes": "If Marta finds it, the debt story comes out before he can pay it quietly.",
+                        "obstacle": "There is no good hiding place in a building she grew up in."
+                      }
+                    ],
+                    "beats": [
+                      {
+                        "id": "beat-2-1",
+                        "index": 0,
+                        "locked": false,
+                        "whatHappens": "Dan empties the safe, hesitates at the furnace, then unscrews the ice machine's back panel and tapes the bag inside.",
+                        "audienceLearns": "The money is in the ice machine.",
+                        "audienceFeels": "Dread with a countdown attached.",
+                        "scriptText": "INT. THE LONG POUR - BASEMENT - NIGHT\n\nDan, in the dark, a penlight in his teeth. He opens the old safe. A zip bag: banded hundreds.\n\nHe looks at the furnace. No. The keg shelf. No.\n\nThe ICE MACHINE hums in the corner. He unscrews its back panel with a bar knife and tapes the bag against the frost line.",
+                        "scriptLocked": false
+                      }
+                    ]
+                  },
+                  {
+                    "id": "scene-3",
+                    "index": 2,
+                    "act": 1,
+                    "storyline": "A",
+                    "locked": false,
+                    "location": "INT. THE LONG POUR - BAR - DAY",
+                    "time": "Next morning, before opening",
+                    "socialSituation": "Siblings alone; the first real conversation in eight years.",
+                    "whatHappens": "Marta probes the state of the business over coffee, giving Dan every chance to mention the transfer. He performs ease and mentions the foreclosure notice instead, blaming the bank. She learns the bar is two months from foreclosure — which the missing money would exactly cover.",
+                    "audienceLearns": "The bar is two months from foreclosure; Dan is lying by omission to her face.",
+                    "audienceFeels": "The sick tension of watching someone fail a test they don't know they're taking.",
+                    "motivations": [
+                      {
+                        "characterId": "char-marta",
+                        "objective": "Get Dan to volunteer the truth about the transfer without revealing she's seen it.",
+                        "stakes": "If she has to accuse him, they're enemies; if he confesses, they're partners.",
+                        "obstacle": "Dan is a better liar than she remembered."
+                      },
+                      {
+                        "characterId": "char-dan",
+                        "objective": "Sell Marta the foreclosure story and recruit her against the bank.",
+                        "stakes": "She reads spreadsheets for a living; the story has to hold.",
+                        "obstacle": "She keeps asking the exact wrong questions with the exact right casualness."
+                      }
+                    ],
+                    "beats": [
+                      {
+                        "id": "beat-3-1",
+                        "index": 0,
+                        "locked": false,
+                        "whatHappens": "Over coffee, Dan slides the foreclosure notice across the bar and pitches Marta on fighting the bank together — the family cause, ready-made.",
+                        "audienceLearns": "Two months to foreclosure; Dan is weaponizing the crisis he caused.",
+                        "audienceFeels": "Reluctant admiration for the audacity of it.",
+                        "scriptText": "INT. THE LONG POUR - BAR - DAY\n\nTwo coffees. Dan slides a folded letter across the bar like it's a menu.\n\nDAN\nBank gave us sixty days. Dad's refinance, the balloon thing — it's a scam with a letterhead.\n\nMARTA\n(reading)\nSixty days.\n\nDAN\nYou're the numbers person. I figured — you and me. Vega and Vega.\n\nMarta folds the letter into a perfect square. Says nothing.",
+                        "scriptLocked": false
+                      }
+                    ]
+                  },
+                  {
+                    "id": "scene-4",
+                    "index": 3,
+                    "act": 2,
+                    "storyline": "A",
+                    "locked": false,
+                    "location": "INT. THE LONG POUR - VARIOUS - NIGHT",
+                    "time": "That night, after close",
+                    "socialSituation": "Marta alone in the closed bar; Dan out on a delivery run.",
+                    "whatHappens": "Marta searches the building the way she'd audit a client — methodically, room by room — looking for anything that explains the transfer. She finds the office safe empty and freshly wiped, and stops at the basement door as headlights sweep the windows: Dan is back early.",
+                    "audienceLearns": "Marta is now actively investigating her own brother; the safe was emptied recently.",
+                    "audienceFeels": "Heist tension inverted — we're rooting for her not to find it.",
+                    "motivations": [
+                      {
+                        "characterId": "char-marta",
+                        "objective": "Find physical evidence of where the money went before confronting anyone.",
+                        "stakes": "Accusing Dan on a hunch would burn the only family she has left.",
+                        "obstacle": "Dan could return any minute, and the building is full of his hiding places."
+                      }
+                    ],
+                    "beats": [
+                      {
+                        "id": "beat-4-1",
+                        "index": 0,
+                        "locked": false,
+                        "whatHappens": "Reyes, parked outside the marina across the street on the robbery stakeout, notices the bar's lights cycling room by room after hours and makes a note.",
+                        "audienceLearns": "Reyes is watching the street for the marina robbery — and now watching the bar.",
+                        "audienceFeels": "A second clock starting.",
+                        "scriptText": "EXT. HARBOR STREET - NIGHT\n\nAn unmarked sedan. DETECTIVE ANA REYES (40) nurses a soda water, eyes on the dark marina gate.\n\nAcross the street, THE LONG POUR: the office light dies. The storeroom light blooms. Then the kitchen.\n\nReyes watches the lights walk through the building. She writes something small in a small notebook.",
+                        "scriptLocked": false
+                      },
+                      {
+                        "id": "beat-4-2",
+                        "index": 1,
+                        "locked": false,
+                        "whatHappens": "Marta works the safe combination from memory — their mother's birthday — and finds it empty and smelling of cleaner. Headlights rake the windows; she kills her flashlight at the basement door.",
+                        "audienceLearns": "The safe was emptied and wiped recently; Marta is one door from the money.",
+                        "audienceFeels": "The near-miss held breath.",
+                        "scriptText": "INT. THE LONG POUR - BACK OFFICE - NIGHT\n\nMarta dials the safe without hesitating. Luz's birthday. It opens on the second try.\n\nEmpty. She leans in: the shelf gleams. Wiped.\n\nHEADLIGHTS sweep the front windows. An engine dies.\n\nMarta clicks off her flashlight at the top of the basement stairs, hand on the cold knob, and listens to keys in the front door.",
+                        "scriptLocked": false
+                      }
+                    ]
+                  },
+                  {
+                    "id": "scene-5",
+                    "index": 4,
+                    "act": 3,
+                    "storyline": "A",
+                    "locked": false,
+                    "location": "INT. THE LONG POUR - KITCHEN - NIGHT",
+                    "time": "Minutes later",
+                    "socialSituation": "Siblings, both lying, both certain the other is hiding something; Luz asleep upstairs.",
+                    "whatHappens": "Caught out of place, Marta claims insomnia; Dan claims the delivery ran short. The small lies escalate into the eight-years fight they've both been avoiding — who left, who stayed, whose bar it really is — and it ends with Marta saying 'your bar' like a verdict.",
+                    "audienceLearns": "Neither sibling can back down without exposing their secret; the partnership is now adversarial.",
+                    "audienceFeels": "The fight hurts because both of them are right.",
+                    "motivations": [
+                      {
+                        "characterId": "char-marta",
+                        "objective": "End the conversation without revealing what she was looking for.",
+                        "stakes": "One wrong word tells Dan she's investigating.",
+                        "obstacle": "He keeps asking why she was in the office at 1 AM."
+                      },
+                      {
+                        "characterId": "char-dan",
+                        "objective": "Find out what she saw without asking what she saw.",
+                        "stakes": "If she's seen the books, the clock on his lie just halved.",
+                        "obstacle": "Marta interrogates by letting him talk."
+                      }
+                    ],
+                    "beats": [
+                      {
+                        "id": "beat-5-1",
+                        "index": 0,
+                        "locked": false,
+                        "whatHappens": "The cover stories collapse into the real fight: eight years of resentment, ending on Marta's cold 'your bar.'",
+                        "audienceLearns": "The sibling wound predates the money and will outlast it.",
+                        "audienceFeels": "Grief wearing anger's clothes.",
+                        "scriptText": "",
+                        "scriptLocked": false
+                      }
+                    ]
+                  },
+                  {
+                    "id": "scene-6",
+                    "index": 5,
+                    "act": 4,
+                    "storyline": "B",
+                    "locked": false,
+                    "location": "INT. THE LONG POUR - BAR - DAY",
+                    "time": "Next day, opening shift",
+                    "socialSituation": "Public: regulars, Luz cooking, Reyes at the end of the bar in civilian clothes.",
+                    "whatHappens": "Reyes, off-shift, mentions the marina robbery to Dan conversationally — and asks, lightly, whether the bar's cameras caught anything the night the lights were 'walking around' after close. Dan comps her drink with a steady hand. From the kitchen door, Marta watches her brother lie to a detective without blinking, and understands she is not the only one keeping the family's books.",
+                    "audienceLearns": "Reyes has connected the after-hours lights to the Vegas; Marta now knows Dan can lie this well.",
+                    "audienceFeels": "The trap's outline becomes visible to everyone but Dan.",
+                    "motivations": [
+                      {
+                        "characterId": "char-reyes",
+                        "objective": "Rattle the bar gently and watch what moves.",
+                        "stakes": "Push too hard and the neutral ground closes to her.",
+                        "obstacle": "She likes these people, which she knows is the problem."
+                      },
+                      {
+                        "characterId": "char-dan",
+                        "objective": "Give Reyes nothing while giving her everything she orders.",
+                        "stakes": "One camera question answered wrong puts the basement on a warrant.",
+                        "obstacle": "Marta is watching him do it."
+                      }
+                    ],
+                    "beats": []
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "headSnapshotId": "snap-root"
+      },
+      "ledger": [
+        {
+          "id": "fact-01",
+          "fact": "Marta has been away from Harbor's End for eight years",
+          "factType": "state",
+          "sourceSpan": {
+            "episodeId": "ep-1",
+            "sceneId": "scene-1",
+            "beatId": "beat-1-1",
+            "startLine": null,
+            "endLine": null,
+            "charStart": null,
+            "charEnd": null
+          },
+          "sourceText": "",
+          "knownBy": [
+            "char-marta",
+            "char-dan",
+            "char-luz"
+          ],
+          "audienceKnows": true,
+          "provenance": "writer_confirmed",
+          "confidence": 0.96,
+          "status": "active",
+          "supersedes": null,
+          "supersededBy": null
+        },
+        {
+          "id": "fact-02",
+          "fact": "The stolen $40,000 is hidden inside the bar's basement ice machine",
+          "factType": "state",
+          "sourceSpan": {
+            "episodeId": "ep-1",
+            "sceneId": "scene-2",
+            "beatId": "beat-2-1",
+            "startLine": 6,
+            "endLine": 6,
+            "charStart": 219,
+            "charEnd": 304
+          },
+          "sourceText": "He unscrews its back panel with a bar knife and tapes the bag against the frost line.",
+          "knownBy": [
+            "char-dan"
+          ],
+          "audienceKnows": true,
+          "provenance": "writer_confirmed",
+          "confidence": 0.94,
+          "status": "active",
+          "supersedes": null,
+          "supersededBy": null
+        },
+        {
+          "id": "fact-03",
+          "fact": "Marta saw the $40,000 outgoing transfer in the bar's books",
+          "factType": "knowledge",
+          "sourceSpan": {
+            "episodeId": "ep-1",
+            "sceneId": "scene-1",
+            "beatId": "beat-1-2",
+            "startLine": 6,
+            "endLine": 6,
+            "charStart": 159,
+            "charEnd": 216
+          },
+          "sourceText": "ON SCREEN: OUTGOING TRANSFER — $40,000.00 — MEMO: (blank)",
+          "knownBy": [
+            "char-marta"
+          ],
+          "audienceKnows": true,
+          "provenance": "writer_confirmed",
+          "confidence": 0.95,
+          "status": "active",
+          "supersedes": null,
+          "supersededBy": null
+        },
+        {
+          "id": "fact-04",
+          "fact": "Dan does not know that Marta saw the transfer",
+          "factType": "knowledge",
+          "sourceSpan": {
+            "episodeId": "ep-1",
+            "sceneId": "scene-1",
+            "beatId": "beat-1-2",
+            "startLine": null,
+            "endLine": null,
+            "charStart": null,
+            "charEnd": null
+          },
+          "sourceText": "",
+          "knownBy": [
+            "char-marta"
+          ],
+          "audienceKnows": true,
+          "provenance": "writer_confirmed",
+          "confidence": 0.86,
+          "status": "active",
+          "supersedes": null,
+          "supersededBy": null
+        },
+        {
+          "id": "fact-05",
+          "fact": "Marta and Dan co-own The Long Pour, inherited on their father's death",
+          "factType": "relationship",
+          "sourceSpan": {
+            "episodeId": "ep-1",
+            "sceneId": "scene-1",
+            "beatId": "beat-1-1",
+            "startLine": null,
+            "endLine": null,
+            "charStart": null,
+            "charEnd": null
+          },
+          "sourceText": "",
+          "knownBy": [
+            "char-marta",
+            "char-dan",
+            "char-luz",
+            "char-reyes"
+          ],
+          "audienceKnows": true,
+          "provenance": "writer_authored",
+          "confidence": 1.0,
+          "status": "active",
+          "supersedes": null,
+          "supersededBy": null
+        },
+        {
+          "id": "fact-06",
+          "fact": "Reyes is running a night stakeout on the marina robbery from Harbor Street",
+          "factType": "state",
+          "sourceSpan": {
+            "episodeId": "ep-1",
+            "sceneId": "scene-4",
+            "beatId": "beat-4-1",
+            "startLine": 2,
+            "endLine": 2,
+            "charStart": 93,
+            "charEnd": 121
+          },
+          "sourceText": "eyes on the dark marina gate",
+          "knownBy": [
+            "char-reyes"
+          ],
+          "audienceKnows": true,
+          "provenance": "inferred",
+          "confidence": 0.72,
+          "status": "pending_review",
+          "supersedes": null,
+          "supersededBy": null
+        },
+        {
+          "id": "fact-07",
+          "fact": "Dan has never been in trouble with the law",
+          "factType": "state",
+          "sourceSpan": {
+            "episodeId": "ep-1",
+            "sceneId": "scene-3",
+            "beatId": "beat-3-1",
+            "startLine": null,
+            "endLine": null,
+            "charStart": null,
+            "charEnd": null
+          },
+          "sourceText": "",
+          "knownBy": [
+            "char-marta",
+            "char-luz"
+          ],
+          "audienceKnows": true,
+          "provenance": "writer_authored",
+          "confidence": 1.0,
+          "status": "active",
+          "supersedes": null,
+          "supersededBy": null
+        },
+        {
+          "id": "fact-08",
+          "fact": "The Long Pour is sixty days from foreclosure",
+          "factType": "world_rule",
+          "sourceSpan": {
+            "episodeId": "ep-1",
+            "sceneId": "scene-3",
+            "beatId": "beat-3-1",
+            "startLine": 5,
+            "endLine": 5,
+            "charStart": 110,
+            "charEnd": 134
+          },
+          "sourceText": "Bank gave us sixty days.",
+          "knownBy": [
+            "char-marta",
+            "char-dan"
+          ],
+          "audienceKnows": true,
+          "provenance": "writer_confirmed",
+          "confidence": 0.92,
+          "status": "active",
+          "supersedes": null,
+          "supersededBy": null
+        }
+      ],
+      "flags": [],
+      "ts": "2026-07-08T12:00:00Z"
+    }
+  ],
+  "consistencyFlags": [],
+  "changeSets": [],
+  "suggestionHistory": []
+}
