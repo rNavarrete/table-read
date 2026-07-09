@@ -1,0 +1,5 @@
+# tokens.css is a verbatim transcription of docs/tableread-ui-spec.md §1
+# (CLAUDE.md: "verbatim names and values — do not invent, rename, or omit
+# any"). Prettier's CSS printer lowercases hex colors and normalizes quotes,
+# which would silently diverge the file from the spec's literal text.
+src/styles/tokens.css

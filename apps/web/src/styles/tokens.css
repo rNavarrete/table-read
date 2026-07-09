@@ -1,0 +1,83 @@
+/*
+ * Design tokens — Table Read UI spec §1 (docs/tableread-ui-spec.md).
+ * Light theme only (MVP). Names and values are verbatim from the spec —
+ * exempted from Prettier (see .prettierignore) so that fidelity holds byte
+ * for byte, including hex casing and quote style.
+ *
+ * CLAUDE.md hard rule 6: components consume these via var(--tr-*), never
+ * raw hex/spacing. This file is the single source of values; the @theme
+ * block below wires them into Tailwind without duplicating any value.
+ */
+:root {
+  /* Surfaces — warm ivory & clay */
+  --tr-surface-page:    #FAF6EF; /* app background, Write mode page area */
+  --tr-surface-raised:  #FFFDF8; /* cards, script canvas sheet */
+  --tr-surface-sunken:  #F1EAE0; /* panels, rails, command bar */
+  --tr-surface-clay:    #E8DCCB; /* frames on Plan canvas, hover fills */
+  --tr-border:          #DDD2C2;
+  --tr-border-strong:   #C4B6A1;
+
+  /* Text — charcoal, never pure black */
+  --tr-text-primary:    #2B2724;
+  --tr-text-secondary:  #6B615A;
+  --tr-text-muted:      #988D83;
+
+  /* Primary action — muted coral */
+  --tr-coral:           #E0704F;
+  --tr-coral-hover:     #C95E3F;
+  --tr-coral-soft:      #F7DED4; /* selected/active tints */
+
+  /* Status hues */
+  --tr-sage:            #7E9B76; /* confirmed, high-confidence, success */
+  --tr-sage-soft:       #E4ECE0;
+  --tr-sky:             #6E93B8; /* informational, links, setup/payoff connectors */
+  --tr-sky-soft:        #E1EAF2;
+  --tr-amber:           #C9913B; /* needs review, speculative, pending */
+  --tr-amber-soft:      #F5E8D2;
+  --tr-danger:          #B0503C; /* destructive, errors only — not for AI content */
+
+  /* Type */
+  --tr-font-ui:      "Inter", system-ui, sans-serif;
+  --tr-font-script:  "Courier Prime", "Courier New", monospace; /* teleplay */
+  --tr-font-display: "Fraunces", Georgia, serif; /* headings, mode titles */
+
+  /*
+   * Not yet tokenized (UI spec §1 leaves these as raw scales, not named
+   * --tr-* variables — no build-plan task has assigned them names):
+   * Scale: 12/13/15/17/22/28. Script canvas fixed 12pt Courier equivalent.
+   * Spacing: 4-base — 4/8/12/16/24/32/48/64. Default section pad 24.
+   * Radius: cards 10px, chips 999px, canvas frames 14px.
+   * Shadow: 0 1px 3px rgb(43 39 36 / 0.08), lift on drag: 0 8px 24px / 0.14.
+   * Motion: 160ms ease-out standard; streaming text has no animation.
+   */
+}
+
+/* Tailwind v4 CSS-first theme config — aliases only, no duplicated values. */
+@theme {
+  --color-tr-surface-page:   var(--tr-surface-page);
+  --color-tr-surface-raised: var(--tr-surface-raised);
+  --color-tr-surface-sunken: var(--tr-surface-sunken);
+  --color-tr-surface-clay:   var(--tr-surface-clay);
+  --color-tr-border:         var(--tr-border);
+  --color-tr-border-strong:  var(--tr-border-strong);
+
+  --color-tr-text-primary:   var(--tr-text-primary);
+  --color-tr-text-secondary: var(--tr-text-secondary);
+  --color-tr-text-muted:     var(--tr-text-muted);
+
+  --color-tr-coral:          var(--tr-coral);
+  --color-tr-coral-hover:    var(--tr-coral-hover);
+  --color-tr-coral-soft:     var(--tr-coral-soft);
+
+  --color-tr-sage:           var(--tr-sage);
+  --color-tr-sage-soft:      var(--tr-sage-soft);
+  --color-tr-sky:            var(--tr-sky);
+  --color-tr-sky-soft:       var(--tr-sky-soft);
+  --color-tr-amber:          var(--tr-amber);
+  --color-tr-amber-soft:     var(--tr-amber-soft);
+  --color-tr-danger:         var(--tr-danger);
+
+  --font-ui:      var(--tr-font-ui);
+  --font-script:  var(--tr-font-script);
+  --font-display: var(--tr-font-display);
+}
