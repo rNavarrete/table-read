@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from fastapi import FastAPI, Request
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 
@@ -26,3 +28,21 @@ def register_error_handlers(app: FastAPI) -> None:
         if exc.details is not None:
             body["details"] = exc.details
         return JSONResponse(status_code=exc.status_code, content={"error": body})
+
+    @app.exception_handler(RequestValidationError)
+    async def handle_request_validation(
+        request: Request, exc: RequestValidationError
+    ) -> JSONResponse:
+        # Map FastAPI's default 422 (which uses a `{detail: [...]}` shape) onto
+        # the contract's error envelope (§4) so *every* endpoint, including the
+        # body-accepting POST/PATCH, speaks the same error shape.
+        return JSONResponse(
+            status_code=422,
+            content={
+                "error": {
+                    "code": "VALIDATION",
+                    "message": "request failed validation",
+                    "details": {"errors": jsonable_encoder(exc.errors())},
+                }
+            },
+        )
