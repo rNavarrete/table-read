@@ -44,6 +44,16 @@ class LlmClient(Protocol):
         self, *, system: str, user_message: str, prompt_version: str
     ) -> BeatCandidate: ...
 
+    def stream_tune_beat(
+        self, *, system: str, user_message: str, prompt_version: str
+    ) -> Iterator[str]:
+        """Streaming variant of `tune_beat` (prompt spec §8a: candidates and
+        tune both stream): yield the tool-input JSON as raw `input_json_delta`
+        fragments. Like `stream_beat_candidate`, the caller
+        (drama_manager/candidates.py) runs the incremental parser and final
+        validation; this method never validates or yields display text."""
+        ...
+
     def classify_blast_radius(
         self, *, system: str, user_message: str, prompt_version: str
     ) -> BlastRadius: ...

@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import json
 import logging
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 
 import anthropic
 from pydantic import ValidationError
@@ -183,6 +183,39 @@ def _previous_and_next(scene: dict, after_beat_id: str | None) -> tuple[str, dic
     return previous_script, next_plan
 
 
+def _scene_context(
+    doc: dict, ledger: list[dict], *, scene_id: str, after_beat_id: str | None
+) -> dict:
+    """Select the §1 context-bundle pieces for `scene_id` (shared by the §1
+    candidate and §2 tune builders): series/theme, in-scene character sheets,
+    episode premise, scene plan, prompt-eligible facts, locked-beat constraints,
+    previous script, and the landing beat plan. Raises `SceneNotFound` /
+    `BeatNotFound`. Read-only; touches no storage."""
+    episode, scene = _locate_scene(doc, scene_id)
+    character_ids = _characters_in_scene(scene)
+    names = {c["id"]: c.get("name", "") for c in doc.get("seriesBible", {}).get("characters", [])}
+
+    context = RelevanceContext(scene_id=scene_id, characters_in_scene=frozenset(character_ids))
+    facts = [_fact_summary(f) for f in ledger_filter.eligible_facts(ledger, context)]
+
+    previous_script, next_beat_plan = _previous_and_next(scene, after_beat_id)
+
+    bible = doc.get("seriesBible", {})
+    return {
+        "series": {
+            "premise": doc.get("premise", ""),
+            "theme": bible.get("existentialQuestion", {}).get("text", ""),
+        },
+        "characters": _character_sheets(doc, character_ids),
+        "episode": {"premise": episode.get("premise", "")},
+        "scene_plan": _scene_plan(scene, names),
+        "continuity_facts": facts,
+        "locked_beats": locks.locked_beats_in_scene(doc, scene_id),
+        "previous_script": previous_script,
+        "next_beat_plan": next_beat_plan,
+    }
+
+
 def build_candidate_bundle(
     doc: dict,
     ledger: list[dict],
@@ -196,33 +229,29 @@ def build_candidate_bundle(
     """Assemble the §1 candidate context bundle for `scene_id`, returning the
     rendered `(system, user)` pair. Raises `SceneNotFound` / `BeatNotFound`
     for bad ids. Read-only; touches no storage."""
-    episode, scene = _locate_scene(doc, scene_id)
-    character_ids = _characters_in_scene(scene)
-    names = {c["id"]: c.get("name", "") for c in doc.get("seriesBible", {}).get("characters", [])}
-
-    context = RelevanceContext(scene_id=scene_id, characters_in_scene=frozenset(character_ids))
-    facts = [_fact_summary(f) for f in ledger_filter.eligible_facts(ledger, context)]
-
-    previous_script, next_beat_plan = _previous_and_next(scene, after_beat_id)
-
-    bible = doc.get("seriesBible", {})
-    series = {
-        "premise": doc.get("premise", ""),
-        "theme": bible.get("existentialQuestion", {}).get("text", ""),
-    }
+    ctx = _scene_context(doc, ledger, scene_id=scene_id, after_beat_id=after_beat_id)
     return render.build_candidate_prompt(
-        doc,
-        series=series,
-        characters=_character_sheets(doc, character_ids),
-        episode={"premise": episode.get("premise", "")},
-        scene_plan=_scene_plan(scene, names),
-        continuity_facts=facts,
-        locked_beats=locks.locked_beats_in_scene(doc, scene_id),
-        previous_script=previous_script,
-        next_beat_plan=next_beat_plan,
-        instruction=instruction,
-        avoid=avoid,
-        nonce=nonce,
+        doc, **ctx, instruction=instruction, avoid=avoid, nonce=nonce
+    )
+
+
+def build_tune_bundle(
+    doc: dict,
+    ledger: list[dict],
+    *,
+    scene_id: str,
+    current_candidate: dict,
+    instruction: str,
+    nonce: str,
+) -> tuple[str, str]:
+    """Assemble the §2 tune context bundle: the §1 scene context plus the
+    CURRENT CANDIDATE being revised and the TUNE INSTRUCTION. The tune request
+    (data contract §4) carries no insertion point, so the scene context is
+    built as top-of-scene (`after_beat_id=None`); the candidate itself is the
+    focus. Raises `SceneNotFound`. Read-only; touches no storage."""
+    ctx = _scene_context(doc, ledger, scene_id=scene_id, after_beat_id=None)
+    return render.build_tune_prompt(
+        doc, **ctx, current_candidate=current_candidate, instruction=instruction, nonce=nonce
     )
 
 
@@ -351,7 +380,9 @@ def generate_candidate_events(
             avoid=avoid,
             nonce=nonce,
         )
-        result = yield from _stream_one(llm, system, user, nonce)
+        result = yield from _stream_one(
+            _candidate_stream(llm), system, user, nonce, "generate_beat_candidates"
+        )
         if result is not None:
             candidate, wire = result
             yield (CANDIDATE_DONE, wire)
@@ -361,6 +392,47 @@ def generate_candidate_events(
     yield (DONE, {})
 
 
+def generate_tune_events(
+    llm: LlmClient,
+    doc: dict,
+    ledger: list[dict],
+    *,
+    scene_id: str,
+    current_candidate: dict,
+    instruction: str,
+) -> Iterator[Event]:
+    """Yield the SSE event tuples for a tune request (data contract §4:
+    "SSE, one candidate"). Same streaming machinery as candidate generation —
+    one `candidate_start {index: 0}`, zero or more `delta {text}`, one
+    `candidate_done`/`candidate_failed`, then `done` — but a single revised
+    candidate driven by `stream_tune_beat` and the §2 tune context. This is the
+    explicit writer gesture (CLAUDE.md rule 8); validation of `scene_id` happens
+    before the stream starts (the route surfaces it as an HTTP error)."""
+    yield (CANDIDATE_START, {"index": 0})
+    nonce = render.new_nonce()
+    system, user = build_tune_bundle(
+        doc, ledger, scene_id=scene_id, current_candidate=current_candidate,
+        instruction=instruction, nonce=nonce,
+    )
+    result = yield from _stream_one(_tune_stream(llm), system, user, nonce, "tune_beat")
+    if result is not None:
+        _candidate, wire = result
+        yield (CANDIDATE_DONE, wire)
+    yield (DONE, {})
+
+
+def _candidate_stream(llm: LlmClient):
+    return lambda system, user: llm.stream_beat_candidate(
+        system=system, user_message=user, prompt_version=render.PROMPT_VERSION
+    )
+
+
+def _tune_stream(llm: LlmClient):
+    return lambda system, user: llm.stream_tune_beat(
+        system=system, user_message=user, prompt_version=render.PROMPT_VERSION
+    )
+
+
 # Rule 9 retry instruction — mirrors anthropic_client._retry_once's plain
 # user-turn fallback format (the streaming path has no tool_use_id to reply to
 # with an is_error tool_result, so the plain-turn restatement is the mirror).
@@ -368,14 +440,18 @@ def generate_candidate_events(
 # freeform text, so it sits outside <source_data> exactly like the tool_result
 # content in the non-streaming retry (§8b governs writer/import text).
 _RETRY_NOTE = (
-    "Your previous response did not call the 'generate_beat_candidates' tool "
-    "with valid input: {error}. Call 'generate_beat_candidates' with valid input."
+    "Your previous response did not call the {tool!r} tool with valid input: "
+    "{error}. Call {tool!r} with valid input."
 )
 
+# A bound streamed call: (system, user) -> raw tool-input JSON fragments.
+StreamFn = Callable[[str, str], Iterator[str]]
 
-def _stream_attempt(llm: LlmClient, system: str, user: str) -> Iterator[Event]:
+
+def _stream_attempt(stream_fn: StreamFn, system: str, user: str) -> Iterator[Event]:
     """One streamed call for a candidate slot: forward clean `delta` events,
-    then finalize the complete buffer.
+    then finalize the complete buffer. `stream_fn` is the bound streaming op
+    (`stream_beat_candidate` or `stream_tune_beat`).
 
     Returns (via generator return) a `(status, payload)` pair:
       - `("ok", BeatCandidate)` — complete tool input parsed and validated
@@ -390,9 +466,7 @@ def _stream_attempt(llm: LlmClient, system: str, user: str) -> Iterator[Event]:
     buffer = ""
     emitted = ""
     try:
-        for fragment in llm.stream_beat_candidate(
-            system=system, user_message=user, prompt_version=render.PROMPT_VERSION
-        ):
+        for fragment in stream_fn(system, user):
             buffer += fragment
             prefix = extract_script_text_prefix(buffer)
             if prefix is not None and len(prefix) > len(emitted):
@@ -410,9 +484,11 @@ def _stream_attempt(llm: LlmClient, system: str, user: str) -> Iterator[Event]:
 
 
 def _stream_one(
-    llm: LlmClient, system: str, user: str, nonce: str
+    stream_fn: StreamFn, system: str, user: str, nonce: str, op_name: str
 ) -> Iterator[Event]:
-    """Stream one candidate slot with rule-9 retry semantics.
+    """Stream one candidate slot with rule-9 retry semantics. `stream_fn` is the
+    bound streaming op and `op_name` names it in the retry note / failure log
+    (`generate_beat_candidates` or `tune_beat`).
 
     Attempt 1 streams normally. If its complete buffer is valid JSON but fails
     `BeatCandidate` validation (schema-invalid LLM output), exactly **one**
@@ -433,14 +509,14 @@ def _stream_one(
     Returns (via generator return) `(BeatCandidate, wire_dict)` on success, or
     None after yielding a `candidate_failed` event."""
     retried = False
-    status, payload = yield from _stream_attempt(llm, system, user)
+    status, payload = yield from _stream_attempt(stream_fn, system, user)
     if status == "invalid_schema":
         # Rule 9: exactly one retry with the error appended. Log flags only —
         # `payload` (the validation error) can echo model-produced field
         # values and must never be logged (hard rule 5).
         retried = True
-        retry_user = f"{user}\n\n" + _RETRY_NOTE.format(error=payload)
-        status, payload = yield from _stream_attempt(llm, system, retry_user)
+        retry_user = f"{user}\n\n" + _RETRY_NOTE.format(tool=op_name, error=payload)
+        status, payload = yield from _stream_attempt(stream_fn, system, retry_user)
 
     if status == "ok":
         candidate: BeatCandidate = payload

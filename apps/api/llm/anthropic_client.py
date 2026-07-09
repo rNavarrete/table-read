@@ -234,7 +234,20 @@ class AnthropicClient:
         self, *, system: str, user_message: str, prompt_version: str
     ) -> Iterator[str]:
         """Stream `generate_beat_candidates` tool input as raw JSON fragments
-        (prompt spec §8a). Fine-grained tool streaming is enabled with
+        (prompt spec §8a). See `_stream_tool` for the mechanics."""
+        return self._stream_tool(
+            "generate_beat_candidates",
+            system=system,
+            user_message=user_message,
+            prompt_version=prompt_version,
+        )
+
+    def _stream_tool(
+        self, op_name: str, *, system: str, user_message: str, prompt_version: str
+    ) -> Iterator[str]:
+        """Stream a tool-forced op's input as raw JSON fragments (prompt spec
+        §8a; shared by the two streaming ops, `generate_beat_candidates` and
+        `tune_beat`). Fine-grained tool streaming is enabled with
         `eager_input_streaming` on the tool (the successor to the
         `fine-grained-tool-streaming-2025-05-14` beta, GA on the writer tier),
         so `input_json_delta` chunks arrive as generated. Callers own parsing,
@@ -248,7 +261,7 @@ class AnthropicClient:
         model, token counts) — never content (hard rule 5). Transport/
         availability errors propagate unwrapped for the stream orchestrator to
         map to LLM_UNAVAILABLE (errors.py deferral)."""
-        op = OP_REGISTRY["generate_beat_candidates"]
+        op = OP_REGISTRY[op_name]
         model = self._models[op.role]
         tool = {**self._tool_for(op), "eager_input_streaming": True}
         kwargs: dict[str, Any] = {
@@ -292,6 +305,15 @@ class AnthropicClient:
 
     def tune_beat(self, *, system: str, user_message: str, prompt_version: str) -> BeatCandidate:
         return self._call(
+            "tune_beat", system=system, user_message=user_message, prompt_version=prompt_version
+        )
+
+    def stream_tune_beat(
+        self, *, system: str, user_message: str, prompt_version: str
+    ) -> Iterator[str]:
+        """Stream `tune_beat` tool input as raw JSON fragments (prompt spec §8a:
+        tune streams like candidates). See `_stream_tool` for the mechanics."""
+        return self._stream_tool(
             "tune_beat", system=system, user_message=user_message, prompt_version=prompt_version
         )
 

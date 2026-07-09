@@ -170,6 +170,9 @@ class MockLlmClient:
         # out-of-order fields, or missing scriptText. Empty → the streaming
         # method serializes the normal generate_beat_candidates response.
         self._candidate_streams: list[list[str]] = []
+        # Same mechanism for stream_tune_beat (§8a: tune streams too). Empty →
+        # the streamed value is derived from the tune_beat op response.
+        self._tune_streams: list[list[str]] = []
         assert self._responses.keys() == OP_REGISTRY.keys(), (
             "MockLlmClient default responses must cover every op in OP_REGISTRY"
         )
@@ -201,6 +204,12 @@ class MockLlmClient:
         the streamed value is derived from the normal generate_beat_candidates
         response (default or `set_responses` queue)."""
         self._candidate_streams = [list(frags) for frags in streams]
+
+    def set_tune_streams(self, streams: list[list[str]]) -> None:
+        """Queue raw-fragment streams for `stream_tune_beat`, one list of
+        fragments per streamed call (the tune analogue of `set_candidate_streams`).
+        When unset, the streamed value is derived from the `tune_beat` op response."""
+        self._tune_streams = [list(frags) for frags in streams]
 
     def generate_beat_candidates(
         self, *, system: str, user_message: str, prompt_version: str
@@ -234,6 +243,20 @@ class MockLlmClient:
         return self._call(
             "tune_beat", system=system, user_message=user_message, prompt_version=prompt_version
         )
+
+    def stream_tune_beat(
+        self, *, system: str, user_message: str, prompt_version: str
+    ) -> Iterator[str]:
+        if self._tune_streams:
+            yield from self._tune_streams.pop(0)
+            return
+        candidate = self._call(
+            "tune_beat", system=system, user_message=user_message, prompt_version=prompt_version
+        )
+        # Serialize the canned tune result to camelCase wire JSON as one fragment;
+        # the caller's incremental parser handles it identically to a multi-fragment
+        # stream. `set_responses("tune_beat", [...])` → distinct streamed cards.
+        yield candidate.model_dump_json(by_alias=True)
 
     def classify_blast_radius(
         self, *, system: str, user_message: str, prompt_version: str

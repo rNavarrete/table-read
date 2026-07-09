@@ -24,11 +24,12 @@ import secrets
 from typing import Any
 
 # Prompt spec §8 / hard rule 7: every template carries a PROMPT_VERSION (semver);
-# it is logged with each call and bumped on any template change. Bumped to 0.2.0
-# in T2.1: added the candidate builder and completed the §0 shared system prompt
-# (teleplay conventions, structural definitions, voice-matching hard rule). A
-# prompt change requires `make evals` sign-off before merge (CLAUDE.md rule 7).
-PROMPT_VERSION = "0.2.0"
+# it is logged with each call and bumped on any template change. Bumped to 0.3.0
+# in T2.2: added the `tune_beat` builder (§2 — the §1 context plus CURRENT
+# CANDIDATE + TUNE INSTRUCTION). A prompt change requires `make evals` sign-off
+# before merge (CLAUDE.md rule 7). History: 0.2.0 added the candidate builder
+# and completed the §0 shared system prompt.
+PROMPT_VERSION = "0.3.0"
 
 
 def new_nonce() -> str:
@@ -187,6 +188,66 @@ def build_candidate_prompt(
         f"{a.get('label', '')} — {a.get('summary', '')}" for a in avoid
     )
     user = (
+        _context_blocks(
+            series, characters, episode, scene_plan,
+            continuity_facts, locked_beats, previous_script, next_beat_plan, nonce,
+        )
+        + f"\nWRITER INSTRUCTION (may be empty): {instruction}"
+        + f"\nAVOID (prior candidates this round): {avoid_lines}"
+        + "\nWrite the next beat."
+    )
+    return build_system_prompt(project, nonce), user
+
+
+def build_tune_prompt(
+    project: dict,
+    *,
+    series: dict,
+    characters: list[dict],
+    episode: dict,
+    scene_plan: dict,
+    continuity_facts: list[dict],
+    locked_beats: list[dict],
+    previous_script: str,
+    next_beat_plan: dict | None,
+    current_candidate: dict,
+    instruction: str,
+    nonce: str,
+) -> tuple[str, str]:
+    """`tune_beat` (§2): the §1 candidate context plus the CURRENT CANDIDATE
+    being revised and the writer's TUNE INSTRUCTION.
+
+    The current candidate (model-generated script/plan text) is source data,
+    wrapped in a `<source_data>` block like every other freeform value (§8b);
+    only the TUNE INSTRUCTION — the one executable field — sits outside the
+    tags, exactly as WRITER INSTRUCTION does for §1."""
+    user = (
+        _context_blocks(
+            series, characters, episode, scene_plan,
+            continuity_facts, locked_beats, previous_script, next_beat_plan, nonce,
+        )
+        + "\n"
+        + source_data("current_candidate", current_candidate, nonce)
+        + f"\nTUNE INSTRUCTION: {instruction}"
+        + "\nRevise the current candidate per the tune instruction."
+    )
+    return build_system_prompt(project, nonce), user
+
+
+def _context_blocks(
+    series: dict,
+    characters: list[dict],
+    episode: dict,
+    scene_plan: dict,
+    continuity_facts: list[dict],
+    locked_beats: list[dict],
+    previous_script: str,
+    next_beat_plan: dict | None,
+    nonce: str,
+) -> str:
+    """The eight `<source_data>` blocks shared by the §1 candidate and §2 tune
+    context bundles (everything before the executable instruction line)."""
+    return (
         source_data("series", series, nonce)
         + "\n"
         + source_data("characters", characters, nonce)
@@ -202,11 +263,7 @@ def build_candidate_prompt(
         + source_data("script", previous_script, nonce)
         + "\n"
         + source_data("next_beat_plan", next_beat_plan or {}, nonce)
-        + f"\nWRITER INSTRUCTION (may be empty): {instruction}"
-        + f"\nAVOID (prior candidates this round): {avoid_lines}"
-        + "\nWrite the next beat."
     )
-    return build_system_prompt(project, nonce), user
 
 
 def _number_lines(text: str) -> str:

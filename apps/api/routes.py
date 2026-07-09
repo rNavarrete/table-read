@@ -225,6 +225,45 @@ def generate_candidates(
     return StreamingResponse(candidates.to_sse(events), media_type="text/event-stream")
 
 
+@router.post("/{pid}/scenes/{sid}/candidates/tune")
+def tune_candidate(
+    pid: str,
+    sid: str,
+    candidate: BeatCandidate = Body(...),
+    instruction: str = Body(...),
+    session: Session = Depends(get_session),
+    llm: LlmClient = Depends(get_llm_client),
+) -> StreamingResponse:
+    """Write-mode tune (data contract §4): re-generates a single candidate from
+    the writer's `instruction`, streamed like generation (SSE: one
+    `candidate_start`, `delta`s, `candidate_done`/`candidate_failed`, `done`).
+    This POST is the explicit writer gesture (design doc §4.3 / CLAUDE.md rule
+    8) — tuning happens only on the writer's action, never proactively.
+
+    The scene id is validated before the stream opens so a bad id is an HTTP
+    error, not a mid-stream SSE surprise; once streaming, every failure is
+    SSE-shaped (candidate_failed)."""
+    project = _get_project_or_404(session, pid)
+    try:
+        candidates.validate_target(project.doc, sid, None)
+    except candidates.SceneNotFound as exc:
+        raise ApiError(404, "NOT_FOUND", f"scene {sid!r} not found") from exc
+
+    ledger = [
+        row.to_wire_dict()
+        for row in session.query(LedgerFactRow).filter_by(project_id=pid).all()
+    ]
+    events = candidates.generate_tune_events(
+        llm,
+        project.doc,
+        ledger,
+        scene_id=sid,
+        current_candidate=candidate.model_dump(by_alias=True),
+        instruction=instruction,
+    )
+    return StreamingResponse(candidates.to_sse(events), media_type="text/event-stream")
+
+
 @router.post("/{pid}/scenes/{sid}/beats")
 def accept_beat(
     pid: str,
