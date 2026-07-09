@@ -134,12 +134,16 @@ describe('FactCard', () => {
       provenance: 'writer_confirmed',
     })
     render(
-      <FactCard fact={oldFact} allFacts={[oldFact, newFact]} project={project} />,
+      <FactCard
+        fact={oldFact}
+        allFacts={[oldFact, newFact]}
+        project={project}
+      />,
     )
     expect(screen.getByText('Old claim').className).toMatch(/line-through/)
     await user.click(screen.getByTestId('supersede-link-fact-old'))
-    expect(screen.getByTestId('supersede-chain-fact-old').textContent).toContain(
-      'fact-new',
-    )
+    expect(
+      screen.getByTestId('supersede-chain-fact-old').textContent,
+    ).toContain('fact-new')
   })
 })

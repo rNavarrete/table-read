@@ -5,6 +5,7 @@ import {
   discardChangeSet,
   dismissConsistencyFlag,
   flagChangeSet,
+  getChangeSet,
   getLedger,
   getProject,
   previewChangeSet,
@@ -18,6 +19,7 @@ import {
   stashChangeSet,
 } from './changeSetSession'
 import { selectableIds } from './selectableIds'
+import { pendingReviewCount } from './pendingReviewCount'
 import { Toast } from './Toast'
 
 const DEFAULT_PROJECT_ID = 'proj-longpour'
@@ -29,56 +31,32 @@ function useUrlParam(name: string): string | null {
   )
 }
 
-function initialChangeSet(changeSetId: string | null): {
-  changeSet: ChangeSet | null
-  error: string | null
-} {
-  if (!changeSetId) {
-    return {
-      changeSet: null,
-      error:
-        'No Change Set loaded — open Review from a structural edit in Plan.',
-    }
-  }
-  const stashed = loadStashedChangeSet(changeSetId)
-  if (!stashed) {
-    return {
-      changeSet: null,
-      error:
-        'No Change Set loaded — open Review from a structural edit in Plan.',
-    }
-  }
-  return { changeSet: stashed, error: null }
-}
-
 /**
- * Review mode screen (UI spec §5 / T4.3). Loads a Change Set from the
- * session stash (see changeSetSession.ts DESIGN-GAP) keyed by
- * `?changeSet=`. Classifying is the create-in-flight state owned by Plan's
- * Open Review; this screen shows skeleton only while the project fetch is
- * in flight.
+ * Review mode screen (UI spec §5 / T4.3). Loads a Change Set via GET when
+ * available, with sessionStorage as a warm cache after create (user ruling 3).
+ * Classifying is the create-in-flight state owned by Plan's Open Review; this
+ * screen shows skeleton only while the project / Change Set fetch is in flight.
  */
 export function ReviewScreen() {
   const projectId = useUrlParam('project') ?? DEFAULT_PROJECT_ID
   const changeSetId = useUrlParam('changeSet')
-  const initial = useMemo(() => initialChangeSet(changeSetId), [changeSetId])
 
   const [project, setProject] = useState<Project | null>(null)
   const [ledgerCount, setLedgerCount] = useState(0)
-  const [changeSet, setChangeSet] = useState<ChangeSet | null>(
-    () => initial.changeSet,
-  )
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(
-    () => new Set(initial.changeSet ? selectableIds(initial.changeSet) : []),
-  )
+  const [changeSet, setChangeSet] = useState<ChangeSet | null>(null)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [previewing, setPreviewing] = useState(false)
   const [applying, setApplying] = useState(false)
-  const [hasPreview, setHasPreview] = useState(
-    () => initial.changeSet?.preview != null,
-  )
+  const [hasPreview, setHasPreview] = useState(false)
   const [postApplyFlags, setPostApplyFlags] = useState<ConsistencyFlag[]>([])
   const [toast, setToast] = useState<string | null>(null)
-  const [loadError, setLoadError] = useState<string | null>(() => initial.error)
+  const [loadError, setLoadError] = useState<string | null>(
+    changeSetId
+      ? null
+      : 'No Change Set loaded — open Review from a structural edit in Plan.',
+  )
+  // Ready immediately when there is no id to fetch; otherwise wait for GET/cache.
+  const [changeSetReady, setChangeSetReady] = useState(!changeSetId)
 
   useEffect(() => {
     let cancelled = false
@@ -86,7 +64,7 @@ export function ReviewScreen() {
       .then(([loadedProject, ledger]) => {
         if (cancelled) return
         setProject(loadedProject)
-        setLedgerCount(ledger.length)
+        setLedgerCount(pendingReviewCount(ledger))
       })
       .catch((err: unknown) => {
         if (cancelled) return
@@ -98,6 +76,47 @@ export function ReviewScreen() {
       cancelled = true
     }
   }, [projectId])
+
+  useEffect(() => {
+    if (!changeSetId) return
+    let cancelled = false
+
+    async function load() {
+      // Prefer GET (source of truth). Fall back to session cache when GET is
+      // not yet on the API branch (404/network) so create→Review still works.
+      try {
+        const fromApi = await getChangeSet(changeSetId!)
+        if (cancelled) return
+        setChangeSet(fromApi)
+        stashChangeSet(fromApi)
+        setSelectedIds(new Set(selectableIds(fromApi)))
+        setHasPreview(fromApi.preview != null)
+        setChangeSetReady(true)
+        return
+      } catch {
+        // TODO: remove cache-only path once GET /change-sets/{cid} is always
+        // available on the merged API branch (user ruling 3).
+      }
+      if (cancelled) return
+      const stashed = loadStashedChangeSet(changeSetId!)
+      if (!stashed) {
+        setLoadError(
+          'No Change Set loaded — open Review from a structural edit in Plan.',
+        )
+        setChangeSetReady(true)
+        return
+      }
+      setChangeSet(stashed)
+      setSelectedIds(new Set(selectableIds(stashed)))
+      setHasPreview(stashed.preview != null)
+      setChangeSetReady(true)
+    }
+
+    void load()
+    return () => {
+      cancelled = true
+    }
+  }, [changeSetId])
 
   function toggleSelected(objectId: string) {
     setSelectedIds((prev) => {
@@ -140,7 +159,6 @@ export function ReviewScreen() {
   async function handleApply() {
     if (!changeSet) return
     const approvedObjectIds = [...selectedIds]
-    const previous = changeSet
     setApplying(true)
     try {
       const result = await applyChangeSet(changeSet.id, { approvedObjectIds })
@@ -149,8 +167,6 @@ export function ReviewScreen() {
       setProject(result.project)
       setPostApplyFlags(result.consistencyFlags)
     } catch (err) {
-      setChangeSet(previous)
-      stashChangeSet(previous)
       if (err instanceof ApiError && err.status === 409) {
         setToast('A locked element was included — nothing was changed')
       } else {
@@ -163,21 +179,18 @@ export function ReviewScreen() {
 
   async function handleFlagOnly() {
     if (!changeSet) return
-    const previous = changeSet
     try {
       const updated = await flagChangeSet(changeSet.id)
       setChangeSet(updated)
       clearStashedChangeSet(updated)
       stashChangeSet(updated)
     } catch (err) {
-      setChangeSet(previous)
       setToast(err instanceof Error ? err.message : 'Flag failed')
     }
   }
 
   async function handleDiscard() {
     if (!changeSet) return
-    const previous = changeSet
     try {
       const updated = await discardChangeSet(changeSet.id)
       clearStashedChangeSet(updated)
@@ -186,7 +199,6 @@ export function ReviewScreen() {
       url.searchParams.delete('changeSet')
       window.location.assign(url.toString())
     } catch (err) {
-      setChangeSet(previous)
       setToast(err instanceof Error ? err.message : 'Discard failed')
     }
   }
@@ -208,7 +220,15 @@ export function ReviewScreen() {
     window.location.assign(url.toString())
   }
 
-  if (loadError && !changeSet) {
+  function handleContinuityFlag(factId: string) {
+    const url = new URL(window.location.href)
+    url.pathname = '/ledger'
+    url.searchParams.set('project', projectId)
+    url.searchParams.set('fact', factId)
+    window.location.assign(url.toString())
+  }
+
+  if (loadError && !changeSet && changeSetReady) {
     return (
       <AppShell
         projectTitle="Table Read"
@@ -221,7 +241,7 @@ export function ReviewScreen() {
     )
   }
 
-  if (!project || !changeSet) {
+  if (!project || !changeSet || !changeSetReady) {
     return (
       <AppShell
         projectTitle={project?.title ?? 'Table Read'}
@@ -260,6 +280,7 @@ export function ReviewScreen() {
         onDiscard={() => void handleDiscard()}
         onDismissFlag={(id) => void handleDismissFlag(id)}
         onGoToScene={handleGoToScene}
+        onContinuityFlagClick={handleContinuityFlag}
       />
       {toast && (
         <Toast tone="danger" onDismiss={() => setToast(null)}>

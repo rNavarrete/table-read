@@ -1,9 +1,5 @@
 import type { Project } from 'contract'
-import type {
-  FactStatusFilter,
-  FactTypeFilter,
-  LedgerFilters,
-} from './filters'
+import type { FactStatusFilter, FactTypeFilter, LedgerFilters } from './filters'
 
 const STATUSES: FactStatusFilter[] = [
   'all',

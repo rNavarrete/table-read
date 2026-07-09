@@ -9,6 +9,7 @@ type TokenKind =
   | 'motion'
   | 'width'
   | 'outline'
+  | 'opacity'
 
 type TokenDef = {
   cssVar: string
@@ -200,6 +201,16 @@ const TOKEN_GROUPS: TokenGroup[] = [
       },
     ],
   },
+  {
+    title: 'Opacity',
+    tokens: [
+      {
+        cssVar: '--tr-opacity-locked',
+        description: 'locked Change Set rows (UI spec §5)',
+        kind: 'opacity',
+      },
+    ],
+  },
 ]
 
 // Reads the value straight off the cascade — never hardcoded here — so this
@@ -333,6 +344,20 @@ function OutlineSample({ token }: { token: TokenDef }) {
   )
 }
 
+function OpacitySample({ token }: { token: TokenDef }) {
+  return (
+    <div className="flex items-center gap-3 rounded-lg border border-tr-border bg-tr-surface-raised p-3">
+      <div
+        className="h-12 w-12 shrink-0 rounded-lg border border-tr-border-strong bg-tr-coral"
+        style={{ opacity: `var(${token.cssVar})` }}
+      />
+      <div className="flex min-w-0 flex-col">
+        <TokenMeta token={token} />
+      </div>
+    </div>
+  )
+}
+
 const SAMPLE_FOR_KIND: Record<TokenKind, ComponentType<{ token: TokenDef }>> = {
   color: ColorSwatch,
   font: FontSample,
@@ -342,6 +367,7 @@ const SAMPLE_FOR_KIND: Record<TokenKind, ComponentType<{ token: TokenDef }>> = {
   motion: MotionRow,
   width: WidthSample,
   outline: OutlineSample,
+  opacity: OpacitySample,
 }
 
 export default function TokensPage() {

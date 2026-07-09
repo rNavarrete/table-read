@@ -59,7 +59,7 @@ describe('ChangeSetRow', () => {
     expect(
       container.querySelector('[data-testid="change-set-row-beat-1-2"]')
         ?.className,
-    ).toContain('opacity-[0.55]')
+    ).toContain('opacity-locked')
   })
 
   it('renders flag_only rows with info glyph and no checkbox', () => {
@@ -99,6 +99,28 @@ describe('ChangeSetRow', () => {
       />,
     )
     expect(screen.getByText('fact-02')).not.toBeNull()
+  })
+
+  it('continuity flag chip click calls onContinuityFlagClick', async () => {
+    const user = userEvent.setup()
+    const onContinuityFlagClick = vi.fn()
+    render(
+      <ChangeSetRow
+        row={row({
+          continuityFlags: [
+            { factId: 'fact-02', explanation: 'Ice machine fact.' },
+          ],
+        })}
+        selected={false}
+        expanded={false}
+        previewing={false}
+        onToggleSelected={noop}
+        onToggleExpanded={noop}
+        onContinuityFlagClick={onContinuityFlagClick}
+      />,
+    )
+    await user.click(screen.getByTestId('continuity-flag-fact-02'))
+    expect(onContinuityFlagClick).toHaveBeenCalledWith('fact-02')
   })
 
   it('expanded with null after shows the preview ghost', () => {

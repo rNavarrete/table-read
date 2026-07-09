@@ -151,14 +151,14 @@ describe('Board / SceneCard / BeatCard', () => {
       flaggedSceneIds: new Set(['scene-5']),
     })
     expect(
-      screen.getByTestId('scene-card-scene-5').querySelector(
-        '[data-testid="consistency-flag-badge"]',
-      ),
+      screen
+        .getByTestId('scene-card-scene-5')
+        .querySelector('[data-testid="consistency-flag-badge"]'),
     ).not.toBeNull()
     expect(
-      screen.getByTestId('scene-card-scene-1').querySelector(
-        '[data-testid="consistency-flag-badge"]',
-      ),
+      screen
+        .getByTestId('scene-card-scene-1')
+        .querySelector('[data-testid="consistency-flag-badge"]'),
     ).toBeNull()
   })
 
@@ -169,9 +169,7 @@ describe('Board / SceneCard / BeatCard', () => {
       episode: ep,
       flaggedSceneIds: new Set(['scene-5']),
     })
-    expect(
-      screen.getByTestId('consistency-flag-badge'),
-    ).not.toBeNull()
+    expect(screen.getByTestId('consistency-flag-badge')).not.toBeNull()
 
     rerender(
       <Board

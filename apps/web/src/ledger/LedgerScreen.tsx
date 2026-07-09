@@ -15,6 +15,7 @@ import { FilterRail } from './FilterRail'
 import {
   DEFAULT_FILTERS,
   filterFacts,
+  groupPendingByScene,
   highConfidencePending,
   pendingReviewFacts,
   type LedgerFilters,
@@ -66,7 +67,9 @@ export function LedgerScreen() {
 
   useEffect(() => {
     if (!focusFactId) return
-    const el = document.querySelector(`[data-testid="fact-card-${focusFactId}"]`)
+    const el = document.querySelector(
+      `[data-testid="fact-card-${focusFactId}"]`,
+    )
     if (el instanceof HTMLElement) {
       el.scrollIntoView({ block: 'nearest' })
       el.classList.add('outline', 'outline-selected', 'outline-tr-coral')
@@ -79,6 +82,7 @@ export function LedgerScreen() {
 
   const queue = useMemo(() => pendingReviewFacts(ledger), [ledger])
   const highConf = useMemo(() => highConfidencePending(ledger), [ledger])
+  const sceneGroups = useMemo(() => groupPendingByScene(ledger), [ledger])
   const gridFacts = useMemo(() => {
     const filtered = filterFacts(ledger, filters)
     // Pending facts live in the review-queue section; don't duplicate them
@@ -155,11 +159,8 @@ export function LedgerScreen() {
 
   function handleEdit(
     factId: string,
-    body: { fact: string; knownBy: string[]; factType: LedgerFact['factType'] },
+    body: { fact: string; knownBy: string[] },
   ) {
-    // DESIGN-GAP(T5.1): UI spec §6 edit form includes factType; PATCH
-    // /ledger/{id} only accepts fact/knownBy (data contract §4). Type is
-    // shown in the form but not persisted until the schema grows.
     const optimistic = ledger.map((f) =>
       f.id === factId
         ? {
@@ -198,6 +199,31 @@ export function LedgerScreen() {
       const { ledger: next } = await batchLedgerReview(projectId, {
         confirmIds: ids,
         rejectIds: [],
+      })
+      return next
+    })
+  }
+
+  function handleSceneBatch(sceneId: string, action: 'accept' | 'reject') {
+    const group = groupPendingByScene(ledger).find((g) => g.sceneId === sceneId)
+    if (!group || group.facts.length === 0) return
+    const ids = group.facts.map((f) => f.id)
+    const idSet = new Set(ids)
+    const optimistic = ledger.map((f) => {
+      if (!idSet.has(f.id)) return f
+      if (action === 'accept') {
+        return {
+          ...f,
+          status: 'active' as const,
+          provenance: 'writer_confirmed' as const,
+        }
+      }
+      return { ...f, status: 'rejected' as const }
+    })
+    void runMutation(null, optimistic, async () => {
+      const { ledger: next } = await batchLedgerReview(projectId, {
+        confirmIds: action === 'accept' ? ids : [],
+        rejectIds: action === 'reject' ? ids : [],
       })
       return next
     })
@@ -248,11 +274,7 @@ export function LedgerScreen() {
       projectId={projectId}
     >
       <div className="flex min-h-[calc(100vh-3.5rem)]">
-        <FilterRail
-          project={project}
-          filters={filters}
-          onChange={setFilters}
-        />
+        <FilterRail project={project} filters={filters} onChange={setFilters} />
         <div className="flex min-w-0 flex-1 flex-col gap-4 p-6">
           {actionError && (
             <p className="text-13 text-tr-danger" role="alert">
@@ -282,20 +304,62 @@ export function LedgerScreen() {
                   </button>
                 )}
               </div>
-              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                {queue.map((fact) => (
-                  <FactCard
-                    key={`queue-${fact.id}`}
-                    fact={fact}
-                    allFacts={ledger}
-                    project={project}
-                    queueActions
-                    busy={busyId !== null}
-                    onAccept={handleAccept}
-                    onReject={handleReject}
-                    onEdit={handleEdit}
-                    onSourceSpanClick={handleSourceSpanClick}
-                  />
+              <div className="flex flex-col gap-4">
+                {sceneGroups.map((group) => (
+                  <div
+                    key={group.sceneId}
+                    data-testid={`review-queue-scene-${group.sceneId}`}
+                    className="flex flex-col gap-2"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <h3 className="text-13 text-tr-text-secondary">
+                        {group.sceneId}
+                        <span className="ml-2 text-tr-text-muted">
+                          ({group.facts.length})
+                        </span>
+                      </h3>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          disabled={busyId !== null}
+                          onClick={() =>
+                            handleSceneBatch(group.sceneId, 'accept')
+                          }
+                          className="rounded-card bg-tr-sage-soft px-2 py-0.5 text-12 text-tr-text-primary disabled:opacity-50"
+                          data-testid={`scene-accept-${group.sceneId}`}
+                        >
+                          Accept scene
+                        </button>
+                        <button
+                          type="button"
+                          disabled={busyId !== null}
+                          onClick={() =>
+                            handleSceneBatch(group.sceneId, 'reject')
+                          }
+                          className="rounded-card px-2 py-0.5 text-12 text-tr-text-muted disabled:opacity-50"
+                          data-testid={`scene-reject-${group.sceneId}`}
+                        >
+                          Reject scene
+                        </button>
+                      </div>
+                    </div>
+                    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                      {group.facts.map((fact) => (
+                        <FactCard
+                          key={`queue-${fact.id}`}
+                          fact={fact}
+                          allFacts={ledger}
+                          project={project}
+                          queueActions
+                          busy={busyId !== null}
+                          onAccept={handleAccept}
+                          onReject={handleReject}
+                          onEdit={handleEdit}
+                          onSourceSpanClick={handleSourceSpanClick}
+                        />
+                      ))}
+                    </div>
+                  </div>
                 ))}
               </div>
             </section>

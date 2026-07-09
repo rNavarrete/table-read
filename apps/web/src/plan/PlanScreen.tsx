@@ -41,12 +41,15 @@ function useUrlParam(name: string): string | null {
 
 export function PlanScreen() {
   const projectId = useUrlParam('project') ?? DEFAULT_PROJECT_ID
+  const focusSceneId = useUrlParam('scene')
 
   const [project, setProject] = useState<Project | null>(null)
   const [ledger, setLedger] = useState<LedgerFact[]>([])
   const [openFlags, setOpenFlags] = useState<ConsistencyFlag[]>([])
   const [loadError, setLoadError] = useState<string | null>(null)
-  const [selection, setSelection] = useState<PlanSelection>(null)
+  const [selection, setSelection] = useState<PlanSelection>(
+    focusSceneId ? { type: 'scene', sceneId: focusSceneId } : null,
+  )
   const [collapsedActs, setCollapsedActs] = useState<Set<number>>(new Set())
   const [openingReview, setOpeningReview] = useState(false)
   const [reviewError, setReviewError] = useState<string | null>(null)
@@ -74,6 +77,22 @@ export function PlanScreen() {
       cancelled = true
     }
   }, [projectId])
+
+  // Deep-link from Review "Go to scene" / consistency flags: scroll + brief
+  // highlight once the board mounts (selection already seeded from ?scene=).
+  useEffect(() => {
+    if (!focusSceneId || !project) return
+    const el = document.querySelector(
+      `[data-testid="scene-card-${focusSceneId}"]`,
+    )
+    if (!(el instanceof HTMLElement)) return
+    el.scrollIntoView({ block: 'nearest' })
+    el.classList.add('outline', 'outline-selected', 'outline-tr-coral')
+    const t = window.setTimeout(() => {
+      el.classList.remove('outline', 'outline-selected', 'outline-tr-coral')
+    }, 2000)
+    return () => window.clearTimeout(t)
+  }, [focusSceneId, project])
 
   const mergeNewFlags = useCallback((newFlags: ConsistencyFlag[]) => {
     if (newFlags.length === 0) return
@@ -235,9 +254,7 @@ export function PlanScreen() {
       <AppShell
         projectTitle={project.title}
         activeMode="Plan"
-        ledgerCount={
-          ledger.filter((f) => f.status === 'pending_review').length
-        }
+        ledgerCount={ledger.filter((f) => f.status === 'pending_review').length}
         projectId={projectId}
       >
         <p className="p-8 text-15 text-tr-text-secondary">
@@ -251,9 +268,7 @@ export function PlanScreen() {
     <AppShell
       projectTitle={project.title}
       activeMode="Plan"
-      ledgerCount={
-        ledger.filter((f) => f.status === 'pending_review').length
-      }
+      ledgerCount={ledger.filter((f) => f.status === 'pending_review').length}
       projectId={projectId}
     >
       {reviewError && (
