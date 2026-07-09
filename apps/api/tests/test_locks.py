@@ -60,3 +60,94 @@ def test_locked_beats_in_scene_honors_scene_cascade():
     doc["seasons"][0]["episodes"][0]["scenes"][2]["locked"] = True  # scene-3
     locked = locks.locked_beats_in_scene(doc, "scene-3")
     assert [b["beatId"] for b in locked] == ["beat-3-1"]  # now locked by cascade
+
+
+# ── write-side guard: assert_no_locked_writes (unit) ──────────────────────────
+
+
+def _beat(doc, scene_idx, beat_idx):
+    return doc["seasons"][0]["episodes"][0]["scenes"][scene_idx]["beats"][beat_idx]
+
+
+def test_no_locked_writes_allows_an_untouched_doc():
+    doc = _doc()
+    locks.assert_no_locked_writes(doc, copy.deepcopy(doc))  # no raise
+
+
+def test_no_locked_writes_rejects_editing_locked_beat_content():
+    doc = _doc()
+    new = copy.deepcopy(doc)
+    _beat(new, 0, 1)["scriptText"] = "rewritten"  # beat-1-2 is locked
+    try:
+        locks.assert_no_locked_writes(doc, new)
+        raise AssertionError("expected LockViolation")
+    except locks.LockViolation:
+        pass
+
+
+def test_no_locked_writes_allows_unlock_flip_and_reindex_on_locked_beat():
+    doc = _doc()
+    new = copy.deepcopy(doc)
+    beat = _beat(new, 0, 1)  # beat-1-2, locked + scriptLocked
+    beat["scriptLocked"] = False  # unlock: the writer's own pin
+    beat["locked"] = False
+    beat["index"] = 9  # reindex: position, not content
+    locks.assert_no_locked_writes(doc, new)  # no raise
+
+
+def test_no_locked_writes_allows_insert_around_locked_beat_in_unlocked_scene():
+    doc = _doc()
+    new = copy.deepcopy(doc)
+    scene1 = new["seasons"][0]["episodes"][0]["scenes"][0]  # unlocked scene
+    scene1["beats"].append(
+        {"id": "beat-1-9", "index": 2, "locked": False, "whatHappens": "x",
+         "audienceLearns": "x", "audienceFeels": "x", "scriptText": "x", "scriptLocked": False}
+    )
+    locks.assert_no_locked_writes(doc, new)  # no raise: locked beat untouched
+
+
+def test_no_locked_writes_rejects_adding_a_beat_to_a_locked_scene():
+    doc = _doc()
+    doc["seasons"][0]["episodes"][0]["scenes"][2]["locked"] = True  # lock scene-3
+    new = copy.deepcopy(doc)
+    new["seasons"][0]["episodes"][0]["scenes"][2]["beats"].append(
+        {"id": "beat-3-9", "index": 1, "locked": False, "whatHappens": "x",
+         "audienceLearns": "x", "audienceFeels": "x", "scriptText": "x", "scriptLocked": False}
+    )
+    try:
+        locks.assert_no_locked_writes(doc, new)
+        raise AssertionError("expected LockViolation")
+    except locks.LockViolation:
+        pass
+
+
+# ── import guard: assert_import_target_writable (unit) ────────────────────────
+
+
+def test_import_target_writable_rejects_locked_content():
+    doc = _doc()  # fixture has locked beat-1-2
+    try:
+        locks.assert_import_target_writable(doc, [])
+        raise AssertionError("expected LockViolation")
+    except locks.LockViolation:
+        pass
+
+
+def test_import_target_writable_rejects_vouched_facts_even_when_unlocked():
+    doc = _doc()
+    for _e, _s, beat in locks._iter_beats(doc):
+        beat["locked"] = beat["scriptLocked"] = False  # clear every lock
+    ledger = [{"id": "fact-01", "status": "active"}]
+    try:
+        locks.assert_import_target_writable(doc, ledger)
+        raise AssertionError("expected LockViolation")
+    except locks.LockViolation:
+        pass
+
+
+def test_import_target_writable_allows_unlocked_pending_review_target():
+    doc = _doc()
+    for _e, _s, beat in locks._iter_beats(doc):
+        beat["locked"] = beat["scriptLocked"] = False
+    ledger = [{"id": "fact-01", "status": "pending_review"}]
+    locks.assert_import_target_writable(doc, ledger)  # no raise

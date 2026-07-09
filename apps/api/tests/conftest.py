@@ -55,3 +55,45 @@ def seeded_project(db_session):
     envelope = load_fixture()
     seed_envelope(db_session, envelope)
     return envelope
+
+
+def _clear_locks(doc: dict) -> None:
+    """Recursively clear every `locked`/`scriptLocked` flag in a project doc."""
+    for season in doc.get("seasons", []):
+        season["locked"] = False
+        for episode in season.get("episodes", []):
+            episode["locked"] = False
+            for scene in episode.get("scenes", []):
+                scene["locked"] = False
+                for beat in scene.get("beats", []):
+                    beat["locked"] = False
+                    beat["scriptLocked"] = False
+
+
+@pytest.fixture()
+def unlocked_project(db_session):
+    """The fixture seeded with all locks cleared and every ledger fact set to
+    `pending_review` — an *import-writable* target.
+
+    T3.2's import-as-replace guard (drama_manager/locks.assert_import_target_
+    writable) refuses a target holding locked content or vouched (non
+    pending_review) facts, because import wipes the episode's scenes and the
+    whole ledger. The T1.3 import tests exercise import *mechanics* (parse,
+    coverage, transaction atomicity), which are orthogonal to the target's lock
+    state, so they run against this writable variant. The dedicated
+    lock-interaction test (test_import.py) uses the locked `seeded_project`.
+    """
+    import copy
+
+    from storage.seed import load_fixture, seed_envelope
+
+    envelope = copy.deepcopy(load_fixture())
+    _clear_locks(envelope["project"])
+    for fact in envelope["ledger"]:
+        fact["status"] = "pending_review"
+    for snap in envelope["snapshots"]:
+        _clear_locks(snap["doc"])
+        for fact in snap.get("ledger", []):
+            fact["status"] = "pending_review"
+    seed_envelope(db_session, envelope)
+    return envelope

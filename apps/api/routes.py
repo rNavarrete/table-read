@@ -104,6 +104,13 @@ def patch_project(
     patch: list = Body(...),
     session: Session = Depends(get_session),
 ) -> dict:
+    """Direct writer edit (data contract §4). Applies a JSON-patch and
+    snapshots it. **Locks are sacred (rule 2):** a patch that writes into
+    locked content or structure is rejected 409 `LOCKED_OBJECT` before anything
+    persists (`locks.assert_no_locked_writes`); unlocking and reindexing stay
+    allowed — see that guard's rule. (The structural-field `scan_consistency`
+    trigger §4 also describes lands in the next commit.)
+    """
     project = _get_project_or_404(session, pid)
     try:
         new_doc = apply_json_patch(project.doc, patch)
@@ -114,6 +121,11 @@ def patch_project(
         raise ApiError(
             400, "VALIDATION", "patch produced an invalid project document"
         ) from exc
+
+    try:
+        locks.assert_no_locked_writes(project.doc, new_doc)
+    except locks.LockViolation as exc:
+        raise ApiError(409, "LOCKED_OBJECT", str(exc)) from exc
 
     snapshots.mutate(
         session,
@@ -168,6 +180,10 @@ def import_script(
         )
     try:
         return run_import(session, project, content, llm, instruction=f"Imported {format} script")
+    except locks.LockViolation as exc:
+        # Import-as-replace into a target holding locked content or vouched
+        # facts (rule 2, T3.2). Refused before any LLM call or mutation.
+        raise ApiError(409, "LOCKED_OBJECT", str(exc)) from exc
     except CoverageError as exc:
         # §7 coverage failure: the two-stage parse could not cover the source
         # exactly. Nothing was persisted (the failure precedes the mutate()).

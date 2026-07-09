@@ -110,10 +110,38 @@ def test_export_missing_project_404():
     assert resp.json()["error"]["code"] == "NOT_FOUND"
 
 
+# ── import lock guard (T3.2, rule 2 — lands with the PATCH guard) ─────────────
+# Import-as-replace wipes the episode's scenes and the whole ledger, so a target
+# holding locked content or vouched facts must be refused (test plan, this
+# section). The committed fixture (`seeded_project`) has both: beat-1-2 is
+# locked, and 7 of its 8 facts are `active`.
+
+
+def test_import_into_project_with_locked_content_is_rejected_zero_rows(
+    seeded_project, db_session, mock_llm
+):
+    before_doc = db_session.get(ProjectRow, PROJECT_ID).doc
+    before_snaps = db_session.query(SnapshotRow).filter_by(project_id=PROJECT_ID).count()
+    before_facts = db_session.query(LedgerFactRow).filter_by(project_id=PROJECT_ID).count()
+
+    src = "INT. NEW SCENE - DAY\nReplaces everything."
+    resp = client.post(
+        f"/api/v1/projects/{PROJECT_ID}/import", json={"format": "fountain", "content": src}
+    )
+
+    assert resp.status_code == 409
+    assert resp.json()["error"]["code"] == "LOCKED_OBJECT"
+    # zero rows changed: doc identical, no new snapshot, ledger untouched. The
+    # guard runs before stage 1, so the mock LLM is never called either.
+    assert db_session.get(ProjectRow, PROJECT_ID).doc == before_doc
+    assert db_session.query(SnapshotRow).filter_by(project_id=PROJECT_ID).count() == before_snaps
+    assert db_session.query(LedgerFactRow).filter_by(project_id=PROJECT_ID).count() == before_facts
+
+
 # ── round-trip: reproduces scene/beat count + response shape ──────────────────
 
 
-def test_roundtrip_reproduces_scene_and_beat_count(seeded_project, db_session, mock_llm):
+def test_roundtrip_reproduces_scene_and_beat_count(unlocked_project, db_session, mock_llm):
     fountain = client.get(f"/api/v1/projects/{PROJECT_ID}/export.fountain").text
     mock_llm.set_responses("segment_scene", one_beat_per_scene(fountain))
     mock_llm.set_response("extract_ledger_facts", extraction())
@@ -139,7 +167,7 @@ def test_roundtrip_reproduces_scene_and_beat_count(seeded_project, db_session, m
     assert db_session.query(SnapshotRow).filter_by(project_id=PROJECT_ID).count() == 2
 
 
-def test_import_replaces_target_episode_scenes(seeded_project, mock_llm):
+def test_import_replaces_target_episode_scenes(unlocked_project, mock_llm):
     src = "INT. NEW SCENE - DAY\nA brand new scene."
     mock_llm.set_responses("segment_scene", one_beat_per_scene(src))
     mock_llm.set_response("extract_ledger_facts", extraction())
@@ -156,7 +184,7 @@ def test_import_replaces_target_episode_scenes(seeded_project, mock_llm):
 # ── all import-derived facts pending_review (§4 step 2) ───────────────────────
 
 
-def test_all_import_facts_are_pending_review(seeded_project, mock_llm):
+def test_all_import_facts_are_pending_review(unlocked_project, mock_llm):
     src = "INT. BAR - NIGHT\nDan pours a drink."
     mock_llm.set_responses("segment_scene", one_beat_per_scene(src))
     # high confidence (0.95) must STILL land pending_review on import
@@ -178,7 +206,7 @@ def test_all_import_facts_are_pending_review(seeded_project, mock_llm):
     assert len(ledger) == len(body["newFacts"])
 
 
-def test_import_scan_flags_persisted_open(seeded_project, mock_llm):
+def test_import_scan_flags_persisted_open(unlocked_project, mock_llm):
     src = "INT. BAR - NIGHT\nDan pours a drink."
     mock_llm.set_responses("segment_scene", one_beat_per_scene(src))
     mock_llm.set_response("extract_ledger_facts", extraction())
@@ -196,7 +224,7 @@ def test_import_scan_flags_persisted_open(seeded_project, mock_llm):
     assert flags[0]["sourceChange"].startswith("snap-")  # the import snapshot
 
 
-def test_scan_flags_for_unknown_ids_are_dropped(seeded_project, mock_llm):
+def test_scan_flags_for_unknown_ids_are_dropped(unlocked_project, mock_llm):
     src = "INT. BAR - NIGHT\nDan pours."
     mock_llm.set_responses("segment_scene", one_beat_per_scene(src))
     mock_llm.set_response("extract_ledger_facts", extraction())
@@ -233,7 +261,7 @@ def _assert_unchanged(db_session, original_doc, original_head, original_snaps, o
     ids=["overlap", "gap"],
 )
 def test_bad_ranges_reject_with_validation_and_persist_nothing(
-    seeded_project, db_session, mock_llm, bad_seg
+    unlocked_project, db_session, mock_llm, bad_seg
 ):
     project = db_session.get(ProjectRow, PROJECT_ID)
     original_doc = dict(project.doc)
@@ -263,7 +291,7 @@ def test_empty_content_rejected(seeded_project, mock_llm):
 # ── unassigned ranges: preserved in scriptText, flagged, byte-identical ──────
 
 
-def test_unassigned_preserved_flagged_and_byte_identical(seeded_project, mock_llm):
+def test_unassigned_preserved_flagged_and_byte_identical(unlocked_project, mock_llm):
     # line 3 ("ORPHAN LINE") is unassigned; it must survive in scriptText and be flagged.
     src = "INT. BAR - NIGHT\nDan pours.\nORPHAN LINE"
     mock_llm.set_responses("segment_scene", [seg([(1, 2)], unassigned=[(3, 3)])])
@@ -293,7 +321,7 @@ def test_unassigned_preserved_flagged_and_byte_identical(seeded_project, mock_ll
 # ── mid-transaction fault injection → zero rows changed ──────────────────────
 
 
-def test_mid_transaction_fault_leaves_zero_rows(seeded_project, db_session, monkeypatch):
+def test_mid_transaction_fault_leaves_zero_rows(unlocked_project, db_session, monkeypatch):
     project = db_session.get(ProjectRow, PROJECT_ID)
     original_doc = dict(project.doc)
     original_head = project.head_snapshot_id
@@ -337,7 +365,7 @@ class _RaisingLlm(MockLlmClient):
         raise self._exc
 
 
-def test_transport_error_maps_to_llm_unavailable(seeded_project):
+def test_transport_error_maps_to_llm_unavailable(unlocked_project):
     exc = anthropic.APIConnectionError(request=httpx.Request("POST", "https://api.anthropic.com"))
     app.dependency_overrides[get_llm_client] = lambda: _RaisingLlm(exc)
     try:
@@ -351,7 +379,7 @@ def test_transport_error_maps_to_llm_unavailable(seeded_project):
     assert resp.json()["error"]["code"] == "LLM_UNAVAILABLE"
 
 
-def test_schema_invalid_llm_maps(seeded_project):
+def test_schema_invalid_llm_maps(unlocked_project):
     exc = SchemaInvalidLlmError("segment_scene")
     app.dependency_overrides[get_llm_client] = lambda: _RaisingLlm(exc)
     try:

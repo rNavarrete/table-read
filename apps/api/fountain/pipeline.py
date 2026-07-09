@@ -19,7 +19,7 @@ from __future__ import annotations
 import copy
 import logging
 
-from drama_manager import render
+from drama_manager import locks, render
 from fountain.parse import (
     ImportedBeat,
     locate_source_text,
@@ -28,7 +28,7 @@ from fountain.parse import (
 )
 from llm.protocol import LlmClient
 from storage import snapshots
-from storage.models import ProjectRow
+from storage.models import LedgerFactRow, ProjectRow
 
 _logger = logging.getLogger("fountain.pipeline")
 
@@ -38,8 +38,10 @@ def run_import(
 ) -> dict:
     """Run the full import for `content` into `project`, returning
     `{project, newFacts, consistencyFlags}`. Raises `parse.CoverageError`
-    (→ VALIDATION) on a coverage failure and lets LLM errors propagate for the
-    route to map; nothing is persisted until the final `mutate()`."""
+    (→ VALIDATION) on a coverage failure, `locks.LockViolation` (→ 409
+    LOCKED_OBJECT) when the target holds locked content or vouched facts, and
+    lets LLM errors propagate for the route to map; nothing is persisted until
+    the final `mutate()`."""
     if not content:
         # An empty import has no scenes to segment; reject before touching the LLM.
         from fountain.parse import CoverageError
@@ -47,6 +49,16 @@ def run_import(
         raise CoverageError("import content is empty")
 
     project_doc = project.doc
+
+    # Rule 2 (T3.2): import-as-replace wipes the episode's scenes and the whole
+    # ledger, so refuse a target holding locked content or vouched (non
+    # pending_review) facts — before stage 1, so a refusal costs zero LLM calls
+    # and zero mutations (test plan, Fountain round-trip section).
+    existing_ledger = [
+        row.to_wire_dict()
+        for row in session.query(LedgerFactRow).filter_by(project_id=project.id).all()
+    ]
+    locks.assert_import_target_writable(project_doc, existing_ledger)
 
     # ── Stage 1 + 2: deterministic split, then LLM segmentation + server-side
     # coverage validation + verbatim slicing, per scene. ────────────────────
