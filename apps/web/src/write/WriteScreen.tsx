@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from 'react'
 import type { BeatCandidate, Project } from 'contract'
 import { getLedger, getProject } from '../api/client'
 import { AppShell } from '../shell/AppShell'
+import { Toast } from '../shell/Toast'
+import { llmUnavailableMessage } from '../shell/toastCopy'
 import { CandidateDock } from './CandidateDock'
 import { CommandBar } from './CommandBar'
 import { ScriptCanvas } from './ScriptCanvas'
@@ -97,6 +99,12 @@ export function WriteScreen() {
     }
   }
 
+  // Cross-cutting toast for accept 503 (UI spec §3 keeps the inline card
+  // error; this is additive visibility). Dismiss clears that card's error.
+  const llmUnavailableAccept = Object.entries(accept.errorByIndex).find(
+    ([, err]) => err.code === 'LLM_UNAVAILABLE',
+  )
+
   if (loadError) {
     return (
       <AppShell
@@ -132,6 +140,16 @@ export function WriteScreen() {
       ledgerCount={ledgerCount}
       projectId={projectId}
     >
+      {llmUnavailableAccept && (
+        <Toast
+          tone="danger"
+          onDismiss={() =>
+            accept.dismissError(Number(llmUnavailableAccept[0]))
+          }
+        >
+          {llmUnavailableMessage}
+        </Toast>
+      )}
       <div className="flex justify-center gap-6 px-6 py-8 pb-24">
         <ScriptCanvas
           scene={scene}

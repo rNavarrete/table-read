@@ -34,6 +34,7 @@ export function useCandidateSession(projectId: string, sceneId: string) {
       lastRequestRef.current = request
       dispatch({ type: 'start' })
       void (async () => {
+        let sawDone = false
         try {
           const frames = streamSse(
             candidatesUrl(projectId, sceneId),
@@ -45,7 +46,18 @@ export function useCandidateSession(projectId: string, sceneId: string) {
           )
           for await (const raw of frames) {
             const event = toStreamEvent(raw)
-            if (event) dispatch(event)
+            if (!event) continue
+            if (event.type === 'done') sawDone = true
+            dispatch(event)
+          }
+          // Clean EOF without a terminal `done` (partial SSE body) — same
+          // Retry surface as a thrown mid-stream drop; never auto-regenerate
+          // (CLAUDE.md rule 8).
+          if (!controller.signal.aborted && !sawDone) {
+            dispatch({
+              type: 'connection_error',
+              message: 'connection lost',
+            })
           }
         } catch (err) {
           if (controller.signal.aborted) return

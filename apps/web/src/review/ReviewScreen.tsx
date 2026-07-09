@@ -20,7 +20,8 @@ import {
 } from './changeSetSession'
 import { selectableIds } from './selectableIds'
 import { pendingReviewCount } from './pendingReviewCount'
-import { Toast } from './Toast'
+import { Toast } from '../shell/Toast'
+import { lockedObjectMessage } from '../shell/toastCopy'
 
 const DEFAULT_PROJECT_ID = 'proj-longpour'
 
@@ -145,7 +146,7 @@ export function ReviewScreen() {
         setToast(
           err.code === 'LOCKED_OBJECT' ||
             err.message.toLowerCase().includes('lock')
-            ? 'A locked element was included — nothing was changed'
+            ? lockedObjectMessage
             : err.message,
         )
       } else {
@@ -168,7 +169,7 @@ export function ReviewScreen() {
       setPostApplyFlags(result.consistencyFlags)
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {
-        setToast('A locked element was included — nothing was changed')
+        setToast(lockedObjectMessage)
       } else {
         setToast(err instanceof Error ? err.message : 'Apply failed')
       }

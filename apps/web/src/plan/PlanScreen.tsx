@@ -8,6 +8,8 @@ import {
 } from '../api/client'
 import { navigateToReview, stashChangeSet } from '../review/changeSetSession'
 import { AppShell } from '../shell/AppShell'
+import { Toast } from '../shell/Toast'
+import { lockedObjectMessage } from '../shell/toastCopy'
 import { Board } from './Board'
 import { Inspector } from './Inspector'
 import type { PlanSelection } from './SceneCard'
@@ -275,6 +277,13 @@ export function PlanScreen() {
         <p className="px-6 pt-3 text-13 text-tr-danger" role="alert">
           {reviewError}
         </p>
+      )}
+      {patcher.error && (
+        <Toast tone="danger" onDismiss={patcher.dismissError}>
+          {patcher.error.code === 'LOCKED_OBJECT'
+            ? lockedObjectMessage
+            : patcher.error.message}
+        </Toast>
       )}
       <div className="flex">
         <StoryLayersPanel

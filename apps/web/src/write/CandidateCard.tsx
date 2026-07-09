@@ -218,16 +218,31 @@ export function CandidateCard({
         <div className="mt-3">
           {tuning ? (
             <div>
-              <p className="text-13 text-tr-text-muted">Tuning…</p>
               {tuneResult?.status === 'streaming' && (
-                <p className="mt-1 whitespace-pre-wrap font-script text-12 text-tr-text-secondary">
-                  {tuneResult.provisionalScriptText}
-                </p>
+                <>
+                  <p className="text-13 text-tr-text-muted">Tuning…</p>
+                  <p className="mt-1 whitespace-pre-wrap font-script text-12 text-tr-text-secondary">
+                    {tuneResult.provisionalScriptText}
+                  </p>
+                </>
               )}
-              {tuneResult?.status === 'failed' && (
-                <p className="mt-1 text-13 text-tr-danger">
-                  Tune failed: {tuneResult.error.message}
-                </p>
+              {(tuneResult?.status === 'failed' ||
+                tuneSession.session.connectionError) && (
+                <div>
+                  <p className="text-13 text-tr-danger">
+                    Tune failed:{' '}
+                    {tuneResult?.status === 'failed'
+                      ? tuneResult.error.message
+                      : tuneSession.session.connectionError}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => tuneSession.retry()}
+                    className="mt-2 rounded-card bg-tr-coral px-3 py-1.5 text-13 text-tr-surface-raised transition-colors hover:bg-tr-coral-hover motion-reduce:transition-none"
+                  >
+                    Retry
+                  </button>
+                </div>
               )}
             </div>
           ) : (
