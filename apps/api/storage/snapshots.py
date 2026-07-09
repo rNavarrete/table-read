@@ -16,9 +16,12 @@ and flags never outlive the content that established them).
   - `mutate(pid, instruction, fn)` — run `fn` over the current state, write
     one snapshot of the *new* state, bump head + `updated_at`, and rewrite
     the live `ledger_facts` / `consistency_flags` tables to match — all in a
-    single transaction that rolls back whole on any failure.
+    single transaction that rolls back whole on any failure. Head bump uses
+    an atomic compare-and-swap on `head_snapshot_id` so concurrent writers
+    cannot both succeed against the same parent.
   - `restore_parent` (undo) — restore doc/ledger/flags byte-identical from
-    the current head's parent; move head to it; no new snapshot row.
+    the current head's parent; move head to it; no new snapshot row. Same
+    CAS on the head column.
   - `purge_project` (delete) — drop every project-scoped row across all six
     tables (embeddings included), one transaction.
 
@@ -32,6 +35,7 @@ import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from sqlalchemy import update
 from sqlalchemy.orm import Session
 
 from storage.models import (
@@ -130,22 +134,33 @@ def mutate(
 
     Reads the current state, hands it to `mutator`, then in a single
     transaction: writes a snapshot of the new state (`parent_id` = old head),
-    sets `projects.doc`, bumps `head_snapshot_id` + `updated_at`, and rewrites
-    the live ledger/flags tables to the new state. Any failure rolls back the
+    sets `projects.doc`, bumps `head_snapshot_id` + `updated_at` via an
+    atomic `UPDATE … WHERE head_snapshot_id = :expected` (rowcount must be 1),
+    and rewrites the live ledger/flags tables. Any failure rolls back the
     whole transaction — the snapshot and the head bump are never split.
 
-    When `expected_head_snapshot_id` is set, raises `StaleHead` if it does not
-    match the live head (optimistic concurrency for direct PATCH).
+    When `expected_head_snapshot_id` is set, that value is the CAS predicate
+    (client's `If-Match`). When omitted, the CAS still runs against the head
+    observed at read time so two concurrent writers that both loaded H cannot
+    both commit children of H.
     """
     project = session.get(ProjectRow, project_id)
     if project is None:  # defensive: routes 404 before calling
         raise LookupError(f"project {project_id!r} not found")
 
+    observed_head = project.head_snapshot_id
+    cas_expected = (
+        expected_head_snapshot_id
+        if expected_head_snapshot_id is not None
+        else observed_head
+    )
+    # Fast-fail when the client sent a stale If-Match before doing LLM work
+    # in the mutator. The UPDATE below is still the authoritative race guard.
     if (
         expected_head_snapshot_id is not None
-        and project.head_snapshot_id != expected_head_snapshot_id
+        and observed_head != expected_head_snapshot_id
     ):
-        raise StaleHead(expected_head_snapshot_id, project.head_snapshot_id)
+        raise StaleHead(expected_head_snapshot_id, observed_head)
 
     # Mint the new snapshot id up front so the mutator can reference it (e.g.
     # stamp it as a ConsistencyFlag's sourceChange) before the row is written.
@@ -167,7 +182,7 @@ def mutate(
         snapshot = SnapshotRow(
             id=snapshot_id,
             project_id=project_id,
-            parent_id=project.head_snapshot_id,
+            parent_id=cas_expected,
             instruction=instruction,
             doc=copy.deepcopy(new_state.doc),
             ledger=new_state.ledger,
@@ -175,39 +190,81 @@ def mutate(
             ts=_utcnow_iso(),
         )
         session.add(snapshot)
-        project.doc = new_state.doc
-        project.head_snapshot_id = snapshot_id
-        project.updated_at = _utcnow()
+        _cas_bump_head(
+            session,
+            project_id,
+            expected_head=cas_expected,
+            new_head=snapshot_id,
+            new_doc=new_state.doc,
+        )
         _rewrite_ledger(session, project_id, new_state.ledger)
         _rewrite_flags(session, project_id, new_state.flags)
         session.commit()
+    except StaleHead:
+        session.rollback()
+        raise
     except Exception:
         session.rollback()
         raise
+    # Refresh the identity-mapped ProjectRow so later reads in this session
+    # see the CAS-written head/doc (UPDATE bypasses the ORM attribute cache).
+    session.refresh(project)
     return snapshot
 
 
-def restore_parent(session: Session, project: ProjectRow) -> ProjectRow:
+def restore_parent(
+    session: Session,
+    project: ProjectRow,
+    *,
+    expected_head_snapshot_id: str | None = None,
+) -> ProjectRow:
     """Undo: restore state from the current head's parent snapshot (§3).
 
     Restores `projects.doc`, `ledger_facts`, and `consistency_flags`
     byte-identical from the parent snapshot and moves head to it, in one
-    transaction. No new snapshot row is written (a later mutation forks the
-    tree). The caller guarantees a parent exists (undo-at-root is a 409).
+    transaction, via the same CAS as `mutate`. No new snapshot row is written
+    (a later mutation forks the tree). The caller guarantees a parent exists
+    (undo-at-root is a 409).
     """
-    head = session.get(SnapshotRow, project.head_snapshot_id)
-    parent = session.get(SnapshotRow, head.parent_id)
+    observed_head = project.head_snapshot_id
+    cas_expected = (
+        expected_head_snapshot_id
+        if expected_head_snapshot_id is not None
+        else observed_head
+    )
+    if (
+        expected_head_snapshot_id is not None
+        and observed_head != expected_head_snapshot_id
+    ):
+        raise StaleHead(expected_head_snapshot_id, observed_head)
 
+    head = session.get(SnapshotRow, cas_expected)
+    if head is None or head.parent_id is None:
+        # Defensive: routes already 409 when there is nothing to undo.
+        raise LookupError(f"no parent for head {cas_expected!r}")
+    parent = session.get(SnapshotRow, head.parent_id)
+    if parent is None:
+        raise LookupError(f"parent snapshot {head.parent_id!r} not found")
+
+    restored_doc = copy.deepcopy(parent.doc)
     try:
-        project.doc = copy.deepcopy(parent.doc)
-        project.head_snapshot_id = parent.id
-        project.updated_at = _utcnow()
+        _cas_bump_head(
+            session,
+            project.id,
+            expected_head=cas_expected,
+            new_head=parent.id,
+            new_doc=restored_doc,
+        )
         _rewrite_ledger(session, project.id, parent.ledger)
         _rewrite_flags(session, project.id, parent.flags)
         session.commit()
+    except StaleHead:
+        session.rollback()
+        raise
     except Exception:
         session.rollback()
         raise
+    session.refresh(project)
     return project
 
 
@@ -230,7 +287,9 @@ def purge_project(session: Session, project_id: str) -> None:
             session.query(model).filter_by(project_id=project_id).delete(
                 synchronize_session=False
             )
-        session.query(ProjectRow).filter_by(id=project_id).delete(synchronize_session=False)
+        session.query(ProjectRow).filter_by(id=project_id).delete(
+            synchronize_session=False
+        )
         session.commit()
     except Exception:
         session.rollback()
@@ -238,6 +297,38 @@ def purge_project(session: Session, project_id: str) -> None:
 
 
 # ── internals ───────────────────────────────────────────────────────────────
+
+
+def _cas_bump_head(
+    session: Session,
+    project_id: str,
+    *,
+    expected_head: str | None,
+    new_head: str,
+    new_doc: dict,
+) -> None:
+    """Atomically set head/doc when `head_snapshot_id` still equals `expected_head`.
+
+    Raises `StaleHead` when zero rows match (another writer won the race, or
+    the client's If-Match was already stale). This is the only place the live
+    head column is advanced for mutate/undo — identity-map assignment alone
+    cannot serialize concurrent sessions.
+    """
+    result = session.execute(
+        update(ProjectRow)
+        .where(ProjectRow.id == project_id)
+        .where(ProjectRow.head_snapshot_id == expected_head)
+        .values(
+            doc=new_doc,
+            head_snapshot_id=new_head,
+            updated_at=_utcnow(),
+        )
+    )
+    if result.rowcount != 1:
+        actual = session.get(ProjectRow, project_id)
+        raise StaleHead(
+            expected_head, actual.head_snapshot_id if actual is not None else None
+        )
 
 
 def _ledger_rows(session: Session, project_id: str) -> list[LedgerFactRow]:

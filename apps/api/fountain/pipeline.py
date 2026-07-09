@@ -34,7 +34,13 @@ _logger = logging.getLogger("fountain.pipeline")
 
 
 def run_import(
-    session, project: ProjectRow, content: str, llm: LlmClient, *, instruction: str
+    session,
+    project: ProjectRow,
+    content: str,
+    llm: LlmClient,
+    *,
+    instruction: str,
+    expected_head_snapshot_id: str | None = None,
 ) -> dict:
     """Run the full import for `content` into `project`, returning
     `{project, newFacts, consistencyFlags}`. Raises `parse.CoverageError`
@@ -182,7 +188,13 @@ def run_import(
             doc=new_doc, ledger=new_facts, flags=flags, snapshot_id=state.snapshot_id
         )
 
-    snap = snapshots.mutate(session, project.id, instruction, mutator)
+    snap = snapshots.mutate(
+        session,
+        project.id,
+        instruction,
+        mutator,
+        expected_head_snapshot_id=expected_head_snapshot_id,
+    )
 
     _logger.info(
         "import project=%s snapshot=%s prompt_version=%s scenes=%d beats=%d "

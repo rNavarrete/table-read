@@ -80,6 +80,8 @@ export function AppShell({
       if (onUndo) {
         await onUndo()
       } else {
+        // No in-shell head cache — omit If-Match; server still CAS-guards
+        // against the observed head so concurrent undos cannot both win.
         await undoProject(projectId)
         // Full reload so every mode re-fetches the restored head (no shared
         // project store across Write/Plan/Review/Ledger yet).

@@ -92,6 +92,80 @@ def test_mutate_creates_snapshot_and_bumps_head(db_session, seeded_project):
     assert _snapshot_count(db_session) == 2  # root + this mutation
 
 
+def test_mutate_cas_rejects_stale_expected_head(db_session, seeded_project):
+    """Explicit expected_head that does not match live head → StaleHead, no write."""
+    project = db_session.get(ProjectRow, PROJECT_ID)
+    before_doc = copy.deepcopy(project.doc)
+    before_head = project.head_snapshot_id
+    before_count = _snapshot_count(db_session)
+
+    with pytest.raises(snapshots.StaleHead):
+        snapshots.mutate(
+            db_session,
+            PROJECT_ID,
+            "Stale write",
+            _retitle("Must Not Land"),
+            expected_head_snapshot_id="snap-not-the-head",
+        )
+
+    project = db_session.get(ProjectRow, PROJECT_ID)
+    assert project.doc == before_doc
+    assert project.head_snapshot_id == before_head
+    assert _snapshot_count(db_session) == before_count
+
+
+def test_mutate_cas_second_writer_loses_race(db_session, seeded_project):
+    """Two sessions that both observed H: only the first CAS wins; the second
+    raises StaleHead and must not create another child of H."""
+    from storage.db import SessionLocal
+
+    project = db_session.get(ProjectRow, PROJECT_ID)
+    shared_head = project.head_snapshot_id
+
+    session_a = SessionLocal()
+    session_b = SessionLocal()
+    try:
+        # Both sessions load H into their identity maps before either writes.
+        assert session_a.get(ProjectRow, PROJECT_ID).head_snapshot_id == shared_head
+        assert session_b.get(ProjectRow, PROJECT_ID).head_snapshot_id == shared_head
+
+        snap_a = snapshots.mutate(
+            session_a,
+            PROJECT_ID,
+            "Writer A",
+            _retitle("From A"),
+            expected_head_snapshot_id=shared_head,
+        )
+        assert snap_a.parent_id == shared_head
+
+        with pytest.raises(snapshots.StaleHead) as exc_info:
+            snapshots.mutate(
+                session_b,
+                PROJECT_ID,
+                "Writer B",
+                _retitle("From B"),
+                expected_head_snapshot_id=shared_head,
+            )
+        assert exc_info.value.expected == shared_head
+        assert exc_info.value.actual == snap_a.id
+    finally:
+        session_a.close()
+        session_b.close()
+
+    db_session.expire_all()
+    project = db_session.get(ProjectRow, PROJECT_ID)
+    assert project.head_snapshot_id == snap_a.id
+    assert project.doc["title"] == "From A"
+    # Exactly one child of H — B must not have appended a sibling.
+    children = (
+        db_session.query(SnapshotRow)
+        .filter_by(project_id=PROJECT_ID, parent_id=shared_head)
+        .all()
+    )
+    assert len(children) == 1
+    assert children[0].id == snap_a.id
+
+
 def test_mutate_with_held_row_refs_emits_no_sawarning(db_session, seeded_project):
     """Regression: rewriting retained facts must not warn about identity-map
     conflicts. SQLAlchemy's identity map is weak-referencing, so the SAWarning

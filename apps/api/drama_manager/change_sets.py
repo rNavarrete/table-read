@@ -678,6 +678,7 @@ def apply_change_set(
     *,
     approved_object_ids: list[str],
     llm: LlmClient,
+    expected_head_snapshot_id: str | None = None,
 ) -> dict:
     """Apply the stored preview payload verbatim (no regenerate), then extract
     + scan. Returns `{project, changeSet, consistencyFlags}`.
@@ -827,7 +828,17 @@ def apply_change_set(
             snapshot_id=state.snapshot_id,
         )
 
-    snap = snapshots.mutate(session, project.id, instruction, mutator)
+    # Prefer the client's If-Match when present; otherwise the preview's
+    # basedOnSnapshotId (already checked above) is the CAS predicate so apply
+    # cannot race another writer that moved the head after PREVIEW_STALE check.
+    cas_expected = expected_head_snapshot_id or preview.get("basedOnSnapshotId")
+    snap = snapshots.mutate(
+        session,
+        project.id,
+        instruction,
+        mutator,
+        expected_head_snapshot_id=cas_expected,
+    )
 
     change_set["status"] = "applied"
     ChangeSet.model_validate(change_set)
@@ -888,9 +899,17 @@ def get_change_set(session, change_set_id: str) -> dict:
 def list_change_sets(
     session, project_id: str, *, status: str | None = None
 ) -> list[dict]:
-    """Return ChangeSets for a project, optionally filtered by status."""
+    """Return ChangeSets for a project, optionally filtered by status.
+
+    `status` may be a single value or a comma-separated list
+    (`draft,previewing`) for the Review open picker.
+    """
     q = session.query(ChangeSetRow).filter_by(project_id=project_id)
     if status is not None:
-        q = q.filter_by(status=status)
+        statuses = [s.strip() for s in status.split(",") if s.strip()]
+        if len(statuses) == 1:
+            q = q.filter_by(status=statuses[0])
+        elif statuses:
+            q = q.filter(ChangeSetRow.status.in_(statuses))
     rows = q.order_by(ChangeSetRow.id).all()
     return [copy.deepcopy(row.doc) for row in rows]

@@ -91,9 +91,11 @@ export function ReviewScreen() {
 
     async function loadDraftList() {
       try {
-        const rows = await listChangeSets(projectId, 'draft')
+        // Open picker: draft + previewing (preview flips status away from
+        // draft; writers must still re-enter to Apply — UI spec §5).
+        const rows = await listChangeSets(projectId, 'draft,previewing')
         if (cancelled) return
-        // Single draft: open it directly (still "one Change Set at a time").
+        // Single open Change Set: open it directly.
         if (rows.length === 1) {
           openChangeSet(projectId, rows[0].id)
           return
@@ -194,7 +196,11 @@ export function ReviewScreen() {
     const approvedObjectIds = [...selectedIds]
     setApplying(true)
     try {
-      const result = await applyChangeSet(changeSet.id, { approvedObjectIds })
+      const result = await applyChangeSet(
+        changeSet.id,
+        { approvedObjectIds },
+        { expectedHeadSnapshotId: project?.headSnapshotId },
+      )
       setChangeSet(result.changeSet)
       stashChangeSet(result.changeSet)
       setProject(result.project)
@@ -240,7 +246,9 @@ export function ReviewScreen() {
 
   async function handleUndoAll() {
     try {
-      await undoProject(projectId)
+      await undoProject(projectId, {
+        expectedHeadSnapshotId: project?.headSnapshotId,
+      })
       // Full reload so Plan/Write pick up the restored head and this screen
       // leaves the applied summary (Change Set row stays `applied` in storage).
       window.location.reload()
@@ -251,7 +259,9 @@ export function ReviewScreen() {
 
   async function handleDismissFlag(flagId: string) {
     try {
-      await dismissConsistencyFlag(flagId)
+      await dismissConsistencyFlag(flagId, {
+        expectedHeadSnapshotId: project?.headSnapshotId,
+      })
       setPostApplyFlags((prev) => prev.filter((f) => f.id !== flagId))
     } catch (err) {
       setToast(err instanceof Error ? err.message : 'Dismiss failed')
@@ -288,11 +298,11 @@ export function ReviewScreen() {
           data-testid="draft-change-sets"
         >
           <h2 className="font-display text-17 text-tr-text-primary">
-            Draft Change Sets
+            Open Change Sets
           </h2>
           {drafts.length === 0 ? (
             <p className="text-15 text-tr-text-secondary">
-              No draft Change Sets. Open Review from a structural edit in Plan.
+              No open Change Sets. Open Review from a structural edit in Plan.
             </p>
           ) : (
             <ul className="flex flex-col gap-2">
@@ -307,7 +317,8 @@ export function ReviewScreen() {
                       &ldquo;{cs.instruction}&rdquo;
                     </p>
                     <p className="mt-1 text-13 text-tr-text-muted">
-                      {cs.targetObjectId} · {cs.impacted.length} impacted
+                      {cs.status} · {cs.targetObjectId} · {cs.impacted.length}{' '}
+                      impacted
                     </p>
                   </button>
                 </li>

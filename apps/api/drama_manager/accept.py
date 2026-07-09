@@ -134,6 +134,7 @@ def run_accept(
     *,
     scene_id: str,
     instruction: str,
+    expected_head_snapshot_id: str | None = None,
 ) -> dict:
     """Run the full accept for `candidate` into `scene_id`, returning
     `{project, newFacts, contradictions, consistencyFlags}` (data contract §4).
@@ -212,7 +213,13 @@ def run_accept(
             snapshot_id=state.snapshot_id,
         )
 
-    snap = snapshots.mutate(session, project.id, instruction, mutator)
+    snap = snapshots.mutate(
+        session,
+        project.id,
+        instruction,
+        mutator,
+        expected_head_snapshot_id=expected_head_snapshot_id,
+    )
 
     response_flags = [f for f in snap.flags if f["sourceChange"] == snap.id]
     _logger.info(
