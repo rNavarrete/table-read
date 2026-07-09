@@ -61,7 +61,7 @@ export function CommandBar({ onSubmit, disabled, hidden }: CommandBarProps) {
     <form
       onSubmit={handleSubmit}
       className={
-        'fixed inset-x-0 bottom-6 mx-auto flex h-14 w-full max-w-[720px] items-center gap-3 rounded-card border border-tr-border bg-tr-surface-sunken px-4 shadow-raised' +
+        'fixed inset-x-0 bottom-6 mx-auto flex h-14 w-full max-w-script-col items-center gap-3 rounded-card border border-tr-border bg-tr-surface-sunken px-4 shadow-raised' +
         (hidden ? ' invisible' : '')
       }
       data-testid="command-bar"

@@ -1,6 +1,7 @@
 import type { ComponentType } from 'react'
 
-type TokenKind = 'color' | 'font' | 'size' | 'radius' | 'shadow' | 'motion'
+type TokenKind =
+  'color' | 'font' | 'size' | 'radius' | 'shadow' | 'motion' | 'width'
 
 type TokenDef = {
   cssVar: string
@@ -152,6 +153,16 @@ const TOKEN_GROUPS: TokenGroup[] = [
       },
     ],
   },
+  {
+    title: 'Layout',
+    tokens: [
+      {
+        cssVar: '--tr-script-col',
+        description: 'script column / command bar max-width (UI spec §3)',
+        kind: 'width',
+      },
+    ],
+  },
 ]
 
 // Reads the value straight off the cascade — never hardcoded here — so this
@@ -257,6 +268,20 @@ function MotionRow({ token }: { token: TokenDef }) {
   )
 }
 
+function WidthSample({ token }: { token: TokenDef }) {
+  return (
+    <div className="flex flex-col gap-2 rounded-lg border border-tr-border bg-tr-surface-raised p-3">
+      <div
+        className="h-2 w-full rounded-lg bg-tr-surface-clay"
+        style={{ maxWidth: `var(${token.cssVar})` }}
+      />
+      <div className="flex min-w-0 flex-col">
+        <TokenMeta token={token} />
+      </div>
+    </div>
+  )
+}
+
 const SAMPLE_FOR_KIND: Record<TokenKind, ComponentType<{ token: TokenDef }>> = {
   color: ColorSwatch,
   font: FontSample,
@@ -264,6 +289,7 @@ const SAMPLE_FOR_KIND: Record<TokenKind, ComponentType<{ token: TokenDef }>> = {
   radius: RadiusSample,
   shadow: ShadowSample,
   motion: MotionRow,
+  width: WidthSample,
 }
 
 export default function TokensPage() {

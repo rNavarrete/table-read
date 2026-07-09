@@ -94,16 +94,9 @@ export interface ScriptCanvasProps {
 export function ScriptCanvas({ scene, canvasHandlers }: ScriptCanvasProps) {
   return (
     <section
-      // NOTE (flagged, not a token): UI spec §3 pins the script column to a
-      // literal 720px max-width. §1's token list has no "layout width" scale
-      // (only color/spacing/radius/shadow/motion are tokenized) — this is a
-      // structural page-layout constant, not a design token subject to rule
-      // 6, so it's expressed as a Tailwind arbitrary value rather than
-      // invented as a new --tr-* variable (tokens.test.ts's "no invented
-      // tokens" guard treats tokens.css as closed to the §1 list). Flagged in
-      // the task report per the self-review instruction to surface any value
-      // with no corresponding token.
-      className="max-w-[720px] flex-1 rounded-card bg-tr-surface-raised px-8 py-6 shadow-raised"
+      // max-w-script-col = --tr-script-col (720px, UI spec §3), minted per
+      // controller ruling on T2.3 review.
+      className="max-w-script-col flex-1 rounded-card bg-tr-surface-raised px-8 py-6 shadow-raised"
       aria-label={`Script — ${scene.location}`}
       {...canvasHandlers}
     >

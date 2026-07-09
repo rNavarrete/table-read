@@ -1,6 +1,7 @@
 import type {
   BeatCandidate,
   ConsistencyFlag,
+  LedgerExtraction,
   LedgerFact,
   Project,
 } from 'contract'
@@ -35,14 +36,25 @@ export function getLedger(projectId: string): Promise<LedgerFact[]> {
   return getJson<LedgerFact[]>(`/projects/${projectId}/ledger`)
 }
 
+/** One accept-response contradiction record: the contract's
+ * `LedgerExtraction` contradiction shape plus the server-minted id of the
+ * supersede proposal it created (drama_manager/ledger_policy.py). */
+export type AcceptContradiction = LedgerExtraction['contradictions'][number] & {
+  proposalId: string
+}
+
+/** `POST .../beats` response (data contract §4:
+ * `{project, newFacts, contradictions, consistencyFlags}`), composed from
+ * contract-exported types. `newFacts` is deliberately `LedgerFact[]`, not the
+ * §2a `ExtractedFact[]`: the server applies the §5 ledger policy before
+ * responding (ledger_policy.apply_extraction_policy mints `id`, sets
+ * `provenance`/`status`, computes `charStart`/`charEnd`), so the wire carries
+ * full persisted-fact dicts — apps/api/tests/test_accept.py asserts
+ * `newFacts[0].status` / `.sourceSpan.charStart` directly. */
 export interface AcceptResponse {
   project: Project
   newFacts: LedgerFact[]
-  contradictions: Array<{
-    existingFactId: string
-    explanation: string
-    proposedReplacement: string | null
-  }>
+  contradictions: AcceptContradiction[]
   consistencyFlags: ConsistencyFlag[]
 }
 

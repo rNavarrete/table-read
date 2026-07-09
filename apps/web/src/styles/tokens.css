@@ -67,6 +67,10 @@
   --tr-motion-duration-standard: 160ms;
   --tr-motion-ease-standard:     ease-out;
 
+  /* Layout: script column / command bar max-width — §3's literal 720px,
+     tokenized per controller ruling on T2.3 review. */
+  --tr-script-col: 720px;
+
   /* Spacing: no --tr-* tokens — Tailwind's default 4px-base spacing scale
      already matches spec §1 (4/8/12/16/24/32/48/64), per controller ruling. */
 }
@@ -117,4 +121,7 @@
   /* ease-standard utility + 160ms as the default transition duration. */
   --ease-standard: var(--tr-motion-ease-standard);
   --default-transition-duration: var(--tr-motion-duration-standard);
+
+  /* max-w-script-col (Tailwind v4 --container-* namespace backs max-w-*). */
+  --container-script-col: var(--tr-script-col);
 }

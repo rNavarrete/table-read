@@ -21,6 +21,8 @@ function themeKeyFor(name: string): string {
   if (name === '--tr-motion-ease-standard') return '--ease-standard'
   if (name === '--tr-motion-duration-standard')
     return '--default-transition-duration'
+  // Tailwind v4's --container-* namespace backs max-w-* utilities.
+  if (name === '--tr-script-col') return '--container-script-col'
   if (name.startsWith('--tr-font-size-'))
     return name.replace('--tr-font-size-', '--text-')
   if (name.startsWith('--tr-font-'))

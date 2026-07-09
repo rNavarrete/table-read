@@ -55,4 +55,8 @@ export const EXPECTED_TOKENS: Record<string, string> = {
 
   '--tr-motion-duration-standard': '160ms',
   '--tr-motion-ease-standard': 'ease-out',
+
+  // Layout: UI spec §3's literal 720px script-column / command-bar width,
+  // tokenized per controller ruling on T2.3 review.
+  '--tr-script-col': '720px',
 }
