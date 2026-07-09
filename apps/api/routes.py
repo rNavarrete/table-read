@@ -459,6 +459,26 @@ def create_change_set(
         raise ApiError(503, "LLM_UNAVAILABLE", "the language model is unavailable") from exc
 
 
+@router.get("/{pid}/change-sets", response_model=list[ChangeSet])
+def list_change_sets(
+    pid: str,
+    status: str | None = None,
+    session: Session = Depends(get_session),
+) -> list[dict]:
+    """`GET /projects/{pid}/change-sets?status=` (data contract §4)."""
+    _get_project_or_404(session, pid)
+    return change_sets.list_change_sets(session, pid, status=status)
+
+
+@change_sets_router.get("/{cid}", response_model=ChangeSet)
+def get_change_set(cid: str, session: Session = Depends(get_session)) -> dict:
+    """`GET /change-sets/{cid}` (data contract §4)."""
+    try:
+        return change_sets.get_change_set(session, cid)
+    except change_sets.ChangeSetNotFound as exc:
+        raise ApiError(404, "NOT_FOUND", f"change set {cid!r} not found") from exc
+
+
 @change_sets_router.post("/{cid}/preview", response_model=ChangeSet, status_code=200)
 def preview_change_set(
     cid: str,

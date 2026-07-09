@@ -818,3 +818,20 @@ def flag_change_set(session, change_set_id: str) -> dict:
     session.commit()
     _logger.info("change_set_flagged change_set_id=%s", change_set_id)
     return change_set
+
+
+def get_change_set(session, change_set_id: str) -> dict:
+    """Return the persisted ChangeSet wire dict (data contract §4 GET)."""
+    row = _get_change_set_row(session, change_set_id)
+    return copy.deepcopy(row.doc)
+
+
+def list_change_sets(
+    session, project_id: str, *, status: str | None = None
+) -> list[dict]:
+    """Return ChangeSets for a project, optionally filtered by status."""
+    q = session.query(ChangeSetRow).filter_by(project_id=project_id)
+    if status is not None:
+        q = q.filter_by(status=status)
+    rows = q.order_by(ChangeSetRow.id).all()
+    return [copy.deepcopy(row.doc) for row in rows]
