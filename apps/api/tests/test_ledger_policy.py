@@ -170,14 +170,29 @@ def test_contradiction_creates_supersede_proposal_original_untouched():
     assert contradictions[0]["proposalId"] == proposal["id"]
 
 
-def test_null_proposed_replacement_carries_forward_target_text():
+def test_null_proposed_replacement_stores_empty_fact_text():
+    """Retirement proposals: stored-null detection — null proposedReplacement
+    mints with empty ``fact`` (not carry-forward of the target text)."""
     ledger = [_fact07()]
     extraction = _extraction(
         contradictions=[{"existingFactId": "fact-07", "explanation": "no longer true",
                          "proposedReplacement": None}],
     )
     _nf, proposals, _c = _apply(extraction, existing_ledger=ledger)
-    assert proposals[0]["fact"] == "Dan has never been in trouble with the law"
+    assert proposals[0]["fact"] == ""
+    assert proposals[0]["supersedes"] == "fact-07"
+    assert proposals[0]["status"] == "pending_review"
+
+
+def test_contradiction_against_non_active_target_is_dropped():
+    """Creation-time guard: only active facts can be supersede targets."""
+    pending = {**_fact07(), "id": "fact-06", "status": "pending_review"}
+    extraction = _extraction(
+        contradictions=[{"existingFactId": "fact-06", "explanation": "x",
+                         "proposedReplacement": "y"}],
+    )
+    _nf, proposals, contradictions = _apply(extraction, existing_ledger=[pending])
+    assert proposals == [] and contradictions == []
 
 
 def test_contradiction_against_unknown_fact_is_dropped():

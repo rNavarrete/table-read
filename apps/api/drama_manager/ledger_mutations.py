@@ -8,14 +8,18 @@ Supersede resolution (atomic — one transaction each, enforced by the caller
 running a single `mutate`):
 
   - confirm pending_review, supersedes null → active / writer_confirmed
-  - confirm pending_review, supersedes fact-X → proposal active/writer_confirmed
-    AND fact-X superseded with supersededBy = proposal id (never one without
-    the other)
+  - confirm pending_review, supersedes fact-X, non-empty fact → proposal
+    active/writer_confirmed AND fact-X superseded with supersededBy =
+    proposal id (never one without the other)
+  - confirm pending_review, supersedes fact-X, **empty fact** (stored-null
+    retirement from null proposedReplacement) → fact-X superseded with
+    supersededBy = proposal id; proposal → rejected / writer_confirmed;
+    supersedes link kept
   - reject → rejected; target untouched; supersedes link preserved
   - confirm/reject on non-pending_review → ValidationError
   - confirm when fact-X is missing or not active → ConflictStaleProposal
   - edit text/knownBy → provenance writer_authored; pending_review → active
-    (T5.1 accept / DESIGN-GAP vs data-contract "status unchanged")
+    (data contract §4; build-plan T5.1)
 """
 
 from __future__ import annotations
@@ -64,6 +68,14 @@ def confirm_fact(ledger: list[dict], fact_id: str) -> list[dict]:
         target["status"] = "superseded"
         target["supersededBy"] = fact_id
 
+    # Retirement confirm (stored-null): empty fact text means the writer
+    # confirmed that the target is no longer true, without activating a
+    # replacement. Proposal stays linked via supersedes for audit.
+    if target_id is not None and not fact.get("fact"):
+        fact["status"] = "rejected"
+        fact["provenance"] = "writer_confirmed"
+        return ledger
+
     fact["status"] = "active"
     fact["provenance"] = "writer_confirmed"
     return ledger
@@ -94,11 +106,8 @@ def edit_fact(
 ) -> list[dict]:
     """Edit text and/or knownBy; provenance becomes writer_authored.
 
-    # DESIGN-GAP(T5.1): data contract §4 only says edit flips provenance to
-    # writer_authored (status unchanged). Build-plan T5.1 accept requires
-    # pending_review → active after edit so the fact leaves the review queue
-    # as writer-authored. Activating pending_review on edit matches T5.1;
-    # already-active/superseded/etc. statuses are left alone.
+    pending_review → active on edit (data contract §4 / T5.1) so the fact
+    leaves the review queue as writer-authored. Other statuses are unchanged.
     """
     if fact_text is None and known_by is None:
         raise ValidationError("patch must include fact and/or knownBy")

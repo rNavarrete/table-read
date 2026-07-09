@@ -19,6 +19,11 @@ Policy (§5):
   - Each contradiction → a new `pending_review` fact with `supersedes` set to
     the existing fact's id; the existing fact keeps `status: active` and its
     `supersededBy` stays null until the writer confirms (§4). No overwrite.
+  - Only **active** facts may be supersede targets at mint time (non-active
+    targets are dropped — confirm-time `CONFLICT_STALE_PROPOSAL` remains).
+  - Null `proposedReplacement` → **stored-null**: proposal `fact` is `""`
+    (retirement marker). Confirm of an empty-fact supersede proposal retires
+    the target without activating a replacement (data contract §4).
 """
 
 from __future__ import annotations
@@ -157,14 +162,17 @@ def apply_extraction_policy(
         target = by_id.get(record["existingFactId"])
         if target is None:
             continue  # can't supersede a fact that isn't in the ledger
+        if target.get("status") != "active":
+            continue  # creation-time guard: only active targets
         proposal_id = minter.mint()
+        replacement = record["proposedReplacement"]
+        # Stored-null retirement marker: null proposedReplacement → empty fact.
+        # Confirm detects retirement via empty proposal.fact (not text-equality).
+        fact_text = "" if replacement is None else replacement
         proposals.append(
             {
                 "id": proposal_id,
-                # proposed replacement text when the model offered one; else the
-                # target's own text carried forward (the writer resolves via
-                # confirm/reject — the old fact is "no longer true" per §5).
-                "fact": record["proposedReplacement"] or target["fact"],
+                "fact": fact_text,
                 "factType": target["factType"],
                 "sourceSpan": {
                     **span_target,

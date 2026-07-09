@@ -33,14 +33,26 @@ def _snapshot_count(session) -> int:
     return session.query(SnapshotRow).filter_by(project_id=PROJECT_ID).count()
 
 
-def _insert_proposal(session, *, proposal_id: str, supersedes: str, status="pending_review"):
-    """Append a supersede proposal to the live ledger via the snapshot helper."""
+def _insert_proposal(
+    session,
+    *,
+    proposal_id: str,
+    supersedes: str,
+    status="pending_review",
+    fact: str | None = "Dan has been arrested.",
+):
+    """Append a supersede proposal to the live ledger via the snapshot helper.
+
+    ``fact=None`` / empty string mints a retirement proposal (null
+    proposedReplacement → stored-null empty fact text).
+    """
     target = _by_id(session)[supersedes]
+    fact_text = "" if fact is None else fact
 
     def add_proposal(state: MutationState) -> MutationState:
         proposal = {
             "id": proposal_id,
-            "fact": "Dan has been arrested.",
+            "fact": fact_text,
             "factType": target["factType"],
             "sourceSpan": {
                 "episodeId": "ep-1",
@@ -116,6 +128,88 @@ def test_confirm_supersede_proposal_flips_both_atomically(db_session, seeded_pro
     assert snap_by_id["fact-07"]["supersededBy"] == "fact-09"
 
 
+# ── confirm: null-replacement retirement (ruling 1 / stored-null) ────────────
+
+
+def test_confirm_null_replacement_supersedes_target_rejects_proposal(
+    db_session, seeded_project
+):
+    """Mint via proposedReplacement:null (empty fact) → confirm retires target.
+
+    Detection: stored-null (empty proposal.fact). Target → superseded +
+    supersededBy=proposal.id; proposal → rejected + writer_confirmed;
+    supersedes link kept; one mutate() snapshot.
+    """
+    from drama_manager import ledger_mutations, ledger_policy
+    from schemas import LedgerExtraction
+
+    # Mint through the real policy path (proposedReplacement: null).
+    target = _by_id(db_session)["fact-07"]
+    extraction = LedgerExtraction.model_validate(
+        {
+            "newFacts": [],
+            "contradictions": [
+                {
+                    "existingFactId": "fact-07",
+                    "explanation": "no longer true",
+                    "proposedReplacement": None,
+                }
+            ],
+        }
+    )
+    _nf, proposals, _c = ledger_policy.apply_extraction_policy(
+        extraction,
+        existing_ledger=_ledger(db_session),
+        accepted_beat={
+            "id": "beat-3-2",
+            "scriptText": "INT. BAR - DAY\n\nReyes snaps the cuffs on Dan.",
+        },
+        episode_id="ep-1",
+        scene_id="scene-3",
+    )
+    assert len(proposals) == 1
+    proposal = proposals[0]
+    assert proposal["fact"] == ""  # stored-null marker
+    assert proposal["supersedes"] == "fact-07"
+
+    def add_minted(state: MutationState) -> MutationState:
+        return MutationState(
+            doc=state.doc, ledger=[*state.ledger, proposal], flags=state.flags
+        )
+
+    before_snaps = _snapshot_count(db_session)
+    mutate(db_session, PROJECT_ID, "test: mint null-replacement", add_minted)
+
+    response = client.post(f"/api/v1/ledger/{proposal['id']}/confirm")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "rejected"
+    assert body["provenance"] == "writer_confirmed"
+    assert body["supersedes"] == "fact-07"
+    assert body["fact"] == ""
+
+    ledger = _by_id(db_session)
+    assert ledger[proposal["id"]]["status"] == "rejected"
+    assert ledger[proposal["id"]]["provenance"] == "writer_confirmed"
+    assert ledger["fact-07"]["status"] == "superseded"
+    assert ledger["fact-07"]["supersededBy"] == proposal["id"]
+    assert ledger["fact-07"]["fact"] == target["fact"]  # target text untouched
+    assert _snapshot_count(db_session) == before_snaps + 2  # mint + confirm
+
+    # Pure-unit pin: confirm_fact retirement branch (no HTTP).
+    unit_ledger = [
+        {**target, "status": "active", "supersededBy": None},
+        {**proposal, "status": "pending_review"},
+    ]
+    after = ledger_mutations.confirm_fact(unit_ledger, proposal["id"])
+    by_id = {f["id"]: f for f in after}
+    assert by_id[proposal["id"]]["status"] == "rejected"
+    assert by_id[proposal["id"]]["provenance"] == "writer_confirmed"
+    assert by_id["fact-07"]["status"] == "superseded"
+    assert by_id["fact-07"]["supersededBy"] == proposal["id"]
+
+
 # ── reject: supersede proposal leaves target untouched ───────────────────────
 
 
@@ -134,6 +228,18 @@ def test_reject_supersede_proposal_leaves_target_active(db_session, seeded_proje
     assert target == target_before  # untouched
     assert target["status"] == "active"
     assert target["supersededBy"] is None
+
+
+def test_reject_null_replacement_leaves_target_active(db_session, seeded_project):
+    """Normal reject of a retirement proposal: target stays active."""
+    _insert_proposal(db_session, proposal_id="fact-09", supersedes="fact-07", fact=None)
+    target_before = copy.deepcopy(_by_id(db_session)["fact-07"])
+
+    response = client.post("/api/v1/ledger/fact-09/reject")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "rejected"
+    assert _by_id(db_session)["fact-07"] == target_before
 
 
 def test_reject_plain_pending_review(db_session, seeded_project):
@@ -337,6 +443,31 @@ def test_batch_non_pending_id_fails_atomically_400(db_session, seeded_project):
 
     assert response.status_code == 400
     assert response.json()["error"]["code"] == "VALIDATION"
+    assert _by_id(db_session) == before
+    assert _snapshot_count(db_session) == before_snaps
+
+
+def test_batch_mid_batch_stale_target_fails_dry_run(db_session, seeded_project):
+    """Two proposals superseding the same active fact: confirming both fails
+    the whole batch (second confirm sees a stale target on the dry-run probe).
+    """
+    _insert_proposal(db_session, proposal_id="fact-09", supersedes="fact-07")
+    _insert_proposal(
+        db_session,
+        proposal_id="fact-10",
+        supersedes="fact-07",
+        fact="Alternate replacement.",
+    )
+    before = _by_id(db_session)
+    before_snaps = _snapshot_count(db_session)
+
+    response = client.post(
+        f"/api/v1/projects/{PROJECT_ID}/ledger/batch",
+        json={"confirmIds": ["fact-09", "fact-10"], "rejectIds": []},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "CONFLICT_STALE_PROPOSAL"
     assert _by_id(db_session) == before
     assert _snapshot_count(db_session) == before_snaps
 

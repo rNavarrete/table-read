@@ -304,6 +304,8 @@ Defined transactions:
 **Review mode**
 
 - `POST /projects/{pid}/change-sets` `{targetObjectId, instruction}` → `ChangeSet` (runs classify_blast_radius; annotates locks server-side)
+- `GET /projects/{pid}/change-sets?status=` → `ChangeSet[]` — list persisted Change Sets for the project (optional status filter). sessionStorage is cache only.
+- `GET /change-sets/{cid}` → `ChangeSet` — fetch one persisted Change Set by id.
 - `POST /change-sets/{cid}/preview` `{approvedObjectIds: []}` → `ChangeSet` — runs `regenerate_elements`, stores the result as the typed `preview` payload (`beatUpdates`/`sceneUpdates` with `basedOnSnapshotId` = current head), and renders `after` display snippets from it; does NOT mutate the project
 - `POST /change-sets/{cid}/apply` `{approvedObjectIds: []}` → `{project, changeSet, consistencyFlags}` — **applies the stored `preview` payload verbatim** (never reruns the model, never parses snippets), filtered to approved ids; snapshots, re-extracts ledger, runs `scan_consistency` over untouched scenes. 409s: any locked or `flag_only` id in the list; `preview` is null; `preview.basedOnSnapshotId` ≠ current head (`PREVIEW_STALE` — re-preview required)
 - `POST /change-sets/{cid}/discard` / `POST /change-sets/{cid}/flag`
@@ -312,7 +314,7 @@ Defined transactions:
 **Ledger mode**
 
 - `GET /projects/{pid}/ledger?status=&characterId=` → `LedgerFact[]`
-- `POST /ledger/{factId}/confirm` | `/reject` | `PATCH /ledger/{factId}` (edit text/knownBy → provenance becomes `writer_authored`)
+- `POST /ledger/{factId}/confirm` | `/reject` | `PATCH /ledger/{factId}` (edit text and/or knownBy → provenance becomes `writer_authored`; if the fact was `pending_review`, status also becomes `active` so it leaves the review queue)
 - `POST /projects/{pid}/ledger/batch` `{confirmIds: [], rejectIds: []}` → `{ledger}` — batch review (import queue); supersede-proposal semantics apply per id; **one snapshot for the whole batch**; any invalid id fails the entire batch (400, nothing applied)
 
 **Ledger mutations are versioned mutations.** Confirm, reject, edit, and batch all run the standard snapshot transaction (§3 — ledger is snapshot-versioned state), so every ledger action is undoable via `POST /undo` like any other change.
@@ -320,10 +322,12 @@ Defined transactions:
 **Supersede resolution semantics (atomic — one transaction each):**
 
 - `confirm` on a `pending_review` fact with `supersedes: null` → fact becomes `active` / `writer_confirmed`.
-- `confirm` on a `pending_review` fact with `supersedes: fact-X` → in the same transaction: proposal becomes `active` / `writer_confirmed`, **and fact-X becomes `status: superseded` with `supersededBy` set to the proposal's id**. Never one without the other.
-- `reject` on a supersede proposal → proposal becomes `rejected`, and fact-X's state is untouched (it never left `active`); the proposal's `supersedes` link is preserved for audit.
+- `confirm` on a `pending_review` fact with `supersedes: fact-X` and non-empty `fact` text → in the same transaction: proposal becomes `active` / `writer_confirmed`, **and fact-X becomes `status: superseded` with `supersededBy` set to the proposal's id**. Never one without the other.
+- **Retirement confirm (null `proposedReplacement`):** detection is **stored-null** — at mint time a null `proposedReplacement` is stored as empty proposal `fact` (`""`). `confirm` on such a proposal → in the same transaction: fact-X becomes `superseded` with `supersededBy` = proposal id; the proposal becomes `rejected` / `writer_confirmed` (not activated as a replacement); the `supersedes` link is preserved. Carry-forward-as-active of the target text is retired.
+- `reject` on a supersede proposal (including retirement proposals) → proposal becomes `rejected`, and fact-X's state is untouched (it never left `active`); the proposal's `supersedes` link is preserved for audit.
 - `confirm`/`reject` on a fact that is not `pending_review` → 409 `VALIDATION`.
 - If fact-X was itself superseded or deleted between proposal and confirm → 409 `CONFLICT_STALE_PROPOSAL`; the writer re-reviews.
+- Proposal minting only targets **active** facts; contradictions against non-active ids are dropped at creation time.
 
 **Misc**
 
