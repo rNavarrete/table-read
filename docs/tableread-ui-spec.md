@@ -52,7 +52,7 @@ Implements design doc §4. Light theme only in MVP (dark is v2, but every color 
 
 ## 2. App shell
 
-Top bar (56px, `--tr-surface-sunken`): project title (display font) · mode switcher (segmented control: **Write · Plan · Review · Ledger**) · undo · export · settings. Review segment shows an amber dot when a draft Change Set exists. Ledger segment shows amber count badge when the review queue is non-empty. Keyboard: `⌘1–4` switch modes.
+Top bar (56px, `--tr-surface-sunken`): project title (display font) · mode switcher (segmented control: **Write · Plan · Review · Ledger**) · undo · export · settings. Review segment shows an amber dot when a draft Change Set exists. Ledger segment shows amber count badge when the review queue is non-empty. Keyboard: `⌘1–4` switch modes. Settings opens a privacy panel stating writing is not used for training (prompt spec §8); do not claim ZDR in product copy.
 
 ## 3. Write mode
 

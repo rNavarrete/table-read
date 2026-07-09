@@ -6,8 +6,9 @@ sends exactly one `strict: true` tool and forces it via
 missing) tool_use response, retries **exactly once** with the validation
 error appended as an `is_error` tool_result, then raises
 `SchemaInvalidLlmError` -- never a fabricated fallback (CLAUDE.md hard rule
-9). Logs only op name, PROMPT_VERSION, model id, retry/failure flags, and
-token counts -- never prompt or response content (hard rule 5).
+9). Logs only op name, PROMPT_VERSION, model id, retry/failure flags,
+token counts, and a short sha256 hash of the user message
+(`input_hash=`) -- never prompt or response content (hard rule 5).
 
 This class takes its Anthropic SDK client via constructor injection and is
 never constructed here: the only sanctioned construction point is
@@ -19,6 +20,7 @@ never call the factory, so no test path can open a real socket.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 from collections.abc import Iterator
@@ -119,11 +121,12 @@ class AnthropicClient:
         *,
         retried: bool,
         failed: bool = False,
+        input_hash: str | None = None,
     ) -> None:
         usage = getattr(response, "usage", None)
         _logger.info(
             "llm_call op=%s prompt_version=%s model=%s retried=%s failed=%s "
-            "input_tokens=%s output_tokens=%s",
+            "input_tokens=%s output_tokens=%s input_hash=%s",
             op.name,
             prompt_version,
             model,
@@ -131,7 +134,13 @@ class AnthropicClient:
             failed,
             getattr(usage, "input_tokens", None),
             getattr(usage, "output_tokens", None),
+            input_hash,
         )
+
+    @staticmethod
+    def _input_hash(user_message: str) -> str:
+        """Short content hash for logs — never the message itself (hard rule 5)."""
+        return hashlib.sha256(user_message.encode()).hexdigest()[:16]
 
     def _call(
         self, op_name: str, *, system: str, user_message: str, prompt_version: str
@@ -139,6 +148,7 @@ class AnthropicClient:
         op = OP_REGISTRY[op_name]
         model = self._models[op.role]
         tool = self._tool_for(op)
+        input_hash = self._input_hash(user_message)
         messages: list[dict[str, Any]] = [{"role": "user", "content": user_message}]
         kwargs: dict[str, Any] = {
             "model": model,
@@ -164,10 +174,12 @@ class AnthropicClient:
         try:
             result = _validate_tool_response(response, op)
         except _RecoverableLlmError as first_error:
-            result = self._retry_once(op, kwargs, response, first_error, prompt_version, model)
+            result = self._retry_once(
+                op, kwargs, response, first_error, prompt_version, model, input_hash
+            )
             return result
 
-        self._log(op, prompt_version, model, response, retried=False)
+        self._log(op, prompt_version, model, response, retried=False, input_hash=input_hash)
         return result
 
     def _retry_once(
@@ -178,6 +190,7 @@ class AnthropicClient:
         first_error: _RecoverableLlmError,
         prompt_version: str,
         model: str,
+        input_hash: str,
     ) -> BaseModel:
         retry_messages = [
             *kwargs["messages"],
@@ -234,10 +247,20 @@ class AnthropicClient:
         try:
             result = _validate_tool_response(response2, op)
         except _RecoverableLlmError:
-            self._log(op, prompt_version, model, response2, retried=True, failed=True)
+            self._log(
+                op,
+                prompt_version,
+                model,
+                response2,
+                retried=True,
+                failed=True,
+                input_hash=input_hash,
+            )
             raise SchemaInvalidLlmError(op.name) from None
 
-        self._log(op, prompt_version, model, response2, retried=True)
+        self._log(
+            op, prompt_version, model, response2, retried=True, input_hash=input_hash
+        )
         return result
 
     def generate_beat_candidates(
@@ -284,6 +307,7 @@ class AnthropicClient:
         op = OP_REGISTRY[op_name]
         model = self._models[op.role]
         tool = {**self._tool_for(op), "eager_input_streaming": True}
+        input_hash = self._input_hash(user_message)
         kwargs: dict[str, Any] = {
             "model": model,
             "max_tokens": self._max_tokens,
@@ -315,12 +339,14 @@ class AnthropicClient:
             if close is not None:
                 close()
         _logger.info(
-            "llm_stream op=%s prompt_version=%s model=%s input_tokens=%s output_tokens=%s",
+            "llm_stream op=%s prompt_version=%s model=%s input_tokens=%s "
+            "output_tokens=%s input_hash=%s",
             op.name,
             prompt_version,
             model,
             getattr(usage, "input_tokens", None),
             getattr(usage, "output_tokens", None),
+            input_hash,
         )
 
     def tune_beat(self, *, system: str, user_message: str, prompt_version: str) -> BeatCandidate:

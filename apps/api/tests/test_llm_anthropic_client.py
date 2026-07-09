@@ -308,6 +308,7 @@ def test_log_line_carries_metadata_but_never_prompt_or_response_text(caplog):
     assert "writer-model-x" in message
     assert "100" in message  # input_tokens
     assert "50" in message  # output_tokens
+    assert "input_hash=" in message
     assert secret_user_message not in message
     assert "top secret system prompt" not in message
     assert "Marta" not in message

@@ -1,7 +1,8 @@
-import { useEffect, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { hasDraftChangeSet } from '../review/changeSetSession'
 import { ModeSwitcher, type Mode } from './ModeSwitcher'
 import { navigateToMode } from './modeNavigation'
+import { SettingsPanel } from './SettingsPanel'
 
 export interface AppShellProps {
   projectTitle: string
@@ -38,10 +39,8 @@ function useModeShortcuts() {
 
 /**
  * The app shell (UI spec §2): a 56px top bar (project title, mode switcher,
- * undo/export/settings) over the mode content. Undo/export/settings are
- * stubs — obligation 2 scopes this task to "the minimal shell this task
- * needs," and none of the three has a wired destination yet (undo has no UI
- * task of its own in the build plan; export/settings are later milestones).
+ * undo/export/settings) over the mode content. Undo/export remain stubs;
+ * Settings opens the privacy panel (T6.3).
  */
 export function AppShell({
   projectTitle,
@@ -51,6 +50,7 @@ export function AppShell({
   children,
 }: AppShellProps) {
   useModeShortcuts()
+  const [settingsOpen, setSettingsOpen] = useState(false)
   // Read session stash during render (no effect): create navigates away, and
   // Review mutations re-render this shell as the parent of ReviewScreen.
   const draftDot = projectId ? hasDraftChangeSet(projectId) : false
@@ -85,15 +85,16 @@ export function AppShell({
           </button>
           <button
             type="button"
-            disabled
-            title="Settings (not built yet)"
-            className="cursor-not-allowed"
+            title="Settings"
+            onClick={() => setSettingsOpen(true)}
+            className="text-tr-text-muted hover:text-tr-text-secondary"
           >
             Settings
           </button>
         </div>
       </header>
       <main>{children}</main>
+      <SettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </div>
   )
 }

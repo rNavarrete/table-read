@@ -8,7 +8,14 @@ restore), DELETE purge.
 from fastapi.testclient import TestClient
 
 from main import app
-from storage.models import ProjectRow, SnapshotRow
+from storage.models import (
+    ChangeSetRow,
+    ConsistencyFlagRow,
+    LedgerFactRow,
+    ProjectRow,
+    SnapshotRow,
+    SuggestionHistoryRow,
+)
 
 client = TestClient(app)
 
@@ -197,6 +204,57 @@ def test_delete_purges_project(db_session):
     assert client.get(f"/api/v1/projects/{pid}").status_code == 404
     assert db_session.query(ProjectRow).filter_by(id=pid).count() == 0
     assert db_session.query(SnapshotRow).filter_by(project_id=pid).count() == 0
+
+
+def test_delete_purges_all_six_tables_plus_embeddings(seeded_project, db_session):
+    """T6.3 / T1.1: HTTP DELETE must clear every project-scoped row across
+    all six tables plus suggestion_history embeddings (data contract §4)."""
+    # Populate the tables the fixture leaves empty so purge is proven against
+    # non-empty change_sets / consistency_flags / suggestion_history (embeddings).
+    db_session.add(
+        ChangeSetRow(id="cs-1", project_id=PROJECT_ID, doc={"id": "cs-1"}, status="draft")
+    )
+    db_session.add(
+        ConsistencyFlagRow(
+            id="flag-1",
+            project_id=PROJECT_ID,
+            object_type="scene",
+            object_id="scene-1",
+            fact_id=None,
+            explanation="x",
+            severity="tension",
+            status="open",
+            source_change="snap-root",
+        )
+    )
+    db_session.add(
+        SuggestionHistoryRow(
+            id="sug-1", project_id=PROJECT_ID, text="idea", embedding=[0.1, 0.2, 0.3]
+        )
+    )
+    db_session.commit()
+
+    # Precondition: every table has at least one row for this project.
+    assert db_session.query(ProjectRow).filter_by(id=PROJECT_ID).count() == 1
+    assert db_session.query(SnapshotRow).filter_by(project_id=PROJECT_ID).count() >= 1
+    assert db_session.query(LedgerFactRow).filter_by(project_id=PROJECT_ID).count() >= 1
+    assert db_session.query(ChangeSetRow).filter_by(project_id=PROJECT_ID).count() == 1
+    assert db_session.query(ConsistencyFlagRow).filter_by(project_id=PROJECT_ID).count() == 1
+    assert db_session.query(SuggestionHistoryRow).filter_by(project_id=PROJECT_ID).count() == 1
+
+    response = client.delete(f"/api/v1/projects/{PROJECT_ID}")
+    assert response.status_code == 204
+
+    assert client.get(f"/api/v1/projects/{PROJECT_ID}").status_code == 404
+    assert db_session.query(ProjectRow).filter_by(id=PROJECT_ID).count() == 0
+    for model in (
+        SnapshotRow,
+        LedgerFactRow,
+        ChangeSetRow,
+        ConsistencyFlagRow,
+        SuggestionHistoryRow,
+    ):
+        assert db_session.query(model).filter_by(project_id=PROJECT_ID).count() == 0
 
 
 def test_delete_missing_project_returns_404():
