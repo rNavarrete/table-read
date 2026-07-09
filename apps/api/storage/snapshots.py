@@ -31,7 +31,6 @@ import copy
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime
 
 from sqlalchemy.orm import Session
 
@@ -42,6 +41,7 @@ from storage.models import (
     ProjectRow,
     SnapshotRow,
     SuggestionHistoryRow,
+    _utcnow,
 )
 
 
@@ -210,15 +210,25 @@ def _flag_rows(session: Session, project_id: str) -> list[ConsistencyFlagRow]:
     return session.query(ConsistencyFlagRow).filter_by(project_id=project_id).all()
 
 
+# The rewrite deletes use synchronize_session="fetch" so any matching rows
+# still held in the session's (weak) identity map are evicted before rows with
+# the same primary keys are re-inserted. With =False, a mutation retaining
+# existing facts/flags emits SAWarning ("New instance conflicts with
+# persistent instance") whenever the loaded rows haven't been GC'd yet —
+# nondeterministic warning noise the test suite now escalates to errors.
+
+
 def _rewrite_ledger(session: Session, project_id: str, ledger: list[dict]) -> None:
-    session.query(LedgerFactRow).filter_by(project_id=project_id).delete(synchronize_session=False)
+    session.query(LedgerFactRow).filter_by(project_id=project_id).delete(
+        synchronize_session="fetch"
+    )
     for fact in ledger:
         session.add(LedgerFactRow.from_wire_dict(project_id, fact))
 
 
 def _rewrite_flags(session: Session, project_id: str, flags: list[dict]) -> None:
     session.query(ConsistencyFlagRow).filter_by(project_id=project_id).delete(
-        synchronize_session=False
+        synchronize_session="fetch"
     )
     for flag in flags:
         session.add(ConsistencyFlagRow.from_wire_dict(project_id, flag))
@@ -229,9 +239,7 @@ def _mint_id(prefix: str) -> str:
     return f"{prefix}-{uuid.uuid4().hex}"
 
 
-def _utcnow() -> datetime:
-    return datetime.now(UTC)
-
-
 def _utcnow_iso() -> str:
-    return _utcnow().isoformat().replace("+00:00", "Z")
+    # _utcnow (storage/models.py) is naive UTC by repo convention; the "Z"
+    # suffix makes the snapshot `ts` string explicit UTC, matching the fixture.
+    return _utcnow().isoformat() + "Z"

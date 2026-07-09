@@ -75,17 +75,12 @@ def test_create_project_creates_project_and_root_snapshot(db_session):
 
 
 def test_mutate_creates_snapshot_and_bumps_head(db_session, seeded_project):
-    # Read updated_at from the DB (naive, SQLite round-trip) both times so the
-    # before/after comparison is apples-to-apples — the point is that the
-    # transaction bumps it.
-    db_session.expire_all()
     project = db_session.get(ProjectRow, PROJECT_ID)
     old_head = project.head_snapshot_id
-    old_updated = project.updated_at
+    old_updated = project.updated_at  # naive UTC everywhere (repo convention)
 
     snap = snapshots.mutate(db_session, PROJECT_ID, "Direct edit", _retitle("New Title"))
 
-    db_session.expire_all()
     project = db_session.get(ProjectRow, PROJECT_ID)
     assert snap.parent_id == old_head
     assert project.head_snapshot_id == snap.id
@@ -95,6 +90,21 @@ def test_mutate_creates_snapshot_and_bumps_head(db_session, seeded_project):
     assert project.doc["headSnapshotId"] == snap.id
     assert project.updated_at >= old_updated
     assert _snapshot_count(db_session) == 2  # root + this mutation
+
+
+def test_mutate_with_held_row_refs_emits_no_sawarning(db_session, seeded_project):
+    """Regression: rewriting retained facts must not warn about identity-map
+    conflicts. SQLAlchemy's identity map is weak-referencing, so the SAWarning
+    ("New instance conflicts with persistent instance") only fired when loaded
+    rows happened to survive until flush — hold strong refs here to make the
+    failure deterministic. (SAWarning is escalated to an error suite-wide via
+    filterwarnings in pyproject.toml.)"""
+    held_rows = db_session.query(LedgerFactRow).filter_by(project_id=PROJECT_ID).all()
+    assert held_rows  # fixture has facts to retain through the rewrite
+
+    snap = snapshots.mutate(db_session, PROJECT_ID, "Direct edit", _retitle("Held Refs"))
+    assert snap.doc["title"] == "Held Refs"
+    assert len(snap.ledger) == len(held_rows)  # all facts retained
 
 
 def test_mutate_rewrites_ledger_to_new_state(db_session, seeded_project):

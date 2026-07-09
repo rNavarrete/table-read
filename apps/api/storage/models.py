@@ -22,7 +22,14 @@ from storage.db import Base
 
 
 def _utcnow() -> datetime:
-    return datetime.now(UTC)
+    """Naive UTC — the repo-wide DB timestamp convention (controller ruling, T1.1).
+
+    SQLite round-trips datetimes as naive, so storing tz-aware values creates a
+    mixed world where fresh in-memory and DB-read timestamps can't be compared
+    (TypeError). All DB timestamps are naive UTC; shared by these column
+    defaults and the snapshot write-path (storage/snapshots.py).
+    """
+    return datetime.now(UTC).replace(tzinfo=None)
 
 
 class ProjectRow(Base):

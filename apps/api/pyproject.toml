@@ -8,3 +8,6 @@ select = ["E", "F", "I", "UP"]
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
+# SQLAlchemy warnings (e.g. identity-map conflicts in the snapshot write-path)
+# are bugs, not noise — fail the suite on them (controller ruling, T1.1).
+filterwarnings = ["error::sqlalchemy.exc.SAWarning"]
