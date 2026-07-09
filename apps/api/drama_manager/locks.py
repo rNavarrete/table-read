@@ -39,9 +39,14 @@ Two changes are **exempt** even on a locked object, because they are not the
   - the lock fields themselves (`locked`, `scriptLocked`) — unlocking is the
     writer's own pin, and the T3.1 lock toggle unlocks *via PATCH*; the guard
     must never block that (§4; UI spec §3 "locks are the writer's own pins");
-  - `index` — structural position, not content: reindexing siblings around a
-    locked beat is allowed (T2.2 ruling; test plan line 19 "insertion before/
-    after succeeds"), so a locked beat's `index` may shift.
+  - `index` on a locked *beat* whose parent scene is **unlocked** — structural
+    position among siblings, not content: reindexing around a locked beat after
+    an insert in an unlocked scene is allowed (T2.2 ruling; test plan line 19
+    "insertion before/after succeeds").
+**Not exempt:** reordering (child ORDER) of beats **inside a locked scene**
+(or scenes inside a locked episode) — the container's child order is frozen
+(ruling 2). Locked-scene drag-among-scenes (scene `index` among episode
+siblings) stays allowed server-side for MVP.
 Inserting a beat *around* a locked beat in an *unlocked* scene is therefore
 allowed (the scene isn't a locked container; the locked beat's content is
 preserved, only its `index` moves). Undo is exempt: it does not route through
@@ -73,9 +78,10 @@ class LockViolation(Exception):
 
 
 # The beat fields that constitute *content* for the lock byte-identity
-# guarantee. ``index`` is deliberately excluded: it is structural position, not
-# content, so reindexing siblings around a locked beat is allowed (data contract
-# §1 leaves `index` outside the lock's scope; see the T2.2 report).
+# guarantee. ``index`` is deliberately excluded from beat content: it is
+# structural position. A locked beat in an *unlocked* scene may still shift
+# index (sibling reindex). Child ORDER inside a *locked* scene is checked
+# separately in ``assert_no_locked_writes`` (ruling 2).
 _BEAT_CONTENT_FIELDS = (
     "id",
     "locked",
@@ -233,7 +239,8 @@ def insert_beat(
 
 # Fields a locked object may still have changed by a write (see "Write-side
 # lock rule"): its own lock pins (unlocking is the writer's gesture) and its
-# `index` (structural position, not content — T2.2 ruling).
+# `index` when the parent container is unlocked (sibling reindex — T2.2).
+# Child ORDER inside a locked container is NOT exempt (ruling 2).
 _EXEMPT_ON_LOCKED = frozenset(("locked", "scriptLocked", "index"))
 
 
@@ -242,6 +249,12 @@ def _content_projection(obj: dict, *, children_key: str | None) -> dict:
     `index`, and the child collection (children are checked object-by-object)."""
     skip = _EXEMPT_ON_LOCKED | ({children_key} if children_key else frozenset())
     return {k: v for k, v in obj.items() if k not in skip}
+
+
+def _child_order(children: list[dict]) -> list[str]:
+    """Stable child id sequence (array order). Used to freeze order inside
+    locked containers without blocking sibling reindex in unlocked ones."""
+    return [c["id"] for c in children]
 
 
 def assert_no_locked_writes(old_doc: dict, new_doc: dict) -> None:
@@ -253,8 +266,10 @@ def assert_no_locked_writes(old_doc: dict, new_doc: dict) -> None:
     a whole-subtree replace) — only whether locked material survived byte-
     identical, so no write path can slip a locked edit past it.
 
-    The lock/`scriptLocked`/`index` exemptions keep the writer's own unlock
-    (T3.1 toggle) and sibling reindexing working (test plan line 19)."""
+    The lock/`scriptLocked` exemptions keep the writer's own unlock (T3.1
+    toggle) working. ``index`` on locked beats remains exempt so sibling
+    reindex in unlocked scenes works (test plan line 19); child ORDER inside
+    a locked scene/episode is blocked (ruling 2)."""
     new_beats = {b["id"]: b for _e, _s, b in _iter_beats(new_doc)}
     new_scenes = {s["id"]: s for _e, s in _iter_scenes(new_doc)}
     new_episodes = {e["id"]: e for e in _iter_episodes(new_doc)}
@@ -280,10 +295,14 @@ def assert_no_locked_writes(old_doc: dict, new_doc: dict) -> None:
             after, children_key="beats"
         ):
             raise LockViolation(f"cannot edit the content of locked scene {scene['id']!r}")
-        if {b["id"] for b in scene.get("beats", [])} != {
-            b["id"] for b in after.get("beats", [])
-        }:
+        old_beats = scene.get("beats", [])
+        new_beat_list = after.get("beats", [])
+        if {b["id"] for b in old_beats} != {b["id"] for b in new_beat_list}:
             raise LockViolation(f"cannot add or remove beats in locked scene {scene['id']!r}")
+        if _child_order(old_beats) != _child_order(new_beat_list):
+            raise LockViolation(
+                f"cannot reorder beats in locked scene {scene['id']!r}"
+            )
 
     for episode in _iter_episodes(old_doc):
         if not episode.get("locked"):
@@ -295,11 +314,15 @@ def assert_no_locked_writes(old_doc: dict, new_doc: dict) -> None:
             after, children_key="scenes"
         ):
             raise LockViolation(f"cannot edit the content of locked episode {episode['id']!r}")
-        if {s["id"] for s in episode.get("scenes", [])} != {
-            s["id"] for s in after.get("scenes", [])
-        }:
+        old_scenes = episode.get("scenes", [])
+        new_scene_list = after.get("scenes", [])
+        if {s["id"] for s in old_scenes} != {s["id"] for s in new_scene_list}:
             raise LockViolation(
                 f"cannot add or remove scenes in locked episode {episode['id']!r}"
+            )
+        if _child_order(old_scenes) != _child_order(new_scene_list):
+            raise LockViolation(
+                f"cannot reorder scenes in locked episode {episode['id']!r}"
             )
 
 

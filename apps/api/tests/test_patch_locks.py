@@ -111,14 +111,49 @@ def test_scene_lock_flip_succeeds(seeded_project):
 
 
 def test_reindexing_a_locked_beat_is_allowed(seeded_project):
-    # `index` is position, not content (T2.2 ruling) — a locked beat may be
-    # reindexed even though its plan/script cannot be touched.
+    # `index` is position, not content — a locked beat in an *unlocked* scene
+    # may be reindexed (sibling reindex after insert; ruling 2). Reordering
+    # beats *inside* a locked scene is blocked separately.
     resp = _patch([{"op": "replace", "path": f"{BEAT_1_2}/index", "value": 5}])
     assert resp.status_code == 200
     beat = client.get(f"/api/v1/projects/{PROJECT_ID}").json()["seasons"][0]["episodes"][0][
         "scenes"
     ][0]["beats"][1]
     assert beat["index"] == 5
+
+
+def test_reordering_beats_inside_locked_scene_returns_409(seeded_project, db_session):
+    """Adversarial: permute beats of locked scene-1 → 409 LOCKED_OBJECT."""
+    import copy
+
+    from storage.models import ProjectRow
+
+    project = db_session.get(ProjectRow, PROJECT_ID)
+    doc = copy.deepcopy(project.doc)
+    doc["seasons"][0]["episodes"][0]["scenes"][0]["locked"] = True
+    project.doc = doc
+    db_session.commit()
+
+    before_snaps = _snap_count(db_session)
+    # Replace the beats array with a reversed order (same ids, different order).
+    beats_path = f"{SCENE_1}/beats"
+    current = client.get(f"/api/v1/projects/{PROJECT_ID}").json()["seasons"][0][
+        "episodes"
+    ][0]["scenes"][0]["beats"]
+    reversed_beats = []
+    for i, beat in enumerate(reversed(current)):
+        b = {**beat, "index": i}
+        reversed_beats.append(b)
+
+    resp = _patch([{"op": "replace", "path": beats_path, "value": reversed_beats}])
+    assert resp.status_code == 409
+    assert resp.json()["error"]["code"] == "LOCKED_OBJECT"
+    assert _snap_count(db_session) == before_snaps
+
+    after = client.get(f"/api/v1/projects/{PROJECT_ID}").json()["seasons"][0][
+        "episodes"
+    ][0]["scenes"][0]["beats"]
+    assert [b["id"] for b in after] == [b["id"] for b in current]
 
 
 def test_inserting_a_beat_after_a_locked_beat_succeeds(seeded_project):

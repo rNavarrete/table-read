@@ -121,6 +121,34 @@ def test_no_locked_writes_rejects_adding_a_beat_to_a_locked_scene():
         pass
 
 
+def test_no_locked_writes_rejects_reordering_beats_inside_locked_scene():
+    """Child ORDER check: permuting beats of a locked scene is LOCKED_OBJECT
+    (ruling 2). Id-set unchanged; only order/index differs."""
+    doc = _doc()
+    doc["seasons"][0]["episodes"][0]["scenes"][0]["locked"] = True  # lock scene-1
+    new = copy.deepcopy(doc)
+    scene = new["seasons"][0]["episodes"][0]["scenes"][0]
+    scene["beats"] = list(reversed(scene["beats"]))
+    for i, beat in enumerate(scene["beats"]):
+        beat["index"] = i
+    try:
+        locks.assert_no_locked_writes(doc, new)
+        raise AssertionError("expected LockViolation")
+    except locks.LockViolation:
+        pass
+
+
+def test_no_locked_writes_allows_reordering_beats_in_unlocked_scene():
+    """Sibling reindex / reorder in an unlocked scene stays allowed."""
+    doc = _doc()
+    new = copy.deepcopy(doc)
+    scene = new["seasons"][0]["episodes"][0]["scenes"][0]  # scene-1 unlocked
+    scene["beats"] = list(reversed(scene["beats"]))
+    for i, beat in enumerate(scene["beats"]):
+        beat["index"] = i
+    locks.assert_no_locked_writes(doc, new)  # no raise
+
+
 # ── import guard: assert_import_target_writable (unit) ────────────────────────
 
 
