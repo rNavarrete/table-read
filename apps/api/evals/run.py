@@ -70,6 +70,13 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
             "are git-ignored, and must never be committed or logged (test plan §3)."
         ),
     )
+    parser.add_argument(
+        "--calibrate-only",
+        action="store_true",
+        help="Grader discipline check: run the continuity judge on its calibration "
+        "cases and report per-case pass/fail (ids/booleans only), then exit. Cheap "
+        "gate verification without paying for a full continuity run.",
+    )
     args = parser.parse_args(argv)
     if args.runs is not None and args.runs < 1:
         parser.error(f"--runs must be >= 1 (got {args.runs}); scores divide by the run count")
@@ -112,6 +119,32 @@ def main(argv: list[str] | None = None) -> int:
         client, judge = MockLlmClient(), MockJudge()
     else:
         client, judge = _build_real_clients()
+
+    if args.calibrate_only:
+        from evals.graders import (
+            CALIBRATION_CASES,
+            CONTINUITY_FACT_IDS,
+            GRADER_VERSION,
+            GraderError,
+        )
+        from evals.probes import load_fixture_ctx
+
+        ledger = load_fixture_ctx().ledger
+        facts = [f for f in ledger if f.get("id") in CONTINUITY_FACT_IDS]
+        print(f"grader calibration: GRADER_VERSION={GRADER_VERSION} "
+              f"mode={'dry-run' if args.dry_run else 'real'}")
+        ok = True
+        for i, (_text, expected) in enumerate(CALIBRATION_CASES, start=1):
+            try:
+                actual = judge.grade(script_text=_text, facts=facts).passes
+            except GraderError:
+                actual = None
+            match = actual == expected
+            ok = ok and match
+            print(f"  case {i}: expected={expected} actual={actual} "
+                  f"{'OK' if match else 'MISMATCH'}")
+        print(f"calibrated={'true' if ok else 'false'}")
+        return 0 if ok else 1
 
     capture = None
     if args.capture is not None:

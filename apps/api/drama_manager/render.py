@@ -25,13 +25,15 @@ import secrets
 from typing import Any
 
 # Prompt spec §8 / hard rule 7: every template carries a PROMPT_VERSION (semver);
-# it is logged with each call and bumped on any template change. Bumped to 0.5.0
-# in T4.2: added the `regenerate_elements` builder (§4 — REGENERATE ids +
-# APPROVED EDIT + locked siblings + neighbor scene summaries). A prompt change
-# requires `make evals` sign-off before merge (CLAUDE.md rule 7). History:
-# 0.4.0 added classify_blast_radius; 0.3.0 added tune_beat; 0.2.0 added the
-# candidate builder and completed the §0 shared system prompt.
-PROMPT_VERSION = "0.5.0"
+# it is logged with each call and bumped on any template change. Bumped to 0.6.0
+# in T6.1: added the candidate-template continuity constraint (_CONTINUITY_
+# CONSTRAINT) — an explicit knownBy/dramatic-irony framing over the
+# continuity_facts block, to stop candidates telegraphing knowledge a fact
+# withholds (the T6.1 continuity-adherence failures). A prompt change requires
+# `make evals` sign-off before merge (CLAUDE.md rule 7). History: 0.5.0 added the
+# `regenerate_elements` builder; 0.4.0 added classify_blast_radius; 0.3.0 added
+# tune_beat; 0.2.0 added the candidate builder and the §0 shared system prompt.
+PROMPT_VERSION = "0.6.0"
 
 
 def new_nonce() -> str:
@@ -159,6 +161,26 @@ def build_scan_prompt(
     return build_system_prompt(project, nonce), user
 
 
+# Candidate-template continuity constraint (prompt spec §1: the continuity_facts
+# block is labeled "must hold"; §0's HARD RULES already forbid contradicting a
+# fact). This line reinforces the knownBy dimension the facts already carry — the
+# T6.1 continuity failures were candidates where Marta *telegraphed* knowledge
+# fact-04 withholds from Dan, collapsing the intended dramatic irony. It is
+# framing, not source data (rendered outside <source_data>, per §8b), and keeps
+# §1's escape hatch: an overriding WRITER INSTRUCTION still produces a beat with
+# the conflict reported in continuityConflicts.
+_CONTINUITY_CONSTRAINT = (
+    "CONTINUITY (must hold): Treat every fact in the continuity_facts block above "
+    "as established and inviolable, and honor each fact's knownBy. A character may "
+    "quietly act on what they already know, but must NOT reveal, confess, or "
+    "otherwise cause another character to learn something a fact places outside "
+    "that character's knowledge — preserve the audience/character knowledge gap "
+    "(dramatic irony) rather than resolving it. Only if the WRITER INSTRUCTION "
+    "below explicitly forces a contradiction do you still write the beat and record "
+    "each violated fact in continuityConflicts; never silently break a fact."
+)
+
+
 def build_candidate_prompt(
     project: dict,
     *,
@@ -194,6 +216,7 @@ def build_candidate_prompt(
             series, characters, episode, scene_plan,
             continuity_facts, locked_beats, previous_script, next_beat_plan, nonce,
         )
+        + "\n" + _CONTINUITY_CONSTRAINT
         + f"\nWRITER INSTRUCTION (may be empty): {instruction}"
         + f"\nAVOID (prior candidates this round): {avoid_lines}"
         + "\nWrite the next beat."

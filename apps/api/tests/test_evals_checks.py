@@ -222,7 +222,7 @@ def test_run_suite_dry_run_end_to_end_and_rule5_clean(session_factory, tmp_path)
     # fragment set) must also pass on a real suite report.
     report.write(tmp_path)
     # And it must carry the version + model ids that gate a prompt bump.
-    assert "0.5.0" in report.to_json()
+    assert "0.6.0" in report.to_json()
 
 
 # ── cost visibility + CLI guards (review fixes 1 & 3) ──────────────────────────
@@ -288,6 +288,19 @@ def test_cli_rejects_unknown_only():
     with pytest.raises(SystemExit) as excinfo:
         run_module._parse_args(["--only", "bogus"])
     assert excinfo.value.code == 2
+
+
+def test_cli_calibrate_only_dry_run_passes(capsys):
+    """--calibrate-only is the cheap grader-discipline gate check: in dry-run
+    (MockJudge scores every calibration case correctly) it exits 0 and never
+    runs the suite."""
+    from evals import run as run_module
+
+    rc = run_module.main(["--dry-run", "--calibrate-only"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "calibrated=true" in out
+    assert "continuity-adherence" not in out  # suite did not run
 
 
 def test_run_suite_only_runs_single_eval(session_factory):
