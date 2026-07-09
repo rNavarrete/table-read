@@ -143,9 +143,7 @@ export function WriteScreen() {
       {llmUnavailableAccept && (
         <Toast
           tone="danger"
-          onDismiss={() =>
-            accept.dismissError(Number(llmUnavailableAccept[0]))
-          }
+          onDismiss={() => accept.dismissError(Number(llmUnavailableAccept[0]))}
         >
           {llmUnavailableMessage}
         </Toast>

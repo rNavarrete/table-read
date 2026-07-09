@@ -94,7 +94,10 @@ export function AppShell({
         </div>
       </header>
       <main>{children}</main>
-      <SettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <SettingsPanel
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+      />
     </div>
   )
 }

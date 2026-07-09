@@ -26,7 +26,9 @@ describe('SettingsPanel', () => {
   })
 
   it('renders nothing when closed', () => {
-    const { container } = render(<SettingsPanel open={false} onClose={() => {}} />)
+    const { container } = render(
+      <SettingsPanel open={false} onClose={() => {}} />,
+    )
     expect(container.firstChild).toBeNull()
   })
 })
