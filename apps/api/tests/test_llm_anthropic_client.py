@@ -266,6 +266,99 @@ def test_all_eight_ops_are_callable_against_the_fake_sdk():
         assert isinstance(result, op.model)
 
 
+# ---------------------------------------------------------------------------
+# Streaming path (prompt spec §8a). The fake sdk yields raw streaming events;
+# the client forwards `input_json_delta` fragments and never touches the
+# network (hard rule 1).
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class FakeInputJsonDelta:
+    partial_json: str
+    type: str = "input_json_delta"
+
+
+@dataclass
+class FakeContentBlockDelta:
+    delta: FakeInputJsonDelta
+    type: str = "content_block_delta"
+
+
+@dataclass
+class FakeMessageStart:
+    message: FakeMessage
+    type: str = "message_start"
+
+
+@dataclass
+class FakeMessageDelta:
+    usage: FakeUsage
+    type: str = "message_delta"
+
+
+class FakeStreamingEndpoint:
+    def __init__(self, events: list[Any]) -> None:
+        self._events = events
+        self.calls: list[dict[str, Any]] = []
+
+    def create(self, **kwargs: Any):
+        self.calls.append(kwargs)
+        assert kwargs.get("stream") is True
+        return iter(self._events)
+
+
+class FakeStreamingSdk:
+    def __init__(self, events: list[Any]) -> None:
+        self.messages = FakeStreamingEndpoint(events)
+
+
+def test_stream_beat_candidate_forwards_only_input_json_delta_fragments():
+    events = [
+        FakeMessageStart(message=FakeMessage(usage=FakeUsage(input_tokens=42, output_tokens=0))),
+        FakeContentBlockDelta(delta=FakeInputJsonDelta('{"label":"x",')),
+        FakeContentBlockDelta(delta=FakeInputJsonDelta('"scriptText":"hi"}')),
+        FakeMessageDelta(usage=FakeUsage(input_tokens=42, output_tokens=17)),
+    ]
+    sdk = FakeStreamingSdk(events)
+    client = AnthropicClient(sdk_client=sdk, models=_MODELS)
+
+    frags = list(
+        client.stream_beat_candidate(system="sys", user_message="hi", prompt_version="0.1.0")
+    )
+    assert frags == ['{"label":"x",', '"scriptText":"hi"}']
+
+    call = sdk.messages.calls[0]
+    assert call["model"] == "writer-model-x"
+    assert call["stream"] is True
+    assert call["tool_choice"] == {"type": "tool", "name": "generate_beat_candidates"}
+    # fine-grained tool streaming enabled on the tool
+    assert call["tools"][0]["eager_input_streaming"] is True
+
+
+def test_stream_beat_candidate_logs_metadata_never_content(caplog):
+    secret = '{"scriptText":"Marta confesses she embezzled the money"}'
+    events = [
+        FakeMessageStart(message=FakeMessage(usage=FakeUsage(input_tokens=99, output_tokens=0))),
+        FakeContentBlockDelta(delta=FakeInputJsonDelta(secret)),
+        FakeMessageDelta(usage=FakeUsage(input_tokens=99, output_tokens=8)),
+    ]
+    client = AnthropicClient(sdk_client=FakeStreamingSdk(events), models=_MODELS)
+
+    with caplog.at_level(logging.INFO, logger="llm.anthropic_client"):
+        list(
+            client.stream_beat_candidate(
+                system="top secret", user_message="secret", prompt_version="7.2.1"
+            )
+        )
+
+    assert len(caplog.records) == 1
+    message = caplog.records[0].getMessage()
+    assert "generate_beat_candidates" in message and "7.2.1" in message
+    assert "writer-model-x" in message and "99" in message
+    assert "Marta" not in message and "top secret" not in message
+
+
 def _fixture_valid_input_for(op_name: str) -> dict:
     return {
         "generate_beat_candidates": _VALID_BEAT_CANDIDATE_INPUT,

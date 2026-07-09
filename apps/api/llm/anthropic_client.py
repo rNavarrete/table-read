@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -227,6 +228,54 @@ class AnthropicClient:
             system=system,
             user_message=user_message,
             prompt_version=prompt_version,
+        )
+
+    def stream_beat_candidate(
+        self, *, system: str, user_message: str, prompt_version: str
+    ) -> Iterator[str]:
+        """Stream `generate_beat_candidates` tool input as raw JSON fragments
+        (prompt spec §8a). Fine-grained tool streaming is enabled with
+        `eager_input_streaming` on the tool (the successor to the
+        `fine-grained-tool-streaming-2025-05-14` beta, GA on the writer tier),
+        so `input_json_delta` chunks arrive as generated. Callers own parsing,
+        validation, and delta extraction; this method only forwards fragments.
+
+        Never validates and never fabricates a fallback (hard rule 9 lives in
+        the non-streaming retry path); a schema-invalid stream surfaces when the
+        caller validates the complete tool input. Logs metadata only once the
+        stream ends (op, PROMPT_VERSION, model, token counts) — never content
+        (hard rule 5). Transport/availability errors propagate unwrapped for the
+        stream orchestrator to map to LLM_UNAVAILABLE (errors.py deferral)."""
+        op = OP_REGISTRY["generate_beat_candidates"]
+        model = self._models[op.role]
+        tool = {**self._tool_for(op), "eager_input_streaming": True}
+        kwargs: dict[str, Any] = {
+            "model": model,
+            "max_tokens": self._max_tokens,
+            "system": system,
+            "tools": [tool],
+            "tool_choice": {"type": "tool", "name": op.name},
+            "messages": [{"role": "user", "content": user_message}],
+            "stream": True,
+        }
+        usage: Any = None
+        for event in self._sdk.messages.create(**kwargs):
+            etype = getattr(event, "type", None)
+            if etype == "content_block_delta":
+                delta = getattr(event, "delta", None)
+                if getattr(delta, "type", None) == "input_json_delta":
+                    yield getattr(delta, "partial_json", "")
+            elif etype == "message_start":
+                usage = getattr(getattr(event, "message", None), "usage", None) or usage
+            elif etype == "message_delta":
+                usage = getattr(event, "usage", None) or usage
+        _logger.info(
+            "llm_stream op=%s prompt_version=%s model=%s input_tokens=%s output_tokens=%s",
+            op.name,
+            prompt_version,
+            model,
+            getattr(usage, "input_tokens", None),
+            getattr(usage, "output_tokens", None),
         )
 
     def tune_beat(self, *, system: str, user_message: str, prompt_version: str) -> BeatCandidate:

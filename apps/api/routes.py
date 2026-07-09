@@ -16,10 +16,11 @@ from __future__ import annotations
 
 import anthropic
 from fastapi import APIRouter, Body, Depends, Query, Response
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import PlainTextResponse, StreamingResponse
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
+from drama_manager import candidates
 from errors import ApiError
 from fountain.export import to_fountain
 from fountain.parse import CoverageError
@@ -177,6 +178,51 @@ def import_script(
         # errors.py: mapping SDK transport failures to LLM_UNAVAILABLE is the
         # route layer's job. Log the type only, never prompt/response content.
         raise ApiError(503, "LLM_UNAVAILABLE", "the language model is unavailable") from exc
+
+
+@router.post("/{pid}/scenes/{sid}/candidates")
+def generate_candidates(
+    pid: str,
+    sid: str,
+    after_beat_id: str | None = Body(default=None, alias="afterBeatId"),
+    instruction: str | None = Body(default=None),
+    session: Session = Depends(get_session),
+    llm: LlmClient = Depends(get_llm_client),
+) -> StreamingResponse:
+    """Write-mode candidate generation (data contract §4): streams
+    `candidate_start`/`delta`/`candidate_done`|`candidate_failed` ×3, then
+    `done`. Read-only w.r.t. the doc — generation persists nothing until Accept
+    (T2.2). This POST *is* the explicit writer gesture (design doc §4.3 /
+    CLAUDE.md rule 8): no polling, no proactive generation.
+
+    Target ids are validated before the stream opens so bad ids are HTTP errors,
+    not mid-stream SSE surprises; once streaming, every failure is SSE-shaped
+    (candidate_failed). Doc + ledger are materialized here so the stream
+    generator never touches the DB session after this handler returns."""
+    project = _get_project_or_404(session, pid)
+    doc = project.doc
+    try:
+        candidates.validate_target(doc, sid, after_beat_id)
+    except candidates.SceneNotFound as exc:
+        raise ApiError(404, "NOT_FOUND", f"scene {sid!r} not found") from exc
+    except candidates.BeatNotFound as exc:
+        raise ApiError(
+            400, "VALIDATION", f"afterBeatId {after_beat_id!r} is not a beat of scene {sid!r}"
+        ) from exc
+
+    ledger = [
+        row.to_wire_dict()
+        for row in session.query(LedgerFactRow).filter_by(project_id=pid).all()
+    ]
+    events = candidates.generate_candidate_events(
+        llm,
+        doc,
+        ledger,
+        scene_id=sid,
+        after_beat_id=after_beat_id,
+        instruction=instruction or "",
+    )
+    return StreamingResponse(candidates.to_sse(events), media_type="text/event-stream")
 
 
 @router.post("/{pid}/undo", response_model=Project)

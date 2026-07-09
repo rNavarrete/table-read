@@ -15,6 +15,8 @@ scenario call `set_response(op, value)` to override the default for that op.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+
 from pydantic import BaseModel
 
 from llm.ops import OP_REGISTRY
@@ -162,6 +164,12 @@ class MockLlmClient:
         # the next queued response, falling back to the single default when the
         # queue is empty. Left empty, the mock behaves exactly as before.
         self._queues: dict[str, list[BaseModel]] = {}
+        # Per-call raw-fragment streams for stream_beat_candidate (§8a harness):
+        # each entry is the exact list of raw tool-input JSON fragments one
+        # streamed call should yield, so tests can force mid-escape splits,
+        # out-of-order fields, or missing scriptText. Empty → the streaming
+        # method serializes the normal generate_beat_candidates response.
+        self._candidate_streams: list[list[str]] = []
         assert self._responses.keys() == OP_REGISTRY.keys(), (
             "MockLlmClient default responses must cover every op in OP_REGISTRY"
         )
@@ -186,6 +194,14 @@ class MockLlmClient:
             return queue.pop(0)
         return self._responses[op]
 
+    def set_candidate_streams(self, streams: list[list[str]]) -> None:
+        """Queue raw-fragment streams for `stream_beat_candidate`, one list of
+        fragments per streamed call, returned in order. For §8a streaming-
+        contract tests (mid-escape splits, late/absent scriptText). When unset,
+        the streamed value is derived from the normal generate_beat_candidates
+        response (default or `set_responses` queue)."""
+        self._candidate_streams = [list(frags) for frags in streams]
+
     def generate_beat_candidates(
         self, *, system: str, user_message: str, prompt_version: str
     ) -> BeatCandidate:
@@ -195,6 +211,24 @@ class MockLlmClient:
             user_message=user_message,
             prompt_version=prompt_version,
         )
+
+    def stream_beat_candidate(
+        self, *, system: str, user_message: str, prompt_version: str
+    ) -> Iterator[str]:
+        if self._candidate_streams:
+            yield from self._candidate_streams.pop(0)
+            return
+        candidate = self._call(
+            "generate_beat_candidates",
+            system=system,
+            user_message=user_message,
+            prompt_version=prompt_version,
+        )
+        # Serialize the canned candidate to its camelCase wire JSON as a single
+        # fragment; the caller's incremental parser handles it identically to a
+        # multi-fragment stream. Distinct `set_responses` entries → distinct
+        # streamed cards (diversity).
+        yield candidate.model_dump_json(by_alias=True)
 
     def tune_beat(self, *, system: str, user_message: str, prompt_version: str) -> BeatCandidate:
         return self._call(

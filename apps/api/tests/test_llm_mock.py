@@ -73,6 +73,43 @@ def test_set_responses_rejects_unknown_op():
         client.set_responses("not_a_real_op", [])
 
 
+def test_stream_beat_candidate_default_serializes_generate_response():
+    client = MockLlmClient()
+    default = client.generate_beat_candidates(**_CALL_KWARGS)
+    frags = list(client.stream_beat_candidate(**_CALL_KWARGS))
+    assert BeatCandidate.model_validate_json("".join(frags)) == default
+
+
+def test_stream_beat_candidate_follows_generate_response_queue():
+    client = MockLlmClient()
+    c1 = BeatCandidate(
+        label="First", beatPlan={"whatHappens": "a", "audienceLearns": "b", "audienceFeels": "c"},
+        scriptText="one", continuityConflicts=[],
+    )
+    c2 = BeatCandidate(
+        label="Second", beatPlan={"whatHappens": "a", "audienceLearns": "b", "audienceFeels": "c"},
+        scriptText="two", continuityConflicts=[],
+    )
+    client.set_responses("generate_beat_candidates", [c1, c2])
+
+    def _streamed() -> BeatCandidate:
+        raw = "".join(client.stream_beat_candidate(**_CALL_KWARGS))
+        return BeatCandidate.model_validate_json(raw)
+
+    assert _streamed() == c1
+    assert _streamed() == c2
+
+
+def test_set_candidate_streams_yields_exact_fragments_in_order():
+    client = MockLlmClient()
+    client.set_candidate_streams([["a", "b"], ["c"]])
+    assert list(client.stream_beat_candidate(**_CALL_KWARGS)) == ["a", "b"]
+    assert list(client.stream_beat_candidate(**_CALL_KWARGS)) == ["c"]
+    # exhausted → falls back to serializing the generate default
+    fallback = list(client.stream_beat_candidate(**_CALL_KWARGS))
+    assert BeatCandidate.model_validate_json("".join(fallback))
+
+
 def test_mock_client_never_imports_the_anthropic_sdk():
     # If MockLlmClient ever grew a dependency on the `anthropic` package,
     # importing it in a test could trigger network-capable code paths. Guard

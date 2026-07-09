@@ -10,6 +10,7 @@ construction stays out of this layer.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from typing import Protocol, runtime_checkable
 
 from schemas import (
@@ -28,6 +29,16 @@ class LlmClient(Protocol):
     def generate_beat_candidates(
         self, *, system: str, user_message: str, prompt_version: str
     ) -> BeatCandidate: ...
+
+    def stream_beat_candidate(
+        self, *, system: str, user_message: str, prompt_version: str
+    ) -> Iterator[str]:
+        """Streaming variant of `generate_beat_candidates` (prompt spec §8a):
+        yield the tool-input JSON **as raw fragments** (`input_json_delta`
+        chunks — not guaranteed valid/complete JSON at any point). The caller
+        (drama_manager/candidates.py) runs the incremental parser and final
+        validation; this method never validates or yields display text."""
+        ...
 
     def tune_beat(
         self, *, system: str, user_message: str, prompt_version: str
