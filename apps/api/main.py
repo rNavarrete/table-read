@@ -3,7 +3,7 @@
 from fastapi import FastAPI
 
 from errors import register_error_handlers
-from routes import router
+from routes import ledger_router, router
 from storage.db import Base, engine
 
 # Idempotent; the real dev-DB population happens via `make seed`
@@ -15,6 +15,7 @@ Base.metadata.create_all(bind=engine)
 app = FastAPI(title="Table Read API")
 register_error_handlers(app)
 app.include_router(router)
+app.include_router(ledger_router)
 
 
 @app.get("/health")
