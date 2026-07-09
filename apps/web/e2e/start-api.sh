@@ -8,9 +8,10 @@
 #
 # CLAUDE.md hard rule 1 ("never call the Anthropic API in tests") applies to
 # e2e as much as to pytest/vitest: ANTHROPIC_API_KEY is explicitly unset
-# below regardless of what the calling shell exports, so
-# apps/api/llm/dependency.py's no-key fallback (T2.3) deterministically
-# selects MockLlmClient — this process can never reach the real network.
+# below regardless of what the calling shell exports, and
+# TABLEREAD_ALLOW_MOCK_LLM=1 explicitly opts in to MockLlmClient
+# (apps/api/llm/dependency.py — the mock is never a silent fallback), so
+# this process can never reach the real network.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -18,6 +19,7 @@ API_DIR="$(cd "$SCRIPT_DIR/../../api" && pwd)"
 DB_FILE="$(mktemp -u -t tableread-e2e).db"
 
 export DATABASE_URL="sqlite:///$DB_FILE"
+export TABLEREAD_ALLOW_MOCK_LLM=1
 unset ANTHROPIC_API_KEY
 
 cd "$API_DIR"

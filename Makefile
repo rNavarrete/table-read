@@ -29,9 +29,12 @@ $(NODE_MARKER): package.json $(WEB_DIR)/package.json $(CONTRACT_DIR)/package.jso
 	env npm install
 	touch $(NODE_MARKER)
 
+# TABLEREAD_ALLOW_MOCK_LLM=1 opts in to MockLlmClient when no
+# ANTHROPIC_API_KEY is exported (llm/dependency.py) — dev works keyless, but
+# a real key in the environment still wins and selects the real client.
 dev: $(VENV_BIN)/activate $(NODE_MARKER)
 	@trap 'kill 0' EXIT INT TERM; \
-	$(VENV_BIN)/uvicorn --app-dir $(API_DIR) main:app --reload --port 8000 & \
+	TABLEREAD_ALLOW_MOCK_LLM=1 $(VENV_BIN)/uvicorn --app-dir $(API_DIR) main:app --reload --port 8000 & \
 	npm run dev --workspace=$(WEB_DIR) & \
 	wait
 
