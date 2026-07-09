@@ -164,6 +164,39 @@ def test_patch_applies_edit_and_snapshots(seeded_project, db_session):
     assert project.head_snapshot_id != "snap-root"
 
 
+def test_patch_stale_if_match_returns_409_conflict_stale_head(seeded_project, db_session):
+    """If-Match with a non-current headSnapshotId → CONFLICT_STALE_HEAD, no write."""
+    before = client.get(f"/api/v1/projects/{PROJECT_ID}").json()
+    before_snaps = (
+        db_session.query(SnapshotRow).filter_by(project_id=PROJECT_ID).count()
+    )
+
+    response = client.patch(
+        f"/api/v1/projects/{PROJECT_ID}",
+        json=[{"op": "replace", "path": "/title", "value": "Stale write"}],
+        headers={"If-Match": "snap-not-the-head"},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "CONFLICT_STALE_HEAD"
+    assert client.get(f"/api/v1/projects/{PROJECT_ID}").json() == before
+    assert (
+        db_session.query(SnapshotRow).filter_by(project_id=PROJECT_ID).count()
+        == before_snaps
+    )
+
+
+def test_patch_matching_if_match_succeeds(seeded_project):
+    head = client.get(f"/api/v1/projects/{PROJECT_ID}").json()["headSnapshotId"]
+    response = client.patch(
+        f"/api/v1/projects/{PROJECT_ID}",
+        json=[{"op": "replace", "path": "/title", "value": "Matched"}],
+        headers={"If-Match": head},
+    )
+    assert response.status_code == 200
+    assert response.json()["title"] == "Matched"
+
+
 def test_patch_then_undo_restores_byte_identical(seeded_project):
     original = client.get(f"/api/v1/projects/{PROJECT_ID}").json()
 

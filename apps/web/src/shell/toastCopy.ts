@@ -5,3 +5,6 @@ export const llmUnavailableMessage =
 
 export const lockedObjectMessage =
   'A locked element was included — nothing was changed'
+
+export const staleHeadMessage =
+  'This project changed elsewhere — reload and try again'

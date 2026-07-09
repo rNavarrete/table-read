@@ -27,5 +27,10 @@ export function navigateToMode(mode: Mode) {
   if (path === null) return
   const url = new URL(window.location.href)
   url.pathname = path
+  // Mode-switcher entry to Review lists drafts (UI spec §5). Drop a leftover
+  // `changeSet` from a prior Review visit so we don't skip the picker.
+  if (mode === 'Review') {
+    url.searchParams.delete('changeSet')
+  }
   window.location.assign(url.toString())
 }

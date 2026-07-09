@@ -76,6 +76,11 @@ describe('useProjectPatch', () => {
     expect(current).toBe(server)
     expect(result.current.error).toBeNull()
     expect(result.current.pending).toBe(false)
+    expect(patchProjectMock).toHaveBeenCalledWith(
+      'proj-x',
+      [{ op: 'replace', path: '/title', value: 'x' }],
+      { expectedHeadSnapshotId: 'snap-root' },
+    )
   })
 
   it('rolls back to the exact pre-patch project on a 4xx/5xx, and surfaces the error', async () => {

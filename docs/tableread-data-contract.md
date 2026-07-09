@@ -307,7 +307,7 @@ Defined transactions:
 - `GET /projects/{pid}/change-sets?status=` → `ChangeSet[]` — list persisted Change Sets for the project (optional status filter). sessionStorage is cache only.
 - `GET /change-sets/{cid}` → `ChangeSet` — fetch one persisted Change Set by id.
 - `POST /change-sets/{cid}/preview` `{approvedObjectIds: []}` → `ChangeSet` — runs `regenerate_elements`, stores the result as the typed `preview` payload (`beatUpdates`/`sceneUpdates` with `basedOnSnapshotId` = current head), and renders `after` display snippets from it; does NOT mutate the project
-- `POST /change-sets/{cid}/apply` `{approvedObjectIds: []}` → `{project, changeSet, consistencyFlags}` — **applies the stored `preview` payload verbatim** (never reruns the model, never parses snippets), filtered to approved ids; snapshots, re-extracts ledger, runs `scan_consistency` over untouched scenes. 409s: any locked or `flag_only` id in the list; `preview` is null; `preview.basedOnSnapshotId` ≠ current head (`PREVIEW_STALE` — re-preview required)
+- `POST /change-sets/{cid}/apply` `{approvedObjectIds: []}` → `{project, changeSet, consistencyFlags}` — **applies the stored `preview` payload verbatim** (never reruns the model, never parses snippets), filtered to approved ids; snapshots, re-extracts ledger, runs `scan_consistency` over untouched scenes. 409s: any locked or `flag_only` id in the list; `preview` is null; `preview.basedOnSnapshotId` ≠ current head (`PREVIEW_STALE` — re-preview required); any approved regenerate id that is **not** present in the stored preview's `beatUpdates`/`sceneUpdates` (`VALIDATION` — apply ids must be a subset of the previewed set)
 - `POST /change-sets/{cid}/discard` / `POST /change-sets/{cid}/flag`
 - `GET /projects/{pid}/consistency-flags?status=open` → `ConsistencyFlag[]` · `POST /consistency-flags/{fid}/dismiss`
 
@@ -333,7 +333,9 @@ Defined transactions:
 
 - `POST /projects/{pid}/suggest` `{context: "scene"|"beat", targetId}` → `{suggestions: string[3]}`
 
-**Error shape (all endpoints):** `{error: {code, message, details?}}`. Codes: `LOCKED_OBJECT`, `SCHEMA_INVALID_LLM` (after retry), `NOT_FOUND`, `VALIDATION`, `LLM_UNAVAILABLE`, `PREVIEW_STALE`, `CONFLICT_STALE_PROPOSAL`.
+**Error shape (all endpoints):** `{error: {code, message, details?}}`. Codes: `LOCKED_OBJECT`, `SCHEMA_INVALID_LLM` (after retry), `NOT_FOUND`, `VALIDATION`, `LLM_UNAVAILABLE`, `PREVIEW_STALE`, `CONFLICT_STALE_PROPOSAL`, `CONFLICT_STALE_HEAD`.
+
+**Optimistic concurrency (direct PATCH):** clients SHOULD send `If-Match: <headSnapshotId>` on `PATCH /projects/{pid}`. When present and the live head has moved, the server returns 409 `CONFLICT_STALE_HEAD` and persists nothing — the writer reloads and retries. Change Set apply already uses `preview.basedOnSnapshotId` for the same purpose (`PREVIEW_STALE`).
 
 ## 5. Pydantic mirror rules
 

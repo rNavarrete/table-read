@@ -9,7 +9,7 @@ import {
 import { navigateToReview, stashChangeSet } from '../review/changeSetSession'
 import { AppShell } from '../shell/AppShell'
 import { Toast } from '../shell/Toast'
-import { lockedObjectMessage } from '../shell/toastCopy'
+import { lockedObjectMessage, staleHeadMessage } from '../shell/toastCopy'
 import { Board } from './Board'
 import { Inspector } from './Inspector'
 import type { PlanSelection } from './SceneCard'
@@ -282,7 +282,9 @@ export function PlanScreen() {
         <Toast tone="danger" onDismiss={patcher.dismissError}>
           {patcher.error.code === 'LOCKED_OBJECT'
             ? lockedObjectMessage
-            : patcher.error.message}
+            : patcher.error.code === 'CONFLICT_STALE_HEAD'
+              ? staleHeadMessage
+              : patcher.error.message}
         </Toast>
       )}
       <div className="flex">
