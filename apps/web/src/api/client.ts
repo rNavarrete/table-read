@@ -28,6 +28,40 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
   return (await res.json()) as T
 }
 
+async function patchJson<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) throw await toApiError(res)
+  return (await res.json()) as T
+}
+
+/** One RFC 6902 JSON Patch operation (data contract §4 `PATCH /projects/{pid}`;
+ * applier: `apps/api/storage/patching.py`). Only `add`/`replace`/`remove` are
+ * supported server-side — `move`/`copy`/`test` are rejected as 400
+ * `VALIDATION`, so Plan mode's reorder (an index/act swap, not an array
+ * move) is expressed as two or three `replace` ops, never `move`. */
+export interface JsonPatchOp {
+  op: 'add' | 'replace' | 'remove'
+  path: string
+  value?: unknown
+}
+
+/** `PATCH /projects/{pid}` (data contract §4): direct writer edits, no
+ * regeneration. Used by Plan mode (T3.1) for scene reorder, the scene/beat
+ * lock toggles, and the inspector's "Save field only" affordance — all of
+ * which are single- or double-field `replace` ops built by `plan/planTree.ts`
+ * against the caller's own in-memory `Project` (so array-index JSON Pointers
+ * stay correct without a second fetch). */
+export function patchProject(
+  projectId: string,
+  ops: JsonPatchOp[],
+): Promise<Project> {
+  return patchJson<Project>(`/projects/${projectId}`, ops)
+}
+
 export function getProject(projectId: string): Promise<Project> {
   return getJson<Project>(`/projects/${projectId}`)
 }
