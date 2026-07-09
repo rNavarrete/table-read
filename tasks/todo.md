@@ -29,5 +29,11 @@ Branch: sdd/mvp. Skip is client-side (no server work).
 - Beat `index` is structural (reindexed freely); lock protects CONTENT fields only.
 
 ## Verify
-- [ ] make test, make lint, make check-contract green
+- [x] make test (496 API + 6 web + 4 contract), make lint, make check-contract — all green
+
+## Review (done)
+- All plan items complete across 3 commits; lock-violation test committed first (e77ffb2) before the accept feature (e056796) — rule 2 ordering.
+- 41 new backend tests: 7 lock, 12 ledger-policy (unit), 22 accept (route + pipeline + fault injection), 8 tune. No deps added.
+- Self-review: locked content byte-identical after accept (proven at insert + route level); one snapshot for beat+facts+flags with fault-injection rollback; fact-07 original untouched + proposal via supersedes chain; sourceText strict window verify with exact offset reproduction + demotion on miss; no writer text logged; MockLlmClient only.
+- Concerns (see task-T2.2-report.md): PROMPT_VERSION 0.3.0 needs make evals sign-off (rule 7); documented interpretation decisions (locked scene rejects insertion; locked-beat reindex allowed; supersede null-replacement carries target text; newFacts excludes proposals).
 </content>
