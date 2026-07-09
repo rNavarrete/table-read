@@ -20,7 +20,7 @@ from fastapi.responses import PlainTextResponse, StreamingResponse
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
-from drama_manager import candidates
+from drama_manager import accept, candidates, locks
 from errors import ApiError
 from fountain.export import to_fountain
 from fountain.parse import CoverageError
@@ -28,7 +28,7 @@ from fountain.pipeline import run_import
 from llm.dependency import get_llm_client
 from llm.errors import SchemaInvalidLlmError
 from llm.protocol import LlmClient
-from schemas import LedgerFact, Project, ShowFormat
+from schemas import BeatCandidate, LedgerFact, Project, ShowFormat
 from storage import snapshots
 from storage.db import get_session
 from storage.models import LedgerFactRow, ProjectRow, SnapshotRow
@@ -223,6 +223,47 @@ def generate_candidates(
         instruction=instruction or "",
     )
     return StreamingResponse(candidates.to_sse(events), media_type="text/event-stream")
+
+
+@router.post("/{pid}/scenes/{sid}/beats")
+def accept_beat(
+    pid: str,
+    sid: str,
+    candidate: BeatCandidate = Body(...),
+    after_beat_id: str | None = Body(default=None, alias="afterBeatId"),
+    session: Session = Depends(get_session),
+    llm: LlmClient = Depends(get_llm_client),
+) -> dict:
+    """Accept a beat candidate (data contract §4): inserts the beat, snapshots,
+    and triggers ledger extraction + consistency scan in one transaction →
+    `{project, newFacts, contradictions, consistencyFlags}`. This POST is the
+    explicit writer gesture (design doc §4.3 / CLAUDE.md rule 8).
+
+    Target ids are validated before any LLM call so bad ids are HTTP errors.
+    The whole accept is atomic (drama_manager/accept.py): an extract/scan
+    failure persists nothing and maps to SCHEMA_INVALID_LLM / LLM_UNAVAILABLE,
+    exactly like import."""
+    project = _get_project_or_404(session, pid)
+    try:
+        accept.validate_target(project.doc, sid, after_beat_id)
+    except accept.SceneNotFound as exc:
+        raise ApiError(404, "NOT_FOUND", f"scene {sid!r} not found") from exc
+    except accept.BeatNotFound as exc:
+        raise ApiError(
+            400, "VALIDATION", f"afterBeatId {after_beat_id!r} is not a beat of scene {sid!r}"
+        ) from exc
+
+    try:
+        return accept.run_accept(
+            session, project, candidate, after_beat_id, llm,
+            scene_id=sid, instruction="Accepted beat candidate",
+        )
+    except locks.LockViolation as exc:
+        raise ApiError(409, "LOCKED_OBJECT", str(exc)) from exc
+    except SchemaInvalidLlmError as exc:
+        raise ApiError(502, "SCHEMA_INVALID_LLM", str(exc)) from exc
+    except anthropic.APIError as exc:
+        raise ApiError(503, "LLM_UNAVAILABLE", "the language model is unavailable") from exc
 
 
 @router.post("/{pid}/undo", response_model=Project)
