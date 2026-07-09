@@ -48,12 +48,14 @@ export interface ChangeSetRowProps {
   previewing: boolean
   onToggleSelected: (objectId: string) => void
   onToggleExpanded: (objectId: string) => void
+  /** Continuity-flag chip → Ledger with focusFactId (UI spec §5). */
+  onContinuityFlagClick?: (factId: string) => void
 }
 
 /**
  * One impacted-object row (UI spec §5 / §7 ChangeSetRow).
  * - regenerate + unlocked → checkbox
- * - locked → lock glyph, 55% opacity, no checkbox
+ * - locked → lock glyph, --tr-opacity-locked, no checkbox
  * - flag_only → sky info glyph, no checkbox
  */
 export function ChangeSetRow({
@@ -63,6 +65,7 @@ export function ChangeSetRow({
   previewing,
   onToggleSelected,
   onToggleExpanded,
+  onContinuityFlagClick,
 }: ChangeSetRowProps) {
   const isLocked = row.locked
   const isFlagOnly = row.applyMode === 'flag_only'
@@ -75,7 +78,7 @@ export function ChangeSetRow({
       data-testid={`change-set-row-${row.objectId}`}
       className={
         'rounded-card border border-tr-border bg-tr-surface-raised' +
-        (isLocked ? ' opacity-[0.55]' : '')
+        (isLocked ? ' opacity-locked' : '')
       }
       title={
         isLocked
@@ -126,12 +129,25 @@ export function ChangeSetRow({
           {confidenceLabel}
         </Chip>
 
-        {row.continuityFlags.map((flag) => (
-          <Chip key={flag.factId} hue="amber">
-            <span aria-hidden>⚠</span>
-            {flag.factId}
-          </Chip>
-        ))}
+        {row.continuityFlags.map((flag) =>
+          onContinuityFlagClick ? (
+            <button
+              key={flag.factId}
+              type="button"
+              onClick={() => onContinuityFlagClick(flag.factId)}
+              className="inline-flex items-center gap-1 rounded-chip bg-tr-amber-soft px-2 py-0.5 text-12 text-tr-text-primary"
+              data-testid={`continuity-flag-${flag.factId}`}
+            >
+              <span aria-hidden>⚠</span>
+              {flag.factId}
+            </button>
+          ) : (
+            <Chip key={flag.factId} hue="amber">
+              <span aria-hidden>⚠</span>
+              {flag.factId}
+            </Chip>
+          ),
+        )}
 
         <button
           type="button"

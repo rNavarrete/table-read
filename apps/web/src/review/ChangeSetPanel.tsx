@@ -21,6 +21,7 @@ export interface ChangeSetPanelProps {
   onUndoAll?: () => void
   onDismissFlag?: (flagId: string) => void
   onGoToScene?: (sceneId: string) => void
+  onContinuityFlagClick?: (factId: string) => void
 }
 
 /**
@@ -41,6 +42,7 @@ export function ChangeSetPanel({
   onUndoAll,
   onDismissFlag,
   onGoToScene,
+  onContinuityFlagClick,
 }: ChangeSetPanelProps) {
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
   const selectable = useMemo(() => selectableIds(changeSet), [changeSet])
@@ -163,6 +165,7 @@ export function ChangeSetPanel({
                 previewing={previewing}
                 onToggleSelected={onToggleSelected}
                 onToggleExpanded={toggleExpanded}
+                onContinuityFlagClick={onContinuityFlagClick}
               />
             </div>
           ))}

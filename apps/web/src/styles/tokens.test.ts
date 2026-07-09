@@ -30,6 +30,9 @@ function themeKeyFor(name: string): string {
   // Tailwind v4's --outline-width-* namespace backs outline-<name>.
   if (name.startsWith('--tr-outline-'))
     return name.replace('--tr-outline-', '--outline-width-')
+  // Tailwind v4's --opacity-* namespace backs opacity-<name>.
+  if (name.startsWith('--tr-opacity-'))
+    return name.replace('--tr-opacity-', '--opacity-')
   if (name.startsWith('--tr-font-size-'))
     return name.replace('--tr-font-size-', '--text-')
   if (name.startsWith('--tr-font-'))

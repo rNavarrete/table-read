@@ -15,10 +15,7 @@ export interface FactCardProps {
   busy?: boolean
   onAccept?: (factId: string) => void
   onReject?: (factId: string) => void
-  onEdit?: (
-    factId: string,
-    body: { fact: string; knownBy: string[]; factType: LedgerFact['factType'] },
-  ) => void
+  onEdit?: (factId: string, body: { fact: string; knownBy: string[] }) => void
   onSourceSpanClick?: (fact: LedgerFact) => void
 }
 
@@ -67,7 +64,6 @@ export function FactCard({
   const [editing, setEditing] = useState(false)
   const [draftText, setDraftText] = useState(fact.fact)
   const [draftKnownBy, setDraftKnownBy] = useState(fact.knownBy)
-  const [draftType, setDraftType] = useState(fact.factType)
   const [chainOpen, setChainOpen] = useState(false)
 
   const superseded = fact.status === 'superseded'
@@ -83,7 +79,6 @@ export function FactCard({
   function startEdit() {
     setDraftText(fact.fact)
     setDraftKnownBy([...fact.knownBy])
-    setDraftType(fact.factType)
     setEditing(true)
   }
 
@@ -97,7 +92,6 @@ export function FactCard({
     onEdit?.(fact.id, {
       fact: draftText,
       knownBy: draftKnownBy,
-      factType: draftType,
     })
     setEditing(false)
   }
@@ -109,7 +103,10 @@ export function FactCard({
       data-testid={`fact-card-${fact.id}`}
     >
       {editing ? (
-        <div className="flex flex-col gap-2" data-testid={`fact-edit-${fact.id}`}>
+        <div
+          className="flex flex-col gap-2"
+          data-testid={`fact-edit-${fact.id}`}
+        >
           <label className="flex flex-col gap-1 text-12 text-tr-text-muted">
             Fact
             <textarea
@@ -119,31 +116,6 @@ export function FactCard({
               rows={3}
               data-testid={`fact-edit-text-${fact.id}`}
             />
-          </label>
-          <label className="flex flex-col gap-1 text-12 text-tr-text-muted">
-            Type
-            <select
-              className="rounded-card border border-tr-border bg-tr-surface-page p-2 text-13 text-tr-text-primary"
-              value={draftType}
-              onChange={(e) =>
-                setDraftType(e.target.value as LedgerFact['factType'])
-              }
-              data-testid={`fact-edit-type-${fact.id}`}
-            >
-              {(
-                [
-                  'event',
-                  'state',
-                  'knowledge',
-                  'relationship',
-                  'world_rule',
-                ] as const
-              ).map((t) => (
-                <option key={t} value={t}>
-                  {t}
-                </option>
-              ))}
-            </select>
           </label>
           <fieldset className="flex flex-col gap-1">
             <legend className="text-12 text-tr-text-muted">Known by</legend>

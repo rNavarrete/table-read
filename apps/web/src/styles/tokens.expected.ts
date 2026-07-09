@@ -72,4 +72,7 @@ export const EXPECTED_TOKENS: Record<string, string> = {
 
   // §4 "Selected = 2px coral outline" — width only (color is --tr-coral).
   '--tr-outline-selected': '2px',
+
+  // §5 locked Change Set rows at 55% opacity — value from the spec text.
+  '--tr-opacity-locked': '0.55',
 }

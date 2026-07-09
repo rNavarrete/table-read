@@ -98,7 +98,10 @@ function flag(overrides: Partial<ConsistencyFlag>): ConsistencyFlag {
 describe('sceneIdsWithOpenFlags', () => {
   it('includes scenes with open scene-level flags', () => {
     const ids = sceneIdsWithOpenFlags(
-      [flag({ objectId: 'scene-5' }), flag({ id: 'flag-2', objectId: 'scene-1' })],
+      [
+        flag({ objectId: 'scene-5' }),
+        flag({ id: 'flag-2', objectId: 'scene-1' }),
+      ],
       project([scene({ id: 'scene-1' }), scene({ id: 'scene-5', index: 1 })]),
     )
     expect([...ids].sort()).toEqual(['scene-1', 'scene-5'])

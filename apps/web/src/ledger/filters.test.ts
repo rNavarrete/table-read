@@ -3,12 +3,15 @@ import type { LedgerFact } from 'contract'
 import {
   DEFAULT_FILTERS,
   filterFacts,
+  groupPendingByScene,
   highConfidencePending,
   pendingReviewFacts,
   supersedeChain,
 } from './filters'
 
-function fact(partial: Partial<LedgerFact> & Pick<LedgerFact, 'id'>): LedgerFact {
+function fact(
+  partial: Partial<LedgerFact> & Pick<LedgerFact, 'id'>,
+): LedgerFact {
   return {
     fact: 'text',
     factType: 'state',
@@ -69,6 +72,55 @@ describe('ledger filters', () => {
     expect(highConfidencePending(facts).map((f) => f.id)).toEqual(['fact-hi'])
   })
 
+  it('groupPendingByScene groups by sourceSpan.sceneId', () => {
+    const mixed = [
+      fact({
+        id: 'a',
+        status: 'pending_review',
+        sourceSpan: {
+          episodeId: 'ep-1',
+          sceneId: 'scene-2',
+          beatId: 'beat-2-1',
+          startLine: null,
+          endLine: null,
+          charStart: null,
+          charEnd: null,
+        },
+      }),
+      fact({
+        id: 'b',
+        status: 'pending_review',
+        sourceSpan: {
+          episodeId: 'ep-1',
+          sceneId: 'scene-1',
+          beatId: 'beat-1-1',
+          startLine: null,
+          endLine: null,
+          charStart: null,
+          charEnd: null,
+        },
+      }),
+      fact({
+        id: 'c',
+        status: 'pending_review',
+        sourceSpan: {
+          episodeId: 'ep-1',
+          sceneId: 'scene-2',
+          beatId: 'beat-2-2',
+          startLine: null,
+          endLine: null,
+          charStart: null,
+          charEnd: null,
+        },
+      }),
+      fact({ id: 'active', status: 'active' }),
+    ]
+    expect(groupPendingByScene(mixed)).toEqual([
+      { sceneId: 'scene-2', facts: [mixed[0], mixed[2]] },
+      { sceneId: 'scene-1', facts: [mixed[1]] },
+    ])
+  })
+
   it('filterFacts applies status, character, and type', () => {
     expect(
       filterFacts(facts, {
@@ -106,9 +158,6 @@ describe('ledger filters', () => {
         supersededBy: null,
       }),
     ]
-    expect(supersedeChain(chainFacts, 'a').map((f) => f.id)).toEqual([
-      'a',
-      'b',
-    ])
+    expect(supersedeChain(chainFacts, 'a').map((f) => f.id)).toEqual(['a', 'b'])
   })
 })

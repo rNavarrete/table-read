@@ -31,8 +31,8 @@ function LockBanner() {
  * Review).
  *
  * `onOpenReview` is omitted for targets the create API can't accept yet
- * (episode/series premise — DESIGN-GAP(T4.3): create only validates
- * scene/beat/character/ledgerFact). Those rows keep Save field only.
+ * (episode/series premise — create only validates scene/beat/character/
+ * ledgerFact). Those rows keep Save field only.
  */
 function StructuralFooter({
   saving,

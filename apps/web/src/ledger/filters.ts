@@ -1,20 +1,10 @@
 import type { LedgerFact } from 'contract'
 
 export type FactStatusFilter =
-  | 'all'
-  | 'pending_review'
-  | 'active'
-  | 'superseded'
-  | 'stale'
-  | 'rejected'
+  'all' | 'pending_review' | 'active' | 'superseded' | 'stale' | 'rejected'
 
 export type FactTypeFilter =
-  | 'all'
-  | 'event'
-  | 'state'
-  | 'knowledge'
-  | 'relationship'
-  | 'world_rule'
+  'all' | 'event' | 'state' | 'knowledge' | 'relationship' | 'world_rule'
 
 export interface LedgerFilters {
   status: FactStatusFilter
@@ -57,6 +47,28 @@ export function pendingReviewFacts(facts: LedgerFact[]): LedgerFact[] {
 /** High-confidence queue members (≥0.8) for the batch-accept affordance. */
 export function highConfidencePending(facts: LedgerFact[]): LedgerFact[] {
   return pendingReviewFacts(facts).filter((f) => f.confidence >= 0.8)
+}
+
+/** Group pending facts by sourceSpan.sceneId for per-scene batch review
+ * (UI spec §6). Scene order follows first appearance in `facts`. */
+export function groupPendingByScene(
+  facts: LedgerFact[],
+): Array<{ sceneId: string; facts: LedgerFact[] }> {
+  const pending = pendingReviewFacts(facts)
+  const order: string[] = []
+  const byScene = new Map<string, LedgerFact[]>()
+  for (const fact of pending) {
+    const sceneId = fact.sourceSpan.sceneId
+    if (!byScene.has(sceneId)) {
+      byScene.set(sceneId, [])
+      order.push(sceneId)
+    }
+    byScene.get(sceneId)!.push(fact)
+  }
+  return order.map((sceneId) => ({
+    sceneId,
+    facts: byScene.get(sceneId)!,
+  }))
 }
 
 /** Walk supersededBy links into a chain (oldest → newest). */

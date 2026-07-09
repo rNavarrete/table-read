@@ -216,6 +216,21 @@ export function createChangeSet(
   return postJson<ChangeSet>(`/projects/${projectId}/change-sets`, body)
 }
 
+/** `GET /change-sets/{cid}` — source of truth for a Change Set (user ruling 3).
+ * sessionStorage is only a warm cache after create; prefer this on Review load. */
+export function getChangeSet(changeSetId: string): Promise<ChangeSet> {
+  return getJson<ChangeSet>(`/change-sets/${changeSetId}`)
+}
+
+/** `GET /projects/{pid}/change-sets?status=` — list Change Sets for a project. */
+export function listChangeSets(
+  projectId: string,
+  status?: string,
+): Promise<ChangeSet[]> {
+  const qs = status ? `?status=${encodeURIComponent(status)}` : ''
+  return getJson<ChangeSet[]>(`/projects/${projectId}/change-sets${qs}`)
+}
+
 /** `POST /change-sets/{cid}/preview` — regenerate approved rows into the
  * typed preview payload; does not mutate the project. */
 export function previewChangeSet(

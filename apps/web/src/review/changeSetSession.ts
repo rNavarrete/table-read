@@ -1,10 +1,9 @@
 import type { ChangeSet } from 'contract'
 
-// DESIGN-GAP(T4.3): data contract §4 has no GET /change-sets/{cid} or list
-// drafts endpoint. Review mode keeps the active draft in sessionStorage for
-// the "one Change Set at a time" UI (spec §5) until a read API lands (Wave 3
-// or a follow-on task). ModeSwitcher amber-dot and /review?changeSet= both
-// read this stash.
+// Warm cache only (user ruling 3): GET /change-sets/{cid} is the source of
+// truth. Review prefers GET on load and falls back to this stash when GET is
+// unavailable (e.g. API branch not merged yet) or while create→navigate races.
+// ModeSwitcher amber-dot and post-create handoff still write here.
 
 const KEY_PREFIX = 'tr:changeSet:'
 const DRAFT_PROJECT_KEY = 'tr:draftChangeSetProject'

@@ -88,6 +88,11 @@
      (color is already --tr-coral). Minted per the same ruling. */
   --tr-outline-selected: 2px;
 
+  /* Opacity: §5 locked Change Set rows at 55% — value from the spec text,
+     name minted (no --tr-* opacity tokens in §1). Quiet-AI dock 40% stays
+     as a separate affordance (opacity-40) until a second token is needed. */
+  --tr-opacity-locked: 0.55;
+
   /* Spacing: no --tr-* tokens — Tailwind's default 4px-base spacing scale
      already matches spec §1 (4/8/12/16/24/32/48/64), per controller ruling. */
 }
@@ -154,4 +159,7 @@
      outline-<name> for outline-width; outline-style defaults to solid via
      the framework's own --tw-outline-style @property). */
   --outline-width-selected: var(--tr-outline-selected);
+
+  /* opacity-locked (Tailwind v4's --opacity-* namespace backs opacity-<name>). */
+  --opacity-locked: var(--tr-opacity-locked);
 }
