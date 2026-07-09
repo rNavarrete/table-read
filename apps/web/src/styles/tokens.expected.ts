@@ -67,6 +67,9 @@ export const EXPECTED_TOKENS: Record<string, string> = {
   '--tr-panel-inspector': '300px',
   '--tr-card-scene': '260px',
 
+  // Layout: UI spec §6 Ledger filter rail (200px), same mint precedent.
+  '--tr-panel-ledger-filters': '200px',
+
   // §4 "Selected = 2px coral outline" — width only (color is --tr-coral).
   '--tr-outline-selected': '2px',
 }

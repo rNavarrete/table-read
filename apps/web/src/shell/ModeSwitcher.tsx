@@ -4,23 +4,18 @@ export type Mode = 'Write' | 'Plan' | 'Review' | 'Ledger'
 
 export interface ModeSwitcherProps {
   active: Mode
-  /** Total ledger fact count, shown as a badge on the Ledger segment.
-   * Simplification (flagged in the task report): UI spec §2 specifies this
-   * badge as the *review-queue* count (facts `pending_review`), which needs
-   * Ledger mode's status filtering (not built yet — Ledger mode is T4.x).
-   * Until then this shows the total fact count, which is what makes "ledger
-   * badge increments" (the T2.3 accept-flow acceptance criterion) observable
-   * today; it becomes the review-queue count once Ledger mode lands. */
+  /** Review-queue count (`pending_review` facts), shown as an amber badge on
+   * the Ledger segment when non-empty (UI spec §2). */
   ledgerCount: number
 }
 
 const MODES: Mode[] = ['Write', 'Plan', 'Review', 'Ledger']
 
 /**
- * The segmented mode control (UI spec §2). Write and Plan are both built now
- * (T3.1); Review/Ledger still render disabled (build plan: T4.x/T5.1).
- * Clicking the inactive one of Write/Plan navigates (`navigateToMode`); the
- * active tab and the two unbuilt modes are inert.
+ * The segmented mode control (UI spec §2). Write, Plan, and Ledger are built
+ * (T5.1); Review still renders disabled (Agent E / T4.3). Clicking an
+ * inactive built mode navigates (`navigateToMode`); the active tab and
+ * unbuilt modes are inert.
  */
 export function ModeSwitcher({ active, ledgerCount }: ModeSwitcherProps) {
   return (
