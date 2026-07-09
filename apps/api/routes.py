@@ -22,7 +22,7 @@ from fastapi.responses import PlainTextResponse, StreamingResponse
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
-from drama_manager import accept, candidates, locks, scan
+from drama_manager import accept, candidates, ledger_mutations, locks, scan
 from errors import ApiError
 from fountain.export import to_fountain
 from fountain.parse import CoverageError
@@ -30,7 +30,14 @@ from fountain.pipeline import run_import
 from llm.dependency import get_llm_client, get_llm_client_provider
 from llm.errors import SchemaInvalidLlmError
 from llm.protocol import LlmClient
-from schemas import BeatCandidate, LedgerFact, Project, ShowFormat
+from schemas import (
+    BeatCandidate,
+    LedgerBatchRequest,
+    LedgerFact,
+    LedgerFactEdit,
+    Project,
+    ShowFormat,
+)
 from storage import snapshots
 from storage.db import get_session
 from storage.models import LedgerFactRow, ProjectRow, SnapshotRow
@@ -40,6 +47,7 @@ from storage.snapshots import MutationState
 _IMPORT_FORMATS = {"fountain", "text"}
 
 router = APIRouter(prefix="/api/v1/projects", tags=["projects"])
+ledger_router = APIRouter(prefix="/api/v1/ledger", tags=["ledger"])
 
 # Default component set for a new project (design doc §5 / fixture). The
 # writer toggles these in show-format settings later.
@@ -350,3 +358,124 @@ def undo(pid: str, session: Session = Depends(get_session)) -> dict:
 
     snapshots.restore_parent(session, project)
     return session.get(ProjectRow, pid).doc
+
+
+@router.post("/{pid}/ledger/batch")
+def batch_ledger(
+    pid: str,
+    body: LedgerBatchRequest,
+    session: Session = Depends(get_session),
+) -> dict:
+    """Batch confirm/reject (data contract §4). One snapshot for the whole
+    batch; any invalid id fails the entire batch (400, nothing applied).
+    Supersede-proposal semantics apply per id."""
+    _get_project_or_404(session, pid)
+    try:
+        snapshots.mutate(
+            session,
+            pid,
+            "Ledger batch review",
+            lambda state: MutationState(
+                doc=state.doc,
+                ledger=ledger_mutations.apply_batch(
+                    state.ledger,
+                    confirm_ids=body.confirm_ids,
+                    reject_ids=body.reject_ids,
+                ),
+                flags=state.flags,
+            ),
+        )
+    except ledger_mutations.FactNotFound as exc:
+        raise ApiError(400, "VALIDATION", f"unknown fact id: {exc}") from exc
+    except ledger_mutations.ConflictStaleProposal as exc:
+        # Same code as single confirm; batch still applies nothing.
+        raise ApiError(409, "CONFLICT_STALE_PROPOSAL", str(exc)) from exc
+    except ledger_mutations.ValidationError as exc:
+        raise ApiError(400, "VALIDATION", str(exc)) from exc
+
+    facts = session.query(LedgerFactRow).filter_by(project_id=pid).all()
+    return {"ledger": [f.to_wire_dict() for f in facts]}
+
+
+def _fact_row_or_404(session: Session, fact_id: str) -> LedgerFactRow:
+    row = session.get(LedgerFactRow, fact_id)
+    if row is None:
+        raise ApiError(404, "NOT_FOUND", f"fact {fact_id!r} not found")
+    return row
+
+
+def _mutate_ledger_fact(
+    session: Session,
+    fact_id: str,
+    instruction: str,
+    transform,
+) -> dict:
+    """Look up a fact, run `transform(ledger) -> ledger` inside one snapshot
+    transaction, return the updated fact wire dict. Maps ledger_mutations
+    errors to the contract envelope."""
+    row = _fact_row_or_404(session, fact_id)
+    pid = row.project_id
+    try:
+        snapshots.mutate(
+            session,
+            pid,
+            instruction,
+            lambda state: MutationState(
+                doc=state.doc, ledger=transform(state.ledger), flags=state.flags
+            ),
+        )
+    except ledger_mutations.FactNotFound as exc:
+        raise ApiError(404, "NOT_FOUND", f"fact {fact_id!r} not found") from exc
+    except ledger_mutations.ConflictStaleProposal as exc:
+        raise ApiError(409, "CONFLICT_STALE_PROPOSAL", str(exc)) from exc
+    except ledger_mutations.ValidationError as exc:
+        raise ApiError(409, "VALIDATION", str(exc)) from exc
+
+    updated = session.get(LedgerFactRow, fact_id)
+    if updated is None:  # defensive: mutate rewrote the table
+        raise ApiError(404, "NOT_FOUND", f"fact {fact_id!r} not found")
+    return updated.to_wire_dict()
+
+
+@ledger_router.post("/{fact_id}/confirm", response_model=LedgerFact)
+def confirm_ledger_fact(fact_id: str, session: Session = Depends(get_session)) -> dict:
+    """Confirm a pending_review fact (data contract §4 supersede semantics)."""
+    return _mutate_ledger_fact(
+        session,
+        fact_id,
+        "Ledger confirm",
+        lambda ledger: ledger_mutations.confirm_fact(ledger, fact_id),
+    )
+
+
+@ledger_router.post("/{fact_id}/reject", response_model=LedgerFact)
+def reject_ledger_fact(fact_id: str, session: Session = Depends(get_session)) -> dict:
+    """Reject a pending_review fact; supersede target left untouched."""
+    return _mutate_ledger_fact(
+        session,
+        fact_id,
+        "Ledger reject",
+        lambda ledger: ledger_mutations.reject_fact(ledger, fact_id),
+    )
+
+
+@ledger_router.patch("/{fact_id}", response_model=LedgerFact)
+def edit_ledger_fact(
+    fact_id: str,
+    body: LedgerFactEdit,
+    session: Session = Depends(get_session),
+) -> dict:
+    """Edit fact text and/or knownBy; provenance becomes writer_authored."""
+    if body.fact is None and body.known_by is None:
+        raise ApiError(400, "VALIDATION", "patch must include fact and/or knownBy")
+    return _mutate_ledger_fact(
+        session,
+        fact_id,
+        "Ledger edit",
+        lambda ledger: ledger_mutations.edit_fact(
+            ledger,
+            fact_id,
+            fact_text=body.fact,
+            known_by=body.known_by,
+        ),
+    )

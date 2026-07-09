@@ -506,3 +506,22 @@ class PersistedState(_Base):
     consistency_flags: list[ConsistencyFlag]
     change_sets: list[ChangeSet]
     suggestion_history: list[SuggestionHistoryEntry]
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# §4 Ledger mode — request bodies (not §1/§2/§2a wire types; API-only)
+# ─────────────────────────────────────────────────────────────────────────
+
+
+class LedgerFactEdit(_Base):
+    """PATCH /ledger/{factId}: edit text and/or knownBy → writer_authored."""
+
+    fact: str | None = None
+    known_by: list[Id] | None = None
+
+
+class LedgerBatchRequest(_Base):
+    """POST /projects/{pid}/ledger/batch — import-queue review."""
+
+    confirm_ids: list[Id]
+    reject_ids: list[Id]
