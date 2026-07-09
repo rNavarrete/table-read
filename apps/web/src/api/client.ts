@@ -92,6 +92,28 @@ export function getLedger(projectId: string): Promise<LedgerFact[]> {
   return getJson<LedgerFact[]>(`/projects/${projectId}/ledger`)
 }
 
+/** `GET /projects/{pid}/consistency-flags?status=` (data contract §4). Plan
+ * mode loads `status=open` with the board to drive amber scene-card badges
+ * (UI spec §5). */
+export function getConsistencyFlags(
+  projectId: string,
+  status?: 'open' | 'dismissed' | 'resolved',
+): Promise<ConsistencyFlag[]> {
+  const qs = status ? `?status=${encodeURIComponent(status)}` : ''
+  return getJson<ConsistencyFlag[]>(
+    `/projects/${projectId}/consistency-flags${qs}`,
+  )
+}
+
+/** `POST /consistency-flags/{fid}/dismiss` — versioned flag-only mutation.
+ * Returns the dismissed flag; Plan badges clear once the open-flags list is
+ * refreshed (or the id is removed from local state). */
+export function dismissConsistencyFlag(
+  flagId: string,
+): Promise<ConsistencyFlag> {
+  return postJson<ConsistencyFlag>(`/consistency-flags/${flagId}/dismiss`, {})
+}
+
 /** One accept-response contradiction record: the contract's
  * `LedgerExtraction` contradiction shape plus the server-minted id of the
  * supersede proposal it created (drama_manager/ledger_policy.py). */

@@ -17,6 +17,7 @@ interface ActFrameProps {
   episodeLocked: boolean
   selection: PlanSelection
   pending: boolean
+  flaggedSceneIds: Set<string>
   dragSourceId: string | null
   dropTargetId: string | null
   onSelectScene: (sceneId: string) => void
@@ -36,6 +37,7 @@ function ActFrame({
   episodeLocked,
   selection,
   pending,
+  flaggedSceneIds,
   dragSourceId,
   dropTargetId,
   onSelectScene,
@@ -68,6 +70,7 @@ function ActFrame({
                 episodeLocked={episodeLocked}
                 selection={selection}
                 pending={pending}
+                hasOpenConsistencyFlag={flaggedSceneIds.has(scene.id)}
                 onSelectScene={onSelectScene}
                 onSelectBeat={onSelectBeat}
                 dragging={scene.id === dragSourceId}
@@ -96,6 +99,9 @@ export interface BoardProps {
   /** A PATCH is in flight — drag initiation is disabled on every card
    * (see SceneCardProps.pending for the rollback-race rationale). */
   pending: boolean
+  /** Scene ids with at least one open consistency flag (UI spec §5 amber
+   * badge). Built by PlanScreen from `GET .../consistency-flags?status=open`. */
+  flaggedSceneIds: Set<string>
   onSelectScene: (sceneId: string) => void
   onSelectBeat: (sceneId: string, beatId: string) => void
   onReorder: (draggedSceneId: string, targetSceneId: string) => void
@@ -118,6 +124,7 @@ export function Board({
   selection,
   collapsedActs,
   pending,
+  flaggedSceneIds,
   onSelectScene,
   onSelectBeat,
   onReorder,
@@ -150,6 +157,7 @@ export function Board({
             episodeLocked={episode.locked}
             selection={selection}
             pending={pending}
+            flaggedSceneIds={flaggedSceneIds}
             dragSourceId={dragSourceId}
             dropTargetId={dropTargetId}
             onSelectScene={onSelectScene}

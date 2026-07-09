@@ -2,6 +2,7 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { ComponentProps } from 'react'
 import type { Episode, Project, Scene } from 'contract'
 import { Board } from './Board'
 
@@ -106,43 +107,97 @@ function project(ep: Episode): Project {
 
 const noop = () => {}
 
+function renderBoard(
+  overrides: Partial<ComponentProps<typeof Board>> & {
+    project: Project
+    episode: Episode
+  },
+) {
+  const { project: proj, episode: ep, ...rest } = overrides
+  return render(
+    <Board
+      project={proj}
+      episode={ep}
+      selection={null}
+      collapsedActs={new Set()}
+      pending={false}
+      flaggedSceneIds={new Set()}
+      onSelectScene={noop}
+      onSelectBeat={noop}
+      onReorder={noop}
+      {...rest}
+    />,
+  )
+}
+
 describe('Board / SceneCard / BeatCard', () => {
   it('renders act frames, and the scene card shows a beat-count chip and the 2-line whatHappens clamp', () => {
     const ep = episode([scene({ beats: [beat1_1(), beat1_2Locked()] })])
-    render(
-      <Board
-        project={project(ep)}
-        episode={ep}
-        selection={null}
-        collapsedActs={new Set()}
-        pending={false}
-        onSelectScene={noop}
-        onSelectBeat={noop}
-        onReorder={noop}
-      />,
-    )
+    renderBoard({ project: project(ep), episode: ep })
     expect(screen.getByTestId('act-frame-0')).not.toBeNull() // cold open
     expect(screen.getByText('COLD OPEN')).not.toBeNull()
     expect(screen.getByTestId('scene-card-scene-1')).not.toBeNull()
     expect(screen.getByText('2 beats')).not.toBeNull()
   })
 
-  it('clicking a scene card selects it', async () => {
-    const user = userEvent.setup()
-    const ep = episode([scene()])
-    const onSelectScene = vi.fn()
-    render(
+  it('shows an amber consistency badge on scene cards with open flags', () => {
+    const ep = episode([
+      scene({ id: 'scene-1' }),
+      scene({ id: 'scene-5', index: 1, location: 'INT. MARINA' }),
+    ])
+    renderBoard({
+      project: project(ep),
+      episode: ep,
+      flaggedSceneIds: new Set(['scene-5']),
+    })
+    expect(
+      screen.getByTestId('scene-card-scene-5').querySelector(
+        '[data-testid="consistency-flag-badge"]',
+      ),
+    ).not.toBeNull()
+    expect(
+      screen.getByTestId('scene-card-scene-1').querySelector(
+        '[data-testid="consistency-flag-badge"]',
+      ),
+    ).toBeNull()
+  })
+
+  it('clears the amber badge when the scene leaves the flagged set (dismiss)', () => {
+    const ep = episode([scene({ id: 'scene-5', location: 'INT. MARINA' })])
+    const { rerender } = renderBoard({
+      project: project(ep),
+      episode: ep,
+      flaggedSceneIds: new Set(['scene-5']),
+    })
+    expect(
+      screen.getByTestId('consistency-flag-badge'),
+    ).not.toBeNull()
+
+    rerender(
       <Board
         project={project(ep)}
         episode={ep}
         selection={null}
         collapsedActs={new Set()}
         pending={false}
-        onSelectScene={onSelectScene}
+        flaggedSceneIds={new Set()}
+        onSelectScene={noop}
         onSelectBeat={noop}
         onReorder={noop}
       />,
     )
+    expect(screen.queryByTestId('consistency-flag-badge')).toBeNull()
+  })
+
+  it('clicking a scene card selects it', async () => {
+    const user = userEvent.setup()
+    const ep = episode([scene()])
+    const onSelectScene = vi.fn()
+    renderBoard({
+      project: project(ep),
+      episode: ep,
+      onSelectScene,
+    })
     await user.click(screen.getByTestId('scene-card-scene-1'))
     expect(onSelectScene).toHaveBeenCalledWith('scene-1')
   })
@@ -156,6 +211,7 @@ describe('Board / SceneCard / BeatCard', () => {
         selection={{ type: 'scene', sceneId: 'scene-1' }}
         collapsedActs={new Set()}
         pending={false}
+        flaggedSceneIds={new Set()}
         onSelectScene={noop}
         onSelectBeat={noop}
         onReorder={noop}
@@ -176,6 +232,7 @@ describe('Board / SceneCard / BeatCard', () => {
         selection={null}
         collapsedActs={new Set()}
         pending={false}
+        flaggedSceneIds={new Set()}
         onSelectScene={noop}
         onSelectBeat={noop}
         onReorder={noop}
@@ -200,6 +257,7 @@ describe('Board / SceneCard / BeatCard', () => {
         selection={null}
         collapsedActs={new Set()}
         pending={false}
+        flaggedSceneIds={new Set()}
         onSelectScene={onSelectScene}
         onSelectBeat={onSelectBeat}
         onReorder={noop}
@@ -220,6 +278,7 @@ describe('Board / SceneCard / BeatCard', () => {
         selection={null}
         collapsedActs={new Set()}
         pending={false}
+        flaggedSceneIds={new Set()}
         onSelectScene={noop}
         onSelectBeat={noop}
         onReorder={noop}
@@ -239,6 +298,7 @@ describe('Board / SceneCard / BeatCard', () => {
         selection={null}
         collapsedActs={new Set()}
         pending={false}
+        flaggedSceneIds={new Set()}
         onSelectScene={noop}
         onSelectBeat={noop}
         onReorder={noop}
@@ -258,6 +318,7 @@ describe('Board / SceneCard / BeatCard', () => {
         selection={null}
         collapsedActs={new Set([0])}
         pending={false}
+        flaggedSceneIds={new Set()}
         onSelectScene={noop}
         onSelectBeat={noop}
         onReorder={noop}
@@ -281,6 +342,7 @@ describe('Board / SceneCard / BeatCard', () => {
         selection={null}
         collapsedActs={new Set()}
         pending={false}
+        flaggedSceneIds={new Set()}
         onSelectScene={noop}
         onSelectBeat={noop}
         onReorder={onReorder}
@@ -306,6 +368,7 @@ describe('Board / SceneCard / BeatCard', () => {
         selection={null}
         collapsedActs={new Set()}
         pending={false}
+        flaggedSceneIds={new Set()}
         onSelectScene={onSelectScene}
         onSelectBeat={noop}
         onReorder={noop}
@@ -334,6 +397,7 @@ describe('Board / SceneCard / BeatCard', () => {
         selection={null}
         collapsedActs={new Set()}
         pending={false}
+        flaggedSceneIds={new Set()}
         onSelectScene={onSelectScene}
         onSelectBeat={noop}
         onReorder={noop}
@@ -358,6 +422,7 @@ describe('Board / SceneCard / BeatCard', () => {
         selection={null}
         collapsedActs={new Set()}
         pending
+        flaggedSceneIds={new Set()}
         onSelectScene={noop}
         onSelectBeat={noop}
         onReorder={onReorder}
@@ -394,6 +459,7 @@ describe('Board / SceneCard / BeatCard', () => {
         selection={null}
         collapsedActs={new Set()}
         pending={false}
+        flaggedSceneIds={new Set()}
         onSelectScene={noop}
         onSelectBeat={noop}
         onReorder={onReorder}

@@ -4,12 +4,9 @@ Routes stay thin: every doc/head write goes through `storage/snapshots.py`
 (CLAUDE.md hard rule 4). This module only shapes requests/responses and maps
 storage errors to the contract's error envelope (§4).
 
-Scope note (T1.1): PATCH here applies a JSON-patch and snapshots it. The
-structural-field `scan_consistency` trigger and locked-range enforcement that
-data contract §4 also describes for PATCH are owned by later tasks — direct
-edits + the Review affordance are T3.2, and consistency-scan plumbing is
-T4.4 (build plan). T1.1 has no LLM and no locks module yet, so it ships the
-snapshot-creating PATCH those tasks build on.
+Consistency-flag list lives on the projects router; dismiss is on the
+sibling `flags_router` (`POST /api/v1/consistency-flags/{fid}/dismiss`) —
+both are T4.4a. Change-set apply's scan wiring remains T4.2.
 """
 
 from __future__ import annotations
@@ -32,6 +29,7 @@ from llm.errors import SchemaInvalidLlmError
 from llm.protocol import LlmClient
 from schemas import (
     BeatCandidate,
+    ConsistencyFlag,
     LedgerBatchRequest,
     LedgerFact,
     LedgerFactEdit,
@@ -40,7 +38,7 @@ from schemas import (
 )
 from storage import snapshots
 from storage.db import get_session
-from storage.models import LedgerFactRow, ProjectRow, SnapshotRow
+from storage.models import ConsistencyFlagRow, LedgerFactRow, ProjectRow, SnapshotRow
 from storage.patching import PatchError, apply_json_patch
 from storage.snapshots import MutationState
 
@@ -48,6 +46,9 @@ _IMPORT_FORMATS = {"fountain", "text"}
 
 router = APIRouter(prefix="/api/v1/projects", tags=["projects"])
 ledger_router = APIRouter(prefix="/api/v1/ledger", tags=["ledger"])
+# Top-level flag mutations (data contract §4): `POST /consistency-flags/{fid}/dismiss`
+# — not nested under `/projects/{pid}`, same shape as `/ledger/{factId}/*`.
+flags_router = APIRouter(prefix="/api/v1/consistency-flags", tags=["consistency-flags"])
 
 # Default component set for a new project (design doc §5 / fixture). The
 # writer toggles these in show-format settings later.
@@ -185,6 +186,61 @@ def get_ledger(
     if character_id is not None:
         facts = [f for f in facts if character_id in f.known_by]
     return [f.to_wire_dict() for f in facts]
+
+
+@router.get("/{pid}/consistency-flags", response_model=list[ConsistencyFlag])
+def list_consistency_flags(
+    pid: str,
+    status: str | None = None,
+    session: Session = Depends(get_session),
+) -> list[dict]:
+    """`GET /projects/{pid}/consistency-flags?status=open` (data contract §4)."""
+    _get_project_or_404(session, pid)
+    flags = session.query(ConsistencyFlagRow).filter_by(project_id=pid).all()
+    if status is not None:
+        flags = [f for f in flags if f.status == status]
+    return [f.to_wire_dict() for f in flags]
+
+
+@flags_router.post("/{fid}/dismiss", response_model=ConsistencyFlag)
+def dismiss_consistency_flag(
+    fid: str, session: Session = Depends(get_session)
+) -> dict:
+    """`POST /consistency-flags/{fid}/dismiss` — versioned flag-only mutation.
+
+    Flags live in snapshots (data contract §3); dismiss flips `status` to
+    `dismissed` via `snapshots.mutate` and must not change `doc` or ledger
+    (test plan line 27: flags never mutate project state).
+    """
+    row = session.get(ConsistencyFlagRow, fid)
+    if row is None:
+        raise ApiError(404, "NOT_FOUND", f"consistency flag {fid!r} not found")
+    if row.status != "open":
+        raise ApiError(
+            409, "VALIDATION", f"consistency flag {fid!r} is not open"
+        )
+
+    project_id = row.project_id
+
+    def mutator(state: MutationState) -> MutationState:
+        # Doc + ledger pass through unchanged — only the matching flag's
+        # status flips. Mutator must not mutate `doc` in place (snapshots.py).
+        next_flags = [
+            {**f, "status": "dismissed"} if f["id"] == fid else f
+            for f in state.flags
+        ]
+        return MutationState(
+            doc=state.doc,
+            ledger=state.ledger,
+            flags=next_flags,
+            snapshot_id=state.snapshot_id,
+        )
+
+    snap = snapshots.mutate(
+        session, project_id, instruction="Dismissed consistency flag", mutator=mutator
+    )
+    dismissed = next(f for f in snap.flags if f["id"] == fid)
+    return dismissed
 
 
 @router.get("/{pid}/export.fountain", response_class=PlainTextResponse)
