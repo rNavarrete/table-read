@@ -14,17 +14,27 @@ snapshot-creating PATCH those tasks build on.
 
 from __future__ import annotations
 
+import anthropic
 from fastapi import APIRouter, Body, Depends, Query, Response
+from fastapi.responses import PlainTextResponse
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
 from errors import ApiError
+from fountain.export import to_fountain
+from fountain.parse import CoverageError
+from fountain.pipeline import run_import
+from llm.dependency import get_llm_client
+from llm.errors import SchemaInvalidLlmError
+from llm.protocol import LlmClient
 from schemas import LedgerFact, Project, ShowFormat
 from storage import snapshots
 from storage.db import get_session
 from storage.models import LedgerFactRow, ProjectRow, SnapshotRow
 from storage.patching import PatchError, apply_json_patch
 from storage.snapshots import MutationState
+
+_IMPORT_FORMATS = {"fountain", "text"}
 
 router = APIRouter(prefix="/api/v1/projects", tags=["projects"])
 
@@ -134,6 +144,39 @@ def get_ledger(
     if character_id is not None:
         facts = [f for f in facts if character_id in f.known_by]
     return [f.to_wire_dict() for f in facts]
+
+
+@router.get("/{pid}/export.fountain", response_class=PlainTextResponse)
+def export_fountain(pid: str, session: Session = Depends(get_session)) -> str:
+    project = _get_project_or_404(session, pid)
+    return to_fountain(project.doc)
+
+
+@router.post("/{pid}/import")
+def import_script(
+    pid: str,
+    format: str = Body(...),
+    content: str = Body(...),
+    session: Session = Depends(get_session),
+    llm: LlmClient = Depends(get_llm_client),
+) -> dict:
+    project = _get_project_or_404(session, pid)
+    if format not in _IMPORT_FORMATS:
+        raise ApiError(
+            400, "VALIDATION", f"format must be one of {sorted(_IMPORT_FORMATS)}"
+        )
+    try:
+        return run_import(session, project, content, llm, instruction=f"Imported {format} script")
+    except CoverageError as exc:
+        # §7 coverage failure: the two-stage parse could not cover the source
+        # exactly. Nothing was persisted (the failure precedes the mutate()).
+        raise ApiError(400, "VALIDATION", str(exc)) from exc
+    except SchemaInvalidLlmError as exc:
+        raise ApiError(502, "SCHEMA_INVALID_LLM", str(exc)) from exc
+    except anthropic.APIError as exc:
+        # errors.py: mapping SDK transport failures to LLM_UNAVAILABLE is the
+        # route layer's job. Log the type only, never prompt/response content.
+        raise ApiError(503, "LLM_UNAVAILABLE", "the language model is unavailable") from exc
 
 
 @router.post("/{pid}/undo", response_model=Project)

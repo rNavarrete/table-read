@@ -4,7 +4,7 @@ import pytest
 
 from llm.mock import MockLlmClient
 from llm.ops import OP_REGISTRY
-from schemas import BeatCandidate
+from schemas import BeatCandidate, InstructionSuggestions
 
 _CALL_KWARGS = {"system": "sys", "user_message": "hi", "prompt_version": "0.1.0"}
 
@@ -52,6 +52,25 @@ def test_set_response_rejects_unknown_op():
     client = MockLlmClient()
     with pytest.raises(KeyError):
         client.set_response("not_a_real_op", object())
+
+
+def test_set_responses_returns_queue_in_order_then_falls_back_to_default():
+    client = MockLlmClient()
+    default = client.suggest_instructions(**_CALL_KWARGS)
+    q1 = InstructionSuggestions(suggestions=["a", "b", "c"])
+    q2 = InstructionSuggestions(suggestions=["d", "e", "f"])
+    client.set_responses("suggest_instructions", [q1, q2])
+
+    assert client.suggest_instructions(**_CALL_KWARGS) == q1
+    assert client.suggest_instructions(**_CALL_KWARGS) == q2
+    # queue exhausted → back to the default response
+    assert client.suggest_instructions(**_CALL_KWARGS) == default
+
+
+def test_set_responses_rejects_unknown_op():
+    client = MockLlmClient()
+    with pytest.raises(KeyError):
+        client.set_responses("not_a_real_op", [])
 
 
 def test_mock_client_never_imports_the_anthropic_sdk():

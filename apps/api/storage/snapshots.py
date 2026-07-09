@@ -59,6 +59,12 @@ class MutationState:
     doc: dict
     ledger: list[dict]
     flags: list[dict]
+    # The id the snapshot this mutation writes *will* have — minted before the
+    # mutator runs so a mutator that creates flags/facts referencing the
+    # triggering snapshot (import's ConsistencyFlag.sourceChange, T1.3; beat
+    # accept, T2.2) can stamp it. Defaulted so existing mutators that don't
+    # need it construct `MutationState(doc=, ledger=, flags=)` unchanged.
+    snapshot_id: str = ""
 
 
 Mutator = Callable[[MutationState], MutationState]
@@ -112,14 +118,17 @@ def mutate(session: Session, project_id: str, instruction: str, mutator: Mutator
     if project is None:  # defensive: routes 404 before calling
         raise LookupError(f"project {project_id!r} not found")
 
+    # Mint the new snapshot id up front so the mutator can reference it (e.g.
+    # stamp it as a ConsistencyFlag's sourceChange) before the row is written.
+    snapshot_id = _mint_id("snap")
     current = MutationState(
         doc=copy.deepcopy(project.doc),
         ledger=[row.to_wire_dict() for row in _ledger_rows(session, project_id)],
         flags=[row.to_wire_dict() for row in _flag_rows(session, project_id)],
+        snapshot_id=snapshot_id,
     )
     new_state = mutator(current)
 
-    snapshot_id = _mint_id("snap")
     # id / headSnapshotId are server-owned identity — stamp them onto the new
     # doc regardless of what the mutator produced.
     new_state.doc["id"] = project_id

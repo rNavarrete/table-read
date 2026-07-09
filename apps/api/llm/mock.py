@@ -157,6 +157,11 @@ class MockLlmClient:
 
     def __init__(self) -> None:
         self._responses: dict[str, BaseModel] = _default_responses()
+        # Per-op FIFO queues for multi-call scenarios (e.g. import calls
+        # segment_scene / extract_ledger_facts once per scene): each call pops
+        # the next queued response, falling back to the single default when the
+        # queue is empty. Left empty, the mock behaves exactly as before.
+        self._queues: dict[str, list[BaseModel]] = {}
         assert self._responses.keys() == OP_REGISTRY.keys(), (
             "MockLlmClient default responses must cover every op in OP_REGISTRY"
         )
@@ -166,8 +171,19 @@ class MockLlmClient:
             raise KeyError(f"unknown LLM operation {op!r}")
         self._responses[op] = response
 
+    def set_responses(self, op: str, responses: list[BaseModel]) -> None:
+        """Queue a sequence of responses for ``op``, returned one per call in
+        order (then falling back to the default). For pipelines that call the
+        same op multiple times with different inputs."""
+        if op not in OP_REGISTRY:
+            raise KeyError(f"unknown LLM operation {op!r}")
+        self._queues[op] = list(responses)
+
     def _call(self, op: str, *, system: str, user_message: str, prompt_version: str) -> BaseModel:
         del system, user_message, prompt_version  # mock never inspects prompt content
+        queue = self._queues.get(op)
+        if queue:
+            return queue.pop(0)
         return self._responses[op]
 
     def generate_beat_candidates(
