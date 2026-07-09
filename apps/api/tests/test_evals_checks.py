@@ -254,3 +254,100 @@ def test_cli_rejects_runs_below_one():
         with pytest.raises(SystemExit) as excinfo:
             run_module.main(["--dry-run", "--runs", bad])
         assert excinfo.value.code == 2  # argparse error exit
+
+
+# ── capture mode + --only (T6.1 harness capture affordance, test plan §3) ───────
+
+
+def test_only_choices_match_suite_eval_keys():
+    """The CLI's --only choices mirror suite.EVAL_KEYS (run.py duplicates them to
+    avoid importing storage at parse time); this guards against drift."""
+    from evals import run as run_module
+    from evals.suite import EVAL_KEYS
+
+    assert set(run_module._ONLY_CHOICES) == set(EVAL_KEYS)
+
+
+def test_cli_parses_only_and_capture_defaults():
+    from evals import run as run_module
+
+    args = run_module._parse_args(["--only", "continuity", "--capture"])
+    assert args.only == "continuity"
+    assert args.capture == str(run_module._DEFAULT_CAPTURE)  # bare --capture → default dir
+
+    args2 = run_module._parse_args(["--capture", "/tmp/whatever"])
+    assert args2.capture == "/tmp/whatever"
+
+    args3 = run_module._parse_args([])
+    assert args3.only is None and args3.capture is None  # opt-in only
+
+
+def test_cli_rejects_unknown_only():
+    from evals import run as run_module
+
+    with pytest.raises(SystemExit) as excinfo:
+        run_module._parse_args(["--only", "bogus"])
+    assert excinfo.value.code == 2
+
+
+def test_run_suite_only_runs_single_eval(session_factory):
+    report = run_suite(
+        MockLlmClient(), MockJudge(), session_factory, runs=1, dry_run=True, only="continuity"
+    )
+    assert [r.name for r in report.results] == ["continuity-adherence"]
+    # Estimate is scoped to just the selected family (truthful cost header).
+    assert set(report.estimated_calls) == {"continuityAdherence", "totalNominal"}
+
+
+def test_capture_writes_failure_artifact_with_warning(tmp_path):
+    from evals.capture import CAPTURE_WARNING, CaptureSink
+
+    ctx = load_fixture_ctx()
+    client = MockLlmClient()
+    client.set_response(
+        "generate_beat_candidates",
+        BeatCandidate(
+            label="Reveal",
+            beatPlan={
+                "whatHappens": "Marta confronts Dan.",
+                "audienceLearns": "She reveals what she saw.",
+                "audienceFeels": "Shock.",
+            },
+            scriptText="MARTA\nI saw the transfer, Dan.",
+            continuityConflicts=[],
+        ),
+    )
+    sink = CaptureSink(str(tmp_path))
+    result = continuity_eval(client, ctx, MockJudge(), runs=2, capture=sink)
+    assert result.score == 0.0  # both runs fail
+    assert sink.count == 2
+    files = list(sink.dir.glob("continuity-failure-*.txt"))
+    assert len(files) == 2
+    body = files[0].read_text()
+    assert CAPTURE_WARNING.splitlines()[0] in body  # loud do-not-commit banner
+    assert "fact-04" in body  # verdict + checked fact ids present
+
+
+def test_capture_writes_nothing_when_all_pass(tmp_path):
+    from evals.capture import CaptureSink
+
+    ctx = load_fixture_ctx()
+    sink = CaptureSink(str(tmp_path))
+    result = continuity_eval(MockLlmClient(), ctx, MockJudge(), runs=3, capture=sink)
+    assert result.score == 1.0
+    assert sink.count == 0
+    assert list(sink.dir.glob("continuity-failure-*.txt")) == []
+
+
+def test_capture_dir_is_gitignored():
+    """The default capture dir must be git-ignored (capture files carry
+    generated/fixture text — CLAUDE.md rule 5, test plan §3)."""
+    import subprocess
+    from pathlib import Path
+
+    repo = Path(__file__).resolve().parents[3]
+    probe = "apps/api/evals/captures/20260101T000000/continuity-failure-001.txt"
+    out = subprocess.run(
+        ["git", "check-ignore", probe], cwd=repo, capture_output=True, text=True
+    )
+    assert out.returncode == 0, "capture dir is not git-ignored"

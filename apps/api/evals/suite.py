@@ -23,6 +23,16 @@ DEFAULT_RUNS = 20
 
 _MODELS_CONFIG = Path(__file__).resolve().parents[3] / "config" / "models.toml"
 
+# `--only` selector keys → (eval-family camelCase used by nominal_call_estimate).
+# The keys are the short CLI names; the values map onto the estimate dict so a
+# single-eval run reports a truthful call estimate.
+EVAL_KEYS: dict[str, str] = {
+    "schema": "schemaValidity",
+    "lock": "lockViolation",
+    "continuity": "continuityAdherence",
+    "segmentation": "segmentationDeterminism",
+}
+
 
 def load_model_roles() -> dict[str, str]:
     """Pinned model ids (config/models.toml) for the report header. Reads the
@@ -63,21 +73,42 @@ def run_suite(
     *,
     runs: int = DEFAULT_RUNS,
     dry_run: bool,
+    only: str | None = None,
+    capture=None,
 ) -> SuiteReport:
     """`session_factory` is a zero-arg callable returning a fresh DB `Session`
-    (the lock-violation eval seeds + mutates an isolated project per attempt)."""
+    (the lock-violation eval seeds + mutates an isolated project per attempt).
+
+    `only` (an `EVAL_KEYS` short name, e.g. "continuity") runs a single eval
+    family — a diagnosis/spot-check affordance so the operator can iterate on one
+    metric without paying for the full suite. `capture` (a `capture.CaptureSink`)
+    is threaded into `continuity_eval` for per-failure human-review artifacts."""
+    if only is not None and only not in EVAL_KEYS:
+        raise ValueError(f"unknown --only eval {only!r}; choose from {sorted(EVAL_KEYS)}")
     ctx = probes.load_fixture_ctx()
-    results = [
-        checks.schema_validity_eval(client, ctx, runs=runs),
-        checks.lock_violation_eval(client, ctx, session_factory, runs=runs),
-        checks.continuity_eval(client, ctx, judge, runs=runs),
-        checks.segmentation_determinism_eval(client, ctx, runs=runs),
-    ]
+
+    def want(key: str) -> bool:
+        return only is None or only == key
+
+    results = []
+    if want("schema"):
+        results.append(checks.schema_validity_eval(client, ctx, runs=runs))
+    if want("lock"):
+        results.append(checks.lock_violation_eval(client, ctx, session_factory, runs=runs))
+    if want("continuity"):
+        results.append(checks.continuity_eval(client, ctx, judge, runs=runs, capture=capture))
+    if want("segmentation"):
+        results.append(checks.segmentation_determinism_eval(client, ctx, runs=runs))
+
+    estimate = nominal_call_estimate(runs)
+    if only is not None:
+        family = EVAL_KEYS[only]
+        estimate = {family: estimate[family], "totalNominal": estimate[family]}
     return SuiteReport(
         prompt_version=render.PROMPT_VERSION,
         models=load_model_roles(),
         dry_run=dry_run,
         runs=runs,
         results=results,
-        estimated_calls=nominal_call_estimate(runs),
+        estimated_calls=estimate,
     )

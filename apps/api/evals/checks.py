@@ -312,7 +312,12 @@ def _continuity_facts(ctx: FixtureCtx) -> list[dict]:
     return [by_id[fid] for fid in CONTINUITY_FACT_IDS if fid in by_id]
 
 
-def continuity_eval(client: LlmClient, ctx: FixtureCtx, judge: Judge, *, runs: int) -> EvalResult:
+def continuity_eval(
+    client: LlmClient, ctx: FixtureCtx, judge: Judge, *, runs: int, capture=None
+) -> EvalResult:
+    """`capture`, when provided (a `capture.CaptureSink`), writes a per-failure
+    review artifact for every graded miss — an explicitly-opt-in, git-ignored
+    artifact class separate from the rule-5-clean report (test plan §3)."""
     facts = _continuity_facts(ctx)
     if not calibrate(judge, facts):
         return EvalResult(
@@ -328,7 +333,7 @@ def continuity_eval(client: LlmClient, ctx: FixtureCtx, judge: Judge, *, runs: i
 
     passed = 0
     schema_failures = 0
-    for _ in range(runs):
+    for i in range(runs):
         system, user = candidates.build_candidate_bundle(
             ctx.doc,
             ctx.ledger,
@@ -348,6 +353,10 @@ def continuity_eval(client: LlmClient, ctx: FixtureCtx, judge: Judge, *, runs: i
         verdict = judge.grade(script_text=candidate.script_text, facts=facts)
         if verdict.passes:
             passed += 1
+        elif capture is not None:
+            capture.record_continuity_failure(
+                index=i + 1, script_text=candidate.script_text, verdict=verdict, facts=facts
+            )
 
     score = passed / runs if runs else 0.0
     return EvalResult(

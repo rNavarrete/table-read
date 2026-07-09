@@ -22,6 +22,15 @@ import tempfile
 from pathlib import Path
 
 _DEFAULT_OUT = Path(__file__).resolve().parent / "reports"
+# Default capture directory — git-ignored (see .gitignore). Capture files are a
+# separate, opt-in artifact class (see evals/capture.py) and must never land in
+# git or logs.
+_DEFAULT_CAPTURE = Path(__file__).resolve().parent / "captures"
+# `--only` choices, mirrored from evals.suite.EVAL_KEYS. Duplicated (not imported)
+# because argparse needs them at parse time, and importing evals.suite here would
+# pull `storage` in before main() sets DATABASE_URL. A self-test asserts these
+# stay in sync with suite.EVAL_KEYS.
+_ONLY_CHOICES = ("continuity", "lock", "schema", "segmentation")
 
 
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
@@ -42,6 +51,24 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         type=str,
         default=str(_DEFAULT_OUT),
         help="Directory for the report artifact.",
+    )
+    parser.add_argument(
+        "--only",
+        type=str,
+        default=None,
+        choices=sorted(_ONLY_CHOICES),
+        help="Run a single eval family (diagnosis/spot-check); default runs all four.",
+    )
+    parser.add_argument(
+        "--capture",
+        nargs="?",
+        const=str(_DEFAULT_CAPTURE),
+        default=None,
+        help=(
+            "Write per-failure human-review artifacts to DIR (default "
+            f"{_DEFAULT_CAPTURE}). Capture files contain generated/fixture text, "
+            "are git-ignored, and must never be committed or logged (test plan §3)."
+        ),
     )
     args = parser.parse_args(argv)
     if args.runs is not None and args.runs < 1:
@@ -86,10 +113,27 @@ def main(argv: list[str] | None = None) -> int:
     else:
         client, judge = _build_real_clients()
 
+    capture = None
+    if args.capture is not None:
+        from evals.capture import CaptureSink
+
+        capture = CaptureSink(args.capture)
+
     Base.metadata.create_all(bind=engine)
-    report = run_suite(client, judge, SessionLocal, runs=runs, dry_run=args.dry_run)
+    report = run_suite(
+        client,
+        judge,
+        SessionLocal,
+        runs=runs,
+        dry_run=args.dry_run,
+        only=args.only,
+        capture=capture,
+    )
 
     json_path, md_path = report.write(args.out)
+    if capture is not None:
+        print(f"capture: {capture.count} failure artifact(s) → {capture.dir} "
+              f"(git-ignored; do not commit or log)")
 
     print(f"PROMPT_VERSION={report.prompt_version} models={report.models} "
           f"mode={'dry-run' if report.dry_run else 'real'} runs/eval={report.runs}")
