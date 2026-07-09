@@ -134,3 +134,53 @@ test('locking a scene via the inspector disables drag and shows the read-only ba
     'false',
   )
 })
+
+test('editing location is silent; editing whatHappens offers the Review path; both persist (T3.2)', async ({
+  page,
+}) => {
+  await page.goto('/plan')
+
+  // scene-2 is unlocked in the fixture; pick it so neither edit is blocked.
+  // (The shared-DB note above holds: scene field edits are inert for the
+  // other specs, which key only off beat locks.)
+  await page.getByTestId('scene-card-scene-2').click()
+  const inspector = page.getByTestId('inspector')
+
+  // 1) Non-structural: editing location shows a plain Save — no footer bar.
+  const location = inspector.getByLabel('Location')
+  await location.fill('INT. THE MARINA - DAY')
+  await expect(
+    inspector.getByText('Structural change — review impact?'),
+  ).toHaveCount(0)
+  await inspector.getByRole('button', { name: 'Save', exact: true }).click()
+  // Server response replaces the draft; the Save button clears once saved.
+  await expect(
+    inspector.getByRole('button', { name: 'Save', exact: true }),
+  ).toHaveCount(0)
+
+  // 2) Structural: editing whatHappens surfaces the "review impact?" footer
+  // with a (stubbed) Open Review and a Save field only.
+  const whatHappens = inspector.getByLabel('What happens')
+  await whatHappens.fill('A structural rewrite of the scene.')
+  await expect(
+    inspector.getByText('Structural change — review impact?'),
+  ).toBeVisible()
+  await expect(
+    inspector.getByRole('button', { name: 'Open Review' }),
+  ).toBeDisabled()
+  await inspector.getByRole('button', { name: 'Save field only' }).click()
+  await expect(
+    inspector.getByText('Structural change — review impact?'),
+  ).toHaveCount(0)
+
+  // 3) Both persist across a reload.
+  await page.reload()
+  await page.getByTestId('scene-card-scene-2').click()
+  const reloaded = page.getByTestId('inspector')
+  await expect(reloaded.getByLabel('Location')).toHaveValue(
+    'INT. THE MARINA - DAY',
+  )
+  await expect(reloaded.getByLabel('What happens')).toHaveValue(
+    'A structural rewrite of the scene.',
+  )
+})

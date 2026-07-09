@@ -8,10 +8,14 @@ import type { PlanSelection } from './SceneCard'
 import { StoryLayersPanel } from './StoryLayersPanel'
 import {
   buildBeatPatch,
+  buildEpisodePatch,
+  buildProjectFieldPatch,
   buildSceneSwapPatch,
   buildScenePatch,
   swapScenesLocally,
   withBeatField,
+  withEpisodeField,
+  withProjectField,
   withSceneField,
 } from './planTree'
 import { useProjectPatch } from './useProjectPatch'
@@ -101,13 +105,50 @@ export function PlanScreen() {
     )
   }
 
-  function handleSaveWhatHappens(sceneId: string, value: string) {
+  function handleSaveSceneField(sceneId: string, field: string, value: string) {
     if (!project) return
-    const ops = buildScenePatch(project, sceneId, 'whatHappens', value)
+    const ops = buildScenePatch(project, sceneId, field, value)
     if (!ops) return
     void patcher.patch(
       ops,
-      withSceneField(project, sceneId, 'whatHappens', value),
+      withSceneField(project, sceneId, field as never, value),
+    )
+  }
+
+  function handleSaveBeatField(
+    sceneId: string,
+    beatId: string,
+    field: string,
+    value: string,
+  ) {
+    if (!project) return
+    const ops = buildBeatPatch(project, sceneId, beatId, field, value)
+    if (!ops) return
+    void patcher.patch(
+      ops,
+      withBeatField(project, sceneId, beatId, field as never, value),
+    )
+  }
+
+  function handleSaveProjectField(field: string, value: string) {
+    if (!project) return
+    void patcher.patch(
+      buildProjectFieldPatch(field, value),
+      withProjectField(project, field as never, value),
+    )
+  }
+
+  function handleSaveEpisodeField(
+    episodeId: string,
+    field: string,
+    value: string,
+  ) {
+    if (!project) return
+    const ops = buildEpisodePatch(project, episodeId, field, value)
+    if (!ops) return
+    void patcher.patch(
+      ops,
+      withEpisodeField(project, episodeId, field as never, value),
     )
   }
 
@@ -181,7 +222,10 @@ export function PlanScreen() {
           pending={patcher.pending}
           onToggleSceneLock={handleToggleSceneLock}
           onToggleBeatScriptLock={handleToggleBeatScriptLock}
-          onSaveWhatHappens={handleSaveWhatHappens}
+          onSaveSceneField={handleSaveSceneField}
+          onSaveBeatField={handleSaveBeatField}
+          onSaveProjectField={handleSaveProjectField}
+          onSaveEpisodeField={handleSaveEpisodeField}
         />
       </div>
     </AppShell>

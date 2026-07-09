@@ -157,12 +157,16 @@ describe('Inspector', () => {
         pending={false}
         onToggleSceneLock={noop}
         onToggleBeatScriptLock={noop}
-        onSaveWhatHappens={noop}
+        onSaveSceneField={noop}
+        onSaveBeatField={noop}
+        onSaveProjectField={noop}
+        onSaveEpisodeField={noop}
       />,
     )
     expect(screen.getByText(/Last Call/)).not.toBeNull()
-    expect(screen.getByText('Episode premise text.')).not.toBeNull()
-    expect(screen.getByText('Series premise text.')).not.toBeNull()
+    // Episode + series premise are structural, editable fields (textareas).
+    expect(screen.getByDisplayValue('Episode premise text.')).not.toBeNull()
+    expect(screen.getByDisplayValue('Series premise text.')).not.toBeNull()
   })
 
   it('scene selected: shows motivations (with resolved character name) and affected facts', () => {
@@ -182,7 +186,10 @@ describe('Inspector', () => {
         pending={false}
         onToggleSceneLock={noop}
         onToggleBeatScriptLock={noop}
-        onSaveWhatHappens={noop}
+        onSaveSceneField={noop}
+        onSaveBeatField={noop}
+        onSaveProjectField={noop}
+        onSaveEpisodeField={noop}
       />,
     )
     expect(screen.getByText('Marta Vega')).not.toBeNull() // resolved from characterId
@@ -205,7 +212,10 @@ describe('Inspector', () => {
         pending={false}
         onToggleSceneLock={noop}
         onToggleBeatScriptLock={noop}
-        onSaveWhatHappens={noop}
+        onSaveSceneField={noop}
+        onSaveBeatField={noop}
+        onSaveProjectField={noop}
+        onSaveEpisodeField={noop}
       />,
     )
     expect(screen.getByText('Locked — unlock to edit')).not.toBeNull()
@@ -228,17 +238,20 @@ describe('Inspector', () => {
         pending={false}
         onToggleSceneLock={onToggleSceneLock}
         onToggleBeatScriptLock={noop}
-        onSaveWhatHappens={noop}
+        onSaveSceneField={noop}
+        onSaveBeatField={noop}
+        onSaveProjectField={noop}
+        onSaveEpisodeField={noop}
       />,
     )
     await user.click(screen.getByRole('switch'))
     expect(onToggleSceneLock).toHaveBeenCalledWith('scene-1', true)
   })
 
-  it('editing whatHappens shows the "Structural change" footer bar; Save field only calls back with the draft', async () => {
+  it('editing whatHappens (structural) shows the "Structural change" footer bar; Save field only calls back with field + draft', async () => {
     const user = userEvent.setup()
     const ep = episode()
-    const onSaveWhatHappens = vi.fn()
+    const onSaveSceneField = vi.fn()
     render(
       <Inspector
         project={project(ep)}
@@ -248,7 +261,10 @@ describe('Inspector', () => {
         pending={false}
         onToggleSceneLock={noop}
         onToggleBeatScriptLock={noop}
-        onSaveWhatHappens={onSaveWhatHappens}
+        onSaveSceneField={onSaveSceneField}
+        onSaveBeatField={noop}
+        onSaveProjectField={noop}
+        onSaveEpisodeField={noop}
       />,
     )
     expect(screen.queryByText('Structural change — review impact?')).toBeNull()
@@ -266,9 +282,45 @@ describe('Inspector', () => {
     expect(openReview.disabled).toBe(true)
 
     await user.click(screen.getByRole('button', { name: 'Save field only' }))
-    expect(onSaveWhatHappens).toHaveBeenCalledWith(
+    expect(onSaveSceneField).toHaveBeenCalledWith(
       'scene-1',
+      'whatHappens',
       'A rewritten summary.',
+    )
+  })
+
+  it('editing location (non-structural) is silent: a plain Save, no "Structural change" bar', async () => {
+    const user = userEvent.setup()
+    const ep = episode()
+    const onSaveSceneField = vi.fn()
+    render(
+      <Inspector
+        project={project(ep)}
+        episode={ep}
+        ledger={[]}
+        selection={{ type: 'scene', sceneId: 'scene-1' }}
+        pending={false}
+        onToggleSceneLock={noop}
+        onToggleBeatScriptLock={noop}
+        onSaveSceneField={onSaveSceneField}
+        onSaveBeatField={noop}
+        onSaveProjectField={noop}
+        onSaveEpisodeField={noop}
+      />,
+    )
+    const input = screen.getByDisplayValue('INT. THE LONG POUR - NIGHT')
+    await user.clear(input)
+    await user.type(input, 'INT. MARINA - DAY')
+
+    // Non-structural: a plain Save button, never the structural footer.
+    expect(screen.queryByText('Structural change — review impact?')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Save field only' })).toBeNull()
+
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+    expect(onSaveSceneField).toHaveBeenCalledWith(
+      'scene-1',
+      'location',
+      'INT. MARINA - DAY',
     )
   })
 
@@ -283,10 +335,13 @@ describe('Inspector', () => {
         pending={false}
         onToggleSceneLock={noop}
         onToggleBeatScriptLock={noop}
-        onSaveWhatHappens={noop}
+        onSaveSceneField={noop}
+        onSaveBeatField={noop}
+        onSaveProjectField={noop}
+        onSaveEpisodeField={noop}
       />,
     )
-    expect(screen.getByText('locked wh')).not.toBeNull()
+    expect(screen.getByDisplayValue('locked wh')).not.toBeNull() // now an editable field, read-only when locked
     expect(screen.getByText('Locked — unlock to edit')).not.toBeNull() // scriptLocked → effectively locked
     expect(screen.getByRole('switch').getAttribute('aria-checked')).toBe('true')
   })
@@ -304,7 +359,10 @@ describe('Inspector', () => {
         pending={false}
         onToggleSceneLock={noop}
         onToggleBeatScriptLock={onToggleBeatScriptLock}
-        onSaveWhatHappens={noop}
+        onSaveSceneField={noop}
+        onSaveBeatField={noop}
+        onSaveProjectField={noop}
+        onSaveEpisodeField={noop}
       />,
     )
     await user.click(screen.getByRole('switch'))

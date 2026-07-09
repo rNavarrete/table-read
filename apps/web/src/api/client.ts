@@ -49,17 +49,39 @@ export interface JsonPatchOp {
   value?: unknown
 }
 
+/** `PATCH /projects/{pid}` result, normalized to a single shape. The endpoint
+ * is polymorphic (data contract §4): a patch touching a **structural plan
+ * field** (scene `whatHappens`, `premise`, storyline summaries) triggers
+ * `scan_consistency` and returns `{project, consistencyFlags}`; every other
+ * edit returns the bare `Project`. `patchProject` normalizes both to this — an
+ * empty `consistencyFlags` for the silent case — so callers never branch on
+ * the wire shape. */
+export interface PatchResult {
+  project: Project
+  consistencyFlags: ConsistencyFlag[]
+}
+
 /** `PATCH /projects/{pid}` (data contract §4): direct writer edits, no
- * regeneration. Used by Plan mode (T3.1) for scene reorder, the scene/beat
- * lock toggles, and the inspector's "Save field only" affordance — all of
- * which are single- or double-field `replace` ops built by `plan/planTree.ts`
- * against the caller's own in-memory `Project` (so array-index JSON Pointers
- * stay correct without a second fetch). */
-export function patchProject(
+ * regeneration. Used by Plan mode for scene reorder, the scene/beat lock
+ * toggles, and the inspector's per-field "Save" / "Save field only"
+ * affordances — all single- or double-field `replace`/`add` ops built by
+ * `plan/planTree.ts` against the caller's own in-memory `Project` (so
+ * array-index JSON Pointers stay correct without a second fetch). Resolves to
+ * the normalized {@link PatchResult}; a `LOCKED_OBJECT` 409 (a patch into a
+ * locked range) surfaces as an `ApiError` the caller rolls back on. */
+export async function patchProject(
   projectId: string,
   ops: JsonPatchOp[],
-): Promise<Project> {
-  return patchJson<Project>(`/projects/${projectId}`, ops)
+): Promise<PatchResult> {
+  const body = await patchJson<Project | PatchResult>(
+    `/projects/${projectId}`,
+    ops,
+  )
+  // Structural edits return {project, consistencyFlags}; other edits the bare
+  // Project (which has no `project` key). Normalize to PatchResult.
+  return 'project' in body
+    ? { project: body.project, consistencyFlags: body.consistencyFlags }
+    : { project: body, consistencyFlags: [] }
 }
 
 export function getProject(projectId: string): Promise<Project> {

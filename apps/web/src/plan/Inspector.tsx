@@ -10,17 +10,6 @@ import {
   isBeatEffectivelyLocked,
 } from './planTree'
 
-function Field({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <p className="text-12 uppercase tracking-wide text-tr-text-muted">
-        {label}
-      </p>
-      <p className="text-13 text-tr-text-primary">{value || '—'}</p>
-    </div>
-  )
-}
-
 function LockBanner() {
   return (
     <p
@@ -33,63 +22,129 @@ function LockBanner() {
 }
 
 /**
- * The `whatHappens` field: the one scene field this task wires for real
- * editing (data contract §4 names it a "structural plan field" — the only
- * scene field that triggers the "Structural change — review impact?" footer
- * bar). Keyed by the caller on `${scene.id}:${scene.whatHappens}` so a
- * scene switch *or* a successful save both reset the local draft to the new
- * baseline, without an effect.
+ * The structural-edit footer bar (UI spec §4): shown when a **structural plan
+ * field** (scene `whatHappens`, `premise`, storyline summaries — data contract
+ * §4) is dirty. *Open Review* stays stubbed until Review mode (T4.3); *Save
+ * field only* writes the field as a direct PATCH with no regeneration — but the
+ * server still runs the post-save consistency scan (the flagging promise holds
+ * even when the writer skips Review).
  */
-function WhatHappensEditor({
-  scene,
+function StructuralFooter({
+  saving,
+  onSave,
+}: {
+  saving: boolean
+  onSave: () => void
+}) {
+  return (
+    <div className="mt-2 flex items-center gap-3 rounded-card border border-tr-border bg-tr-surface-sunken p-2">
+      <p className="text-13 text-tr-text-secondary">
+        Structural change — review impact?
+      </p>
+      <button
+        type="button"
+        disabled
+        title="Review mode is T4.3"
+        className="ml-auto cursor-not-allowed rounded-card bg-tr-coral px-3 py-1 text-13 text-tr-surface-raised opacity-50"
+      >
+        Open Review
+      </button>
+      <button
+        type="button"
+        disabled={saving}
+        onClick={onSave}
+        className="text-13 text-tr-text-secondary underline disabled:opacity-50"
+      >
+        {saving ? 'Saving…' : 'Save field only'}
+      </button>
+    </div>
+  )
+}
+
+/**
+ * One inspector field the writer can edit (UI spec §4 `InspectorField`:
+ * read-only-when-locked built in). A dirty edit surfaces a save affordance:
+ *   - `structural` fields (scene `whatHappens`, `premise`, storyline summaries)
+ *     show the {@link StructuralFooter} "review impact?" bar (the edit will
+ *     trigger `scan_consistency` server-side, §4);
+ *   - every other field shows a plain *Save* button — a silent direct PATCH.
+ * Read-only (no save affordance) while `locked`. Keyed by the caller on the
+ * field's server value so a selection change *or* a successful save resets the
+ * draft to the new baseline without an effect.
+ */
+function EditableField({
+  label,
+  value,
+  structural = false,
+  multiline = false,
   locked,
   saving,
   onSave,
 }: {
-  scene: Scene
+  label: string
+  value: string
+  structural?: boolean
+  multiline?: boolean
   locked: boolean
   saving: boolean
   onSave: (value: string) => void
 }) {
-  const [draft, setDraft] = useState(scene.whatHappens)
-  const dirty = draft !== scene.whatHappens
+  const [draft, setDraft] = useState(value)
+  const dirty = draft !== value
+  const controlClass =
+    'mt-1 w-full rounded-card border border-tr-border bg-tr-surface-raised p-2 text-13 text-tr-text-primary outline-none focus:border-tr-sky disabled:opacity-50'
 
   return (
     <div>
       <p className="text-12 uppercase tracking-wide text-tr-text-muted">
-        What happens
+        {label}
       </p>
-      <textarea
-        value={draft}
-        readOnly={locked}
-        disabled={saving}
-        onChange={(e) => setDraft(e.target.value)}
-        rows={4}
-        className="mt-1 w-full resize-none rounded-card border border-tr-border bg-tr-surface-raised p-2 text-13 text-tr-text-primary outline-none focus:border-tr-sky disabled:opacity-50"
-      />
-      {dirty && !locked && (
-        <div className="mt-2 flex items-center gap-3 rounded-card border border-tr-border bg-tr-surface-sunken p-2">
-          <p className="text-13 text-tr-text-secondary">
-            Structural change — review impact?
-          </p>
-          <button
-            type="button"
-            disabled
-            title="Review mode is T4.3"
-            className="ml-auto cursor-not-allowed rounded-card bg-tr-coral px-3 py-1 text-13 text-tr-surface-raised opacity-50"
-          >
-            Open Review
-          </button>
-          <button
-            type="button"
-            disabled={saving}
-            onClick={() => onSave(draft)}
-            className="text-13 text-tr-text-secondary underline disabled:opacity-50"
-          >
-            {saving ? 'Saving…' : 'Save field only'}
-          </button>
-        </div>
+      {multiline ? (
+        <textarea
+          aria-label={label}
+          value={draft}
+          readOnly={locked}
+          disabled={saving}
+          onChange={(e) => setDraft(e.target.value)}
+          rows={4}
+          className={`${controlClass} resize-none`}
+        />
+      ) : (
+        <input
+          type="text"
+          aria-label={label}
+          value={draft}
+          readOnly={locked}
+          disabled={saving}
+          onChange={(e) => setDraft(e.target.value)}
+          className={controlClass}
+        />
       )}
+      {dirty && !locked && structural && (
+        <StructuralFooter saving={saving} onSave={() => onSave(draft)} />
+      )}
+      {dirty && !locked && !structural && (
+        <button
+          type="button"
+          disabled={saving}
+          onClick={() => onSave(draft)}
+          className="mt-2 rounded-card bg-tr-coral px-3 py-1 text-13 text-tr-surface-raised disabled:opacity-50"
+        >
+          {saving ? 'Saving…' : 'Save'}
+        </button>
+      )}
+    </div>
+  )
+}
+
+/** Read-only inspector field (for values not editable in MVP, e.g. `act`). */
+function Field({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <p className="text-12 uppercase tracking-wide text-tr-text-muted">
+        {label}
+      </p>
+      <p className="text-13 text-tr-text-primary">{value || '—'}</p>
     </div>
   )
 }
@@ -185,15 +240,25 @@ export interface InspectorProps {
     beatId: string,
     scriptLocked: boolean,
   ) => void
-  onSaveWhatHappens: (sceneId: string, value: string) => void
+  onSaveSceneField: (sceneId: string, field: string, value: string) => void
+  onSaveBeatField: (
+    sceneId: string,
+    beatId: string,
+    field: string,
+    value: string,
+  ) => void
+  onSaveProjectField: (field: string, value: string) => void
+  onSaveEpisodeField: (episodeId: string, field: string, value: string) => void
 }
 
 /**
  * The right inspector (UI spec §4). Three shapes, driven by `selection`:
- * nothing selected (episode summary + premise), a selected scene (fields,
+ * nothing selected (episode + series premise), a selected scene (fields,
  * motivations, affected facts, lock toggle), a selected beat (beat fields +
- * `scriptLocked` toggle). `isBeatEffectivelyLocked`/`scene.locked` decide the
- * "Locked selection" read-only + banner state (obligation 3/§4).
+ * `scriptLocked` toggle). All value fields are editable via a per-field Save
+ * (structural fields — `whatHappens`, `premise` — through the "review impact?"
+ * footer). `isBeatEffectivelyLocked`/`scene.locked` decide the "Locked
+ * selection" read-only + banner state (§4).
  */
 export function Inspector({
   project,
@@ -203,7 +268,10 @@ export function Inspector({
   pending,
   onToggleSceneLock,
   onToggleBeatScriptLock,
-  onSaveWhatHappens,
+  onSaveSceneField,
+  onSaveBeatField,
+  onSaveProjectField,
+  onSaveEpisodeField,
 }: InspectorProps) {
   if (selection === null) {
     return (
@@ -215,11 +283,28 @@ export function Inspector({
         <p className="font-display text-15 text-tr-text-primary">
           Episode {episode.index + 1}: {episode.title}
         </p>
-        <p className="mt-2 text-13 text-tr-text-secondary">{episode.premise}</p>
-        <p className="mt-4 text-12 uppercase tracking-wide text-tr-text-muted">
-          Series premise
-        </p>
-        <p className="mt-1 text-13 text-tr-text-secondary">{project.premise}</p>
+        <div className="mt-2 flex flex-col gap-3">
+          <EditableField
+            key={`${episode.id}:premise:${episode.premise}`}
+            label="Episode premise"
+            value={episode.premise}
+            structural
+            multiline
+            locked={episode.locked}
+            saving={pending}
+            onSave={(value) => onSaveEpisodeField(episode.id, 'premise', value)}
+          />
+          <EditableField
+            key={`premise:${project.premise}`}
+            label="Series premise"
+            value={project.premise}
+            structural
+            multiline
+            locked={false}
+            saving={pending}
+            onSave={(value) => onSaveProjectField('premise', value)}
+          />
+        </div>
       </aside>
     )
   }
@@ -243,9 +328,32 @@ export function Inspector({
             onChange={(next) => onToggleSceneLock(scene.id, next)}
           />
           {locked && <LockBanner />}
-          <Field label="Location" value={scene.location} />
-          <Field label="Time" value={scene.time} />
-          <Field label="Social situation" value={scene.socialSituation} />
+          <EditableField
+            key={`${scene.id}:location:${scene.location}`}
+            label="Location"
+            value={scene.location}
+            locked={locked}
+            saving={pending}
+            onSave={(value) => onSaveSceneField(scene.id, 'location', value)}
+          />
+          <EditableField
+            key={`${scene.id}:time:${scene.time}`}
+            label="Time"
+            value={scene.time}
+            locked={locked}
+            saving={pending}
+            onSave={(value) => onSaveSceneField(scene.id, 'time', value)}
+          />
+          <EditableField
+            key={`${scene.id}:socialSituation:${scene.socialSituation}`}
+            label="Social situation"
+            value={scene.socialSituation}
+            locked={locked}
+            saving={pending}
+            onSave={(value) =>
+              onSaveSceneField(scene.id, 'socialSituation', value)
+            }
+          />
           <Field label="Act" value={String(scene.act)} />
           <div>
             <p className="text-12 uppercase tracking-wide text-tr-text-muted">
@@ -259,15 +367,38 @@ export function Inspector({
               <option>{scene.storyline}</option>
             </select>
           </div>
-          <WhatHappensEditor
-            key={`${scene.id}:${scene.whatHappens}`}
-            scene={scene}
+          <EditableField
+            key={`${scene.id}:whatHappens:${scene.whatHappens}`}
+            label="What happens"
+            value={scene.whatHappens}
+            structural
+            multiline
             locked={locked}
             saving={pending}
-            onSave={(value) => onSaveWhatHappens(scene.id, value)}
+            onSave={(value) => onSaveSceneField(scene.id, 'whatHappens', value)}
           />
-          <Field label="Audience learns" value={scene.audienceLearns} />
-          <Field label="Audience feels" value={scene.audienceFeels} />
+          <EditableField
+            key={`${scene.id}:audienceLearns:${scene.audienceLearns}`}
+            label="Audience learns"
+            value={scene.audienceLearns}
+            multiline
+            locked={locked}
+            saving={pending}
+            onSave={(value) =>
+              onSaveSceneField(scene.id, 'audienceLearns', value)
+            }
+          />
+          <EditableField
+            key={`${scene.id}:audienceFeels:${scene.audienceFeels}`}
+            label="Audience feels"
+            value={scene.audienceFeels}
+            multiline
+            locked={locked}
+            saving={pending}
+            onSave={(value) =>
+              onSaveSceneField(scene.id, 'audienceFeels', value)
+            }
+          />
           <MotivationsTable scene={scene} project={project} />
           <AffectedFacts facts={affectedFacts(ledger, scene.id)} />
         </div>
@@ -294,17 +425,50 @@ export function Inspector({
           onChange={(next) => onToggleBeatScriptLock(scene.id, beat.id, next)}
         />
         {locked && <LockBanner />}
-        <Field label="What happens" value={beat.whatHappens} />
-        <Field label="Audience learns" value={beat.audienceLearns} />
-        <Field label="Audience feels" value={beat.audienceFeels} />
-        <div>
-          <p className="text-12 uppercase tracking-wide text-tr-text-muted">
-            Script
-          </p>
-          <p className="mt-1 whitespace-pre-wrap font-script text-12 text-tr-text-primary">
-            {beat.scriptText || '—'}
-          </p>
-        </div>
+        <EditableField
+          key={`${beat.id}:whatHappens:${beat.whatHappens}`}
+          label="What happens"
+          value={beat.whatHappens}
+          multiline
+          locked={locked}
+          saving={pending}
+          onSave={(value) =>
+            onSaveBeatField(scene.id, beat.id, 'whatHappens', value)
+          }
+        />
+        <EditableField
+          key={`${beat.id}:audienceLearns:${beat.audienceLearns}`}
+          label="Audience learns"
+          value={beat.audienceLearns}
+          multiline
+          locked={locked}
+          saving={pending}
+          onSave={(value) =>
+            onSaveBeatField(scene.id, beat.id, 'audienceLearns', value)
+          }
+        />
+        <EditableField
+          key={`${beat.id}:audienceFeels:${beat.audienceFeels}`}
+          label="Audience feels"
+          value={beat.audienceFeels}
+          multiline
+          locked={locked}
+          saving={pending}
+          onSave={(value) =>
+            onSaveBeatField(scene.id, beat.id, 'audienceFeels', value)
+          }
+        />
+        <EditableField
+          key={`${beat.id}:scriptText:${beat.scriptText}`}
+          label="Script"
+          value={beat.scriptText}
+          multiline
+          locked={locked}
+          saving={pending}
+          onSave={(value) =>
+            onSaveBeatField(scene.id, beat.id, 'scriptText', value)
+          }
+        />
       </div>
     </aside>
   )

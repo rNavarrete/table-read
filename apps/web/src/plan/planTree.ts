@@ -1,6 +1,7 @@
 import type {
   Beat,
   Character,
+  Episode,
   LedgerFact,
   Project,
   Scene,
@@ -219,8 +220,81 @@ export function buildScenePatch(
   return [{ op: 'replace', path: scenePointerPath(pointer, field), value }]
 }
 
+/** Where an episode lives in the doc's array nesting — for episode-field
+ * JSON Pointers (e.g. the episode `premise` edited from the inspector's
+ * nothing-selected view). */
+export function findEpisodePointer(
+  project: Project,
+  episodeId: string,
+): { seasonIdx: number; episodeIdx: number } | null {
+  for (let seasonIdx = 0; seasonIdx < project.seasons.length; seasonIdx++) {
+    const episodeIdx = project.seasons[seasonIdx].episodes.findIndex(
+      (e) => e.id === episodeId,
+    )
+    if (episodeIdx !== -1) return { seasonIdx, episodeIdx }
+  }
+  return null
+}
+
+/** Single-field `replace` patch for a top-level project field (series
+ * `premise`). */
+export function buildProjectFieldPatch(
+  field: string,
+  value: unknown,
+): JsonPatchOp[] {
+  return [{ op: 'replace', path: `/${field}`, value }]
+}
+
+/** Optimistic twin of `buildProjectFieldPatch`. */
+export function withProjectField(
+  project: Project,
+  field: keyof Project,
+  value: unknown,
+): Project {
+  return { ...project, [field]: value }
+}
+
+/** Single-field `replace` patch for an episode field (episode `premise`).
+ * `null` if the episode isn't found. */
+export function buildEpisodePatch(
+  project: Project,
+  episodeId: string,
+  field: string,
+  value: unknown,
+): JsonPatchOp[] | null {
+  const pointer = findEpisodePointer(project, episodeId)
+  if (!pointer) return null
+  return [
+    {
+      op: 'replace',
+      path: `/seasons/${pointer.seasonIdx}/episodes/${pointer.episodeIdx}/${field}`,
+      value,
+    },
+  ]
+}
+
+/** Optimistic twin of `buildEpisodePatch`: sets one field on `episodeId`
+ * immutably. */
+export function withEpisodeField(
+  project: Project,
+  episodeId: string,
+  field: keyof Episode,
+  value: unknown,
+): Project {
+  return {
+    ...project,
+    seasons: project.seasons.map((season) => ({
+      ...season,
+      episodes: season.episodes.map((episode) =>
+        episode.id === episodeId ? { ...episode, [field]: value } : episode,
+      ),
+    })),
+  }
+}
+
 /** Single-field `replace` patch for a beat field (the `scriptLocked`
- * toggle). `null` if the scene or beat isn't found. */
+ * toggle, and the inspector's editable beat fields). `null` if the scene or
+ * beat isn't found. */
 export function buildBeatPatch(
   project: Project,
   sceneId: string,

@@ -50,7 +50,13 @@ export function useProjectPatch(
       setProject(optimisticNext)
 
       try {
-        const next = await patchProject(projectId, ops)
+        // Polymorphic response (data contract §4): a structural-field edit
+        // returns {project, consistencyFlags}; patchProject normalizes both to
+        // PatchResult. We adopt the authoritative `project`; rendering the
+        // returned consistencyFlags (amber badges / the Review section) is
+        // T4.3 — the flags are already persisted server-side, so skipping the
+        // UI here doesn't break the flagging promise.
+        const { project: next } = await patchProject(projectId, ops)
         setProject(next)
         setPending(false)
         return true

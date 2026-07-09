@@ -46,7 +46,12 @@ describe('useProjectPatch', () => {
     const before = project('Before')
     const optimistic = project('Optimistic')
     const server = project('Server Truth')
-    patchProjectMock.mockResolvedValue(server)
+    // patchProject resolves the normalized PatchResult ({project,
+    // consistencyFlags}); the hook adopts `.project`.
+    patchProjectMock.mockResolvedValue({
+      project: server,
+      consistencyFlags: [],
+    })
 
     let current = before
     const setProject = vi.fn((p: Project) => {
@@ -117,9 +122,12 @@ describe('useProjectPatch', () => {
     // First PATCH hangs until we resolve it — the window in which a second
     // mutation could otherwise start and later be erased by the first's
     // rollback (useProjectPatch restores the exact pre-patch doc).
-    let resolveFirst!: (p: Project) => void
+    let resolveFirst!: (r: { project: Project; consistencyFlags: [] }) => void
     patchProjectMock.mockImplementation(
-      () => new Promise<Project>((resolve) => (resolveFirst = resolve)),
+      () =>
+        new Promise<{ project: Project; consistencyFlags: [] }>(
+          (resolve) => (resolveFirst = resolve),
+        ),
     )
 
     const setProject = vi.fn()
@@ -151,13 +159,16 @@ describe('useProjectPatch', () => {
 
     // The first mutation completes normally, unaffected by the refusal.
     await act(async () => {
-      resolveFirst(server)
+      resolveFirst({ project: server, consistencyFlags: [] })
       await expect(first).resolves.toBe(true)
     })
     expect(setProject).toHaveBeenLastCalledWith(server)
 
     // And once settled, the guard releases — a new mutation goes through.
-    patchProjectMock.mockResolvedValue(server)
+    patchProjectMock.mockResolvedValue({
+      project: server,
+      consistencyFlags: [],
+    })
     let third = false
     await act(async () => {
       third = await result.current.patch(
