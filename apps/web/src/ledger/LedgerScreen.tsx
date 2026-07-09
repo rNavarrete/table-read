@@ -214,7 +214,12 @@ export function LedgerScreen() {
 
   if (loadError) {
     return (
-      <AppShell projectTitle="Table Read" activeMode="Ledger" ledgerCount={0}>
+      <AppShell
+        projectTitle="Table Read"
+        activeMode="Ledger"
+        ledgerCount={0}
+        projectId={projectId}
+      >
         <p className="p-8 text-15 text-tr-danger">
           Couldn&apos;t load this project: {loadError}
         </p>
@@ -224,7 +229,12 @@ export function LedgerScreen() {
 
   if (!project) {
     return (
-      <AppShell projectTitle="Table Read" activeMode="Ledger" ledgerCount={0}>
+      <AppShell
+        projectTitle="Table Read"
+        activeMode="Ledger"
+        ledgerCount={0}
+        projectId={projectId}
+      >
         <p className="p-8 text-15 text-tr-text-secondary">Loading…</p>
       </AppShell>
     )
@@ -235,6 +245,7 @@ export function LedgerScreen() {
       projectTitle={project.title}
       activeMode="Ledger"
       ledgerCount={pendingCount}
+      projectId={projectId}
     >
       <div className="flex min-h-[calc(100vh-3.5rem)]">
         <FilterRail

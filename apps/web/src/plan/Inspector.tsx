@@ -24,18 +24,28 @@ function LockBanner() {
 /**
  * The structural-edit footer bar (UI spec §4): shown when a **structural plan
  * field** (scene `whatHappens`, `premise`, storyline summaries — data contract
- * §4) is dirty. *Open Review* stays stubbed until Review mode (T4.3); *Save
- * field only* writes the field as a direct PATCH with no regeneration — but the
- * server still runs the post-save consistency scan (the flagging promise holds
- * even when the writer skips Review).
+ * §4) is dirty. *Open Review* creates a Change Set from the dirty draft and
+ * navigates to Review (T4.3). *Save field only* writes the field as a direct
+ * PATCH with no regeneration — but the server still runs the post-save
+ * consistency scan (the flagging promise holds even when the writer skips
+ * Review).
+ *
+ * `onOpenReview` is omitted for targets the create API can't accept yet
+ * (episode/series premise — DESIGN-GAP(T4.3): create only validates
+ * scene/beat/character/ledgerFact). Those rows keep Save field only.
  */
 function StructuralFooter({
   saving,
+  openingReview,
   onSave,
+  onOpenReview,
 }: {
   saving: boolean
+  openingReview?: boolean
   onSave: () => void
+  onOpenReview?: () => void
 }) {
+  const reviewDisabled = !onOpenReview || saving || !!openingReview
   return (
     <div className="mt-2 flex items-center gap-3 rounded-card border border-tr-border bg-tr-surface-sunken p-2">
       <p className="text-13 text-tr-text-secondary">
@@ -43,15 +53,21 @@ function StructuralFooter({
       </p>
       <button
         type="button"
-        disabled
-        title="Review mode is T4.3"
-        className="ml-auto cursor-not-allowed rounded-card bg-tr-coral px-3 py-1 text-13 text-tr-surface-raised opacity-50"
+        disabled={reviewDisabled}
+        title={
+          onOpenReview ? undefined : 'Open Review needs a scene or beat target'
+        }
+        onClick={onOpenReview}
+        className={
+          'ml-auto rounded-card bg-tr-coral px-3 py-1 text-13 text-tr-surface-raised' +
+          (reviewDisabled ? ' cursor-not-allowed opacity-50' : '')
+        }
       >
-        Open Review
+        {openingReview ? 'Opening…' : 'Open Review'}
       </button>
       <button
         type="button"
-        disabled={saving}
+        disabled={saving || !!openingReview}
         onClick={onSave}
         className="text-13 text-tr-text-secondary underline disabled:opacity-50"
       >
@@ -79,7 +95,9 @@ function EditableField({
   multiline = false,
   locked,
   saving,
+  openingReview,
   onSave,
+  onOpenReview,
 }: {
   label: string
   value: string
@@ -87,7 +105,10 @@ function EditableField({
   multiline?: boolean
   locked: boolean
   saving: boolean
+  openingReview?: boolean
   onSave: (value: string) => void
+  /** When set, Open Review is enabled for this structural field. */
+  onOpenReview?: (instruction: string) => void
 }) {
   const [draft, setDraft] = useState(value)
   const dirty = draft !== value
@@ -104,7 +125,7 @@ function EditableField({
           aria-label={label}
           value={draft}
           readOnly={locked}
-          disabled={saving}
+          disabled={saving || !!openingReview}
           onChange={(e) => setDraft(e.target.value)}
           rows={4}
           className={`${controlClass} resize-none`}
@@ -115,13 +136,18 @@ function EditableField({
           aria-label={label}
           value={draft}
           readOnly={locked}
-          disabled={saving}
+          disabled={saving || !!openingReview}
           onChange={(e) => setDraft(e.target.value)}
           className={controlClass}
         />
       )}
       {dirty && !locked && structural && (
-        <StructuralFooter saving={saving} onSave={() => onSave(draft)} />
+        <StructuralFooter
+          saving={saving}
+          openingReview={openingReview}
+          onSave={() => onSave(draft)}
+          onOpenReview={onOpenReview ? () => onOpenReview(draft) : undefined}
+        />
       )}
       {dirty && !locked && !structural && (
         <button
@@ -251,6 +277,9 @@ export interface InspectorProps {
   ) => void
   onSaveProjectField: (field: string, value: string) => void
   onSaveEpisodeField: (episodeId: string, field: string, value: string) => void
+  /** Create a Change Set from a structural draft and open Review (T4.3). */
+  onOpenReview?: (targetObjectId: string, instruction: string) => void
+  openingReview?: boolean
 }
 
 /**
@@ -268,12 +297,14 @@ export function Inspector({
   ledger,
   selection,
   pending,
+  openingReview = false,
   onToggleSceneLock,
   onToggleBeatScriptLock,
   onSaveSceneField,
   onSaveBeatField,
   onSaveProjectField,
   onSaveEpisodeField,
+  onOpenReview,
 }: InspectorProps) {
   if (selection === null) {
     return (
@@ -294,6 +325,7 @@ export function Inspector({
             multiline
             locked={episode.locked}
             saving={pending}
+            openingReview={openingReview}
             onSave={(value) => onSaveEpisodeField(episode.id, 'premise', value)}
           />
           <EditableField
@@ -304,6 +336,7 @@ export function Inspector({
             multiline
             locked={false}
             saving={pending}
+            openingReview={openingReview}
             onSave={(value) => onSaveProjectField('premise', value)}
           />
         </div>
@@ -377,7 +410,13 @@ export function Inspector({
             multiline
             locked={locked}
             saving={pending}
+            openingReview={openingReview}
             onSave={(value) => onSaveSceneField(scene.id, 'whatHappens', value)}
+            onOpenReview={
+              onOpenReview
+                ? (instruction) => onOpenReview(scene.id, instruction)
+                : undefined
+            }
           />
           <EditableField
             key={`${scene.id}:audienceLearns:${scene.audienceLearns}`}

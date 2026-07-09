@@ -7,17 +7,22 @@ export interface ModeSwitcherProps {
   /** Review-queue count (`pending_review` facts), shown as an amber badge on
    * the Ledger segment when non-empty (UI spec §2). */
   ledgerCount: number
+  /** Amber dot on Review when a draft Change Set exists (UI spec §2). */
+  hasDraftChangeSet?: boolean
 }
 
 const MODES: Mode[] = ['Write', 'Plan', 'Review', 'Ledger']
 
 /**
- * The segmented mode control (UI spec §2). Write, Plan, and Ledger are built
- * (T5.1); Review still renders disabled (Agent E / T4.3). Clicking an
- * inactive built mode navigates (`navigateToMode`); the active tab and
- * unbuilt modes are inert.
+ * The segmented mode control (UI spec §2). All four modes are built (T4.3 /
+ * T5.1). Clicking an inactive mode navigates (`navigateToMode`); the active
+ * tab is inert.
  */
-export function ModeSwitcher({ active, ledgerCount }: ModeSwitcherProps) {
+export function ModeSwitcher({
+  active,
+  ledgerCount,
+  hasDraftChangeSet = false,
+}: ModeSwitcherProps) {
   return (
     <div
       role="tablist"
@@ -47,6 +52,12 @@ export function ModeSwitcher({ active, ledgerCount }: ModeSwitcherProps) {
             }
           >
             {mode}
+            {mode === 'Review' && hasDraftChangeSet && (
+              <span
+                aria-label="Draft Change Set"
+                className="inline-block size-1.5 rounded-chip bg-tr-amber"
+              />
+            )}
             {mode === 'Ledger' && ledgerCount > 0 && (
               <span className="rounded-chip bg-tr-amber-soft px-1.5 text-12 text-tr-text-primary">
                 {ledgerCount}
