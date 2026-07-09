@@ -52,6 +52,9 @@ export interface SceneCardProps {
    * the second one's optimistic change. Same guard LockToggle and the
    * inspector's save button already apply via `disabled`. */
   pending: boolean
+  /** True when this scene (or one of its beats) has an open consistency
+   * flag — UI spec §5 amber dot on Plan scene cards. */
+  hasOpenConsistencyFlag: boolean
   onSelectScene: (sceneId: string) => void
   onSelectBeat: (sceneId: string, beatId: string) => void
   dragging: boolean
@@ -82,6 +85,7 @@ export function SceneCard({
   episodeLocked,
   selection,
   pending,
+  hasOpenConsistencyFlag,
   onSelectScene,
   onSelectBeat,
   dragging,
@@ -164,6 +168,14 @@ export function SceneCard({
         <p className="text-13 font-semibold text-tr-text-primary">
           {scene.index + 1} · {scene.location}
         </p>
+        {hasOpenConsistencyFlag && (
+          <span
+            data-testid="consistency-flag-badge"
+            aria-label="Open consistency flag"
+            title="Open consistency flag"
+            className="inline-block h-2 w-2 shrink-0 rounded-full bg-tr-amber"
+          />
+        )}
         <button
           type="button"
           aria-expanded={expanded}

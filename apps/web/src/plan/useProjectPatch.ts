@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from 'react'
-import type { Project } from 'contract'
+import type { ConsistencyFlag, Project } from 'contract'
 import { patchProject, type JsonPatchOp } from '../api/client'
 import { ApiError } from '../api/errors'
 
@@ -29,11 +29,15 @@ export interface PatchErrorState {
  * `project`/`setProject` are owned by the caller (plan/PlanScreen.tsx), same
  * "server is source of truth" convention as useAcceptBeat: the value that
  * survives is whichever one the server returns, never the optimistic guess.
+ *
+ * Optional `onConsistencyFlags` receives any new flags a structural PATCH
+ * returned (T4.4a amber badges). Silent (non-structural) edits pass `[]`.
  */
 export function useProjectPatch(
   projectId: string,
   project: Project | null,
   setProject: (project: Project) => void,
+  onConsistencyFlags?: (flags: ConsistencyFlag[]) => void,
 ) {
   const [error, setError] = useState<PatchErrorState | null>(null)
   const [pending, setPending] = useState(false)
@@ -52,12 +56,14 @@ export function useProjectPatch(
       try {
         // Polymorphic response (data contract §4): a structural-field edit
         // returns {project, consistencyFlags}; patchProject normalizes both to
-        // PatchResult. We adopt the authoritative `project`; rendering the
-        // returned consistencyFlags (amber badges / the Review section) is
-        // T4.3 — the flags are already persisted server-side, so skipping the
-        // UI here doesn't break the flagging promise.
-        const { project: next } = await patchProject(projectId, ops)
+        // PatchResult. We adopt the authoritative `project` and hand any new
+        // flags to the caller for Plan amber badges (T4.4a).
+        const { project: next, consistencyFlags } = await patchProject(
+          projectId,
+          ops,
+        )
         setProject(next)
+        onConsistencyFlags?.(consistencyFlags)
         setPending(false)
         return true
       } catch (err) {
@@ -73,7 +79,7 @@ export function useProjectPatch(
         inFlightRef.current = false
       }
     },
-    [project, projectId, setProject],
+    [project, projectId, setProject, onConsistencyFlags],
   )
 
   const dismissError = useCallback(() => setError(null), [])

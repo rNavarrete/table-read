@@ -1,11 +1,16 @@
-import { useEffect, useMemo, useState } from 'react'
-import type { LedgerFact, Project } from 'contract'
-import { getLedger, getProject } from '../api/client'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import type { ConsistencyFlag, LedgerFact, Project } from 'contract'
+import {
+  getConsistencyFlags,
+  getLedger,
+  getProject,
+} from '../api/client'
 import { AppShell } from '../shell/AppShell'
 import { Board } from './Board'
 import { Inspector } from './Inspector'
 import type { PlanSelection } from './SceneCard'
 import { StoryLayersPanel } from './StoryLayersPanel'
+import { sceneIdsWithOpenFlags } from './flaggedScenes'
 import {
   buildBeatPatch,
   buildEpisodePatch,
@@ -37,17 +42,23 @@ export function PlanScreen() {
 
   const [project, setProject] = useState<Project | null>(null)
   const [ledger, setLedger] = useState<LedgerFact[]>([])
+  const [openFlags, setOpenFlags] = useState<ConsistencyFlag[]>([])
   const [loadError, setLoadError] = useState<string | null>(null)
   const [selection, setSelection] = useState<PlanSelection>(null)
   const [collapsedActs, setCollapsedActs] = useState<Set<number>>(new Set())
 
   useEffect(() => {
     let cancelled = false
-    Promise.all([getProject(projectId), getLedger(projectId)])
-      .then(([loadedProject, loadedLedger]) => {
+    Promise.all([
+      getProject(projectId),
+      getLedger(projectId),
+      getConsistencyFlags(projectId, 'open'),
+    ])
+      .then(([loadedProject, loadedLedger, loadedFlags]) => {
         if (cancelled) return
         setProject(loadedProject)
         setLedger(loadedLedger)
+        setOpenFlags(loadedFlags)
       })
       .catch((err: unknown) => {
         if (cancelled) return
@@ -60,7 +71,27 @@ export function PlanScreen() {
     }
   }, [projectId])
 
-  const patcher = useProjectPatch(projectId, project, setProject)
+  const mergeNewFlags = useCallback((newFlags: ConsistencyFlag[]) => {
+    if (newFlags.length === 0) return
+    setOpenFlags((prev) => {
+      const byId = new Map(prev.map((f) => [f.id, f]))
+      for (const flag of newFlags) byId.set(flag.id, flag)
+      return [...byId.values()]
+    })
+  }, [])
+
+  const patcher = useProjectPatch(
+    projectId,
+    project,
+    setProject,
+    mergeNewFlags,
+  )
+
+  const flaggedSceneIds = useMemo(
+    () =>
+      project ? sceneIdsWithOpenFlags(openFlags, project) : new Set<string>(),
+    [openFlags, project],
+  )
 
   function toggleActCollapse(act: number) {
     setCollapsedActs((prev) => {
@@ -208,6 +239,7 @@ export function PlanScreen() {
           selection={selection}
           collapsedActs={collapsedActs}
           pending={patcher.pending}
+          flaggedSceneIds={flaggedSceneIds}
           onSelectScene={(sceneId) => setSelection({ type: 'scene', sceneId })}
           onSelectBeat={(sceneId, beatId) =>
             setSelection({ type: 'beat', sceneId, beatId })
