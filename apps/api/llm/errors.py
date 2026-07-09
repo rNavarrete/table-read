@@ -1,6 +1,12 @@
 """LLM-layer exceptions. This package has no HTTP knowledge -- a future route
 layer catches `SchemaInvalidLlmError` and raises `errors.ApiError(..., code,
-...)` using the `.code` attribute below (data contract §4 error codes)."""
+...)` using the `.code` attribute below (data contract §4 error codes).
+
+Transport/availability failures (raw `anthropic` SDK exceptions: connection
+errors, rate limits, 5xx/529 overload) deliberately propagate out of
+`AnthropicClient` unwrapped; mapping them to the contract's `LLM_UNAVAILABLE`
+error code (data contract §4) is the route layer's responsibility, deferred
+until T2.1 (the first LLM-backed endpoint)."""
 
 from __future__ import annotations
 

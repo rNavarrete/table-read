@@ -57,7 +57,10 @@ def test_anthropic_client_constructor_never_touches_the_anthropic_module():
 def test_real_network_access_is_blocked_by_the_suite_wide_guard():
     """The suite-wide guard (tests/conftest.py) patches `socket.socket.connect`
     to raise for the duration of every test, so this fails loudly here rather
-    than silently placing a real call -- independent of whether this
-    sandbox's own network happens to reach api.anthropic.com."""
+    than silently placing a real call. Uses a literal IP, not a hostname:
+    `getaddrinfo` runs *before* the patched `connect`, so a hostname would
+    make this test fail with `gaierror` in a no-DNS environment instead of
+    exercising the guard -- a numeric address resolves locally, keeping the
+    test hermetic."""
     with pytest.raises(AssertionError, match="network access attempted"):
-        socket.create_connection(("api.anthropic.com", 443), timeout=2)
+        socket.create_connection(("1.1.1.1", 443), timeout=2)

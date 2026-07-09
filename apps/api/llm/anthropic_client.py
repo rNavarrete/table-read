@@ -151,6 +151,10 @@ class AnthropicClient:
         # `config/models.toml` deliberately pins `classifier` to a model tier
         # that still accepts an explicit `temperature` -- see that file's
         # comment for why current-generation Sonnet/Opus reject it outright.
+        # Known exception: §7 mandates temperature 0 for `segment_scene` too,
+        # but that op is writer-role and the writer tier rejects sampling
+        # params, so it runs at model default -- see the DESIGN-GAP(T6.1)
+        # comment at its definition in llm/ops.py.
         if op.role == "classifier":
             kwargs["temperature"] = 0
 

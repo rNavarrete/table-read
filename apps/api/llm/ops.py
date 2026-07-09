@@ -97,6 +97,11 @@ _OPS: tuple[LlmOp, ...] = (
         "Suggest three diverse scene or beat instructions for the writer to "
         "choose from.",
     ),
+    # DESIGN-GAP(T6.1): prompt spec §7 mandates temperature 0 for stage-2
+    # segmentation; current writer-tier models reject sampling params. Running
+    # model default; segmentation determinism must be measured by the T6.1
+    # eval suite. Alternative if determinism regresses: move this op to the
+    # classifier tier, which accepts temperature=0.
     LlmOp(
         "segment_scene",
         "SegmentedScene",
