@@ -45,7 +45,7 @@ Ordered milestones, agent-sized tasks, acceptance criteria. Reference docs: desi
 **T3.1 Board UI.** One episode: act columns (or rows) as frames, scene cards, expandable beat cards; select → right inspector (fields per UI spec §4); lock toggles; drag to reorder scenes (PATCH index swap).
 *Accept:* e2e: reorder scene-4 before scene-3 persists after reload; lock icon renders on beat-1-2 (locked in fixture); inspector shows motivations + affected ledger facts (facts whose sourceSpan is in the selected scene).
 
-**T3.2 Direct edits.** Inspector field edits → `PATCH /projects` (no LLM). Edits to `whatHappens`/premise-level fields show a "structural change — review impact?" affordance that opens Review mode pre-filled.
+**T3.2 Direct edits.** Inspector field edits → `PATCH /projects` (no LLM). Edits to `whatHappens`/premise-level fields show a "structural change — review impact?" affordance that opens Review mode pre-filled. Also lands the deferred PATCH lock guard (§4: patch into locked range → 409 `LOCKED_OBJECT`) and extends it to T1.3's import-as-replace path (locked content in target project → 409; see test plan).
 *Accept:* editing location is silent; editing scene premise offers the Review path; both snapshot.
 
 ## Milestone 4 — Review mode (the trust core — do not compress this milestone)
@@ -69,10 +69,17 @@ Ordered milestones, agent-sized tasks, acceptance criteria. Reference docs: desi
 
 ## Milestone 6 — Hardening & release gate
 
-**T6.1 LLM evals wired to CI** (test plan §3): schema-validity, lock-violation (must be 0), continuity checks on fixture. Run nightly + on prompt changes.
+**T6.1 LLM evals wired to CI** (test plan §3): schema-validity, lock-violation (must be 0), continuity checks on fixture. Run nightly + on prompt changes. Also: segmentation-determinism eval for `segment_scene`. **Resolution (T6.1):** the segmentation-determinism eval regressed below its soft 0.70 gate under writer-tier segmentation, so the documented escalation was executed — `segment_scene` moved writer→classifier in `apps/api/llm/ops.py`, which runs it at temperature 0 per prompt spec §7 (and the §8 role table in the prompt spec was updated to match). That resolves the temperature/role half of DESIGN-GAP(T6.1); the 0.70 threshold itself remains chosen-not-spec-pinned and flagged for controller/PM ratification (DESIGN-GAP(T6.1) at the eval's gate constant). Continuity remediation in the same task: grader `continuity-grader-0.2.0` (scope "does-not-know" facts to on-page learning) + `PROMPT_VERSION 0.6.0` (candidate-template dramatic-irony constraint). Also: wire the CLAUDE.md-mandated `DESIGN-GAP` CI grep (fail unless each occurrence references a task id).
 **T6.2 Error/latency polish:** SSE reconnect, `LLM_UNAVAILABLE` toasts, optimistic-update rollback on 409.
 **T6.3 Privacy pass:** delete-purge verified (T1.1), no writer text in logs (log IDs + hashes only); product copy states "not used for training" (standard API terms) and does not claim ZDR unless a ZDR agreement is executed (prompt spec §8).
 *Release gate:* all evals green; e2e suite green; a human writes one complete short scene start-to-finish using only the app.
+
+### Remediation tracking (M4/M5 wave — API)
+
+- Null-replacement retirement confirm (ruling 1): stored-null empty `fact`; confirm supersedes target + rejects proposal — landed in remediation/api.
+- Locked-scene beat reorder blocked (ruling 2) — landed in remediation/api.
+- Change Set GET endpoints (ruling 3) — landed in remediation/api; UI may drop DESIGN-GAP(T4.3) sessionStorage comments once wired.
+- DESIGN-GAP(T5.1) edit→active: closed via data-contract §4 note (this remediation).
 
 ## Sequencing & parallelism
 

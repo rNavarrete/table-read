@@ -1,0 +1,71 @@
+import { isModeBuilt, navigateToMode } from './modeNavigation'
+
+export type Mode = 'Write' | 'Plan' | 'Review' | 'Ledger'
+
+export interface ModeSwitcherProps {
+  active: Mode
+  /** Review-queue count (`pending_review` facts), shown as an amber badge on
+   * the Ledger segment when non-empty (UI spec §2). */
+  ledgerCount: number
+  /** Amber dot on Review when a draft Change Set exists (UI spec §2). */
+  hasDraftChangeSet?: boolean
+}
+
+const MODES: Mode[] = ['Write', 'Plan', 'Review', 'Ledger']
+
+/**
+ * The segmented mode control (UI spec §2). All four modes are built (T4.3 /
+ * T5.1). Clicking an inactive mode navigates (`navigateToMode`); the active
+ * tab is inert.
+ */
+export function ModeSwitcher({
+  active,
+  ledgerCount,
+  hasDraftChangeSet = false,
+}: ModeSwitcherProps) {
+  return (
+    <div
+      role="tablist"
+      aria-label="Mode"
+      className="flex items-center gap-1 rounded-card bg-tr-surface-clay p-1"
+    >
+      {MODES.map((mode) => {
+        const isActive = mode === active
+        const builtElsewhere = !isActive && isModeBuilt(mode)
+        const disabled = !isActive && !builtElsewhere
+        return (
+          <button
+            key={mode}
+            type="button"
+            role="tab"
+            aria-selected={isActive}
+            disabled={disabled}
+            title={disabled ? `${mode} mode is not built yet` : undefined}
+            onClick={builtElsewhere ? () => navigateToMode(mode) : undefined}
+            className={
+              'flex items-center gap-1.5 rounded-card px-3 py-1 text-13 transition-colors motion-reduce:transition-none' +
+              (isActive
+                ? ' bg-tr-coral-soft text-tr-text-primary'
+                : disabled
+                  ? ' cursor-not-allowed text-tr-text-muted'
+                  : ' text-tr-text-secondary hover:bg-tr-surface-raised')
+            }
+          >
+            {mode}
+            {mode === 'Review' && hasDraftChangeSet && (
+              <span
+                aria-label="Draft Change Set"
+                className="inline-block size-1.5 rounded-chip bg-tr-amber"
+              />
+            )}
+            {mode === 'Ledger' && ledgerCount > 0 && (
+              <span className="rounded-chip bg-tr-amber-soft px-1.5 text-12 text-tr-text-primary">
+                {ledgerCount}
+              </span>
+            )}
+          </button>
+        )
+      })}
+    </div>
+  )
+}

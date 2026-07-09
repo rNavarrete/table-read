@@ -1,0 +1,114 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "contradictions": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "existingFactId": {
+            "type": "string"
+          },
+          "explanation": {
+            "type": "string"
+          },
+          "proposedReplacement": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "existingFactId",
+          "explanation",
+          "proposedReplacement"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "newFacts": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "audienceKnows": {
+            "type": "boolean"
+          },
+          "confidence": {
+            "type": "number"
+          },
+          "fact": {
+            "type": "string"
+          },
+          "factType": {
+            "enum": [
+              "event",
+              "state",
+              "knowledge",
+              "relationship",
+              "world_rule"
+            ],
+            "type": "string"
+          },
+          "knownBy": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "sourceSpan": {
+            "additionalProperties": false,
+            "properties": {
+              "beatId": {
+                "type": "string"
+              },
+              "endLine": {
+                "type": "integer"
+              },
+              "episodeId": {
+                "type": "string"
+              },
+              "sceneId": {
+                "type": "string"
+              },
+              "startLine": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "episodeId",
+              "sceneId",
+              "beatId",
+              "startLine",
+              "endLine"
+            ],
+            "type": "object"
+          },
+          "sourceText": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "fact",
+          "factType",
+          "sourceSpan",
+          "sourceText",
+          "knownBy",
+          "audienceKnows",
+          "confidence"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "newFacts",
+    "contradictions"
+  ],
+  "type": "object"
+}

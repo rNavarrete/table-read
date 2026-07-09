@@ -1,0 +1,15 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "suggestions": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "suggestions"
+  ],
+  "type": "object"
+}

@@ -1,0 +1,55 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "flags": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "explanation": {
+            "type": "string"
+          },
+          "factId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "objectId": {
+            "type": "string"
+          },
+          "objectType": {
+            "enum": [
+              "scene",
+              "beat"
+            ],
+            "type": "string"
+          },
+          "severity": {
+            "enum": [
+              "contradiction",
+              "tension"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "objectType",
+          "objectId",
+          "factId",
+          "explanation",
+          "severity"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "flags"
+  ],
+  "type": "object"
+}

@@ -1,6 +1,16 @@
 .superpowers/
+.worktrees/
 node_modules/
 __pycache__/
 .venv/
 *.pyc
 .DS_Store
+dist/
+.pytest_cache/
+.ruff_cache/
+*.tsbuildinfo
+*.db
+apps/api/evals/reports/
+# Eval failure-capture artifacts (evals.run --capture): generated/fixture text,
+# for human review only — never commit or log (test plan §3, CLAUDE.md rule 5).
+apps/api/evals/captures/

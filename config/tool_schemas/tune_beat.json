@@ -1,0 +1,57 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "beatPlan": {
+      "additionalProperties": false,
+      "properties": {
+        "audienceFeels": {
+          "type": "string"
+        },
+        "audienceLearns": {
+          "type": "string"
+        },
+        "whatHappens": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "whatHappens",
+        "audienceLearns",
+        "audienceFeels"
+      ],
+      "type": "object"
+    },
+    "continuityConflicts": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "explanation": {
+            "type": "string"
+          },
+          "factId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "factId",
+          "explanation"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "label": {
+      "type": "string"
+    },
+    "scriptText": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "label",
+    "beatPlan",
+    "scriptText",
+    "continuityConflicts"
+  ],
+  "type": "object"
+}
