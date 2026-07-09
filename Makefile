@@ -17,7 +17,7 @@ endif
 # PATH it cached before the export above ran — so plain `npm ...` lines still
 # fail to resolve even though PATH is correct. `env` forces a real lookup.
 
-.PHONY: dev test lint check-contract test-api test-js lint-api lint-js seed
+.PHONY: dev test lint check-contract test-api test-js lint-api lint-js seed e2e
 
 $(VENV_BIN)/activate: $(API_DIR)/requirements.txt $(API_DIR)/requirements-dev.txt
 	$(PYTHON) -m venv $(API_DIR)/.venv
@@ -58,3 +58,14 @@ check-contract: $(VENV_BIN)/activate $(NODE_MARKER)
 
 seed: $(VENV_BIN)/activate
 	cd $(API_DIR) && $(VENV_BIN)/python -m storage.seed
+
+# Playwright e2e (T2.3): the real api (uvicorn), a disposable fixture-seeded
+# SQLite DB, and MockLlmClient (apps/web/e2e/start-api.sh), plus the real
+# Vite dev server — both started and torn down by Playwright itself
+# (apps/web/e2e/playwright.config.ts's `webServer`). Deliberately NOT part
+# of `test`: it drives a real browser and two real server processes, which
+# is slower and a different failure mode than the mock-LLM unit/integration
+# suite `test` runs on every save; run it before merging UI-touching PRs.
+e2e: $(VENV_BIN)/activate $(NODE_MARKER)
+	env npm exec --workspace=$(WEB_DIR) -- playwright install chromium
+	env npm run e2e --workspace=$(WEB_DIR)
