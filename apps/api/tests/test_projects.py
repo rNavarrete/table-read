@@ -79,6 +79,18 @@ def test_get_ledger_filters_by_character_id(seeded_project):
     assert {f["id"] for f in facts} == {"fact-05", "fact-06"}
 
 
+def test_get_ledger_returns_deterministic_order(seeded_project):
+    """Ledger order must be deterministic (by id) for consistent scene grouping."""
+    url = f"/api/v1/projects/{PROJECT_ID}/ledger"
+    response = client.get(url)
+
+    assert response.status_code == 200
+    facts = response.json()
+    fact_ids = [f["id"] for f in facts]
+    # ids are ordered lexicographically (fact-01, fact-02, ..., fact-08)
+    assert fact_ids == sorted(fact_ids)
+
+
 def test_undo_at_root_returns_409(seeded_project):
     response = client.post(f"/api/v1/projects/{PROJECT_ID}/undo")
 

@@ -192,7 +192,7 @@ def get_ledger(
     session: Session = Depends(get_session),
 ) -> list[dict]:
     _get_project_or_404(session, pid)
-    facts = session.query(LedgerFactRow).filter_by(project_id=pid).all()
+    facts = session.query(LedgerFactRow).filter_by(project_id=pid).order_by(LedgerFactRow.id).all()
     if status is not None:
         facts = [f for f in facts if f.status == status]
     if character_id is not None:

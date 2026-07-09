@@ -5,14 +5,3 @@ export const llmUnavailableMessage =
 
 export const lockedObjectMessage =
   'A locked element was included — nothing was changed'
-
-export function messageForApiError(code: string, fallback: string): string {
-  switch (code) {
-    case 'LLM_UNAVAILABLE':
-      return llmUnavailableMessage
-    case 'LOCKED_OBJECT':
-      return lockedObjectMessage
-    default:
-      return fallback
-  }
-}
