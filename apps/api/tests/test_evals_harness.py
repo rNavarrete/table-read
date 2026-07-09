@@ -114,3 +114,48 @@ def test_rule5_audit_passes_on_clean_report():
     clean = _report([_result(name="schema-validity", score=1.0)])
     # ids/counts only → no fixture text present
     assert_rule5_clean(clean, ["Marta slides a folded printout", "ice machine", "sixty days"])
+
+
+def test_write_is_a_runtime_rule5_choke_point(tmp_path):
+    """Review fix 2: `write` audits against the fixture-derived fragment set
+    before writing — a leaking report never lands on disk."""
+    leaked = _report([
+        EvalResult(
+            name="e",
+            metric="rate",
+            score=1.0,
+            gate=0.98,
+            hard=True,
+            # a complete fixture field value (fact-02's fact text) — the audit
+            # matches whole fixture fragments appearing inside report text
+            notes=["The stolen $40,000 is hidden inside the bar's basement ice machine"],
+        )
+    ])
+    try:
+        leaked.write(tmp_path)
+        raise AssertionError("expected write() to fail the rule-5 audit")
+    except AssertionError as exc:
+        assert "rule-5 violation" in str(exc)
+    assert list(tmp_path.iterdir()) == []  # nothing written
+
+
+def test_write_clean_report_lands_both_artifacts(tmp_path):
+    clean = _report([_result(name="schema-validity", score=1.0)])
+    json_path, md_path = clean.write(tmp_path)
+    names = {p.name for p in tmp_path.iterdir()}
+    assert {json_path.rsplit("/", 1)[-1], md_path.rsplit("/", 1)[-1]} == names
+
+
+def test_estimated_calls_render_in_report_header():
+    report = SuiteReport(
+        prompt_version="0.5.0",
+        models={"writer": "w", "classifier": "c"},
+        dry_run=False,
+        runs=20,
+        results=[_result(score=1.0)],
+        estimated_calls={"schemaValidity": 140, "totalNominal": 283},
+    )
+    assert '"estimatedApiCalls"' in report.to_json()
+    md = report.to_markdown()
+    assert "estimated real-API calls" in md
+    assert "total 283" in md

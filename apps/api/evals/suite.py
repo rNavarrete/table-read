@@ -31,6 +31,31 @@ def load_model_roles() -> dict[str, str]:
         return tomllib.load(f)["models"]
 
 
+def nominal_call_estimate(runs: int) -> dict:
+    """Nominal (retry-free) real-API call counts per eval family — cost
+    visibility for the report header and the Makefile target.
+
+    Per family: schema = one call per probe per run (7 × runs). lock = up to 3
+    product calls per regenerate attempt (preview's regenerate + apply's
+    extract + scan; guard rejections stop after 1) plus 1 per candidate attempt
+    → ≤ 4 × runs. continuity = 3 grader calibration calls + (1 generate +
+    1 grade) × runs. segmentation = 1 × runs. Rule-9 retries can add up to one
+    extra call per product call (observed-worst budget ≈ 1.5× total). At the
+    default 20 runs: 283 nominal (schema 140, lock 80, continuity 43,
+    segmentation 20) — ≈280–300, up to ~420 with retries; `--runs 1` ≈ 15–20."""
+    schema = len(probes.SCHEMA_PROBES) * runs
+    lock = 4 * runs
+    continuity = 3 + 2 * runs
+    segmentation = runs
+    return {
+        "schemaValidity": schema,
+        "lockViolation": lock,
+        "continuityAdherence": continuity,
+        "segmentationDeterminism": segmentation,
+        "totalNominal": schema + lock + continuity + segmentation,
+    }
+
+
 def run_suite(
     client: LlmClient,
     judge: Judge,
@@ -54,4 +79,5 @@ def run_suite(
         dry_run=dry_run,
         runs=runs,
         results=results,
+        estimated_calls=nominal_call_estimate(runs),
     )

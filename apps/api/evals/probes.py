@@ -62,6 +62,39 @@ def _iter_scenes(doc: dict):
                 yield episode, scene
 
 
+def fixture_text_fragments(min_length: int = 20) -> list[str]:
+    """Distinctive writer-text fragments from the fixture (script lines, plan
+    fields, fact/source text, character sheets) — the forbidden-substring set
+    for the runtime rule-5 report audit (`SuiteReport.write`). `min_length`
+    filters out short generic strings that would false-positive against
+    legitimate report prose."""
+    env = load_fixture()
+    doc, ledger = env["project"], env["ledger"]
+    fragments: set[str] = set()
+
+    def add(value) -> None:
+        if isinstance(value, str):
+            for line in value.split("\n"):
+                line = line.strip()
+                if len(line) >= min_length:
+                    fragments.add(line)
+
+    add(doc.get("premise"))
+    for c in doc.get("seriesBible", {}).get("characters", []):
+        for key in ("embodiment", "presentation", "hiding", "traits", "seriesArc"):
+            add(c.get(key))
+    for _e, scene in _iter_scenes(doc):
+        for key in ("whatHappens", "audienceLearns", "audienceFeels", "socialSituation"):
+            add(scene.get(key))
+        for beat in scene.get("beats", []):
+            for key in ("whatHappens", "audienceLearns", "audienceFeels", "scriptText"):
+                add(beat.get(key))
+    for fact in ledger:
+        add(fact.get("fact"))
+        add(fact.get("sourceText"))
+    return sorted(fragments)
+
+
 def scene_source_lines(scene: dict) -> list[str]:
     """Reconstruct a scene's line-numbered source (what a plain-text import would
     feed segmentation): the scene's beats' scriptText, concatenated and split to

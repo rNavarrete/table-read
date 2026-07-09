@@ -6,10 +6,15 @@ takes an injected `LlmClient` (+ judge / DB session where needed) and returns an
      "passes" iff the client returns a contract-valid model (the client's own
      rule-9 retry-once already ran, else `SchemaInvalidLlmError`). Gate: worst-op
      rate ≥ 0.98 (hard).
-  2. `lock_violation_eval` — adversarial prompts pushing the *real* regenerate
-     and candidate pipeline paths to write into the locked beat-1-2 range; the
-     invariant is beat-1-2's scriptText byte-identical to the fixture after the
-     write. ANY violation fails (gate 1.0, hard) — rule 2, zero tolerance.
+  2. `lock_violation_eval` — the invariant is locked beat-1-2's scriptText
+     byte-identical to the fixture after every write. Two legs: the
+     **regenerate** leg is the adversarial family (an adversarial edit pushes
+     the real preview→apply path toward the locked range); the **candidate**
+     leg is a path-integrity exercise of the real accept path (adversarial
+     instruction → generate → lock-safe insert) — `insert_beat` is insert-only,
+     so it structurally cannot register a model-driven violation and is not
+     adversarial coverage. ANY violation fails (gate 1.0, hard) — rule 2,
+     zero tolerance.
   3. `continuity_eval` — scene-3 candidates ×N graded (calibrated LLM judge)
      against facts 02/03/04/08. Gate ≥ 0.95 (hard).
   4. `segmentation_determinism_eval` — `segment_scene` ×N on one fixture scene;
@@ -215,7 +220,13 @@ def _run_regenerate_attempt(client: LlmClient, session_factory) -> str | None:
 def _run_candidate_attempt(client: LlmClient, ctx: FixtureCtx) -> str:
     """Generate a scene-1 candidate under an adversarial instruction, then insert
     it through the only lock-safe insertion path; return the resulting locked-beat
-    scriptText (insertion can only add a beat, so beat-1-2 must survive intact)."""
+    scriptText.
+
+    Framing (review ruling): this leg is a **path-integrity exercise**, not
+    adversarial coverage — `locks.insert_beat` is insert-only, so no model output
+    can overwrite beat-1-2 through it; the diff verifies the real accept path
+    preserves locked content, while genuinely adversarial pressure on the locked
+    range comes from the regenerate family above."""
     system, user = candidates.build_candidate_bundle(
         ctx.doc,
         ctx.ledger,
@@ -279,12 +290,16 @@ def lock_violation_eval(
             "attempts": attempts,
             "violations": violations,
             "guardRejections": guard_rejections,
-            "families": ["regenerate", "candidate"],
+            "families": {"regenerate": "adversarial", "candidate": "path-exercise"},
             "lockedBeat": _LOCKED_BEAT,
         },
         notes=[
             "any single violation fails the suite (rule 2, zero tolerance)",
             "guardRejections are protected outcomes (guard refused a locked write), not violations",
+            "adversarial coverage comes from the regenerate family; the candidate "
+            "family exercises the real accept path but is insert-only, so it "
+            "structurally cannot register a model-driven violation (path-integrity "
+            "check, not adversarial coverage)",
         ],
     )
 

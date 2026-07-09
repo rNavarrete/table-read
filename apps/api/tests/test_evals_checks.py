@@ -206,7 +206,7 @@ def test_segmentation_deterministic_mock_full_agreement():
 # ── end-to-end dry run + rule-5 audit ──────────────────────────────────────────
 
 
-def test_run_suite_dry_run_end_to_end_and_rule5_clean(session_factory):
+def test_run_suite_dry_run_end_to_end_and_rule5_clean(session_factory, tmp_path):
     report = run_suite(MockLlmClient(), MockJudge(), session_factory, runs=2, dry_run=True)
     assert report.dry_run is True
     assert [r.name for r in report.results] == [
@@ -218,5 +218,39 @@ def test_run_suite_dry_run_end_to_end_and_rule5_clean(session_factory):
     assert report.exit_code == 0
     # Rule 5: the report must carry no fixture/writer text.
     assert_rule5_clean(report, _FIXTURE_TEXT)
+    # And the runtime choke point (write-time audit vs the full fixture-derived
+    # fragment set) must also pass on a real suite report.
+    report.write(tmp_path)
     # And it must carry the version + model ids that gate a prompt bump.
     assert "0.5.0" in report.to_json()
+
+
+# ── cost visibility + CLI guards (review fixes 1 & 3) ──────────────────────────
+
+
+def test_nominal_call_estimate_matches_reviewer_numbers():
+    from evals.suite import nominal_call_estimate
+
+    full = nominal_call_estimate(20)
+    assert full["schemaValidity"] == 140
+    assert full["lockViolation"] == 80
+    assert full["continuityAdherence"] == 43
+    assert full["segmentationDeterminism"] == 20
+    assert full["totalNominal"] == 283  # ≈280–300 nominal, ~420 with retries
+    assert 15 <= nominal_call_estimate(1)["totalNominal"] <= 20
+
+
+def test_run_suite_report_carries_call_estimate(session_factory):
+    report = run_suite(MockLlmClient(), MockJudge(), session_factory, runs=2, dry_run=True)
+    assert report.estimated_calls["totalNominal"] > 0
+    assert "estimatedApiCalls" in report.to_json()
+
+
+def test_cli_rejects_runs_below_one():
+    """Review fix 3: --runs 0 must be a clear CLI error, not a ZeroDivisionError."""
+    from evals import run as run_module
+
+    for bad in ("0", "-3"):
+        with pytest.raises(SystemExit) as excinfo:
+            run_module.main(["--dry-run", "--runs", bad])
+        assert excinfo.value.code == 2  # argparse error exit

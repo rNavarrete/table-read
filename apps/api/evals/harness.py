@@ -82,6 +82,9 @@ class SuiteReport:
     dry_run: bool
     runs: int
     results: list[EvalResult]
+    # Nominal (retry-free) real-API call counts per family for this `runs`
+    # (suite.nominal_call_estimate) — cost visibility in the artifact header.
+    estimated_calls: dict = field(default_factory=dict)
     generated_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
 
     @property
@@ -95,6 +98,7 @@ class SuiteReport:
             "models": self.models,
             "dryRun": self.dry_run,
             "runsPerEval": self.runs,
+            "estimatedApiCalls": self.estimated_calls,
             "generatedAt": self.generated_at,
             "exitCode": self.exit_code,
             "results": [r.to_dict() for r in self.results],
@@ -114,6 +118,17 @@ class SuiteReport:
             f"- runs/eval: {self.runs}",
             f"- generated: {self.generated_at}",
             f"- suite exit code: **{self.exit_code}**",
+        ]
+        if self.estimated_calls:
+            total = self.estimated_calls.get("totalNominal", "?")
+            per_family = ", ".join(
+                f"{k} {v}" for k, v in sorted(self.estimated_calls.items()) if k != "totalNominal"
+            )
+            lines.append(
+                f"- estimated real-API calls (nominal, excl. rule-9 retries): "
+                f"total {total} ({per_family}); retries can add up to ~1.5×"
+            )
+        lines += [
             "",
             "| Eval | Status | Metric | Score | Gate | Hard |",
             "|---|---|---|---|---|---|",
@@ -134,9 +149,23 @@ class SuiteReport:
             lines.append("")
         return "\n".join(lines)
 
-    def write(self, out_dir) -> tuple[str, str]:
-        """Write `report.json` + `report.md` under `out_dir`; return their paths."""
+    def write(self, out_dir, forbidden_substrings: list[str] | None = None) -> tuple[str, str]:
+        """Write `report.json` + `report.md` under `out_dir`; return their paths.
+
+        Runs the rule-5 audit *before* writing anything: the rendered report is
+        scanned for writer-text fragments (defaulting to the fixture-derived
+        set, `probes.fixture_text_fragments`), so any future eval that leaks
+        script/plan/fact text into `detail`/`notes` fails at write time — no
+        leaking artifact ever lands on disk."""
         from pathlib import Path
+
+        if forbidden_substrings is None:
+            # Deferred import: keeps the harness core importable without the
+            # fixture/storage layer (checks/tests may pass their own set).
+            from evals.probes import fixture_text_fragments
+
+            forbidden_substrings = fixture_text_fragments()
+        assert_rule5_clean(self, forbidden_substrings)
 
         out = Path(out_dir)
         out.mkdir(parents=True, exist_ok=True)
@@ -150,8 +179,10 @@ class SuiteReport:
 
 def assert_rule5_clean(report: SuiteReport, forbidden_substrings: list[str]) -> None:
     """Rule-5 audit: fail loudly if any known fixture/writer-text substring
-    appears in the rendered report. Used by the harness self-tests to prove the
-    report leaks no script/plan/fact content (only ids/counts/scores)."""
+    appears in the rendered report. A *runtime* choke point — `SuiteReport.write`
+    invokes it against the fixture-derived fragment set before any artifact is
+    written — as well as a self-test target proving the report carries only
+    ids/counts/scores, never script/plan/fact content."""
     blob = report.to_json() + "\n" + report.to_markdown()
     hits = [s for s in forbidden_substrings if s and s in blob]
     if hits:

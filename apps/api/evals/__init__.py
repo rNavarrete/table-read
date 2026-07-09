@@ -19,6 +19,7 @@ real suite, not this build.
 **Hard rule 5 (no writer text in logs/artifacts).** The report and every log
 line carry only ids, hashes, token/attempt counts, scores, op names, and
 PROMPT_VERSION — never fixture script/plan/fact text. `harness.assert_rule5_clean`
-is the audited choke point; a self-test scans a rendered report for fixture
-substrings.
+is a runtime choke point: `SuiteReport.write` invokes it against the
+fixture-derived fragment set (`probes.fixture_text_fragments`) before any
+artifact lands on disk, and self-tests cover both the leak and clean paths.
 """

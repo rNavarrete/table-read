@@ -43,7 +43,10 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         default=str(_DEFAULT_OUT),
         help="Directory for the report artifact.",
     )
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    if args.runs is not None and args.runs < 1:
+        parser.error(f"--runs must be >= 1 (got {args.runs}); scores divide by the run count")
+    return args
 
 
 def _build_real_clients():
