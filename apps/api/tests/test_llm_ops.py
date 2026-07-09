@@ -9,7 +9,7 @@ EXPECTED_OPS = {
     "regenerate_elements": "writer",
     "extract_ledger_facts": "classifier",
     "suggest_instructions": "classifier",
-    "segment_scene": "writer",
+    "segment_scene": "classifier",  # T6.1 escalation: moved writer->classifier for temperature 0
     "scan_consistency": "classifier",
 }
 

@@ -158,15 +158,15 @@ class AnthropicClient:
             "tool_choice": {"type": "tool", "name": op.name},
             "messages": messages,
         }
-        # Prompt spec §3/§5/§6/§8c: classifier-role ops run at temperature 0.
+        # Prompt spec §3/§5/§6/§7/§8c: classifier-role ops run at temperature 0.
         # `config/models.toml` deliberately pins `classifier` to a model tier
         # that still accepts an explicit `temperature` -- see that file's
         # comment for why current-generation Sonnet/Opus reject it outright.
-        # Known exception: §7 mandates temperature 0 for `segment_scene` too,
-        # but that op is writer-role and the writer tier rejects sampling
-        # params, so it runs at model default -- see the DESIGN-GAP(T6.1)
-        # comment at its definition in llm/ops.py, now measured by the T6.1
-        # segmentation-determinism eval (apps/api/evals/).
+        # This now covers `segment_scene` too: §7 mandates temperature 0 for
+        # segmentation, and the T6.1 escalation moved that op writer->classifier
+        # (llm/ops.py) precisely so this branch applies to it — resolving the
+        # former gap where writer-tier segmentation ran at model default and the
+        # segmentation-determinism eval regressed.
         if op.role == "classifier":
             kwargs["temperature"] = 0
 

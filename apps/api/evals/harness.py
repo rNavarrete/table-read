@@ -9,7 +9,8 @@ Gating model (per eval, declared at the eval site — see `suite.py`):
   - `hard` — a hard gate *blocks the suite* (nonzero exit) when unmet. Soft
     gates (`hard=False`) still render PASS/WARN but never change the exit code;
     used for metrics the platform cannot yet guarantee (segmentation
-    determinism — no temperature control on the writer tier, DESIGN-GAP(T6.1)).
+    determinism — even at temperature 0 models vary run-to-run, and the 0.70
+    threshold is not spec-pinned, DESIGN-GAP(T6.1)).
 
 `score` is always normalized so higher is better, even for "violations must be
 0" gates: the lock-violation eval reports `score = (attempts - violations) /

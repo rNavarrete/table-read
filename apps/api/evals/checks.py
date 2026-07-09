@@ -18,8 +18,9 @@ takes an injected `LlmClient` (+ judge / DB session where needed) and returns an
   3. `continuity_eval` — scene-3 candidates ×N graded (calibrated LLM judge)
      against facts 02/03/04/08. Gate ≥ 0.95 (hard).
   4. `segmentation_determinism_eval` — `segment_scene` ×N on one fixture scene;
-     modal line-range agreement. Soft gate 0.70, flagged for ratification
-     (DESIGN-GAP(T6.1): the writer tier can't force temperature 0).
+     modal line-range agreement. Soft gate 0.70, still flagged for threshold
+     ratification (DESIGN-GAP(T6.1)); the temperature-0 escalation (segment_scene
+     moved to the classifier tier, ops.py) is now applied.
 
 Rule 5: helpers below traffic in line numbers, ids, and counts — never script
 text. The only script text touched is compared in memory (never logged).
@@ -46,13 +47,14 @@ from storage.seed import load_fixture, seed_envelope
 
 SCHEMA_VALIDITY_GATE = 0.98
 CONTINUITY_GATE = 0.95
-# Chosen, not spec-pinned: with no temperature control on the writer tier
-# (DESIGN-GAP(T6.1)), perfect determinism is unreachable; 0.70 modal agreement
-# means a single dominant segmentation exists in a clear majority of runs — a
-# usable "import is stable-ish" signal without demanding the unmeetable. Soft
-# (never blocks); flagged in the report for controller/PM ratification, with the
-# documented escalation: if it regresses, move segment_scene to the classifier
-# tier (which accepts temperature=0).
+# Chosen, not spec-pinned: even with temperature 0, perfect determinism is not
+# guaranteed (models still vary run-to-run), so 0.70 modal agreement — a single
+# dominant segmentation in a clear majority of runs — is a usable "import is
+# stable-ish" signal without demanding the unmeetable. Soft (never blocks); the
+# THRESHOLD itself is still flagged for controller/PM ratification
+# (DESIGN-GAP(T6.1)). The determinism escalation the eval documented — move
+# segment_scene to the classifier tier, which accepts temperature=0 — has been
+# applied (llm/ops.py); this eval verifies it lands.
 SEGMENTATION_DETERMINISM_GATE = 0.70
 
 # Adversarial targets: scene-1 holds locked beat-1-2 (Marta reads the transfer)
@@ -422,7 +424,7 @@ def segmentation_determinism_eval(client: LlmClient, ctx: FixtureCtx, *, runs: i
         notes=[
             "SOFT gate — threshold 0.70 is chosen, not spec-pinned; flagged for "
             "controller/PM ratification (DESIGN-GAP(T6.1))",
-            "writer tier cannot force temperature 0; escalation if it regresses: "
-            "move segment_scene to the classifier tier",
+            "temperature-0 escalation applied: segment_scene moved to the "
+            "classifier tier (temperature 0 per prompt spec §7)",
         ],
     )

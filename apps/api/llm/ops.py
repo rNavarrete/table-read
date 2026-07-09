@@ -2,9 +2,11 @@
 `BeatCandidate` from §2 reused by `generate_beat_candidates`/`tune_beat` per
 docs/tableread-prompt-spec.md §1-§2). Single source of truth for: the tool
 `name` used in `tool_choice` forcing, the output schema, and the
-writer/classifier model-role split (prompt spec §8: "writer = §1 candidates,
-§2 tune, §4 regenerate, §7 segmentation; classifier = §3 blast radius, §5
-extraction, §6 suggestions, §8c consistency scan").
+writer/classifier model-role split (prompt spec §8, with the T6.1 escalation
+applied: "writer = §1 candidates, §2 tune, §4 regenerate; classifier = §3 blast
+radius, §5 extraction, §6 suggestions, §7 segmentation, §8c consistency scan").
+§7 segmentation moved writer→classifier so it can run at temperature 0 (§7);
+see the note at its LlmOp below.
 
 Consumed by `mock.py`/`anthropic_client.py` (dispatch + tool-schema lookup)
 and by `scripts/generate_tool_schemas.py` (config/tool_schemas/ generation).
@@ -97,18 +99,20 @@ _OPS: tuple[LlmOp, ...] = (
         "Suggest three diverse scene or beat instructions for the writer to "
         "choose from.",
     ),
-    # DESIGN-GAP(T6.1): prompt spec §7 mandates temperature 0 for stage-2
-    # segmentation; current writer-tier models reject sampling params, so this
-    # op runs at model default. Tracked by implementation: the T6.1
-    # segmentation-determinism eval (apps/api/evals/checks.py) now measures
-    # modal line-range agreement over the fixture; its 0.70 gate is soft and
-    # flagged for PM ratification. Escalation if determinism regresses: move
-    # this op to the classifier tier, which accepts temperature=0.
+    # T6.1 escalation EXECUTED: prompt spec §7 mandates temperature 0 for stage-2
+    # segmentation, but the writer tier rejects sampling params, so under the
+    # original writer-role pinning the op ran at model default and the
+    # segmentation-determinism eval regressed below its soft 0.70 gate (0.25). The
+    # documented escalation — move the op to the classifier tier, which accepts
+    # temperature=0 — is now applied: `segment_scene` is classifier-role, so
+    # anthropic_client sends temperature=0 (prompt spec §7), and §7's temperature
+    # requirement is honored. (The gate threshold itself is still chosen-not-pinned;
+    # that ratification remains DESIGN-GAP(T6.1) at the eval's gate constant.)
     LlmOp(
         "segment_scene",
         "SegmentedScene",
         SegmentedScene,
-        "writer",
+        "classifier",
         "Segment one scene's line-numbered source text into beat boundaries as "
         "line ranges, with inferred beat-plan fields.",
     ),
