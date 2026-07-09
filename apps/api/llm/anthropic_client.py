@@ -183,17 +183,36 @@ class AnthropicClient:
             *kwargs["messages"],
             {"role": "assistant", "content": first_response.content},
         ]
-        if first_error.tool_use_id is not None:
+        tool_use_ids = [
+            block.id
+            for block in getattr(first_response, "content", []) or []
+            if getattr(block, "type", None) == "tool_use"
+        ]
+        if tool_use_ids:
+            # Wire contract: an assistant turn containing tool_use block(s)
+            # must be followed by a user turn whose content STARTS with one
+            # tool_result per tool_use id, or the API 400s ("tool_use ids
+            # were found without tool_result blocks immediately after").
+            # Tool-forcing normally yields exactly one tool_use, but parallel
+            # tool use isn't disabled here, so every id replayed in the
+            # assistant turn needs its own matching reply -- the one that
+            # failed validation carries the rule-9 error text, any other
+            # (duplicate/parallel) tool_use is answered as an ignored extra.
             retry_messages.append(
                 {
                     "role": "user",
                     "content": [
                         {
                             "type": "tool_result",
-                            "tool_use_id": first_error.tool_use_id,
-                            "content": str(first_error),
+                            "tool_use_id": tool_use_id,
+                            "content": (
+                                str(first_error)
+                                if tool_use_id == first_error.tool_use_id
+                                else "Extra tool_use ignored; exactly one call was expected."
+                            ),
                             "is_error": True,
                         }
+                        for tool_use_id in tool_use_ids
                     ],
                 }
             )

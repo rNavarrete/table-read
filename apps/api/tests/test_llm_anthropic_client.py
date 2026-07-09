@@ -130,6 +130,67 @@ def test_second_invalid_response_raises_schema_invalid_llm_and_stops():
     assert len(sdk.messages.calls) == 2  # never a third attempt -- no fabricated fallback
 
 
+def _assert_tool_result_wire_invariant(messages: list[dict[str, Any]]) -> None:
+    """For every tool_use id in message n, message n+1 must be role=user and
+    its content must START with a tool_result for that id (real API 400s
+    otherwise -- "tool_use ids were found without tool_result blocks
+    immediately after")."""
+    for i, message in enumerate(messages[:-1]):
+        content = message["content"]
+        if isinstance(content, str):
+            continue
+        tool_use_ids = [
+            block["id"] if isinstance(block, dict) else block.id
+            for block in content
+            if (block.get("type") if isinstance(block, dict) else getattr(block, "type", None))
+            == "tool_use"
+        ]
+        if not tool_use_ids:
+            continue
+        nxt = messages[i + 1]
+        assert nxt["role"] == "user"
+        leading_tool_results = nxt["content"][: len(tool_use_ids)]
+        assert [b["type"] for b in leading_tool_results] == ["tool_result"] * len(tool_use_ids)
+        assert {b["tool_use_id"] for b in leading_tool_results} == set(tool_use_ids)
+
+
+def test_retry_call_satisfies_tool_result_wire_invariant_for_a_single_tool_use():
+    sdk = FakeSdkClient([_invalid_response(tool_use_id="toolu_abc"), _valid_response()])
+    client = AnthropicClient(sdk_client=sdk, models=_MODELS)
+
+    client.generate_beat_candidates(system="sys", user_message="hi", prompt_version="0.1.0")
+
+    _assert_tool_result_wire_invariant(sdk.messages.calls[1]["messages"])
+
+
+def test_retry_call_satisfies_tool_result_wire_invariant_for_multiple_tool_use_blocks():
+    # Tool-forcing doesn't rule out parallel tool use: the first response can
+    # contain more than one tool_use block for the forced tool. Every id must
+    # get its own tool_result in the retry turn, not just the one that failed
+    # validation.
+    first = FakeMessage(
+        content=[
+            FakeToolUseBlock(input={}, id="toolu_1"),  # fails validation
+            FakeToolUseBlock(input={}, id="toolu_2"),  # duplicate/parallel call
+        ]
+    )
+    sdk = FakeSdkClient([first, _valid_response()])
+    client = AnthropicClient(sdk_client=sdk, models=_MODELS)
+
+    client.generate_beat_candidates(system="sys", user_message="hi", prompt_version="0.1.0")
+
+    retry_messages = sdk.messages.calls[1]["messages"]
+    _assert_tool_result_wire_invariant(retry_messages)
+
+    tool_result_turn = retry_messages[2]
+    results = {r["tool_use_id"]: r for r in tool_result_turn["content"]}
+    assert set(results) == {"toolu_1", "toolu_2"}
+    assert all(r["is_error"] is True for r in results.values())
+    assert results["toolu_1"]["content"]  # the validation error text
+    assert "toolu_2" not in results["toolu_1"]["content"]
+    assert results["toolu_2"]["content"] != results["toolu_1"]["content"]
+
+
 def test_missing_tool_use_block_is_treated_as_recoverable_and_retried():
     # Model ignored the forced tool_choice entirely on the first attempt.
     sdk = FakeSdkClient([FakeMessage(content=[], stop_reason="end_turn"), _valid_response()])
@@ -145,6 +206,7 @@ def test_missing_tool_use_block_is_treated_as_recoverable_and_retried():
     retry_messages = sdk.messages.calls[1]["messages"]
     assert retry_messages[-1]["role"] == "user"
     assert isinstance(retry_messages[-1]["content"], str)
+    _assert_tool_result_wire_invariant(retry_messages)  # no tool_use blocks -> vacuously fine
 
 
 def test_valid_first_response_never_retries():
@@ -410,6 +472,44 @@ def test_stream_beat_candidate_closes_sdk_stream_on_normal_completion():
     list(client.stream_beat_candidate(system="sys", user_message="hi", prompt_version="0.1.0"))
 
     assert sdk.messages.last_stream.closed is True
+
+
+def test_streaming_rule9_retry_never_replays_a_tool_use_turn():
+    """The streaming rule-9 retry (`drama_manager/candidates.py`'s
+    `_stream_one`) doesn't call `_retry_once` at all -- on a schema-invalid
+    buffer it just re-invokes `stream_beat_candidate` with the error folded
+    into a fresh plain-text `user_message` (mirroring `_retry_once`'s
+    no-tool_use-id fallback). Each call here stands in for one of those two
+    streamed attempts; every call must send exactly one user-role message
+    with string content, so there is never a preceding assistant tool_use
+    turn to be left without a matching tool_result -- the wire violation
+    `_retry_once` had is structurally impossible for this path."""
+    events = [FakeMessageDelta(usage=FakeUsage())]
+
+    first_sdk = FakeStreamingSdk(events)
+    first_client = AnthropicClient(sdk_client=first_sdk, models=_MODELS)
+    list(
+        first_client.stream_beat_candidate(system="sys", user_message="hi", prompt_version="0.1.0")
+    )
+
+    retry_user_message = (
+        "hi\n\nYour previous response did not call the 'generate_beat_candidates' "
+        "tool with valid input: 1 validation error. Call "
+        "'generate_beat_candidates' with valid input."
+    )
+    retry_sdk = FakeStreamingSdk(events)
+    retry_client = AnthropicClient(sdk_client=retry_sdk, models=_MODELS)
+    list(
+        retry_client.stream_beat_candidate(
+            system="sys", user_message=retry_user_message, prompt_version="0.1.0"
+        )
+    )
+
+    for sdk in (first_sdk, retry_sdk):
+        messages = sdk.messages.calls[0]["messages"]
+        assert len(messages) == 1
+        assert messages[0]["role"] == "user"
+        assert isinstance(messages[0]["content"], str)
 
 
 def _fixture_valid_input_for(op_name: str) -> dict:
