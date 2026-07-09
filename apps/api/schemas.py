@@ -525,3 +525,10 @@ class LedgerBatchRequest(_Base):
 
     confirm_ids: list[Id]
     reject_ids: list[Id]
+
+
+class ChangeSetApprovedRequest(_Base):
+    """POST /change-sets/{cid}/preview|apply — approved regenerate targets."""
+
+    approved_object_ids: list[Id]
+

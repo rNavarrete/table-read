@@ -11,8 +11,9 @@ instruction — it survives only as inert escaped text inside a quoted string.
 MVP scope: the import pipeline's three ops (``segment_scene``,
 ``extract_ledger_facts``, ``scan_consistency``; T1.3) plus the Write-mode
 candidate / tune builders (T2.1/T2.2), the Review-mode blast-radius builder
-(``build_blast_radius_prompt``; T4.1), and the §8b property-based test against
-this same primitive. Later tasks add the regenerate builder.
+(``build_blast_radius_prompt``; T4.1), the regenerate builder
+(``build_regenerate_prompt``; T4.2), and the §8b property-based test against
+this same primitive.
 
 No writer/import text is logged from here (hard rule 5): this module logs nothing.
 """
@@ -24,12 +25,13 @@ import secrets
 from typing import Any
 
 # Prompt spec §8 / hard rule 7: every template carries a PROMPT_VERSION (semver);
-# it is logged with each call and bumped on any template change. Bumped to 0.4.0
-# in T4.1: added the `classify_blast_radius` builder (§3 — compact episode plan
-# + active ledger + EDIT). A prompt change requires `make evals` sign-off
-# before merge (CLAUDE.md rule 7). History: 0.3.0 added tune_beat; 0.2.0 added
-# the candidate builder and completed the §0 shared system prompt.
-PROMPT_VERSION = "0.4.0"
+# it is logged with each call and bumped on any template change. Bumped to 0.5.0
+# in T4.2: added the `regenerate_elements` builder (§4 — REGENERATE ids +
+# APPROVED EDIT + locked siblings + neighbor scene summaries). A prompt change
+# requires `make evals` sign-off before merge (CLAUDE.md rule 7). History:
+# 0.4.0 added classify_blast_radius; 0.3.0 added tune_beat; 0.2.0 added the
+# candidate builder and completed the §0 shared system prompt.
+PROMPT_VERSION = "0.5.0"
 
 
 def new_nonce() -> str:
@@ -255,6 +257,37 @@ def build_blast_radius_prompt(
         + source_data("continuity_facts", continuity_facts, nonce)
         + f"\nEDIT: {target_object_id} -> {instruction}"
         + "\nList every impacted object with a one-sentence reason and confidence."
+    )
+    return build_system_prompt(project, nonce), user
+
+
+def build_regenerate_prompt(
+    project: dict,
+    *,
+    regenerate_ids: list[str],
+    instruction: str,
+    locked_siblings: list[dict],
+    neighbor_scenes: list[dict],
+    continuity_facts: list[dict],
+    characters: list[dict],
+    nonce: str,
+) -> tuple[str, str]:
+    """`regenerate_elements` (§4): approved ids + edit + locked siblings + neighbors.
+
+    Source content is wrapped (§8b). REGENERATE / APPROVED EDIT are the
+    executable lines (ids are server-owned kebabs; instruction is the writer's
+    approved edit)."""
+    user = (
+        source_data("locked_siblings", locked_siblings, nonce)
+        + "\n"
+        + source_data("neighbor_scenes", neighbor_scenes, nonce)
+        + "\n"
+        + source_data("continuity_facts", continuity_facts, nonce)
+        + "\n"
+        + source_data("characters", characters, nonce)
+        + f"\nREGENERATE: {regenerate_ids}"
+        + f"\nAPPROVED EDIT: {instruction}"
+        + "\nRegenerate only the listed elements; do not invent extra ids."
     )
     return build_system_prompt(project, nonce), user
 

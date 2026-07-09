@@ -101,19 +101,36 @@ def _default_responses() -> dict[str, BaseModel]:
         "regenerate_elements": RegeneratedElements(
             beats=[
                 {
-                    "beatId": "beat-3-1",
+                    "beatId": "beat-4-2",
                     "beatPlan": {
                         "whatHappens": (
-                            "Marta lays the printed transfer record on the counter "
-                            "without a word."
+                            "Marta searches the marina for the money that is "
+                            "no longer in the bar."
                         ),
-                        "audienceLearns": "Marta has proof.",
-                        "audienceFeels": "Tense anticipation.",
+                        "audienceLearns": "Marta is hunting the cash at the marina.",
+                        "audienceFeels": "Dread.",
                     },
-                    "scriptText": "Marta slides a folded printout across the counter.",
+                    "scriptText": (
+                        "Marta cuts across the dark marina slips, flashlight low."
+                    ),
                 }
             ],
-            scenes=[],
+            scenes=[
+                {
+                    "sceneId": "scene-2",
+                    "fields": {
+                        "whatHappens": (
+                            "Unable to sleep with Marta in the building, Dan moves "
+                            "the cash to a marina locker instead of the ice machine."
+                        ),
+                        "audienceLearns": None,
+                        "audienceFeels": None,
+                        "location": "EXT. MARINA - NIGHT",
+                        "time": None,
+                        "socialSituation": None,
+                    },
+                }
+            ],
             continuityConflicts=[],
         ),
         "extract_ledger_facts": LedgerExtraction(
@@ -191,9 +208,24 @@ class MockLlmClient:
         # Same mechanism for stream_tune_beat (§8a: tune streams too). Empty →
         # the streamed value is derived from the tune_beat op response.
         self._tune_streams: list[list[str]] = []
+        # Per-op invocation counters (T4.2: apply must record zero
+        # `regenerate_elements` calls — the stored preview is applied verbatim).
+        self._invocations: dict[str, int] = {name: 0 for name in OP_REGISTRY}
         assert self._responses.keys() == OP_REGISTRY.keys(), (
             "MockLlmClient default responses must cover every op in OP_REGISTRY"
         )
+
+    def invocation_count(self, op: str) -> int:
+        if op not in OP_REGISTRY:
+            raise KeyError(f"unknown LLM operation {op!r}")
+        return self._invocations[op]
+
+    def total_invocations(self) -> int:
+        return sum(self._invocations.values())
+
+    def reset_invocation_counts(self) -> None:
+        for name in self._invocations:
+            self._invocations[name] = 0
 
     def set_response(self, op: str, response: BaseModel) -> None:
         if op not in OP_REGISTRY:
@@ -210,6 +242,7 @@ class MockLlmClient:
 
     def _call(self, op: str, *, system: str, user_message: str, prompt_version: str) -> BaseModel:
         del system, user_message, prompt_version  # mock never inspects prompt content
+        self._invocations[op] = self._invocations.get(op, 0) + 1
         queue = self._queues.get(op)
         if queue:
             return queue.pop(0)

@@ -3,7 +3,7 @@
 from fastapi import FastAPI
 
 from errors import register_error_handlers
-from routes import flags_router, ledger_router, router
+from routes import change_sets_router, flags_router, ledger_router, router
 from storage.db import Base, engine
 
 # Idempotent; the real dev-DB population happens via `make seed`
@@ -17,6 +17,7 @@ register_error_handlers(app)
 app.include_router(router)
 app.include_router(ledger_router)
 app.include_router(flags_router)
+app.include_router(change_sets_router)
 
 
 @app.get("/health")

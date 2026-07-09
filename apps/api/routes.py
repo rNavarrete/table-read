@@ -37,6 +37,7 @@ from llm.protocol import LlmClient
 from schemas import (
     BeatCandidate,
     ChangeSet,
+    ChangeSetApprovedRequest,
     ConsistencyFlag,
     LedgerBatchRequest,
     LedgerFact,
@@ -57,6 +58,9 @@ ledger_router = APIRouter(prefix="/api/v1/ledger", tags=["ledger"])
 # Top-level flag mutations (data contract §4): `POST /consistency-flags/{fid}/dismiss`
 # — not nested under `/projects/{pid}`, same shape as `/ledger/{factId}/*`.
 flags_router = APIRouter(prefix="/api/v1/consistency-flags", tags=["consistency-flags"])
+# Top-level Change Set mutations (data contract §4 Review): preview / apply /
+# discard / flag — not nested under `/projects/{pid}` (create stays nested).
+change_sets_router = APIRouter(prefix="/api/v1/change-sets", tags=["change-sets"])
 
 # Default component set for a new project (design doc §5 / fixture). The
 # writer toggles these in show-format settings later.
@@ -453,6 +457,79 @@ def create_change_set(
         raise ApiError(502, "SCHEMA_INVALID_LLM", str(exc)) from exc
     except anthropic.APIError as exc:
         raise ApiError(503, "LLM_UNAVAILABLE", "the language model is unavailable") from exc
+
+
+@change_sets_router.post("/{cid}/preview", response_model=ChangeSet, status_code=200)
+def preview_change_set(
+    cid: str,
+    body: ChangeSetApprovedRequest,
+    session: Session = Depends(get_session),
+    llm: LlmClient = Depends(get_llm_client),
+) -> dict:
+    """Review-mode preview (data contract §4 / T4.2): runs `regenerate_elements`,
+    stores the typed `ChangeSetPreview` (`basedOnSnapshotId` = current head),
+    and renders `after` display snippets. Does not mutate the project doc."""
+    try:
+        return change_sets.preview_change_set(
+            session, cid, approved_object_ids=body.approved_object_ids, llm=llm
+        )
+    except change_sets.ChangeSetNotFound as exc:
+        raise ApiError(404, "NOT_FOUND", f"change set {cid!r} not found") from exc
+    except change_sets.ApplyRejected as exc:
+        raise ApiError(409, exc.code, str(exc)) from exc
+    except SchemaInvalidLlmError as exc:
+        raise ApiError(502, "SCHEMA_INVALID_LLM", str(exc)) from exc
+    except anthropic.APIError as exc:
+        raise ApiError(503, "LLM_UNAVAILABLE", "the language model is unavailable") from exc
+
+
+@change_sets_router.post("/{cid}/apply", status_code=200)
+def apply_change_set(
+    cid: str,
+    body: ChangeSetApprovedRequest,
+    session: Session = Depends(get_session),
+    llm: LlmClient = Depends(get_llm_client),
+) -> dict:
+    """Review-mode apply (data contract §4 / T4.2): writes the stored preview
+    payload verbatim (zero regenerate calls), approved-only; snapshots,
+    re-extracts ledger, scans untouched scenes. Returns
+    `{project, changeSet, consistencyFlags}`."""
+    try:
+        return change_sets.apply_change_set(
+            session, cid, approved_object_ids=body.approved_object_ids, llm=llm
+        )
+    except change_sets.ChangeSetNotFound as exc:
+        raise ApiError(404, "NOT_FOUND", f"change set {cid!r} not found") from exc
+    except change_sets.ApplyRejected as exc:
+        raise ApiError(409, exc.code, str(exc)) from exc
+    except locks.LockViolation as exc:
+        raise ApiError(409, "LOCKED_OBJECT", str(exc)) from exc
+    except SchemaInvalidLlmError as exc:
+        raise ApiError(502, "SCHEMA_INVALID_LLM", str(exc)) from exc
+    except anthropic.APIError as exc:
+        raise ApiError(503, "LLM_UNAVAILABLE", "the language model is unavailable") from exc
+
+
+@change_sets_router.post("/{cid}/discard", response_model=ChangeSet, status_code=200)
+def discard_change_set(
+    cid: str, session: Session = Depends(get_session)
+) -> dict:
+    """Mark the ChangeSet discarded; no project mutation (Review UI Agent E)."""
+    try:
+        return change_sets.discard_change_set(session, cid)
+    except change_sets.ChangeSetNotFound as exc:
+        raise ApiError(404, "NOT_FOUND", f"change set {cid!r} not found") from exc
+
+
+@change_sets_router.post("/{cid}/flag", response_model=ChangeSet, status_code=200)
+def flag_change_set(
+    cid: str, session: Session = Depends(get_session)
+) -> dict:
+    """Mark the ChangeSet flagged (record concerns without applying)."""
+    try:
+        return change_sets.flag_change_set(session, cid)
+    except change_sets.ChangeSetNotFound as exc:
+        raise ApiError(404, "NOT_FOUND", f"change set {cid!r} not found") from exc
 
 
 @router.post("/{pid}/undo", response_model=Project)
