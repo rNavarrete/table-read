@@ -240,12 +240,14 @@ class AnthropicClient:
         so `input_json_delta` chunks arrive as generated. Callers own parsing,
         validation, and delta extraction; this method only forwards fragments.
 
-        Never validates and never fabricates a fallback (hard rule 9 lives in
-        the non-streaming retry path); a schema-invalid stream surfaces when the
-        caller validates the complete tool input. Logs metadata only once the
-        stream ends (op, PROMPT_VERSION, model, token counts) — never content
-        (hard rule 5). Transport/availability errors propagate unwrapped for the
-        stream orchestrator to map to LLM_UNAVAILABLE (errors.py deferral)."""
+        Never validates and never fabricates a fallback; a schema-invalid
+        stream surfaces when the caller validates the complete tool input (the
+        rule-9 retry for the streaming path lives in the stream orchestrator,
+        drama_manager/candidates.py, which re-calls this method with the error
+        appended). Logs metadata only once the stream ends (op, PROMPT_VERSION,
+        model, token counts) — never content (hard rule 5). Transport/
+        availability errors propagate unwrapped for the stream orchestrator to
+        map to LLM_UNAVAILABLE (errors.py deferral)."""
         op = OP_REGISTRY["generate_beat_candidates"]
         model = self._models[op.role]
         tool = {**self._tool_for(op), "eager_input_streaming": True}
@@ -259,16 +261,26 @@ class AnthropicClient:
             "stream": True,
         }
         usage: Any = None
-        for event in self._sdk.messages.create(**kwargs):
-            etype = getattr(event, "type", None)
-            if etype == "content_block_delta":
-                delta = getattr(event, "delta", None)
-                if getattr(delta, "type", None) == "input_json_delta":
-                    yield getattr(delta, "partial_json", "")
-            elif etype == "message_start":
-                usage = getattr(getattr(event, "message", None), "usage", None) or usage
-            elif etype == "message_delta":
-                usage = getattr(event, "usage", None) or usage
+        stream = self._sdk.messages.create(**kwargs)
+        try:
+            for event in stream:
+                etype = getattr(event, "type", None)
+                if etype == "content_block_delta":
+                    delta = getattr(event, "delta", None)
+                    if getattr(delta, "type", None) == "input_json_delta":
+                        yield getattr(delta, "partial_json", "")
+                elif etype == "message_start":
+                    usage = getattr(getattr(event, "message", None), "usage", None) or usage
+                elif etype == "message_delta":
+                    usage = getattr(event, "usage", None) or usage
+        finally:
+            # §8a "no orphan spend": if the consumer stops early (client
+            # disconnect → GeneratorExit through the generator chain), close
+            # the SDK stream so the in-flight API request is cancelled rather
+            # than left generating. Harmless no-op after full consumption.
+            close = getattr(stream, "close", None)
+            if close is not None:
+                close()
         _logger.info(
             "llm_stream op=%s prompt_version=%s model=%s input_tokens=%s output_tokens=%s",
             op.name,

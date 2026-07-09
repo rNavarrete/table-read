@@ -297,15 +297,35 @@ class FakeMessageDelta:
     type: str = "message_delta"
 
 
+class FakeStream:
+    """Stands in for the SDK's Stream object: iterable + close() (which the
+    real SDK uses to cancel the in-flight HTTP request)."""
+
+    def __init__(self, events: list[Any]) -> None:
+        self._events = iter(events)
+        self.closed = False
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        return next(self._events)
+
+    def close(self) -> None:
+        self.closed = True
+
+
 class FakeStreamingEndpoint:
     def __init__(self, events: list[Any]) -> None:
         self._events = events
         self.calls: list[dict[str, Any]] = []
+        self.last_stream: FakeStream | None = None
 
     def create(self, **kwargs: Any):
         self.calls.append(kwargs)
         assert kwargs.get("stream") is True
-        return iter(self._events)
+        self.last_stream = FakeStream(self._events)
+        return self.last_stream
 
 
 class FakeStreamingSdk:
@@ -357,6 +377,39 @@ def test_stream_beat_candidate_logs_metadata_never_content(caplog):
     assert "generate_beat_candidates" in message and "7.2.1" in message
     assert "writer-model-x" in message and "99" in message
     assert "Marta" not in message and "top secret" not in message
+
+
+def test_stream_beat_candidate_closes_sdk_stream_on_client_disconnect():
+    # §8a "no orphan spend": closing the generator mid-stream (what Starlette
+    # does when the SSE client disconnects) must close the SDK stream so the
+    # in-flight API request is cancelled.
+    events = [
+        FakeContentBlockDelta(delta=FakeInputJsonDelta('{"label":"x",')),
+        FakeContentBlockDelta(delta=FakeInputJsonDelta('"scriptText":"hi"}')),
+        FakeMessageDelta(usage=FakeUsage()),
+    ]
+    sdk = FakeStreamingSdk(events)
+    client = AnthropicClient(sdk_client=sdk, models=_MODELS)
+
+    gen = client.stream_beat_candidate(system="sys", user_message="hi", prompt_version="0.1.0")
+    assert next(gen) == '{"label":"x",'  # stream is mid-flight
+    gen.close()  # simulated client disconnect → GeneratorExit inside the generator
+
+    assert sdk.messages.last_stream is not None
+    assert sdk.messages.last_stream.closed is True
+
+
+def test_stream_beat_candidate_closes_sdk_stream_on_normal_completion():
+    events = [
+        FakeContentBlockDelta(delta=FakeInputJsonDelta('{"scriptText":"hi"}')),
+        FakeMessageDelta(usage=FakeUsage()),
+    ]
+    sdk = FakeStreamingSdk(events)
+    client = AnthropicClient(sdk_client=sdk, models=_MODELS)
+
+    list(client.stream_beat_candidate(system="sys", user_message="hi", prompt_version="0.1.0"))
+
+    assert sdk.messages.last_stream.closed is True
 
 
 def _fixture_valid_input_for(op_name: str) -> dict:

@@ -361,14 +361,32 @@ def generate_candidate_events(
     yield (DONE, {})
 
 
-def _stream_one(
-    llm: LlmClient, system: str, user: str, nonce: str
-) -> Iterator[Event]:
-    """Stream one candidate: forward clean `delta` events, then finalize.
+# Rule 9 retry instruction — mirrors anthropic_client._retry_once's plain
+# user-turn fallback format (the streaming path has no tool_use_id to reply to
+# with an is_error tool_result, so the plain-turn restatement is the mirror).
+# The interpolated validation error is model-output-derived, not writer/import
+# freeform text, so it sits outside <source_data> exactly like the tool_result
+# content in the non-streaming retry (§8b governs writer/import text).
+_RETRY_NOTE = (
+    "Your previous response did not call the 'generate_beat_candidates' tool "
+    "with valid input: {error}. Call 'generate_beat_candidates' with valid input."
+)
 
-    Returns (via generator return) `(BeatCandidate, wire_dict)` on success, or
-    None after yielding a `candidate_failed` event. Raw JSON fragments are
-    never yielded — only unescaped scriptText growth."""
+
+def _stream_attempt(llm: LlmClient, system: str, user: str) -> Iterator[Event]:
+    """One streamed call for a candidate slot: forward clean `delta` events,
+    then finalize the complete buffer.
+
+    Returns (via generator return) a `(status, payload)` pair:
+      - `("ok", BeatCandidate)` — complete tool input parsed and validated
+      - `("invalid_schema", error_text)` — valid JSON, failed BeatCandidate
+        validation (the rule-9 retryable case)
+      - `("bad_json", None)` — buffer never parses (§8a: parser cannot resync)
+      - `("unavailable", None)` — SDK transport/availability failure
+
+    Raw JSON fragments are never yielded — only unescaped scriptText growth.
+    Each attempt starts its emitted-prefix diff from empty (see `_stream_one`
+    for how that behaves on retry)."""
     buffer = ""
     emitted = ""
     try:
@@ -381,33 +399,85 @@ def _stream_one(
                 yield (DELTA, {"text": prefix[len(emitted):]})
                 emitted = prefix
     except anthropic.APIError:
+        return ("unavailable", None)
+
+    try:
+        return ("ok", _finalize(buffer))
+    except json.JSONDecodeError:
+        return ("bad_json", None)
+    except ValidationError as exc:
+        return ("invalid_schema", str(exc))
+
+
+def _stream_one(
+    llm: LlmClient, system: str, user: str, nonce: str
+) -> Iterator[Event]:
+    """Stream one candidate slot with rule-9 retry semantics.
+
+    Attempt 1 streams normally. If its complete buffer is valid JSON but fails
+    `BeatCandidate` validation (schema-invalid LLM output), exactly **one**
+    retry is made for the slot — a fresh streamed call with the validation
+    error appended to the user message (`_RETRY_NOTE`, mirroring the
+    non-streaming `anthropic_client._retry_once` mechanics) — before any
+    `candidate_failed` is emitted (data contract §4: SCHEMA_INVALID_LLM is
+    "after retry"). A `JSONDecodeError` aborts the slot without retry (§8a:
+    parser cannot resync), as do transport failures (mapped to
+    LLM_UNAVAILABLE, obligation 1). Never a third call.
+
+    Delta behavior on retry: the retry emits **fresh deltas that restart the
+    scriptText prefix** (its emitted-diff starts from empty). Deltas are
+    provisional display only; the authoritative value is `candidate_done`,
+    which the client uses to replace its provisional buffer (§8a), so
+    first-attempt deltas are corrected by the final card.
+
+    Returns (via generator return) `(BeatCandidate, wire_dict)` on success, or
+    None after yielding a `candidate_failed` event."""
+    retried = False
+    status, payload = yield from _stream_attempt(llm, system, user)
+    if status == "invalid_schema":
+        # Rule 9: exactly one retry with the error appended. Log flags only —
+        # `payload` (the validation error) can echo model-produced field
+        # values and must never be logged (hard rule 5).
+        retried = True
+        retry_user = f"{user}\n\n" + _RETRY_NOTE.format(error=payload)
+        status, payload = yield from _stream_attempt(llm, system, retry_user)
+
+    if status == "ok":
+        candidate: BeatCandidate = payload
+        if retried:
+            _logger.info("candidate stream nonce=%s retried=True failed=False", nonce)
+        return candidate, candidate.model_dump(by_alias=True)
+
+    if status == "unavailable":
         # Obligation 1: raw SDK transport/availability errors → LLM_UNAVAILABLE,
         # SSE-shaped (the 200 response has already begun; the error is an event).
-        _logger.info("candidate stream nonce=%s failed=LLM_UNAVAILABLE", nonce)
+        _logger.info(
+            "candidate stream nonce=%s retried=%s failed=LLM_UNAVAILABLE", nonce, retried
+        )
         yield (
             CANDIDATE_FAILED,
             {"error": {"code": _LLM_UNAVAILABLE, "message": "the language model is unavailable"}},
         )
         return None
 
-    try:
-        candidate = _finalize(buffer)
-    except (json.JSONDecodeError, ValidationError):
-        _logger.info(
-            "candidate stream nonce=%s failed=%s", nonce, SchemaInvalidLlmError.code
-        )
-        yield (
-            CANDIDATE_FAILED,
-            {
-                "error": {
-                    "code": SchemaInvalidLlmError.code,
-                    "message": "candidate failed schema validation",
-                }
-            },
-        )
-        return None
-
-    return candidate, candidate.model_dump(by_alias=True)
+    # "bad_json" (§8a abort, no retry) or "invalid_schema" after the one
+    # retry (rule 9: surface, never a third attempt or a fabricated fallback).
+    _logger.info(
+        "candidate stream nonce=%s retried=%s failed=%s",
+        nonce,
+        retried,
+        SchemaInvalidLlmError.code,
+    )
+    yield (
+        CANDIDATE_FAILED,
+        {
+            "error": {
+                "code": SchemaInvalidLlmError.code,
+                "message": "candidate failed schema validation",
+            }
+        },
+    )
+    return None
 
 
 def to_sse(events: Iterable[Event]) -> Iterator[str]:

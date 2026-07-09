@@ -172,18 +172,26 @@ def test_three_candidate_done_with_distinct_valid_candidates():
         BeatCandidate.model_validate(wire)
 
 
-def test_invalid_candidate_emits_failed_not_partial():
-    mock = MockLlmClient()
-    # valid, then a stream missing scriptText, then valid
-    missing = json.dumps(
+def _missing_scripttext_json() -> str:
+    """Valid JSON that fails BeatCandidate validation (no scriptText) — the
+    rule-9 retryable case: a schema-invalid slot consumes TWO streamed calls
+    (initial attempt + its one retry)."""
+    return json.dumps(
         {
             "label": "x",
             "beatPlan": {"whatHappens": "w", "audienceLearns": "l", "audienceFeels": "f"},
             "continuityConflicts": [],
         }
     )
+
+
+def test_invalid_candidate_emits_failed_not_partial():
+    mock = MockLlmClient()
+    missing = _missing_scripttext_json()
+    # slot 0: valid; slot 1: invalid attempt + invalid rule-9 retry; slot 2: valid
     mock.set_candidate_streams([
         [_cand("Good one").model_dump_json(by_alias=True)],
+        [missing],
         [missing],
         [_cand("Third").model_dump_json(by_alias=True)],
     ])
@@ -203,14 +211,9 @@ def test_invalid_candidate_emits_failed_not_partial():
 
 def test_stream_without_scripttext_fails():
     mock = MockLlmClient()
-    missing = json.dumps(
-        {
-            "label": "x",
-            "beatPlan": {"whatHappens": "w", "audienceLearns": "l", "audienceFeels": "f"},
-            "continuityConflicts": [],
-        }
-    )
-    mock.set_candidate_streams([[missing], [missing], [missing]])
+    missing = _missing_scripttext_json()
+    # two streams per slot: the initial attempt plus its rule-9 retry
+    mock.set_candidate_streams([[missing]] * 6)
     events = _events(mock)
     assert [n for n, _ in events].count(candidates.CANDIDATE_FAILED) == 3
     assert [n for n, _ in events].count(candidates.CANDIDATE_DONE) == 0
@@ -261,6 +264,87 @@ def test_out_of_order_fields_still_finalize():
     )
     done = [d for n, d in events if n == candidates.CANDIDATE_DONE]
     assert done and done[0]["scriptText"] == "late field"
+
+
+# ── rule-9 streaming retry (data contract §4: SCHEMA_INVALID_LLM "after retry") ─
+
+
+class _ScriptedLlm(MockLlmClient):
+    """Yields scripted fragment streams in order, recording each call's
+    user_message. Exhausting the script raises IndexError — which loudly fails
+    any test where a third call is attempted (rule 9: never more than two)."""
+
+    def __init__(self, streams: list[list[str]]) -> None:
+        super().__init__()
+        self._streams = [list(s) for s in streams]
+        self.user_messages: list[str] = []
+
+    def stream_beat_candidate(self, *, system, user_message, prompt_version):
+        self.user_messages.append(user_message)
+        yield from self._streams.pop(0)
+
+
+def _one_slot_events(mock) -> list[tuple[str, dict]]:
+    return list(
+        generate_candidate_events(
+            mock, _doc(), _ledger(), scene_id="scene-3", after_beat_id="beat-3-1",
+            instruction="", count=1,
+        )
+    )
+
+
+def test_schema_invalid_stream_retries_once_then_succeeds():
+    # attempt 1: valid JSON, schema-invalid (label > 40 chars); retry: valid.
+    bad = json.dumps(
+        {
+            "label": "x" * 41,
+            "beatPlan": {"whatHappens": "w", "audienceLearns": "l", "audienceFeels": "f"},
+            "scriptText": "bad attempt",
+            "continuityConflicts": [],
+        }
+    )
+    good = _cand("Fixed", script="good attempt").model_dump_json(by_alias=True)
+    mock = _ScriptedLlm([[bad], [good]])
+    events = _one_slot_events(mock)
+
+    # exactly two calls; the retry prompt carries the rule-9 error note
+    assert len(mock.user_messages) == 2
+    assert "did not call the 'generate_beat_candidates' tool" in mock.user_messages[1]
+    assert "with valid input" in mock.user_messages[1]
+    assert mock.user_messages[1].startswith(mock.user_messages[0])  # original bundle kept
+
+    # retry deltas restart the scriptText prefix (documented choice); the
+    # authoritative candidate_done carries the retry's value
+    deltas = [d["text"] for n, d in events if n == candidates.DELTA]
+    assert "".join(deltas) == "bad attempt" + "good attempt"
+    done = [d for n, d in events if n == candidates.CANDIDATE_DONE]
+    assert len(done) == 1
+    assert done[0]["scriptText"] == "good attempt"
+    assert done[0]["label"] == "Fixed"
+    assert not [d for n, d in events if n == candidates.CANDIDATE_FAILED]
+
+
+def test_schema_invalid_stream_retry_fails_after_exactly_two_calls():
+    bad = _missing_scripttext_json()
+    mock = _ScriptedLlm([[bad], [bad]])  # a third call would IndexError
+    events = _one_slot_events(mock)
+
+    assert len(mock.user_messages) == 2  # exactly one retry, never a third
+    failed = [d for n, d in events if n == candidates.CANDIDATE_FAILED]
+    assert len(failed) == 1
+    assert failed[0]["error"]["code"] == "SCHEMA_INVALID_LLM"
+    assert not [d for n, d in events if n == candidates.CANDIDATE_DONE]
+
+
+def test_unparseable_json_aborts_without_retry():
+    # §8a: parser cannot resync → abort the candidate, no rule-9 retry.
+    mock = _ScriptedLlm([['{"scriptText":"x" garbage}}']])  # one stream only
+    events = _one_slot_events(mock)
+
+    assert len(mock.user_messages) == 1  # no retry call made
+    failed = [d for n, d in events if n == candidates.CANDIDATE_FAILED]
+    assert len(failed) == 1
+    assert failed[0]["error"]["code"] == "SCHEMA_INVALID_LLM"
 
 
 # ── diversity mechanic: prior candidates flow into AVOID ────────────────────────
