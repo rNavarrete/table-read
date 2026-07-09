@@ -29,10 +29,14 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
   return (await res.json()) as T
 }
 
-async function patchJson<T>(path: string, body: unknown): Promise<T> {
+async function patchJson<T>(
+  path: string,
+  body: unknown,
+  headers?: Record<string, string>,
+): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...headers },
     body: JSON.stringify(body),
   })
   if (!res.ok) throw await toApiError(res)
@@ -73,16 +77,36 @@ export interface PatchResult {
 export async function patchProject(
   projectId: string,
   ops: JsonPatchOp[],
+  opts?: { expectedHeadSnapshotId?: string | null },
 ): Promise<PatchResult> {
+  const headers: Record<string, string> = {}
+  if (opts?.expectedHeadSnapshotId) {
+    // Optimistic concurrency: server 409s CONFLICT_STALE_HEAD if the live
+    // head moved since the client last loaded the project.
+    headers['If-Match'] = opts.expectedHeadSnapshotId
+  }
   const body = await patchJson<Project | PatchResult>(
     `/projects/${projectId}`,
     ops,
+    headers,
   )
   // Structural edits return {project, consistencyFlags}; other edits the bare
   // Project (which has no `project` key). Normalize to PatchResult.
   return 'project' in body
     ? { project: body.project, consistencyFlags: body.consistencyFlags }
     : { project: body, consistencyFlags: [] }
+}
+
+/** `POST /projects/{pid}/undo` — restore parent snapshot (409 at root). */
+export function undoProject(projectId: string): Promise<Project> {
+  return postJson<Project>(`/projects/${projectId}/undo`, {})
+}
+
+/** `GET /projects/{pid}/export.fountain` — Fountain teleplay text. */
+export async function exportFountain(projectId: string): Promise<string> {
+  const res = await fetch(`${BASE}/projects/${projectId}/export.fountain`)
+  if (!res.ok) throw await toApiError(res)
+  return res.text()
 }
 
 export function getProject(projectId: string): Promise<Project> {

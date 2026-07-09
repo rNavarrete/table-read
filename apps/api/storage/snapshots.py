@@ -105,7 +105,27 @@ def create_project(session: Session, doc: dict, instruction: str) -> ProjectRow:
     return project
 
 
-def mutate(session: Session, project_id: str, instruction: str, mutator: Mutator) -> SnapshotRow:
+class StaleHead(Exception):
+    """Optimistic-concurrency failure: caller's expected head ≠ live head.
+
+    Routes map this to 409 `CONFLICT_STALE_HEAD` (data contract §4)."""
+
+    def __init__(self, expected: str | None, actual: str | None) -> None:
+        self.expected = expected
+        self.actual = actual
+        super().__init__(
+            f"expected headSnapshotId {expected!r} but project head is {actual!r}"
+        )
+
+
+def mutate(
+    session: Session,
+    project_id: str,
+    instruction: str,
+    mutator: Mutator,
+    *,
+    expected_head_snapshot_id: str | None = None,
+) -> SnapshotRow:
     """Apply a mutation as one transaction, returning the new snapshot row.
 
     Reads the current state, hands it to `mutator`, then in a single
@@ -113,10 +133,19 @@ def mutate(session: Session, project_id: str, instruction: str, mutator: Mutator
     sets `projects.doc`, bumps `head_snapshot_id` + `updated_at`, and rewrites
     the live ledger/flags tables to the new state. Any failure rolls back the
     whole transaction — the snapshot and the head bump are never split.
+
+    When `expected_head_snapshot_id` is set, raises `StaleHead` if it does not
+    match the live head (optimistic concurrency for direct PATCH).
     """
     project = session.get(ProjectRow, project_id)
     if project is None:  # defensive: routes 404 before calling
         raise LookupError(f"project {project_id!r} not found")
+
+    if (
+        expected_head_snapshot_id is not None
+        and project.head_snapshot_id != expected_head_snapshot_id
+    ):
+        raise StaleHead(expected_head_snapshot_id, project.head_snapshot_id)
 
     # Mint the new snapshot id up front so the mutator can reference it (e.g.
     # stamp it as a ConsistencyFlag's sourceChange) before the row is written.

@@ -14,7 +14,7 @@ from __future__ import annotations
 from collections.abc import Callable
 
 import anthropic
-from fastapi import APIRouter, Body, Depends, Query, Response
+from fastapi import APIRouter, Body, Depends, Header, Query, Response
 from fastapi.responses import PlainTextResponse, StreamingResponse
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
@@ -127,6 +127,7 @@ def patch_project(
     patch: list = Body(...),
     session: Session = Depends(get_session),
     resolve_llm: Callable[[], LlmClient] = Depends(get_llm_client_provider),
+    if_match: str | None = Header(default=None, alias="If-Match"),
 ) -> dict:
     """Direct writer edit (data contract §4). Applies a JSON-patch and
     snapshots it. Two guards/branches §4 requires:
@@ -141,6 +142,10 @@ def patch_project(
         Review, never the flagging promise. Every other edit returns the bare
         `Project` and never touches the model (so a title rename can't 503 on
         an unconfigured LLM; see `get_llm_client_provider`).
+
+    Optimistic concurrency: when `If-Match` is the client's `headSnapshotId`,
+    a 409 `CONFLICT_STALE_HEAD` is returned if the live head has moved (two
+    tabs / concurrent editors). Omit the header only for legacy callers.
     """
     project = _get_project_or_404(session, pid)
     try:
@@ -161,19 +166,32 @@ def patch_project(
     if scan.touches_structural_field(project.doc, new_doc):
         try:
             return scan.run_direct_edit_scan(
-                session, project, new_doc, resolve_llm(), instruction="Direct structural edit"
+                session,
+                project,
+                new_doc,
+                resolve_llm(),
+                instruction="Direct structural edit",
+                expected_head_snapshot_id=if_match,
             )
+        except snapshots.StaleHead as exc:
+            raise ApiError(409, "CONFLICT_STALE_HEAD", str(exc)) from exc
         except SchemaInvalidLlmError as exc:
             raise ApiError(502, "SCHEMA_INVALID_LLM", str(exc)) from exc
         except anthropic.APIError as exc:
             raise ApiError(503, "LLM_UNAVAILABLE", "the language model is unavailable") from exc
 
-    snapshots.mutate(
-        session,
-        pid,
-        "Direct edit",
-        lambda state: MutationState(doc=new_doc, ledger=state.ledger, flags=state.flags),
-    )
+    try:
+        snapshots.mutate(
+            session,
+            pid,
+            "Direct edit",
+            lambda state: MutationState(
+                doc=new_doc, ledger=state.ledger, flags=state.flags
+            ),
+            expected_head_snapshot_id=if_match,
+        )
+    except snapshots.StaleHead as exc:
+        raise ApiError(409, "CONFLICT_STALE_HEAD", str(exc)) from exc
     return session.get(ProjectRow, pid).doc
 
 

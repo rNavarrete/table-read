@@ -105,12 +105,22 @@ def _changed_scene_ids(old_doc: dict, new_doc: dict) -> set[str]:
 
 
 def run_direct_edit_scan(
-    session, project: ProjectRow, new_doc: dict, llm, *, instruction: str
+    session,
+    project: ProjectRow,
+    new_doc: dict,
+    llm,
+    *,
+    instruction: str,
+    expected_head_snapshot_id: str | None = None,
 ) -> dict:
     """Run `scan_consistency` for a structural PATCH and commit `new_doc` + the
     resulting flags in one snapshot, returning `{project, consistencyFlags}`
     (data contract §4). Lets LLM errors propagate for the route to map; nothing
-    is persisted until the final `mutate()` (see the module header)."""
+    is persisted until the final `mutate()` (see the module header).
+
+    `expected_head_snapshot_id` is the client's `headSnapshotId` at edit time —
+    passed through to `mutate` for optimistic concurrency (409
+    `CONFLICT_STALE_HEAD` when the head moved)."""
     old_doc = project.doc
     changed_ids = _changed_scene_ids(old_doc, new_doc)
 
@@ -159,6 +169,12 @@ def run_direct_edit_scan(
             doc=new_doc, ledger=state.ledger, flags=flags, snapshot_id=state.snapshot_id
         )
 
-    snap = snapshots.mutate(session, project.id, instruction, mutator)
+    snap = snapshots.mutate(
+        session,
+        project.id,
+        instruction,
+        mutator,
+        expected_head_snapshot_id=expected_head_snapshot_id,
+    )
     response_flags = [f for f in snap.flags if f["sourceChange"] == snap.id]
     return {"project": snap.doc, "consistencyFlags": response_flags}

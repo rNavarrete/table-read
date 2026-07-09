@@ -240,13 +240,36 @@ def _before_snippet(
     return ""
 
 
+def _object_exists_as_type(
+    doc: dict, ledger_by_id: dict[str, dict], object_type: str, object_id: str
+) -> bool:
+    """True when `object_id` exists in the project and matches `object_type`."""
+    if object_type == ImpactedObjectType.scene.value:
+        return _find_scene(doc, object_id) is not None
+    if object_type == ImpactedObjectType.beat.value:
+        return _find_beat(doc, object_id) is not None
+    if object_type == ImpactedObjectType.character.value:
+        return _find_character(doc, object_id) is not None
+    if object_type == ImpactedObjectType.ledger_fact.value:
+        return object_id in ledger_by_id
+    return False
+
+
 def _annotate_impacted(doc: dict, ledger: list[dict], blast) -> list[dict]:
-    """Turn a `BlastRadius` into server-annotated `ImpactedObject` wire dicts."""
+    """Turn a `BlastRadius` into server-annotated `ImpactedObject` wire dicts.
+
+    Rejects classifier rows whose `objectId` is missing or whose declared
+    `objectType` does not match the live project (→ `SchemaInvalidLlmError`).
+    Logging is ids only (hard rule 5)."""
     ledger_by_id = {f["id"]: f for f in ledger}
     out: list[dict] = []
+    invalid_ids: list[str] = []
     for hit in blast.impacted:
         object_type = hit.object_type.value
         object_id = hit.object_id
+        if not _object_exists_as_type(doc, ledger_by_id, object_type, object_id):
+            invalid_ids.append(object_id)
+            continue
         apply_mode = _apply_mode(object_type)
         out.append(
             {
@@ -262,6 +285,12 @@ def _annotate_impacted(doc: dict, ledger: list[dict], blast) -> list[dict]:
                 "approved": False,
             }
         )
+    if invalid_ids:
+        _logger.info(
+            "classify_blast_radius_invalid_ids rejected_ids=%s",
+            sorted(set(invalid_ids)),
+        )
+        raise SchemaInvalidLlmError("classify_blast_radius")
     return out
 
 
@@ -570,10 +599,16 @@ def preview_change_set(
 
 
 def _apply_beat_update(doc: dict, update: dict) -> None:
-    """Mutate `doc` in place with one typed beat update from the stored preview."""
+    """Mutate `doc` in place with one typed beat update from the stored preview.
+
+    Raises `ApplyRejected(VALIDATION)` if the beat is missing — never a silent
+    no-op that still looks "applied"."""
     located = _locate_beat(doc, update["beatId"])
     if located is None:
-        return
+        raise ApplyRejected(
+            "VALIDATION",
+            f"preview beatId {update['beatId']!r} is not in the project",
+        )
     _episode, _scene, beat = located
     plan = update.get("beatPlan")
     if plan is not None:
@@ -584,10 +619,23 @@ def _apply_beat_update(doc: dict, update: dict) -> None:
         beat["scriptText"] = update["scriptText"]
 
 
+def _previewed_regenerate_ids(preview: dict) -> set[str]:
+    """Object ids that the stored preview actually generated updates for."""
+    ids = {u["beatId"] for u in preview.get("beatUpdates", [])}
+    ids.update(u["sceneId"] for u in preview.get("sceneUpdates", []))
+    return ids
+
+
 def _apply_scene_update(doc: dict, update: dict) -> None:
+    """Mutate `doc` in place with one typed scene update from the stored preview.
+
+    Raises `ApplyRejected(VALIDATION)` if the scene is missing."""
     scene = _find_scene(doc, update["sceneId"])
     if scene is None:
-        return
+        raise ApplyRejected(
+            "VALIDATION",
+            f"preview sceneId {update['sceneId']!r} is not in the project",
+        )
     fields = update.get("fields") or {}
     for wire_key, _snake in _SCENE_FIELD_WIRE:
         value = fields.get(wire_key)
@@ -635,7 +683,7 @@ def apply_change_set(
     + scan. Returns `{project, changeSet, consistencyFlags}`.
 
     Raises `ApplyRejected` for locked / flag_only / null preview / stale
-    preview (route → 409)."""
+    preview / apply ids not in the stored preview (route → 409)."""
     row = _get_change_set_row(session, change_set_id)
     change_set = copy.deepcopy(row.doc)
     project = session.get(ProjectRow, row.project_id)
@@ -654,6 +702,17 @@ def apply_change_set(
     regenerate_ids = _resolve_approved_regenerate_targets(
         change_set, approved_object_ids, project.doc
     )
+    # Apply ids must be a subset of what preview actually generated — never
+    # mark an id "approved/applied" when the stored payload has no update for it.
+    previewed_ids = _previewed_regenerate_ids(preview)
+    not_previewed = sorted(set(regenerate_ids) - previewed_ids)
+    if not_previewed:
+        raise ApplyRejected(
+            "VALIDATION",
+            "approvedObjectIds includes ids that were not previewed: "
+            + ", ".join(not_previewed),
+        )
+
     approved_set = set(approved_object_ids)
     for hit in change_set["impacted"]:
         hit["approved"] = hit["objectId"] in approved_set

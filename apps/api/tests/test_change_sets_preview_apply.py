@@ -267,6 +267,31 @@ def test_apply_null_preview_returns_409(seeded_project, mock_llm):
     assert resp.json()["error"]["code"] in ("VALIDATION", "PREVIEW_STALE")
 
 
+def test_apply_id_not_in_preview_returns_409_validation(
+    seeded_project, db_session, mock_llm
+):
+    """Apply ids must be ⊆ previewed regenerate ids (Codex P1)."""
+    mock_llm.set_response("regenerate_elements", _regen("beat-4-2"))
+    from schemas import LedgerExtraction
+
+    mock_llm.set_response(
+        "extract_ledger_facts",
+        LedgerExtraction.model_validate({"newFacts": [], "contradictions": []}),
+    )
+
+    cid = _create().json()["id"]
+    assert _preview(cid, ["beat-4-2"]).status_code == 200
+
+    # scene-2 was classified regenerate but was not in this preview call —
+    # applying it must fail rather than silently no-op / mark approved.
+    before = copy.deepcopy(db_session.get(ProjectRow, PROJECT_ID).doc)
+    resp = _apply(cid, ["beat-4-2", "scene-2"])
+    assert resp.status_code == 409
+    assert resp.json()["error"]["code"] == "VALIDATION"
+    db_session.expire_all()
+    assert db_session.get(ProjectRow, PROJECT_ID).doc == before
+
+
 def test_edit_between_preview_and_apply_returns_preview_stale(
     seeded_project, db_session, mock_llm
 ):

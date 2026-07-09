@@ -214,6 +214,50 @@ def test_schema_invalid_llm_maps_to_502(seeded_project, mock_llm, monkeypatch):
     assert resp.json()["error"]["code"] == "SCHEMA_INVALID_LLM"
 
 
+def test_classifier_unknown_object_id_maps_to_502(seeded_project, mock_llm):
+    """Classifier rows with missing / wrong-type ids → SCHEMA_INVALID_LLM."""
+    mock_llm.set_response(
+        "classify_blast_radius",
+        BlastRadius.model_validate(
+            {
+                "impacted": [
+                    {
+                        "objectType": "beat",
+                        "objectId": "beat-does-not-exist",
+                        "reason": "hallucinated id",
+                        "confidence": "high",
+                    }
+                ]
+            }
+        ),
+    )
+    resp = _create()
+    assert resp.status_code == 502
+    assert resp.json()["error"]["code"] == "SCHEMA_INVALID_LLM"
+
+
+def test_classifier_wrong_object_type_maps_to_502(seeded_project, mock_llm):
+    """beat-4-2 exists but declaring it as a scene is invalid."""
+    mock_llm.set_response(
+        "classify_blast_radius",
+        BlastRadius.model_validate(
+            {
+                "impacted": [
+                    {
+                        "objectType": "scene",
+                        "objectId": "beat-4-2",
+                        "reason": "type mismatch",
+                        "confidence": "high",
+                    }
+                ]
+            }
+        ),
+    )
+    resp = _create()
+    assert resp.status_code == 502
+    assert resp.json()["error"]["code"] == "SCHEMA_INVALID_LLM"
+
+
 def test_llm_unavailable_maps_to_503(seeded_project, mock_llm, monkeypatch):
     def _boom(**_kwargs):
         raise anthropic.APIConnectionError(request=httpx.Request("POST", "https://api.test"))

@@ -8,7 +8,9 @@ import {
   getChangeSet,
   getLedger,
   getProject,
+  listChangeSets,
   previewChangeSet,
+  undoProject,
 } from '../api/client'
 import { ApiError } from '../api/errors'
 import { AppShell } from '../shell/AppShell'
@@ -32,11 +34,18 @@ function useUrlParam(name: string): string | null {
   )
 }
 
+function openChangeSet(projectId: string, changeSetId: string) {
+  const url = new URL(window.location.href)
+  url.pathname = '/review'
+  url.searchParams.set('project', projectId)
+  url.searchParams.set('changeSet', changeSetId)
+  window.location.assign(url.toString())
+}
+
 /**
  * Review mode screen (UI spec §5 / T4.3). Loads a Change Set via GET when
- * available, with sessionStorage as a warm cache after create (user ruling 3).
- * Classifying is the create-in-flight state owned by Plan's Open Review; this
- * screen shows skeleton only while the project / Change Set fetch is in flight.
+ * `?changeSet=` is set (sessionStorage is a warm cache). Without that param,
+ * lists draft Change Sets for the project (mode-switcher entry path).
  */
 export function ReviewScreen() {
   const projectId = useUrlParam('project') ?? DEFAULT_PROJECT_ID
@@ -45,19 +54,16 @@ export function ReviewScreen() {
   const [project, setProject] = useState<Project | null>(null)
   const [ledgerCount, setLedgerCount] = useState(0)
   const [changeSet, setChangeSet] = useState<ChangeSet | null>(null)
+  const [drafts, setDrafts] = useState<ChangeSet[] | null>(null)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [previewing, setPreviewing] = useState(false)
   const [applying, setApplying] = useState(false)
   const [hasPreview, setHasPreview] = useState(false)
   const [postApplyFlags, setPostApplyFlags] = useState<ConsistencyFlag[]>([])
   const [toast, setToast] = useState<string | null>(null)
-  const [loadError, setLoadError] = useState<string | null>(
-    changeSetId
-      ? null
-      : 'No Change Set loaded — open Review from a structural edit in Plan.',
-  )
-  // Ready immediately when there is no id to fetch; otherwise wait for GET/cache.
-  const [changeSetReady, setChangeSetReady] = useState(!changeSetId)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  // False until the draft list or the targeted Change Set finishes loading.
+  const [changeSetReady, setChangeSetReady] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -78,15 +84,37 @@ export function ReviewScreen() {
     }
   }, [projectId])
 
+  // Mode-switcher entry: no ?changeSet= → list drafts (UI spec §5).
+  // With ?changeSet= → GET (sessionStorage warm cache on failure).
   useEffect(() => {
-    if (!changeSetId) return
     let cancelled = false
 
-    async function load() {
+    async function loadDraftList() {
+      try {
+        const rows = await listChangeSets(projectId, 'draft')
+        if (cancelled) return
+        // Single draft: open it directly (still "one Change Set at a time").
+        if (rows.length === 1) {
+          openChangeSet(projectId, rows[0].id)
+          return
+        }
+        setDrafts(rows)
+        setChangeSetReady(true)
+      } catch (err: unknown) {
+        if (cancelled) return
+        setLoadError(
+          err instanceof Error ? err.message : 'failed to load Change Sets',
+        )
+        setDrafts([])
+        setChangeSetReady(true)
+      }
+    }
+
+    async function loadOne(id: string) {
       // Prefer GET (source of truth). Fall back to session cache when GET is
       // not yet on the API branch (404/network) so create→Review still works.
       try {
-        const fromApi = await getChangeSet(changeSetId!)
+        const fromApi = await getChangeSet(id)
         if (cancelled) return
         setChangeSet(fromApi)
         stashChangeSet(fromApi)
@@ -99,7 +127,7 @@ export function ReviewScreen() {
         // available on the merged API branch (user ruling 3).
       }
       if (cancelled) return
-      const stashed = loadStashedChangeSet(changeSetId!)
+      const stashed = loadStashedChangeSet(id)
       if (!stashed) {
         setLoadError(
           'No Change Set loaded — open Review from a structural edit in Plan.',
@@ -113,11 +141,15 @@ export function ReviewScreen() {
       setChangeSetReady(true)
     }
 
-    void load()
+    if (changeSetId) {
+      void loadOne(changeSetId)
+    } else {
+      void loadDraftList()
+    }
     return () => {
       cancelled = true
     }
-  }, [changeSetId])
+  }, [projectId, changeSetId])
 
   function toggleSelected(objectId: string) {
     setSelectedIds((prev) => {
@@ -169,7 +201,9 @@ export function ReviewScreen() {
       setPostApplyFlags(result.consistencyFlags)
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {
-        setToast(lockedObjectMessage)
+        setToast(
+          err.code === 'LOCKED_OBJECT' ? lockedObjectMessage : err.message,
+        )
       } else {
         setToast(err instanceof Error ? err.message : 'Apply failed')
       }
@@ -204,6 +238,17 @@ export function ReviewScreen() {
     }
   }
 
+  async function handleUndoAll() {
+    try {
+      await undoProject(projectId)
+      // Full reload so Plan/Write pick up the restored head and this screen
+      // leaves the applied summary (Change Set row stays `applied` in storage).
+      window.location.reload()
+    } catch (err) {
+      setToast(err instanceof Error ? err.message : 'Undo failed')
+    }
+  }
+
   async function handleDismissFlag(flagId: string) {
     try {
       await dismissConsistencyFlag(flagId)
@@ -227,6 +272,56 @@ export function ReviewScreen() {
     url.searchParams.set('project', projectId)
     url.searchParams.set('fact', factId)
     window.location.assign(url.toString())
+  }
+
+  // Draft picker (no ?changeSet= and not auto-redirecting a single draft).
+  if (!changeSetId && changeSetReady && drafts !== null) {
+    return (
+      <AppShell
+        projectTitle={project?.title ?? 'Table Read'}
+        activeMode="Review"
+        ledgerCount={ledgerCount}
+        projectId={projectId}
+      >
+        <div
+          className="flex flex-col gap-4 p-6"
+          data-testid="draft-change-sets"
+        >
+          <h2 className="font-display text-17 text-tr-text-primary">
+            Draft Change Sets
+          </h2>
+          {drafts.length === 0 ? (
+            <p className="text-15 text-tr-text-secondary">
+              No draft Change Sets. Open Review from a structural edit in Plan.
+            </p>
+          ) : (
+            <ul className="flex flex-col gap-2">
+              {drafts.map((cs) => (
+                <li key={cs.id}>
+                  <button
+                    type="button"
+                    onClick={() => openChangeSet(projectId, cs.id)}
+                    className="w-full rounded-card border border-tr-border bg-tr-surface-raised px-4 py-3 text-left hover:border-tr-coral"
+                  >
+                    <p className="font-display text-15 text-tr-text-primary">
+                      &ldquo;{cs.instruction}&rdquo;
+                    </p>
+                    <p className="mt-1 text-13 text-tr-text-muted">
+                      {cs.targetObjectId} · {cs.impacted.length} impacted
+                    </p>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+        {loadError && (
+          <Toast tone="danger" onDismiss={() => setLoadError(null)}>
+            {loadError}
+          </Toast>
+        )}
+      </AppShell>
+    )
   }
 
   if (loadError && !changeSet && changeSetReady) {
@@ -266,6 +361,9 @@ export function ReviewScreen() {
       activeMode="Review"
       ledgerCount={ledgerCount}
       projectId={projectId}
+      onUndo={
+        changeSet.status === 'applied' ? () => void handleUndoAll() : undefined
+      }
     >
       <ChangeSetPanel
         changeSet={changeSet}
@@ -279,6 +377,11 @@ export function ReviewScreen() {
         onApply={() => void handleApply()}
         onFlagOnly={() => void handleFlagOnly()}
         onDiscard={() => void handleDiscard()}
+        onUndoAll={
+          changeSet.status === 'applied'
+            ? () => void handleUndoAll()
+            : undefined
+        }
         onDismissFlag={(id) => void handleDismissFlag(id)}
         onGoToScene={handleGoToScene}
         onContinuityFlagClick={handleContinuityFlag}

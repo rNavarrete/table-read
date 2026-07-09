@@ -61,6 +61,7 @@ export function useProjectPatch(
         const { project: next, consistencyFlags } = await patchProject(
           projectId,
           ops,
+          { expectedHeadSnapshotId: before.headSnapshotId },
         )
         setProject(next)
         onConsistencyFlags?.(consistencyFlags)
