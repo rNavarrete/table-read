@@ -41,6 +41,12 @@ def test_seed_writes_exactly_one_root_snapshot_matching_live_stores(db_session, 
     assert live_ledger == snapshot_ledger
 
 
+def test_seed_populates_project_timestamps(seeded_project, db_session):
+    project = db_session.get(ProjectRow, seeded_project["project"]["id"])
+    assert project.created_at is not None
+    assert project.updated_at is not None
+
+
 def test_seed_writes_8_ledger_facts_from_fixture(seeded_project, db_session):
     project_id = seeded_project["project"]["id"]
     facts = db_session.query(LedgerFactRow).filter_by(project_id=project_id).all()

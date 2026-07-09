@@ -6,17 +6,23 @@ the fully materialized snapshot `doc`/`ledger`/`flags`) are stored as JSON
 blobs rather than decomposed further, matching §3's "materialized, not
 deltas" snapshot semantics. `project_id` columns are storage-only plumbing
 (not part of any wire schema) needed to scope rows to a project; §3 lists
-one explicitly for `snapshots` and `change_sets`, and this module adds the
-same for `ledger_facts`, `consistency_flags`, and `suggestion_history` since
+one explicitly for `snapshots`, `change_sets`, and `suggestion_history`, and
+this module adds the same for `ledger_facts` and `consistency_flags` since
 those tables need it too and the wire shape (scoped by URL) doesn't carry it.
 """
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 from sqlalchemy import JSON, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column
 
 from storage.db import Base
+
+
+def _utcnow() -> datetime:
+    return datetime.now(UTC)
 
 
 class ProjectRow(Base):
@@ -25,6 +31,11 @@ class ProjectRow(Base):
     id: Mapped[str] = mapped_column(primary_key=True)
     doc: Mapped[dict] = mapped_column(JSON)
     head_snapshot_id: Mapped[str | None] = mapped_column(default=None)
+    # §3 "timestamps": server-managed, set on insert. T1.1's mutation
+    # transaction is expected to bump updated_at on each mutation; T0.3 only
+    # needs the columns populated at seed/create time.
+    created_at: Mapped[datetime] = mapped_column(default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(default=_utcnow)
 
 
 class SnapshotRow(Base):
