@@ -59,4 +59,14 @@ export const EXPECTED_TOKENS: Record<string, string> = {
   // Layout: UI spec §3's literal 720px script-column / command-bar width,
   // tokenized per controller ruling on T2.3 review.
   '--tr-script-col': '720px',
+
+  // Layout: UI spec §4 Plan-mode board panel/card widths, tokenized per
+  // controller ruling on T3.1 (same "mint for spec-stated pixel values
+  // lacking a token name" precedent as --tr-script-col above).
+  '--tr-panel-story-layers': '240px',
+  '--tr-panel-inspector': '300px',
+  '--tr-card-scene': '260px',
+
+  // §4 "Selected = 2px coral outline" — width only (color is --tr-coral).
+  '--tr-outline-selected': '2px',
 }

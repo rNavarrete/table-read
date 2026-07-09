@@ -1,7 +1,14 @@
 import type { ComponentType } from 'react'
 
 type TokenKind =
-  'color' | 'font' | 'size' | 'radius' | 'shadow' | 'motion' | 'width'
+  | 'color'
+  | 'font'
+  | 'size'
+  | 'radius'
+  | 'shadow'
+  | 'motion'
+  | 'width'
+  | 'outline'
 
 type TokenDef = {
   cssVar: string
@@ -161,6 +168,31 @@ const TOKEN_GROUPS: TokenGroup[] = [
         description: 'script column / command bar max-width (UI spec §3)',
         kind: 'width',
       },
+      {
+        cssVar: '--tr-panel-story-layers',
+        description: 'Plan mode Story Layers panel width (UI spec §4)',
+        kind: 'width',
+      },
+      {
+        cssVar: '--tr-panel-inspector',
+        description: 'Plan mode inspector width (UI spec §4)',
+        kind: 'width',
+      },
+      {
+        cssVar: '--tr-card-scene',
+        description: 'Plan mode scene card width (UI spec §4)',
+        kind: 'width',
+      },
+    ],
+  },
+  {
+    title: 'Outline',
+    tokens: [
+      {
+        cssVar: '--tr-outline-selected',
+        description: 'selected scene-card outline width (UI spec §4)',
+        kind: 'outline',
+      },
     ],
   },
 ]
@@ -282,6 +314,20 @@ function WidthSample({ token }: { token: TokenDef }) {
   )
 }
 
+function OutlineSample({ token }: { token: TokenDef }) {
+  return (
+    <div className="flex items-center gap-3 rounded-lg border border-tr-border bg-tr-surface-raised p-3">
+      <div
+        className="h-12 w-12 shrink-0 rounded-lg bg-tr-surface-clay outline outline-tr-coral"
+        style={{ outlineWidth: `var(${token.cssVar})` }}
+      />
+      <div className="flex min-w-0 flex-col">
+        <TokenMeta token={token} />
+      </div>
+    </div>
+  )
+}
+
 const SAMPLE_FOR_KIND: Record<TokenKind, ComponentType<{ token: TokenDef }>> = {
   color: ColorSwatch,
   font: FontSample,
@@ -290,6 +336,7 @@ const SAMPLE_FOR_KIND: Record<TokenKind, ComponentType<{ token: TokenDef }>> = {
   shadow: ShadowSample,
   motion: MotionRow,
   width: WidthSample,
+  outline: OutlineSample,
 }
 
 export default function TokensPage() {

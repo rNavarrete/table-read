@@ -23,6 +23,13 @@ function themeKeyFor(name: string): string {
     return '--default-transition-duration'
   // Tailwind v4's --container-* namespace backs max-w-* utilities.
   if (name === '--tr-script-col') return '--container-script-col'
+  // Tailwind v4's --spacing-* namespace backs w-*/h-*/p-*/m-*/gap-* etc. for
+  // named values (verified empirically — see tokens.css's comment).
+  if (name.startsWith('--tr-panel-') || name.startsWith('--tr-card-'))
+    return name.replace('--tr-', '--spacing-')
+  // Tailwind v4's --outline-width-* namespace backs outline-<name>.
+  if (name.startsWith('--tr-outline-'))
+    return name.replace('--tr-outline-', '--outline-width-')
   if (name.startsWith('--tr-font-size-'))
     return name.replace('--tr-font-size-', '--text-')
   if (name.startsWith('--tr-font-'))
