@@ -28,6 +28,7 @@ function useUrlParam(name: string): string | null {
 export function WriteScreen() {
   const projectId = useUrlParam('project') ?? DEFAULT_PROJECT_ID
   const requestedSceneId = useUrlParam('scene')
+  const highlightBeatId = useUrlParam('highlightBeat')
 
   const [project, setProject] = useState<Project | null>(null)
   const [ledgerCount, setLedgerCount] = useState(0)
@@ -43,7 +44,10 @@ export function WriteScreen() {
       .then(([loadedProject, ledger]) => {
         if (cancelled) return
         setProject(loadedProject)
-        setLedgerCount(ledger.length)
+        // UI spec §2: Ledger badge = review-queue (pending_review) count.
+        setLedgerCount(
+          ledger.filter((f) => f.status === 'pending_review').length,
+        )
       })
       .catch((err: unknown) => {
         if (cancelled) return
@@ -82,7 +86,14 @@ export function WriteScreen() {
     const response = await accept.accept(index, candidate, lastBeatId())
     if (response) {
       candidateSession.skip(index)
-      setLedgerCount((count) => count + response.newFacts.length)
+      // Badge tracks pending_review only — high-confidence newFacts stay
+      // active and don't bump the queue; low-confidence ones do.
+      const pendingDelta = response.newFacts.filter(
+        (f) => f.status === 'pending_review',
+      ).length
+      if (pendingDelta > 0) {
+        setLedgerCount((count) => count + pendingDelta)
+      }
     }
   }
 
@@ -111,7 +122,11 @@ export function WriteScreen() {
       ledgerCount={ledgerCount}
     >
       <div className="flex justify-center gap-6 px-6 py-8 pb-24">
-        <ScriptCanvas scene={scene} canvasHandlers={canvasHandlers} />
+        <ScriptCanvas
+          scene={scene}
+          canvasHandlers={canvasHandlers}
+          highlightBeatId={highlightBeatId}
+        />
         <CandidateDock
           session={candidateSession.session}
           quiet={quiet}

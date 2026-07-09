@@ -192,10 +192,8 @@ function MotivationsTable({
 
 /**
  * Affected-facts list (UI spec §4: "ledger facts whose sourceSpan is this
- * scene — click → Ledger mode"). Ledger mode is T5.1 (build plan) — not
- * built yet, so navigation is a **disabled state** rather than a dead link
- * (brief obligation 7: "leave a disabled state or navigate to a
- * placeholder; flag your choice" — flagged here and in the task report).
+ * scene — click → Ledger mode"). Navigates to `/ledger?fact=` so Ledger can
+ * scroll/highlight the card (T5.1).
  */
 function AffectedFacts({ facts }: { facts: LedgerFact[] }) {
   return (
@@ -211,9 +209,13 @@ function AffectedFacts({ facts }: { facts: LedgerFact[] }) {
             <li key={fact.id}>
               <button
                 type="button"
-                disabled
-                title="Ledger mode isn't built yet (T5.1)"
-                className="flex w-full cursor-not-allowed items-start gap-2 rounded-card border border-tr-border bg-tr-surface-raised p-2 text-left opacity-70"
+                onClick={() => {
+                  const url = new URL(window.location.href)
+                  url.pathname = '/ledger'
+                  url.searchParams.set('fact', fact.id)
+                  window.location.assign(url.toString())
+                }}
+                className="flex w-full items-start gap-2 rounded-card border border-tr-border bg-tr-surface-raised p-2 text-left hover:bg-tr-surface-clay"
               >
                 <span className="text-13 text-tr-text-primary">
                   {fact.fact}

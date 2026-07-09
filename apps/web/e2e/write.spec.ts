@@ -13,8 +13,13 @@ test('scene-3: Next Beat streams 3 actionable cards; Accept inserts the beat and
   // The scene's existing beat (fixture: beat-3-1) is already on the page.
   await expect(page.getByTestId('beat-beat-3-1')).toBeVisible()
 
-  const ledgerBadge = page.getByRole('tab', { name: 'Ledger' })
-  await expect(ledgerBadge).toContainText('8') // fixture: 8 ledger facts at load
+  const ledgerBadge = page.getByRole('tab', { name: /Ledger/ })
+  // UI spec §2 / T5.1: badge is pending_review count (fixture: fact-06 only).
+  // If ledger.spec.ts already activated fact-06 in this shared-DB run, the
+  // badge may be absent — assert the tab is enabled either way.
+  await expect(ledgerBadge).toBeEnabled()
+  const badgeBefore = await ledgerBadge.textContent()
+  const pendingBefore = Number((badgeBefore ?? '').replace(/\D/g, '') || '0')
 
   await page.getByRole('button', { name: 'Next Beat' }).click()
 
@@ -39,10 +44,14 @@ test('scene-3: Next Beat streams 3 actionable cards; Accept inserts the beat and
     /Marta slides a folded printout/,
   )
 
-  // The accepted card is gone from the dock (2 remain, re-keyed to 0/1);
-  // the ledger badge incremented from the accept response's `newFacts`.
+  // The accepted card is gone from the dock (2 remain, re-keyed to 0/1).
+  // Badge tracks pending_review (T5.1). Accept may add pending facts when
+  // extract demotes on sourceText miss — so the queue count is allowed to
+  // rise; it must not drop from an accept.
   await expect(page.getByTestId('candidate-card-0')).toBeVisible()
   await expect(page.getByTestId('candidate-card-1')).toBeVisible()
   await expect(page.getByTestId('candidate-card-2')).toHaveCount(0)
-  await expect(ledgerBadge).toContainText('9')
+  const badgeAfter = await ledgerBadge.textContent()
+  const pendingAfter = Number((badgeAfter ?? '').replace(/\D/g, '') || '0')
+  expect(pendingAfter).toBeGreaterThanOrEqual(pendingBefore)
 })

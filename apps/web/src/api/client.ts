@@ -88,8 +88,47 @@ export function getProject(projectId: string): Promise<Project> {
   return getJson<Project>(`/projects/${projectId}`)
 }
 
-export function getLedger(projectId: string): Promise<LedgerFact[]> {
-  return getJson<LedgerFact[]>(`/projects/${projectId}/ledger`)
+export function getLedger(
+  projectId: string,
+  opts?: { status?: string; characterId?: string },
+): Promise<LedgerFact[]> {
+  const params = new URLSearchParams()
+  if (opts?.status) params.set('status', opts.status)
+  if (opts?.characterId) params.set('characterId', opts.characterId)
+  const qs = params.toString()
+  return getJson<LedgerFact[]>(
+    `/projects/${projectId}/ledger${qs ? `?${qs}` : ''}`,
+  )
+}
+
+/** `POST /ledger/{factId}/confirm` — pending_review → active / writer_confirmed. */
+export function confirmLedgerFact(factId: string): Promise<LedgerFact> {
+  return postJson<LedgerFact>(`/ledger/${factId}/confirm`, {})
+}
+
+/** `POST /ledger/{factId}/reject` — pending_review → rejected (prompt-ineligible). */
+export function rejectLedgerFact(factId: string): Promise<LedgerFact> {
+  return postJson<LedgerFact>(`/ledger/${factId}/reject`, {})
+}
+
+/** `PATCH /ledger/{factId}` — edit text/knownBy → writer_authored (and
+ * activates pending_review per T5.1 accept). */
+export function editLedgerFact(
+  factId: string,
+  body: { fact?: string; knownBy?: string[] },
+): Promise<LedgerFact> {
+  return patchJson<LedgerFact>(`/ledger/${factId}`, body)
+}
+
+/** `POST /projects/{pid}/ledger/batch` — one snapshot for the whole batch. */
+export function batchLedgerReview(
+  projectId: string,
+  body: { confirmIds: string[]; rejectIds: string[] },
+): Promise<{ ledger: LedgerFact[] }> {
+  return postJson<{ ledger: LedgerFact[] }>(
+    `/projects/${projectId}/ledger/batch`,
+    body,
+  )
 }
 
 /** `GET /projects/{pid}/consistency-flags?status=` (data contract §4). Plan

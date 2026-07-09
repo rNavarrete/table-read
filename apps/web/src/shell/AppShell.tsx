@@ -17,11 +17,8 @@ const SHORTCUT_MODES: Record<string, Mode> = {
 }
 
 /** UI spec §2: "Keyboard: ⌘1–4 switch modes." Mounted once here (the shell
- * every mode screen renders), not per-mode. `navigateToMode` already no-ops
- * for Review/Ledger (not built yet — T4.3/T5.1) — obligation 6 ("flag if
- * deferred" for the modes this can't actually navigate to): the listener
- * itself is wired for all four digits, cheap either way, but ⌘3/⌘4 have
- * nowhere to go until those modes exist. */
+ * every mode screen renders), not per-mode. `navigateToMode` no-ops for
+ * Review until T4.3; Write/Plan/Ledger all navigate. */
 function useModeShortcuts() {
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {

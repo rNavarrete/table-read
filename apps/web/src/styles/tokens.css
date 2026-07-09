@@ -80,6 +80,10 @@
   --tr-panel-inspector: 300px;
   --tr-card-scene: 260px;
 
+  /* Layout: Ledger mode filter rail (§6) — 200px, same mint precedent as
+     Plan's panel widths (spec parenthetical, no named token). */
+  --tr-panel-ledger-filters: 200px;
+
   /* Outline: §4's "Selected = 2px coral outline" — width has no token either
      (color is already --tr-coral). Minted per the same ruling. */
   --tr-outline-selected: 2px;
@@ -143,6 +147,7 @@
      named values, verified empirically — see the T3.1 task report. */
   --spacing-panel-story-layers: var(--tr-panel-story-layers);
   --spacing-panel-inspector: var(--tr-panel-inspector);
+  --spacing-panel-ledger-filters: var(--tr-panel-ledger-filters);
   --spacing-card-scene: var(--tr-card-scene);
 
   /* outline-selected (Tailwind v4's --outline-width-* namespace backs

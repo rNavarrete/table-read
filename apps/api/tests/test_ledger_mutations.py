@@ -143,6 +143,18 @@ def test_reject_plain_pending_review(db_session, seeded_project):
     assert response.json()["status"] == "rejected"
     assert _by_id(db_session)["fact-06"]["status"] == "rejected"
 
+    # T5.1 accept: rejecting removes the fact from the prompt-eligible set
+    # (isPromptEligibleFact / ledger_filter — same gate as context bundles).
+    from drama_manager.ledger_filter import RelevanceContext, eligible_facts
+
+    ledger = _ledger(db_session)
+    ctx = RelevanceContext(
+        scene_id="scene-4",
+        characters_in_scene=frozenset({"char-reyes"}),
+    )
+    kept_ids = {f["id"] for f in eligible_facts(ledger, ctx)}
+    assert "fact-06" not in kept_ids
+
 
 # ── confirm/reject on non-pending → 409 VALIDATION ───────────────────────────
 
@@ -230,9 +242,12 @@ def test_patch_edit_sets_writer_authored(db_session, seeded_project):
     assert body["fact"] == "Reyes may be bluffing about the warrant."
     assert body["knownBy"] == ["char-marta"]
     assert body["provenance"] == "writer_authored"
+    # T5.1 accept: edit of pending_review also activates (leaves the queue).
+    assert body["status"] == "active"
 
     fact = _by_id(db_session)["fact-06"]
     assert fact["provenance"] == "writer_authored"
+    assert fact["status"] == "active"
     assert fact["fact"] == "Reyes may be bluffing about the warrant."
     assert _snapshot_count(db_session) == before_snaps + 1
 

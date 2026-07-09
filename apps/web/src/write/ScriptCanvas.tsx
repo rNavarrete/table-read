@@ -1,4 +1,4 @@
-import { useState, type ChangeEvent } from 'react'
+import { useEffect, useRef, useState, type ChangeEvent } from 'react'
 import type { Beat, Scene } from 'contract'
 import type { QuietAiCanvasHandlers } from './useQuietAi'
 
@@ -23,6 +23,14 @@ function LockGlyph() {
   )
 }
 
+const HIGHLIGHT_CLASSES = [
+  'rounded-card',
+  'bg-tr-amber-soft',
+  'outline',
+  'outline-selected',
+  'outline-tr-coral',
+] as const
+
 /**
  * One beat row: gutter label (hover-visible) + the beat's script text.
  * Unlocked beats are a live `<textarea>` (rule: "Direct typing is allowed
@@ -38,9 +46,36 @@ function LockGlyph() {
  * plan); wiring it here would duplicate that task's lock-guard tests ahead
  * of the endpoint actually enforcing them.
  */
-function BeatRow({ beat, index }: { beat: Beat; index: number }) {
+function BeatRow({
+  beat,
+  index,
+  highlighted,
+}: {
+  beat: Beat
+  index: number
+  highlighted: boolean
+}) {
   const locked = beat.locked || beat.scriptLocked
   const [text, setText] = useState(beat.scriptText)
+  const rowRef = useRef<HTMLDivElement>(null)
+
+  // Ledger source-span jump (UI spec §6): highlight 2s via DOM classes —
+  // avoids setState-in-effect (react-hooks lint) while still timing out.
+  useEffect(() => {
+    const el = rowRef.current
+    if (!highlighted || !el) return
+    el.classList.add(...HIGHLIGHT_CLASSES)
+    el.dataset.highlighted = 'true'
+    const t = window.setTimeout(() => {
+      el.classList.remove(...HIGHLIGHT_CLASSES)
+      delete el.dataset.highlighted
+    }, 2000)
+    return () => {
+      window.clearTimeout(t)
+      el.classList.remove(...HIGHLIGHT_CLASSES)
+      delete el.dataset.highlighted
+    }
+  }, [highlighted])
 
   function onChange(event: ChangeEvent<HTMLTextAreaElement>) {
     setText(event.target.value)
@@ -48,7 +83,10 @@ function BeatRow({ beat, index }: { beat: Beat; index: number }) {
   }
 
   return (
-    <div className="group relative flex gap-4 border-t border-tr-border py-6 first:border-t-0">
+    <div
+      ref={rowRef}
+      className="group relative flex gap-4 border-t border-tr-border py-6 first:border-t-0"
+    >
       <div
         className="w-6 shrink-0 pt-1 text-right text-12 text-tr-text-muted opacity-0 transition-opacity group-hover:opacity-100"
         aria-hidden="true"
@@ -82,6 +120,8 @@ function BeatRow({ beat, index }: { beat: Beat; index: number }) {
 export interface ScriptCanvasProps {
   scene: Scene
   canvasHandlers: QuietAiCanvasHandlers
+  /** When set (Ledger source-span jump), highlight that beat for 2s. */
+  highlightBeatId?: string | null
 }
 
 /**
@@ -91,7 +131,11 @@ export interface ScriptCanvasProps {
  * on this root container so focus anywhere inside — any beat's textarea —
  * drives the quiet-AI rule.
  */
-export function ScriptCanvas({ scene, canvasHandlers }: ScriptCanvasProps) {
+export function ScriptCanvas({
+  scene,
+  canvasHandlers,
+  highlightBeatId = null,
+}: ScriptCanvasProps) {
   return (
     <section
       // max-w-script-col = --tr-script-col (720px, UI spec §3), minted per
@@ -106,7 +150,12 @@ export function ScriptCanvas({ scene, canvasHandlers }: ScriptCanvasProps) {
         </p>
       ) : (
         scene.beats.map((beat, index) => (
-          <BeatRow key={beat.id} beat={beat} index={index} />
+          <BeatRow
+            key={beat.id}
+            beat={beat}
+            index={index}
+            highlighted={highlightBeatId === beat.id}
+          />
         ))
       )}
     </section>

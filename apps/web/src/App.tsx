@@ -1,13 +1,16 @@
+import { LedgerScreen } from './ledger/LedgerScreen'
 import { PlanScreen } from './plan/PlanScreen'
 import { WriteScreen } from './write/WriteScreen'
 
 // No router (T0.1 scaffold; see main.tsx's /tokens switch for the same
-// precedent) — Plan mode (T3.1) adds its own pathname branch alongside
-// Write's default. ModeSwitcher's navigation and AppShell's ⌘1-4 shortcut
-// both navigate by setting `window.location.pathname`, so this is the one
-// place that reads it back.
+// precedent) — each mode adds its own pathname branch. ModeSwitcher's
+// navigation and AppShell's ⌘1-4 shortcut both navigate by setting
+// `window.location.pathname`, so this is the one place that reads it back.
 function App() {
-  return window.location.pathname === '/plan' ? <PlanScreen /> : <WriteScreen />
+  const path = window.location.pathname
+  if (path === '/plan') return <PlanScreen />
+  if (path === '/ledger') return <LedgerScreen />
+  return <WriteScreen />
 }
 
 export default App

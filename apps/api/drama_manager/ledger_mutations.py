@@ -14,7 +14,8 @@ running a single `mutate`):
   - reject → rejected; target untouched; supersedes link preserved
   - confirm/reject on non-pending_review → ValidationError
   - confirm when fact-X is missing or not active → ConflictStaleProposal
-  - edit text/knownBy → provenance writer_authored (status unchanged)
+  - edit text/knownBy → provenance writer_authored; pending_review → active
+    (T5.1 accept / DESIGN-GAP vs data-contract "status unchanged")
 """
 
 from __future__ import annotations
@@ -91,7 +92,14 @@ def edit_fact(
     fact_text: str | None = None,
     known_by: list[str] | None = None,
 ) -> list[dict]:
-    """Edit text and/or knownBy; provenance becomes writer_authored."""
+    """Edit text and/or knownBy; provenance becomes writer_authored.
+
+    # DESIGN-GAP(T5.1): data contract §4 only says edit flips provenance to
+    # writer_authored (status unchanged). Build-plan T5.1 accept requires
+    # pending_review → active after edit so the fact leaves the review queue
+    # as writer-authored. Activating pending_review on edit matches T5.1;
+    # already-active/superseded/etc. statuses are left alone.
+    """
     if fact_text is None and known_by is None:
         raise ValidationError("patch must include fact and/or knownBy")
 
@@ -106,6 +114,8 @@ def edit_fact(
     if known_by is not None:
         fact["knownBy"] = list(known_by)
     fact["provenance"] = "writer_authored"
+    if fact["status"] == "pending_review":
+        fact["status"] = "active"
     return ledger
 
 

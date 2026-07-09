@@ -208,7 +208,9 @@ export function PlanScreen() {
       <AppShell
         projectTitle={project.title}
         activeMode="Plan"
-        ledgerCount={ledger.length}
+        ledgerCount={
+          ledger.filter((f) => f.status === 'pending_review').length
+        }
       >
         <p className="p-8 text-15 text-tr-text-secondary">
           This project has no episode yet.
@@ -221,7 +223,9 @@ export function PlanScreen() {
     <AppShell
       projectTitle={project.title}
       activeMode="Plan"
-      ledgerCount={ledger.length}
+      ledgerCount={
+          ledger.filter((f) => f.status === 'pending_review').length
+        }
     >
       <div className="flex">
         <StoryLayersPanel
