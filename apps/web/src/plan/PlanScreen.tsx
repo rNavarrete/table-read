@@ -166,6 +166,7 @@ export function PlanScreen() {
           episode={episode}
           selection={selection}
           collapsedActs={collapsedActs}
+          pending={patcher.pending}
           onSelectScene={(sceneId) => setSelection({ type: 'scene', sceneId })}
           onSelectBeat={(sceneId, beatId) =>
             setSelection({ type: 'beat', sceneId, beatId })

@@ -16,6 +16,7 @@ interface ActFrameProps {
   collapsed: boolean
   episodeLocked: boolean
   selection: PlanSelection
+  pending: boolean
   dragSourceId: string | null
   dropTargetId: string | null
   onSelectScene: (sceneId: string) => void
@@ -34,6 +35,7 @@ function ActFrame({
   collapsed,
   episodeLocked,
   selection,
+  pending,
   dragSourceId,
   dropTargetId,
   onSelectScene,
@@ -65,6 +67,7 @@ function ActFrame({
                 scene={scene}
                 episodeLocked={episodeLocked}
                 selection={selection}
+                pending={pending}
                 onSelectScene={onSelectScene}
                 onSelectBeat={onSelectBeat}
                 dragging={scene.id === dragSourceId}
@@ -90,6 +93,9 @@ export interface BoardProps {
   episode: Episode
   selection: PlanSelection
   collapsedActs: Set<number>
+  /** A PATCH is in flight — drag initiation is disabled on every card
+   * (see SceneCardProps.pending for the rollback-race rationale). */
+  pending: boolean
   onSelectScene: (sceneId: string) => void
   onSelectBeat: (sceneId: string, beatId: string) => void
   onReorder: (draggedSceneId: string, targetSceneId: string) => void
@@ -111,6 +117,7 @@ export function Board({
   episode,
   selection,
   collapsedActs,
+  pending,
   onSelectScene,
   onSelectBeat,
   onReorder,
@@ -142,6 +149,7 @@ export function Board({
             collapsed={collapsedActs.has(act)}
             episodeLocked={episode.locked}
             selection={selection}
+            pending={pending}
             dragSourceId={dragSourceId}
             dropTargetId={dropTargetId}
             onSelectScene={onSelectScene}

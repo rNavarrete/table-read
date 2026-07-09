@@ -1,4 +1,4 @@
-import type { DragEvent, MouseEvent } from 'react'
+import type { DragEvent, KeyboardEvent, MouseEvent } from 'react'
 import { useState } from 'react'
 import type { Scene } from 'contract'
 import { BeatCard } from './BeatCard'
@@ -46,6 +46,12 @@ export interface SceneCardProps {
   scene: Scene
   episodeLocked: boolean
   selection: PlanSelection
+  /** A PATCH is in flight (useProjectPatch). Drag initiation is refused
+   * while true — starting a second reorder mid-flight would let the first
+   * one's rollback (which restores the exact pre-patch doc) silently erase
+   * the second one's optimistic change. Same guard LockToggle and the
+   * inspector's save button already apply via `disabled`. */
+  pending: boolean
   onSelectScene: (sceneId: string) => void
   onSelectBeat: (sceneId: string, beatId: string) => void
   dragging: boolean
@@ -60,16 +66,22 @@ export interface SceneCardProps {
 /**
  * A scene card on the Plan board (UI spec §4). Draggable for reorder unless
  * the scene is locked — brief obligation 3: "do not build UI that lets a
- * user drag a locked scene." Locked scenes are also refused as *drop*
- * targets (a conservative extension beyond the obligation's literal text,
- * flagged in the task report): swapping another scene into a locked scene's
- * slot would still change the locked scene's `index`, and nothing in the
- * brief asked for that risk to be taken on.
+ * user drag a locked scene" — or a mutation is in flight (`pending`; see
+ * the prop doc above). Locked scenes are also refused as *drop* targets (a
+ * conservative extension beyond the obligation's literal text, flagged in
+ * the task report): swapping another scene into a locked scene's slot would
+ * still change the locked scene's `index`, and nothing in the brief asked
+ * for that risk to be taken on.
+ *
+ * Keyboard: the card is a focusable button — Enter/Space selects the scene
+ * (UI spec §8: full keyboard path). Only when the card itself is focused;
+ * keydown bubbling up from the chevron (its own button) is ignored.
  */
 export function SceneCard({
   scene,
   episodeLocked,
   selection,
+  pending,
   onSelectScene,
   onSelectBeat,
   dragging,
@@ -82,6 +94,7 @@ export function SceneCard({
 }: SceneCardProps) {
   const [expanded, setExpanded] = useState(false)
   const locked = scene.locked || episodeLocked
+  const draggable = !locked && !pending
   const selected = selection?.type === 'scene' && selection.sceneId === scene.id
 
   function handleClick(event: MouseEvent) {
@@ -92,8 +105,19 @@ export function SceneCard({
     onSelectScene(scene.id)
   }
 
+  function handleKeyDown(event: KeyboardEvent) {
+    // Only when the card itself is the focused element — Enter on the
+    // chevron (a nested button whose keydown bubbles here) must keep its
+    // own expand/collapse meaning, not also select the scene.
+    if (event.target !== event.currentTarget) return
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault()
+      onSelectScene(scene.id)
+    }
+  }
+
   function handleDragStart(event: DragEvent) {
-    if (locked) {
+    if (!draggable) {
       event.preventDefault()
       return
     }
@@ -118,13 +142,16 @@ export function SceneCard({
     <Card
       variant="raised"
       selected={selected}
-      draggable={!locked}
+      role="button"
+      tabIndex={0}
+      draggable={draggable}
       onDragStart={handleDragStart}
       onDragEnd={onDragEndScene}
       onDragOver={handleDragOver}
       onDragLeave={onDragLeaveScene}
       onDrop={handleDrop}
       onClick={handleClick}
+      onKeyDown={handleKeyDown}
       data-testid={`scene-card-${scene.id}`}
       data-locked={locked}
       className={

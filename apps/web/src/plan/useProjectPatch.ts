@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import type { Project } from 'contract'
 import { patchProject, type JsonPatchOp } from '../api/client'
 import { ApiError } from '../api/errors'
@@ -17,6 +17,15 @@ export interface PatchErrorState {
  * (brief obligation 5). Modeled on write/useAcceptBeat.ts's accept flow —
  * same shape, generalized past one specific mutation.
  *
+ * **One mutation at a time.** A second `patch()` while one is in flight is
+ * refused (returns false, sends nothing): the first one's failure path
+ * restores the exact pre-patch doc, which would silently erase the second
+ * one's optimistic change (and its `before` snapshot would predate the
+ * first's outcome — either way, corruption). The UI entry points also
+ * disable themselves on `pending` (LockToggle/save via `disabled`, drag
+ * initiation via SceneCard's `draggable`), but `pending` is React state and
+ * lags a render — this ref guard is the authoritative, same-tick check.
+ *
  * `project`/`setProject` are owned by the caller (plan/PlanScreen.tsx), same
  * "server is source of truth" convention as useAcceptBeat: the value that
  * survives is whichever one the server returns, never the optimistic guess.
@@ -28,10 +37,13 @@ export function useProjectPatch(
 ) {
   const [error, setError] = useState<PatchErrorState | null>(null)
   const [pending, setPending] = useState(false)
+  const inFlightRef = useRef(false)
 
   const patch = useCallback(
     async (ops: JsonPatchOp[], optimisticNext: Project): Promise<boolean> => {
       if (!project) return false
+      if (inFlightRef.current) return false // concurrent-mutation guard
+      inFlightRef.current = true
       const before = project
       setError(null)
       setPending(true)
@@ -51,6 +63,8 @@ export function useProjectPatch(
             : { code: 'UNKNOWN', message: 'save failed' },
         )
         return false
+      } finally {
+        inFlightRef.current = false
       }
     },
     [project, projectId, setProject],

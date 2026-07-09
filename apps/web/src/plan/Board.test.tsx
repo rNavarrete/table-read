@@ -115,6 +115,7 @@ describe('Board / SceneCard / BeatCard', () => {
         episode={ep}
         selection={null}
         collapsedActs={new Set()}
+        pending={false}
         onSelectScene={noop}
         onSelectBeat={noop}
         onReorder={noop}
@@ -136,6 +137,7 @@ describe('Board / SceneCard / BeatCard', () => {
         episode={ep}
         selection={null}
         collapsedActs={new Set()}
+        pending={false}
         onSelectScene={onSelectScene}
         onSelectBeat={noop}
         onReorder={noop}
@@ -153,6 +155,7 @@ describe('Board / SceneCard / BeatCard', () => {
         episode={ep}
         selection={{ type: 'scene', sceneId: 'scene-1' }}
         collapsedActs={new Set()}
+        pending={false}
         onSelectScene={noop}
         onSelectBeat={noop}
         onReorder={noop}
@@ -172,6 +175,7 @@ describe('Board / SceneCard / BeatCard', () => {
         episode={ep}
         selection={null}
         collapsedActs={new Set()}
+        pending={false}
         onSelectScene={noop}
         onSelectBeat={noop}
         onReorder={noop}
@@ -195,6 +199,7 @@ describe('Board / SceneCard / BeatCard', () => {
         episode={ep}
         selection={null}
         collapsedActs={new Set()}
+        pending={false}
         onSelectScene={onSelectScene}
         onSelectBeat={onSelectBeat}
         onReorder={noop}
@@ -214,6 +219,7 @@ describe('Board / SceneCard / BeatCard', () => {
         episode={ep}
         selection={null}
         collapsedActs={new Set()}
+        pending={false}
         onSelectScene={noop}
         onSelectBeat={noop}
         onReorder={noop}
@@ -232,6 +238,7 @@ describe('Board / SceneCard / BeatCard', () => {
         episode={ep}
         selection={null}
         collapsedActs={new Set()}
+        pending={false}
         onSelectScene={noop}
         onSelectBeat={noop}
         onReorder={noop}
@@ -250,6 +257,7 @@ describe('Board / SceneCard / BeatCard', () => {
         episode={ep}
         selection={null}
         collapsedActs={new Set([0])}
+        pending={false}
         onSelectScene={noop}
         onSelectBeat={noop}
         onReorder={noop}
@@ -272,6 +280,7 @@ describe('Board / SceneCard / BeatCard', () => {
         episode={ep}
         selection={null}
         collapsedActs={new Set()}
+        pending={false}
         onSelectScene={noop}
         onSelectBeat={noop}
         onReorder={onReorder}
@@ -285,6 +294,130 @@ describe('Board / SceneCard / BeatCard', () => {
     fireEvent.drop(target, { dataTransfer: makeDataTransfer() })
 
     expect(onReorder).toHaveBeenCalledWith('scene-1', 'scene-2')
+  })
+
+  it('a scene card is keyboard-selectable: focusable button role, Enter and Space both select', () => {
+    const ep = episode([scene()])
+    const onSelectScene = vi.fn()
+    render(
+      <Board
+        project={project(ep)}
+        episode={ep}
+        selection={null}
+        collapsedActs={new Set()}
+        pending={false}
+        onSelectScene={onSelectScene}
+        onSelectBeat={noop}
+        onReorder={noop}
+      />,
+    )
+    const card = screen.getByTestId('scene-card-scene-1')
+    expect(card.getAttribute('role')).toBe('button')
+    expect(card.getAttribute('tabindex')).toBe('0')
+
+    card.focus()
+    fireEvent.keyDown(card, { key: 'Enter' })
+    expect(onSelectScene).toHaveBeenCalledWith('scene-1')
+
+    onSelectScene.mockClear()
+    fireEvent.keyDown(card, { key: ' ' })
+    expect(onSelectScene).toHaveBeenCalledWith('scene-1')
+  })
+
+  it('Enter on the nested chevron button does not also select the scene (bubbled keydown ignored)', () => {
+    const ep = episode([scene({ beats: [beat1_1()] })])
+    const onSelectScene = vi.fn()
+    render(
+      <Board
+        project={project(ep)}
+        episode={ep}
+        selection={null}
+        collapsedActs={new Set()}
+        pending={false}
+        onSelectScene={onSelectScene}
+        onSelectBeat={noop}
+        onReorder={noop}
+      />,
+    )
+    const chevron = screen.getByRole('button', { name: 'Expand beats' })
+    chevron.focus()
+    fireEvent.keyDown(chevron, { key: 'Enter' }) // bubbles up to the card
+    expect(onSelectScene).not.toHaveBeenCalled()
+  })
+
+  it('drag initiation is disabled on every card while a mutation is pending', () => {
+    const ep = episode([
+      scene({ id: 'scene-1', index: 0, act: 1 }),
+      scene({ id: 'scene-2', index: 1, act: 1, location: 'INT. OTHER' }),
+    ])
+    const onReorder = vi.fn()
+    render(
+      <Board
+        project={project(ep)}
+        episode={ep}
+        selection={null}
+        collapsedActs={new Set()}
+        pending
+        onSelectScene={noop}
+        onSelectBeat={noop}
+        onReorder={onReorder}
+      />,
+    )
+    const source = screen.getByTestId('scene-card-scene-1')
+    expect(source.getAttribute('draggable')).toBe('false')
+
+    // Second guard: even a synthetic dragStart (bypassing the attribute) is
+    // refused, so a subsequent drop can never produce a reorder.
+    fireEvent.dragStart(source, { dataTransfer: makeDataTransfer() })
+    const target = screen.getByTestId('scene-card-scene-2')
+    fireEvent.dragOver(target, { dataTransfer: makeDataTransfer() })
+    fireEvent.drop(target, { dataTransfer: makeDataTransfer() })
+    expect(onReorder).not.toHaveBeenCalled()
+  })
+
+  it('a locked scene is refused as a drop target: dragOver never marks it and drop is a no-op', () => {
+    const ep = episode([
+      scene({ id: 'scene-1', index: 0, act: 1 }),
+      scene({
+        id: 'scene-2',
+        index: 1,
+        act: 1,
+        location: 'INT. OTHER',
+        locked: true,
+      }),
+    ])
+    const onReorder = vi.fn()
+    render(
+      <Board
+        project={project(ep)}
+        episode={ep}
+        selection={null}
+        collapsedActs={new Set()}
+        pending={false}
+        onSelectScene={noop}
+        onSelectBeat={noop}
+        onReorder={onReorder}
+      />,
+    )
+    const source = screen.getByTestId('scene-card-scene-1')
+    const lockedTarget = screen.getByTestId('scene-card-scene-2')
+
+    fireEvent.dragStart(source, { dataTransfer: makeDataTransfer() })
+
+    // dragOver on a locked target must NOT call preventDefault — in a real
+    // browser that's precisely what keeps the drop from ever firing.
+    // (fireEvent returns false iff preventDefault was called.)
+    const overNotPrevented = fireEvent.dragOver(lockedTarget, {
+      dataTransfer: makeDataTransfer(),
+    })
+    expect(overNotPrevented).toBe(true)
+    // ...and no clay drop-target highlight is applied.
+    expect(lockedTarget.className).not.toContain('bg-tr-surface-clay')
+
+    // Belt-and-suspenders: even if a drop somehow fires, the handler
+    // returns early for a locked target — no reorder.
+    fireEvent.drop(lockedTarget, { dataTransfer: makeDataTransfer() })
+    expect(onReorder).not.toHaveBeenCalled()
   })
 })
 

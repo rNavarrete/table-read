@@ -108,6 +108,66 @@ describe('useProjectPatch', () => {
     expect(result.current.pending).toBe(false)
   })
 
+  it('refuses a second mutation while the first is in flight (concurrent-mutation guard)', async () => {
+    const before = project('Before')
+    const optimisticFirst = project('Optimistic 1')
+    const optimisticSecond = project('Optimistic 2')
+    const server = project('Server Truth')
+
+    // First PATCH hangs until we resolve it — the window in which a second
+    // mutation could otherwise start and later be erased by the first's
+    // rollback (useProjectPatch restores the exact pre-patch doc).
+    let resolveFirst!: (p: Project) => void
+    patchProjectMock.mockImplementation(
+      () => new Promise<Project>((resolve) => (resolveFirst = resolve)),
+    )
+
+    const setProject = vi.fn()
+    const { result } = renderHook(() =>
+      useProjectPatch('proj-x', before, setProject),
+    )
+
+    let first!: Promise<boolean>
+    act(() => {
+      first = result.current.patch(
+        [{ op: 'replace', path: '/title', value: '1' }],
+        optimisticFirst,
+      )
+    })
+
+    // Same-tick second call: refused before anything is sent or shown.
+    let second = true
+    await act(async () => {
+      second = await result.current.patch(
+        [{ op: 'replace', path: '/title', value: '2' }],
+        optimisticSecond,
+      )
+    })
+
+    expect(second).toBe(false)
+    expect(patchProjectMock).toHaveBeenCalledTimes(1) // second never sent
+    expect(setProject).toHaveBeenCalledTimes(1) // only the first optimistic shown
+    expect(setProject).toHaveBeenCalledWith(optimisticFirst)
+
+    // The first mutation completes normally, unaffected by the refusal.
+    await act(async () => {
+      resolveFirst(server)
+      await expect(first).resolves.toBe(true)
+    })
+    expect(setProject).toHaveBeenLastCalledWith(server)
+
+    // And once settled, the guard releases — a new mutation goes through.
+    patchProjectMock.mockResolvedValue(server)
+    let third = false
+    await act(async () => {
+      third = await result.current.patch(
+        [{ op: 'replace', path: '/title', value: '3' }],
+        optimisticSecond,
+      )
+    })
+    expect(third).toBe(true)
+  })
+
   it('is a no-op when there is no project loaded yet', async () => {
     const setProject = vi.fn()
     const { result } = renderHook(() =>
