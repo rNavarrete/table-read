@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import logging
 
-from drama_manager import ledger_filter, ledger_policy, locks, render
+from drama_manager import ledger_filter, ledger_policy, locks, render, scan
 from drama_manager.ledger_filter import RelevanceContext
 from schemas import BeatCandidate
 from storage import snapshots
@@ -114,38 +114,15 @@ def _fact_summary(fact: dict) -> dict:
 
 
 def _build_flags(
-    scan, new_doc: dict, changed_beat_id: str, existing_flags: list[dict]
+    scan_result, new_doc: dict, changed_beat_id: str, existing_flags: list[dict]
 ) -> list[dict]:
-    """Turn a `ConsistencyScan` into new `ConsistencyFlag` wire dicts (§8c).
-    Flags referencing the changed beat, a locked-out object, or an unknown id
-    are dropped server-side (test plan line 27). `sourceChange` is stamped with
-    the snapshot id inside the mutator (it isn't known until the row is minted)."""
-    known_ids = {s["id"] for _e, s in locks._iter_scenes(new_doc)}
-    known_ids |= {b["id"] for _e, _s, b in locks._iter_beats(new_doc)}
-    minter = ledger_policy.IdMinter([f["id"] for f in existing_flags], "flag-")
-    out: list[dict] = []
-    for flag in scan.flags:
-        dump = flag.model_dump(by_alias=True, mode="json")
-        object_id = dump["objectId"]
-        if object_id not in known_ids:
-            continue  # unknown id
-        if object_id == changed_beat_id:
-            continue  # the changed object is not "untouched"
-        if locks.is_locked(new_doc, object_id):
-            continue  # locked-out object
-        out.append(
-            {
-                "id": minter.mint(),
-                "objectType": dump["objectType"],
-                "objectId": object_id,
-                "factId": dump["factId"],
-                "explanation": dump["explanation"],
-                "severity": dump["severity"],
-                "status": "open",
-                "sourceChange": "",  # stamped with the snapshot id in the mutator
-            }
-        )
-    return out
+    """Turn a `ConsistencyScan` into new `ConsistencyFlag` wire dicts (§8c),
+    dropping flags on the changed beat / locked-out / unknown ids (test plan
+    line 27). Delegates to the shared policy (drama_manager/scan.py) so accept,
+    import, and direct-edit scans drop flags identically."""
+    return scan.build_consistency_flags(
+        scan_result, new_doc, {changed_beat_id}, existing_flags
+    )
 
 
 def run_accept(
@@ -220,10 +197,10 @@ def run_accept(
     system, user = render.build_scan_prompt(
         new_doc, change_summary, untouched, scan_facts, characters, render.new_nonce()
     )
-    scan = llm.scan_consistency(
+    scan_result = llm.scan_consistency(
         system=system, user_message=user, prompt_version=render.PROMPT_VERSION
     )
-    new_flags = _build_flags(scan, new_doc, new_beat["id"], existing_flags)
+    new_flags = _build_flags(scan_result, new_doc, new_beat["id"], existing_flags)
 
     # ── the single write (obligation 1): doc + ledger + flags in one snapshot ─
     def mutator(state: snapshots.MutationState) -> snapshots.MutationState:

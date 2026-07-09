@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import logging
 import os
+from collections.abc import Callable
 from typing import Literal
 
 from errors import ApiError
@@ -65,6 +66,18 @@ def resolve_client_mode() -> Literal["real", "mock"]:
         f"Set ANTHROPIC_API_KEY, or set {MOCK_FLAG}=1 to explicitly opt in to "
         "the deterministic mock client (dev/e2e only — never production).",
     )
+
+
+def get_llm_client_provider() -> Callable[[], LlmClient]:
+    """A zero-arg *provider* of the `LlmClient`, for a route that needs the
+    model only on some code paths — PATCH `/projects/{pid}`: a structural-field
+    edit triggers `scan_consistency`, a plain field edit does not (data contract
+    §4). Declaring `Depends(get_llm_client)` directly would resolve the client
+    (and raise the 503-when-unconfigured) on *every* PATCH, including a title
+    rename; injecting this provider defers that to the moment the route actually
+    calls the model. Tests override THIS dependency to hand back a
+    `lambda: MockLlmClient()` provider (hard rule 1)."""
+    return get_llm_client
 
 
 def get_llm_client() -> LlmClient:

@@ -14,18 +14,20 @@ snapshot-creating PATCH those tasks build on.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import anthropic
 from fastapi import APIRouter, Body, Depends, Query, Response
 from fastapi.responses import PlainTextResponse, StreamingResponse
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
-from drama_manager import accept, candidates, locks
+from drama_manager import accept, candidates, locks, scan
 from errors import ApiError
 from fountain.export import to_fountain
 from fountain.parse import CoverageError
 from fountain.pipeline import run_import
-from llm.dependency import get_llm_client
+from llm.dependency import get_llm_client, get_llm_client_provider
 from llm.errors import SchemaInvalidLlmError
 from llm.protocol import LlmClient
 from schemas import BeatCandidate, LedgerFact, Project, ShowFormat
@@ -98,18 +100,26 @@ def get_project(pid: str, session: Session = Depends(get_session)) -> dict:
     return project.doc
 
 
-@router.patch("/{pid}", response_model=Project)
+@router.patch("/{pid}")
 def patch_project(
     pid: str,
     patch: list = Body(...),
     session: Session = Depends(get_session),
+    resolve_llm: Callable[[], LlmClient] = Depends(get_llm_client_provider),
 ) -> dict:
     """Direct writer edit (data contract §4). Applies a JSON-patch and
-    snapshots it. **Locks are sacred (rule 2):** a patch that writes into
-    locked content or structure is rejected 409 `LOCKED_OBJECT` before anything
-    persists (`locks.assert_no_locked_writes`); unlocking and reindexing stay
-    allowed — see that guard's rule. (The structural-field `scan_consistency`
-    trigger §4 also describes lands in the next commit.)
+    snapshots it. Two guards/branches §4 requires:
+
+      - **Locks are sacred (rule 2):** a patch that writes into locked content
+        or structure is rejected 409 `LOCKED_OBJECT` before anything persists
+        (`locks.assert_no_locked_writes`). Unlocking and reindexing stay
+        allowed — see that guard's rule.
+      - **Structural plan fields** (scene `whatHappens`, `premise`, storyline
+        summaries) additionally trigger `scan_consistency` and return
+        `{project, consistencyFlags}` — the "Save field only" path skips
+        Review, never the flagging promise. Every other edit returns the bare
+        `Project` and never touches the model (so a title rename can't 503 on
+        an unconfigured LLM; see `get_llm_client_provider`).
     """
     project = _get_project_or_404(session, pid)
     try:
@@ -126,6 +136,16 @@ def patch_project(
         locks.assert_no_locked_writes(project.doc, new_doc)
     except locks.LockViolation as exc:
         raise ApiError(409, "LOCKED_OBJECT", str(exc)) from exc
+
+    if scan.touches_structural_field(project.doc, new_doc):
+        try:
+            return scan.run_direct_edit_scan(
+                session, project, new_doc, resolve_llm(), instruction="Direct structural edit"
+            )
+        except SchemaInvalidLlmError as exc:
+            raise ApiError(502, "SCHEMA_INVALID_LLM", str(exc)) from exc
+        except anthropic.APIError as exc:
+            raise ApiError(503, "LLM_UNAVAILABLE", "the language model is unavailable") from exc
 
     snapshots.mutate(
         session,
