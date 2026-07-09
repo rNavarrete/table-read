@@ -42,14 +42,33 @@
   --tr-font-display: "Fraunces", Georgia, serif; /* headings, mode titles */
 
   /*
-   * Not yet tokenized (UI spec §1 leaves these as raw scales, not named
-   * --tr-* variables — no build-plan task has assigned them names):
-   * Scale: 12/13/15/17/22/28. Script canvas fixed 12pt Courier equivalent.
-   * Spacing: 4-base — 4/8/12/16/24/32/48/64. Default section pad 24.
-   * Radius: cards 10px, chips 999px, canvas frames 14px.
-   * Shadow: 0 1px 3px rgb(43 39 36 / 0.08), lift on drag: 0 8px 24px / 0.14.
-   * Motion: 160ms ease-out standard; streaming text has no animation.
+   * §1's comment-only scales, tokenized per controller ruling on T0.4:
+   * names minted here, values exactly as the spec comments state them.
    */
+
+  /* Scale: 12/13/15/17/22/28. Script canvas fixed 12pt Courier equivalent. */
+  --tr-font-size-12: 12px;
+  --tr-font-size-13: 13px;
+  --tr-font-size-15: 15px;
+  --tr-font-size-17: 17px;
+  --tr-font-size-22: 22px;
+  --tr-font-size-28: 28px;
+
+  /* Radius: cards 10px, chips 999px, canvas frames 14px. */
+  --tr-radius-card:  10px;
+  --tr-radius-chip:  999px;
+  --tr-radius-frame: 14px;
+
+  /* Shadow: raised standard, lift on drag. */
+  --tr-shadow-raised: 0 1px 3px rgb(43 39 36 / 0.08);
+  --tr-shadow-lift:   0 8px 24px rgb(43 39 36 / 0.14);
+
+  /* Motion: 160ms ease-out standard; streaming text has no animation. */
+  --tr-motion-duration-standard: 160ms;
+  --tr-motion-ease-standard:     ease-out;
+
+  /* Spacing: no --tr-* tokens — Tailwind's default 4px-base spacing scale
+     already matches spec §1 (4/8/12/16/24/32/48/64), per controller ruling. */
 }
 
 /* Tailwind v4 CSS-first theme config — aliases only, no duplicated values. */
@@ -80,4 +99,22 @@
   --font-ui:      var(--tr-font-ui);
   --font-script:  var(--tr-font-script);
   --font-display: var(--tr-font-display);
+
+  --text-12: var(--tr-font-size-12);
+  --text-13: var(--tr-font-size-13);
+  --text-15: var(--tr-font-size-15);
+  --text-17: var(--tr-font-size-17);
+  --text-22: var(--tr-font-size-22);
+  --text-28: var(--tr-font-size-28);
+
+  --radius-card:  var(--tr-radius-card);
+  --radius-chip:  var(--tr-radius-chip);
+  --radius-frame: var(--tr-radius-frame);
+
+  --shadow-raised: var(--tr-shadow-raised);
+  --shadow-lift:   var(--tr-shadow-lift);
+
+  /* ease-standard utility + 160ms as the default transition duration. */
+  --ease-standard: var(--tr-motion-ease-standard);
+  --default-transition-duration: var(--tr-motion-duration-standard);
 }

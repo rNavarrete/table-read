@@ -1,4 +1,6 @@
-type TokenKind = 'color' | 'font'
+import type { ComponentType } from 'react'
+
+type TokenKind = 'color' | 'font' | 'size' | 'radius' | 'shadow' | 'motion'
 
 type TokenDef = {
   cssVar: string
@@ -101,6 +103,55 @@ const TOKEN_GROUPS: TokenGroup[] = [
       },
     ],
   },
+  {
+    title: 'Type scale',
+    tokens: [
+      { cssVar: '--tr-font-size-12', kind: 'size' },
+      { cssVar: '--tr-font-size-13', kind: 'size' },
+      { cssVar: '--tr-font-size-15', kind: 'size' },
+      { cssVar: '--tr-font-size-17', kind: 'size' },
+      { cssVar: '--tr-font-size-22', kind: 'size' },
+      { cssVar: '--tr-font-size-28', kind: 'size' },
+    ],
+  },
+  {
+    title: 'Radius',
+    tokens: [
+      { cssVar: '--tr-radius-card', description: 'cards', kind: 'radius' },
+      { cssVar: '--tr-radius-chip', description: 'chips', kind: 'radius' },
+      {
+        cssVar: '--tr-radius-frame',
+        description: 'canvas frames',
+        kind: 'radius',
+      },
+    ],
+  },
+  {
+    title: 'Shadow',
+    tokens: [
+      { cssVar: '--tr-shadow-raised', description: 'standard', kind: 'shadow' },
+      {
+        cssVar: '--tr-shadow-lift',
+        description: 'lift on drag',
+        kind: 'shadow',
+      },
+    ],
+  },
+  {
+    title: 'Motion',
+    tokens: [
+      {
+        cssVar: '--tr-motion-duration-standard',
+        description: 'standard duration; streaming text has no animation',
+        kind: 'motion',
+      },
+      {
+        cssVar: '--tr-motion-ease-standard',
+        description: 'standard easing',
+        kind: 'motion',
+      },
+    ],
+  },
 ]
 
 // Reads the value straight off the cascade — never hardcoded here — so this
@@ -156,14 +207,74 @@ function FontSample({ token }: { token: TokenDef }) {
   )
 }
 
+function SizeSample({ token }: { token: TokenDef }) {
+  return (
+    <div className="flex flex-col gap-1 rounded-lg border border-tr-border bg-tr-surface-raised p-3">
+      <p
+        className="text-tr-text-primary"
+        style={{ fontSize: `var(${token.cssVar})` }}
+      >
+        The quick brown fox jumps.
+      </p>
+      <TokenMeta token={token} />
+    </div>
+  )
+}
+
+function RadiusSample({ token }: { token: TokenDef }) {
+  return (
+    <div className="flex items-center gap-3 rounded-lg border border-tr-border bg-tr-surface-raised p-3">
+      <div
+        className="h-12 w-12 shrink-0 border border-tr-border-strong bg-tr-surface-clay"
+        style={{ borderRadius: `var(${token.cssVar})` }}
+      />
+      <div className="flex min-w-0 flex-col">
+        <TokenMeta token={token} />
+      </div>
+    </div>
+  )
+}
+
+function ShadowSample({ token }: { token: TokenDef }) {
+  return (
+    <div className="flex items-center gap-3 rounded-lg border border-tr-border bg-tr-surface-raised p-3">
+      <div
+        className="h-12 w-12 shrink-0 rounded-lg bg-tr-surface-raised"
+        style={{ boxShadow: `var(${token.cssVar})` }}
+      />
+      <div className="flex min-w-0 flex-col">
+        <TokenMeta token={token} />
+      </div>
+    </div>
+  )
+}
+
+function MotionRow({ token }: { token: TokenDef }) {
+  return (
+    <div className="flex flex-col gap-1 rounded-lg border border-tr-border bg-tr-surface-raised p-3">
+      <TokenMeta token={token} />
+    </div>
+  )
+}
+
+const SAMPLE_FOR_KIND: Record<TokenKind, ComponentType<{ token: TokenDef }>> = {
+  color: ColorSwatch,
+  font: FontSample,
+  size: SizeSample,
+  radius: RadiusSample,
+  shadow: ShadowSample,
+  motion: MotionRow,
+}
+
 export default function TokensPage() {
   return (
     <main className="min-h-screen bg-tr-surface-page px-8 py-10 text-tr-text-primary">
       <h1 className="font-display text-3xl">Design tokens</h1>
       <p className="mt-1 max-w-2xl text-sm text-tr-text-secondary">
-        UI spec §1 — light theme only. Every swatch below renders its color or
-        font from the corresponding <code>--tr-*</code> CSS variable, never a
-        hardcoded value.
+        UI spec §1 — light theme only. Every sample below renders its value
+        (color, font, size, radius, shadow, motion) from the corresponding{' '}
+        <code>--tr-*</code> CSS variable, never a hardcoded value. Spacing has
+        no tokens: Tailwind&apos;s default 4px-base scale matches spec §1.
       </p>
 
       <div className="mt-8 flex flex-col gap-8">
@@ -171,13 +282,10 @@ export default function TokensPage() {
           <section key={group.title}>
             <h2 className="font-display text-xl">{group.title}</h2>
             <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {group.tokens.map((token) =>
-                token.kind === 'font' ? (
-                  <FontSample key={token.cssVar} token={token} />
-                ) : (
-                  <ColorSwatch key={token.cssVar} token={token} />
-                ),
-              )}
+              {group.tokens.map((token) => {
+                const Sample = SAMPLE_FOR_KIND[token.kind]
+                return <Sample key={token.cssVar} token={token} />
+              })}
             </div>
           </section>
         ))}
