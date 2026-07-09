@@ -69,10 +69,17 @@ Ordered milestones, agent-sized tasks, acceptance criteria. Reference docs: desi
 
 ## Milestone 6 — Hardening & release gate
 
-**T6.1 LLM evals wired to CI** (test plan §3): schema-validity, lock-violation (must be 0), continuity checks on fixture. Run nightly + on prompt changes. Also: segmentation-determinism eval for `segment_scene` — tracks DESIGN-GAP(T6.1) in `apps/api/llm/ops.py` (prompt spec §7 mandates temperature 0, current writer-tier models reject sampling params; if determinism regresses, move the op to the classifier tier).
+**T6.1 LLM evals wired to CI** (test plan §3): schema-validity, lock-violation (must be 0), continuity checks on fixture. Run nightly + on prompt changes. Also: segmentation-determinism eval for `segment_scene` — tracks DESIGN-GAP(T6.1) in `apps/api/llm/ops.py` (prompt spec §7 mandates temperature 0, current writer-tier models reject sampling params; if determinism regresses, move the op to the classifier tier). Also: wire the CLAUDE.md-mandated `DESIGN-GAP` CI grep (fail unless each occurrence references a task id).
 **T6.2 Error/latency polish:** SSE reconnect, `LLM_UNAVAILABLE` toasts, optimistic-update rollback on 409.
 **T6.3 Privacy pass:** delete-purge verified (T1.1), no writer text in logs (log IDs + hashes only); product copy states "not used for training" (standard API terms) and does not claim ZDR unless a ZDR agreement is executed (prompt spec §8).
 *Release gate:* all evals green; e2e suite green; a human writes one complete short scene start-to-finish using only the app.
+
+### Remediation tracking (M4/M5 wave — API)
+
+- Null-replacement retirement confirm (ruling 1): stored-null empty `fact`; confirm supersedes target + rejects proposal — landed in remediation/api.
+- Locked-scene beat reorder blocked (ruling 2) — landed in remediation/api.
+- Change Set GET endpoints (ruling 3) — landed in remediation/api; UI may drop DESIGN-GAP(T4.3) sessionStorage comments once wired.
+- DESIGN-GAP(T5.1) edit→active: closed via data-contract §4 note (this remediation).
 
 ## Sequencing & parallelism
 
