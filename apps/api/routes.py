@@ -19,7 +19,14 @@ from fastapi.responses import PlainTextResponse, StreamingResponse
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
-from drama_manager import accept, candidates, ledger_mutations, locks, scan
+from drama_manager import (
+    accept,
+    candidates,
+    change_sets,
+    ledger_mutations,
+    locks,
+    scan,
+)
 from errors import ApiError
 from fountain.export import to_fountain
 from fountain.parse import CoverageError
@@ -29,6 +36,7 @@ from llm.errors import SchemaInvalidLlmError
 from llm.protocol import LlmClient
 from schemas import (
     BeatCandidate,
+    ChangeSet,
     ConsistencyFlag,
     LedgerBatchRequest,
     LedgerFact,
@@ -399,6 +407,48 @@ def accept_beat(
         )
     except locks.LockViolation as exc:
         raise ApiError(409, "LOCKED_OBJECT", str(exc)) from exc
+    except SchemaInvalidLlmError as exc:
+        raise ApiError(502, "SCHEMA_INVALID_LLM", str(exc)) from exc
+    except anthropic.APIError as exc:
+        raise ApiError(503, "LLM_UNAVAILABLE", "the language model is unavailable") from exc
+
+
+@router.post("/{pid}/change-sets", response_model=ChangeSet, status_code=200)
+def create_change_set(
+    pid: str,
+    target_object_id: str = Body(..., alias="targetObjectId"),
+    instruction: str = Body(...),
+    session: Session = Depends(get_session),
+    llm: LlmClient = Depends(get_llm_client),
+) -> dict:
+    """Review-mode Change Set create (data contract §4 / T4.1): runs
+    `classify_blast_radius`, server-annotates applyMode / locked / before /
+    after / continuityFlags / approved, and persists a draft ChangeSet.
+    Does not mutate the project doc and does not create a snapshot
+    (change_sets are deliberately not versioned — data contract §3).
+
+    This POST is the explicit writer gesture (design doc §4.3 / CLAUDE.md
+    rule 8). Target id is validated before any LLM call."""
+    project = _get_project_or_404(session, pid)
+    ledger = [
+        row.to_wire_dict()
+        for row in session.query(LedgerFactRow).filter_by(project_id=pid).all()
+    ]
+    try:
+        change_sets.validate_target(project.doc, ledger, target_object_id)
+    except change_sets.TargetNotFound as exc:
+        raise ApiError(
+            404, "NOT_FOUND", f"targetObjectId {target_object_id!r} not found"
+        ) from exc
+
+    try:
+        return change_sets.create_change_set(
+            session,
+            project,
+            target_object_id=target_object_id,
+            instruction=instruction,
+            llm=llm,
+        )
     except SchemaInvalidLlmError as exc:
         raise ApiError(502, "SCHEMA_INVALID_LLM", str(exc)) from exc
     except anthropic.APIError as exc:

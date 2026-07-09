@@ -134,9 +134,10 @@ def _beat_is_locked(episode: dict, scene: dict, beat: dict) -> bool:
 
 
 def is_locked(doc: dict, object_id: str) -> bool:
-    """True if the scene/beat/episode `object_id` is locked, honoring the
-    episode→scene→beat cascade. Unknown ids are treated as not locked (callers
-    validate existence separately)."""
+    """True if the scene/beat/episode/character `object_id` is locked, honoring
+    the episode→scene→beat cascade. Characters carry their own `locked` pin
+    (no cascade). Unknown ids — and ledger facts, which have no lock field —
+    are treated as not locked (callers validate existence separately)."""
     episode, scene, beat = _find(doc, object_id)
     if beat is not None:
         return _beat_is_locked(episode, scene, beat)
@@ -144,6 +145,9 @@ def is_locked(doc: dict, object_id: str) -> bool:
         return bool(episode.get("locked") or scene.get("locked"))
     if episode is not None:
         return bool(episode.get("locked"))
+    for character in doc.get("seriesBible", {}).get("characters", []):
+        if character.get("id") == object_id:
+            return bool(character.get("locked"))
     return False
 
 

@@ -64,6 +64,9 @@ def _default_responses() -> dict[str, BaseModel]:
             ),
             continuityConflicts=[],
         ),
+        # Prompt spec §3 worked example: marina edit of scene-2 → scene-2,
+        # cross-scene beat-4-2 (Marta searches the bar), fact-02 (ice machine),
+        # and speculative scene-5 (argument still staged around "your bar").
         "classify_blast_radius": BlastRadius(
             impacted=[
                 {
@@ -73,10 +76,25 @@ def _default_responses() -> dict[str, BaseModel]:
                     "confidence": "high",
                 },
                 {
+                    "objectType": "beat",
+                    "objectId": "beat-4-2",
+                    "reason": (
+                        "Marta searches the bar safe for the money "
+                        "that would no longer be there."
+                    ),
+                    "confidence": "high",
+                },
+                {
                     "objectType": "ledgerFact",
                     "objectId": "fact-02",
                     "reason": "Fact states the money is hidden in the bar's ice machine.",
                     "confidence": "high",
+                },
+                {
+                    "objectType": "scene",
+                    "objectId": "scene-5",
+                    "reason": "The argument still references the bar as the money's hiding place.",
+                    "confidence": "speculative",
                 },
             ]
         ),
