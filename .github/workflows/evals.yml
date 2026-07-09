@@ -1,0 +1,52 @@
+# LLM eval suite (T6.1, test plan §3): real-API evals that gate PROMPT_VERSION /
+# model-id changes (hard rules 3 & 7). Runs `make evals`, which constructs the
+# real client (hard rule 1 permits this here — this is `make evals`), scores the
+# suite, and exits nonzero on any hard-gate failure (lock-violation = 0,
+# schema-validity ≥ 0.98, continuity ≥ 0.95).
+#
+# Trigger contract (test plan §3: "nightly + on any prompt/PROMPT_VERSION
+# change; never on PR path"):
+#   - schedule: nightly.
+#   - push to main touching a prompt-/model-bearing file (render.py carries
+#     PROMPT_VERSION and every builder; models.toml pins model ids; tool_schemas
+#     are the strict op schemas; the prompt spec is the source of prompt intent).
+#   - workflow_dispatch: manual re-run / sign-off before merging a prompt bump.
+#
+# Best-effort / untested-here: committed unproven (no CI existed). Requires the
+# repo secret ANTHROPIC_API_KEY; the report artifact is uploaded for review. The
+# uploaded artifact is rule-5-safe (ids/counts/scores only — see harness.py).
+name: evals
+
+on:
+  schedule:
+    - cron: "0 7 * * *"
+  push:
+    branches: [main]
+    paths:
+      - apps/api/drama_manager/render.py
+      - config/models.toml
+      - config/tool_schemas/**
+      - docs/tableread-prompt-spec.md
+  workflow_dispatch:
+
+jobs:
+  evals:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Run LLM eval suite
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: make evals
+      - name: Upload eval report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-report
+          path: apps/api/evals/reports/

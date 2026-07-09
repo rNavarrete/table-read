@@ -155,7 +155,8 @@ class AnthropicClient:
         # Known exception: §7 mandates temperature 0 for `segment_scene` too,
         # but that op is writer-role and the writer tier rejects sampling
         # params, so it runs at model default -- see the DESIGN-GAP(T6.1)
-        # comment at its definition in llm/ops.py.
+        # comment at its definition in llm/ops.py, now measured by the T6.1
+        # segmentation-determinism eval (apps/api/evals/).
         if op.role == "classifier":
             kwargs["temperature"] = 0
 

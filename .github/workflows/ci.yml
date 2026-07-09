@@ -1,0 +1,34 @@
+# PR-path CI (the mock-LLM gates that must pass before merge). Mirrors the
+# Makefile targets a developer runs locally: lint (incl. the DESIGN-GAP grep via
+# `make check-gaps`, T6.1 obligation 4), the full mock-LLM test suite, and the
+# Zod/Pydantic/tool-schema contract check. No ANTHROPIC_API_KEY is present, so
+# nothing here can reach the real API (hard rule 1); LLM evals run separately
+# (evals.yml), never on the PR path (test plan §3).
+#
+# Best-effort / untested-here: this repo had no CI config, so this file is
+# committed unproven. If `python3.12` is not on PATH on the runner, pass
+# `PYTHON=python` to the make targets, or pin actions/setup-python accordingly.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Lint (ruff + eslint + prettier + DESIGN-GAP grep)
+        run: make lint
+      - name: Tests (mock LLM)
+        run: make test
+      - name: Contract check (Zod ↔ Pydantic ↔ tool schemas)
+        run: make check-contract

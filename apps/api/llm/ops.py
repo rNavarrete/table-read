@@ -98,10 +98,12 @@ _OPS: tuple[LlmOp, ...] = (
         "choose from.",
     ),
     # DESIGN-GAP(T6.1): prompt spec §7 mandates temperature 0 for stage-2
-    # segmentation; current writer-tier models reject sampling params. Running
-    # model default; segmentation determinism must be measured by the T6.1
-    # eval suite. Alternative if determinism regresses: move this op to the
-    # classifier tier, which accepts temperature=0.
+    # segmentation; current writer-tier models reject sampling params, so this
+    # op runs at model default. Tracked by implementation: the T6.1
+    # segmentation-determinism eval (apps/api/evals/checks.py) now measures
+    # modal line-range agreement over the fixture; its 0.70 gate is soft and
+    # flagged for PM ratification. Escalation if determinism regresses: move
+    # this op to the classifier tier, which accepts temperature=0.
     LlmOp(
         "segment_scene",
         "SegmentedScene",

@@ -10,3 +10,4 @@ dist/
 .ruff_cache/
 *.tsbuildinfo
 *.db
+apps/api/evals/reports/

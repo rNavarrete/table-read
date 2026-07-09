@@ -17,7 +17,7 @@ endif
 # PATH it cached before the export above ran — so plain `npm ...` lines still
 # fail to resolve even though PATH is correct. `env` forces a real lookup.
 
-.PHONY: dev test lint check-contract test-api test-js lint-api lint-js seed e2e
+.PHONY: dev test lint check-contract check-gaps test-api test-js lint-api lint-js seed e2e evals evals-dry
 
 $(VENV_BIN)/activate: $(API_DIR)/requirements.txt $(API_DIR)/requirements-dev.txt
 	$(PYTHON) -m venv $(API_DIR)/.venv
@@ -46,11 +46,17 @@ test-api: $(VENV_BIN)/activate
 test-js: $(NODE_MARKER)
 	env npm test --workspaces --if-present
 
-lint: lint-api lint-js
+lint: lint-api lint-js check-gaps
 
 lint-api: $(VENV_BIN)/activate
 	cd $(API_DIR) && $(VENV_BIN)/ruff check .
 	$(VENV_BIN)/ruff check --config $(API_DIR)/pyproject.toml scripts
+
+# DESIGN-GAP CI grep (T6.1, CLAUDE.md convention): fail unless every DESIGN-GAP
+# in shipped source references a task id (DESIGN-GAP(T<id>)). Pure stdlib, so it
+# runs standalone on the PR path via `lint` without the venv.
+check-gaps:
+	$(PYTHON) scripts/check_design_gaps.py
 
 lint-js: $(NODE_MARKER)
 	env npm run lint --workspaces --if-present
@@ -72,3 +78,18 @@ seed: $(VENV_BIN)/activate
 e2e: $(VENV_BIN)/activate $(NODE_MARKER)
 	env npm exec --workspace=$(WEB_DIR) -- playwright install chromium
 	env npm run e2e --workspace=$(WEB_DIR)
+
+# LLM eval suite (T6.1, test plan §3). Constructs the real AnthropicClient via
+# the sanctioned factory (hard rule 1 permits this for `make evals`) plus a
+# grader judge; requires ANTHROPIC_API_KEY. Runs against an isolated temp DB,
+# prints per-eval scores + PROMPT_VERSION + pinned model ids, writes a report
+# artifact under apps/api/evals/reports/, and exits nonzero on any hard-gate
+# failure (lock-violation = 0, schema-validity, continuity). Gates every
+# PROMPT_VERSION / model-id change (hard rules 3 & 7). **Never run without being
+# asked; costs money.** `make evals-dry` runs the same harness offline on
+# MockLlmClient (a self-check, not a real eval).
+evals: $(VENV_BIN)/activate
+	cd $(API_DIR) && $(VENV_BIN)/python -m evals.run
+
+evals-dry: $(VENV_BIN)/activate
+	cd $(API_DIR) && $(VENV_BIN)/python -m evals.run --dry-run
