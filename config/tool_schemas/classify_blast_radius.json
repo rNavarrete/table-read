@@ -1,0 +1,46 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "impacted": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "confidence": {
+            "enum": [
+              "high",
+              "speculative"
+            ],
+            "type": "string"
+          },
+          "objectId": {
+            "type": "string"
+          },
+          "objectType": {
+            "enum": [
+              "scene",
+              "beat",
+              "character",
+              "ledgerFact"
+            ],
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "objectType",
+          "objectId",
+          "reason",
+          "confidence"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "impacted"
+  ],
+  "type": "object"
+}

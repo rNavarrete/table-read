@@ -1,0 +1,25 @@
+# Table Read model pinning (docs/tableread-prompt-spec.md §8: prompts
+# reference model *roles* -- `writer`, `classifier` -- "resolved via
+# config/models.toml, which pins exact model IDs"). Every LLM call logs both
+# the role and the resolved model id; changing a pinned id here is a
+# versioned change requiring `make evals` sign-off, same as a prompt-template
+# edit (CLAUDE.md hard rule 7).
+#
+# Model-id gap (flagged per the T1.2 task brief): the prompt spec gives its
+# pinned id as an illustrative example ("e.g., writer =
+# claude-sonnet-4-5-20250929") rather than a firm assignment, and that
+# example id is itself a retired snapshot. The two ids below are this task's
+# best-effort default, not a ratified product decision -- confirm the
+# tier/cost tradeoff with the controller before `make evals` or production
+# use.
+#
+# `classifier` intentionally targets a model tier that still accepts an
+# explicit non-default `temperature`: the prompt spec requires
+# "Temperature 0" on every classifier op (§3/§5/§6/§8c), but current-
+# generation Sonnet 5 / Opus 4.7+ reject any non-default `temperature`
+# outright (400 invalid_request_error). Haiku 4.5 still accepts it, so this
+# is a functional requirement here, not just a cost choice.
+
+[models]
+writer = "claude-sonnet-5"
+classifier = "claude-haiku-4-5"

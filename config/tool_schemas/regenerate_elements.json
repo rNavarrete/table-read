@@ -1,0 +1,178 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "beats": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "beatId": {
+            "type": "string"
+          },
+          "beatPlan": {
+            "anyOf": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "audienceFeels": {
+                    "type": "string"
+                  },
+                  "audienceLearns": {
+                    "type": "string"
+                  },
+                  "whatHappens": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "whatHappens",
+                  "audienceLearns",
+                  "audienceFeels"
+                ],
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "scriptText": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "beatId",
+          "beatPlan",
+          "scriptText"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "continuityConflicts": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "explanation": {
+            "type": "string"
+          },
+          "factId": {
+            "type": "string"
+          },
+          "objectId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "factId",
+          "objectId",
+          "explanation"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "scenes": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "fields": {
+            "additionalProperties": false,
+            "properties": {
+              "audienceFeels": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "audienceLearns": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "location": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "socialSituation": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "time": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "whatHappens": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "whatHappens",
+              "audienceLearns",
+              "audienceFeels",
+              "location",
+              "time",
+              "socialSituation"
+            ],
+            "type": "object"
+          },
+          "sceneId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "sceneId",
+          "fields"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "beats",
+    "scenes",
+    "continuityConflicts"
+  ],
+  "type": "object"
+}

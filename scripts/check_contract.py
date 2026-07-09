@@ -18,11 +18,14 @@ Runs from the repo root (invoked by `make check-contract`):
    suggestionHistory) parses against both the Zod and the Pydantic side.
 3. Grep gate (test plan §2): no `z.object(`/`(BaseModel)` definitions for
    contract types outside packages/contract/src and apps/api/schemas.py.
+4. LLM tool `input_schema` diff (closes a T0.2 deferral -- see that task's
+   report): scripts/generate_tool_schemas.py regenerates every op's strict
+   Anthropic tool `input_schema` in-memory from the same Zod source as (1)
+   and diffs it against the committed config/tool_schemas/<op>.json files
+   apps/api/llm/anthropic_client.py reads at runtime (T1.2). A tool-schema
+   diff triggers the `make evals` requirement (CLAUDE.md hard rule 3).
 
-Deferred (see task T0.2 report for why): regenerating strict tool
-`input_schema`s from §2a and diffing against config/tool_schemas/ (that
-directory doesn't exist yet — no LLM client/tool-calling code exists to
-consume it); OpenAPI snapshot (no API routes exist yet beyond /health);
+Still deferred: OpenAPI snapshot (no API routes exist yet beyond /health);
 prompt-template placeholder linter (no prompt templates exist yet).
 """
 
@@ -37,7 +40,9 @@ from typing import Any
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CONTRACT_DIR = REPO_ROOT / "packages" / "contract"
 API_DIR = REPO_ROOT / "apps" / "api"
+SCRIPTS_DIR = REPO_ROOT / "scripts"
 FIXTURE_PATH = REPO_ROOT / "docs" / "tableread-fixture.json"
+TOOL_SCHEMAS_DIR = REPO_ROOT / "config" / "tool_schemas"
 
 # data contract §5: "covering §1, §2, and the §2a LLM operation schemas."
 # Storage-derived envelope types (Snapshot, SuggestionHistoryEntry,
@@ -280,11 +285,58 @@ def check_no_stray_op_schemas() -> list[str]:
     return failures
 
 
+def _load_generate_tool_schemas_module():
+    if str(SCRIPTS_DIR) not in sys.path:
+        sys.path.insert(0, str(SCRIPTS_DIR))
+    import generate_tool_schemas  # deliberate late import: sys.path just set up above
+
+    return generate_tool_schemas
+
+
+def check_tool_schemas_match() -> list[str]:
+    """LLM tool `input_schema` diff (closes a T0.2 deferral -- module
+    docstring point 4): regenerates every op's strict Anthropic tool
+    `input_schema` in-memory (scripts/generate_tool_schemas.py) and diffs it
+    against the committed config/tool_schemas/<op>.json files
+    apps/api/llm/anthropic_client.py reads at runtime."""
+    failures: list[str] = []
+    generate_tool_schemas = _load_generate_tool_schemas_module()
+    current = generate_tool_schemas.build_tool_schemas()
+
+    for op_name, schema in current.items():
+        path = TOOL_SCHEMAS_DIR / f"{op_name}.json"
+        if not path.exists():
+            failures.append(
+                f"tool schema for {op_name!r} missing at config/tool_schemas/{op_name}.json "
+                "(run `python scripts/generate_tool_schemas.py`)"
+            )
+            continue
+        on_disk = json.loads(path.read_text())
+        if on_disk != schema:
+            failures.append(
+                f"{op_name}: tool input_schema drift (config/tool_schemas/{op_name}.json is "
+                "stale -- run `python scripts/generate_tool_schemas.py`)\n"
+                f"  generated: {json.dumps(schema, sort_keys=True)}\n"
+                f"  on disk:   {json.dumps(on_disk, sort_keys=True)}"
+            )
+
+    if TOOL_SCHEMAS_DIR.exists():
+        on_disk_names = {p.stem for p in TOOL_SCHEMAS_DIR.glob("*.json")}
+        for extra in sorted(on_disk_names - set(current)):
+            failures.append(
+                f"config/tool_schemas/{extra}.json has no corresponding op in "
+                "apps/api/llm/ops.py OP_REGISTRY"
+            )
+
+    return failures
+
+
 def main() -> int:
     all_failures: list[str] = []
     all_failures += diff_schemas()
     all_failures += check_fixture_validates()
     all_failures += check_no_stray_op_schemas()
+    all_failures += check_tool_schemas_match()
 
     if all_failures:
         print("check-contract: FAILED\n", file=sys.stderr)
@@ -294,7 +346,7 @@ def main() -> int:
 
     print(
         f"check-contract: OK ({len(SCHEMA_NAMES)} schemas diffed, "
-        "fixture validated on both sides)"
+        "fixture validated on both sides, LLM tool schemas up to date)"
     )
     return 0
 
