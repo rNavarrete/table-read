@@ -159,7 +159,8 @@ test('editing location is silent; editing whatHappens offers the Review path; bo
   ).toHaveCount(0)
 
   // 2) Structural: editing whatHappens surfaces the "review impact?" footer
-  // with a (stubbed) Open Review and a Save field only.
+  // with Open Review (T4.3) and Save field only. This test stays on the
+  // Save-field-only path; the Open Review journey lives in review.spec.ts.
   const whatHappens = inspector.getByLabel('What happens')
   await whatHappens.fill('A structural rewrite of the scene.')
   await expect(
@@ -167,7 +168,7 @@ test('editing location is silent; editing whatHappens offers the Review path; bo
   ).toBeVisible()
   await expect(
     inspector.getByRole('button', { name: 'Open Review' }),
-  ).toBeDisabled()
+  ).toBeEnabled()
   await inspector.getByRole('button', { name: 'Save field only' }).click()
   await expect(
     inspector.getByText('Structural change — review impact?'),

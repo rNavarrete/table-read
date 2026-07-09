@@ -7,7 +7,7 @@ import { ModeSwitcher } from './ModeSwitcher'
 afterEach(cleanup)
 
 describe('ModeSwitcher', () => {
-  it('Write active: Plan is enabled and clickable; Review/Ledger stay disabled', () => {
+  it('Write active: Plan and Review are enabled; Ledger stays disabled', () => {
     render(<ModeSwitcher active="Write" ledgerCount={0} />)
     const write = screen.getByRole('tab', { name: 'Write' })
     const plan = screen.getByRole('tab', { name: 'Plan' })
@@ -16,8 +16,13 @@ describe('ModeSwitcher', () => {
 
     expect(write.getAttribute('aria-selected')).toBe('true')
     expect((plan as HTMLButtonElement).disabled).toBe(false)
-    expect((review as HTMLButtonElement).disabled).toBe(true)
+    expect((review as HTMLButtonElement).disabled).toBe(false)
     expect((ledger as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('shows an amber draft dot on Review when hasDraftChangeSet', () => {
+    render(<ModeSwitcher active="Write" ledgerCount={0} hasDraftChangeSet />)
+    expect(screen.getByLabelText('Draft Change Set')).not.toBeNull()
   })
 
   it('Plan active: Write is enabled and clickable', () => {
@@ -48,6 +53,32 @@ describe('ModeSwitcher', () => {
 
     expect(assignSpy).toHaveBeenCalledWith(
       'http://localhost/plan?project=proj-longpour',
+    )
+
+    Object.defineProperty(window, 'location', {
+      value: original,
+      writable: true,
+    })
+  })
+
+  it('clicking Review navigates to /review', async () => {
+    const user = userEvent.setup()
+    const assignSpy = vi.fn()
+    const original = window.location
+    Object.defineProperty(window, 'location', {
+      value: {
+        ...original,
+        href: 'http://localhost/plan?project=proj-longpour',
+        assign: assignSpy,
+      },
+      writable: true,
+    })
+
+    render(<ModeSwitcher active="Plan" ledgerCount={0} />)
+    await user.click(screen.getByRole('tab', { name: 'Review' }))
+
+    expect(assignSpy).toHaveBeenCalledWith(
+      'http://localhost/review?project=proj-longpour',
     )
 
     Object.defineProperty(window, 'location', {

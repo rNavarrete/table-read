@@ -276,6 +276,8 @@ describe('Inspector', () => {
     expect(
       screen.getByText('Structural change — review impact?'),
     ).not.toBeNull()
+    // Without onOpenReview the button stays disabled (episode/series premise
+    // path); scene fields pass onOpenReview from PlanScreen.
     const openReview = screen.getByRole('button', {
       name: 'Open Review',
     }) as HTMLButtonElement
@@ -287,6 +289,33 @@ describe('Inspector', () => {
       'whatHappens',
       'A rewritten summary.',
     )
+  })
+
+  it('Open Review calls onOpenReview with scene id and the dirty draft', async () => {
+    const user = userEvent.setup()
+    const ep = episode()
+    const onOpenReview = vi.fn()
+    render(
+      <Inspector
+        project={project(ep)}
+        episode={ep}
+        ledger={[]}
+        selection={{ type: 'scene', sceneId: 'scene-1' }}
+        pending={false}
+        onToggleSceneLock={noop}
+        onToggleBeatScriptLock={noop}
+        onSaveSceneField={noop}
+        onSaveBeatField={noop}
+        onSaveProjectField={noop}
+        onSaveEpisodeField={noop}
+        onOpenReview={onOpenReview}
+      />,
+    )
+    const textarea = screen.getByDisplayValue('Marta walks back in.')
+    await user.clear(textarea)
+    await user.type(textarea, 'Marina rewrite.')
+    await user.click(screen.getByRole('button', { name: 'Open Review' }))
+    expect(onOpenReview).toHaveBeenCalledWith('scene-1', 'Marina rewrite.')
   })
 
   it('editing location (non-structural) is silent: a plain Save, no "Structural change" bar', async () => {

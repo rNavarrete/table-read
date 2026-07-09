@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ConsistencyFlag, LedgerFact, Project } from 'contract'
 import {
+  createChangeSet,
   getConsistencyFlags,
   getLedger,
   getProject,
 } from '../api/client'
+import { navigateToReview, stashChangeSet } from '../review/changeSetSession'
 import { AppShell } from '../shell/AppShell'
 import { Board } from './Board'
 import { Inspector } from './Inspector'
@@ -46,6 +48,8 @@ export function PlanScreen() {
   const [loadError, setLoadError] = useState<string | null>(null)
   const [selection, setSelection] = useState<PlanSelection>(null)
   const [collapsedActs, setCollapsedActs] = useState<Set<number>>(new Set())
+  const [openingReview, setOpeningReview] = useState(false)
+  const [reviewError, setReviewError] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -80,12 +84,7 @@ export function PlanScreen() {
     })
   }, [])
 
-  const patcher = useProjectPatch(
-    projectId,
-    project,
-    setProject,
-    mergeNewFlags,
-  )
+  const patcher = useProjectPatch(projectId, project, setProject, mergeNewFlags)
 
   const flaggedSceneIds = useMemo(
     () =>
@@ -183,9 +182,32 @@ export function PlanScreen() {
     )
   }
 
+  async function handleOpenReview(targetObjectId: string, instruction: string) {
+    setOpeningReview(true)
+    setReviewError(null)
+    try {
+      const changeSet = await createChangeSet(projectId, {
+        targetObjectId,
+        instruction,
+      })
+      stashChangeSet(changeSet)
+      navigateToReview(projectId, changeSet.id)
+    } catch (err: unknown) {
+      setReviewError(
+        err instanceof Error ? err.message : 'failed to open Review',
+      )
+      setOpeningReview(false)
+    }
+  }
+
   if (loadError) {
     return (
-      <AppShell projectTitle="Table Read" activeMode="Plan" ledgerCount={0}>
+      <AppShell
+        projectTitle="Table Read"
+        activeMode="Plan"
+        ledgerCount={0}
+        projectId={projectId}
+      >
         <p className="p-8 text-15 text-tr-danger">
           Couldn&apos;t load this project: {loadError}
         </p>
@@ -195,7 +217,12 @@ export function PlanScreen() {
 
   if (!project) {
     return (
-      <AppShell projectTitle="Table Read" activeMode="Plan" ledgerCount={0}>
+      <AppShell
+        projectTitle="Table Read"
+        activeMode="Plan"
+        ledgerCount={0}
+        projectId={projectId}
+      >
         <p className="p-8 text-15 text-tr-text-secondary">Loading…</p>
       </AppShell>
     )
@@ -209,6 +236,7 @@ export function PlanScreen() {
         projectTitle={project.title}
         activeMode="Plan"
         ledgerCount={ledger.length}
+        projectId={projectId}
       >
         <p className="p-8 text-15 text-tr-text-secondary">
           This project has no episode yet.
@@ -222,7 +250,13 @@ export function PlanScreen() {
       projectTitle={project.title}
       activeMode="Plan"
       ledgerCount={ledger.length}
+      projectId={projectId}
     >
+      {reviewError && (
+        <p className="px-6 pt-3 text-13 text-tr-danger" role="alert">
+          {reviewError}
+        </p>
+      )}
       <div className="flex">
         <StoryLayersPanel
           project={project}
@@ -252,12 +286,16 @@ export function PlanScreen() {
           ledger={ledger}
           selection={selection}
           pending={patcher.pending}
+          openingReview={openingReview}
           onToggleSceneLock={handleToggleSceneLock}
           onToggleBeatScriptLock={handleToggleBeatScriptLock}
           onSaveSceneField={handleSaveSceneField}
           onSaveBeatField={handleSaveBeatField}
           onSaveProjectField={handleSaveProjectField}
           onSaveEpisodeField={handleSaveEpisodeField}
+          onOpenReview={(targetObjectId, instruction) =>
+            void handleOpenReview(targetObjectId, instruction)
+          }
         />
       </div>
     </AppShell>

@@ -7,22 +7,28 @@ export interface ModeSwitcherProps {
   /** Total ledger fact count, shown as a badge on the Ledger segment.
    * Simplification (flagged in the task report): UI spec §2 specifies this
    * badge as the *review-queue* count (facts `pending_review`), which needs
-   * Ledger mode's status filtering (not built yet — Ledger mode is T4.x).
+   * Ledger mode's status filtering (not built yet — Ledger mode is T5.1).
    * Until then this shows the total fact count, which is what makes "ledger
    * badge increments" (the T2.3 accept-flow acceptance criterion) observable
    * today; it becomes the review-queue count once Ledger mode lands. */
   ledgerCount: number
+  /** Amber dot on Review when a draft Change Set exists (UI spec §2). */
+  hasDraftChangeSet?: boolean
 }
 
 const MODES: Mode[] = ['Write', 'Plan', 'Review', 'Ledger']
 
 /**
- * The segmented mode control (UI spec §2). Write and Plan are both built now
- * (T3.1); Review/Ledger still render disabled (build plan: T4.x/T5.1).
- * Clicking the inactive one of Write/Plan navigates (`navigateToMode`); the
- * active tab and the two unbuilt modes are inert.
+ * The segmented mode control (UI spec §2). Write, Plan, and Review are built
+ * (T4.3); Ledger still renders disabled (T5.1 / Agent F). Clicking an inactive
+ * built mode navigates (`navigateToMode`); the active tab and unbuilt modes
+ * are inert.
  */
-export function ModeSwitcher({ active, ledgerCount }: ModeSwitcherProps) {
+export function ModeSwitcher({
+  active,
+  ledgerCount,
+  hasDraftChangeSet = false,
+}: ModeSwitcherProps) {
   return (
     <div
       role="tablist"
@@ -52,6 +58,12 @@ export function ModeSwitcher({ active, ledgerCount }: ModeSwitcherProps) {
             }
           >
             {mode}
+            {mode === 'Review' && hasDraftChangeSet && (
+              <span
+                aria-label="Draft Change Set"
+                className="inline-block size-1.5 rounded-chip bg-tr-amber"
+              />
+            )}
             {mode === 'Ledger' && ledgerCount > 0 && (
               <span className="rounded-chip bg-tr-amber-soft px-1.5 text-12 text-tr-text-primary">
                 {ledgerCount}

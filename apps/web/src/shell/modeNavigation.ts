@@ -1,7 +1,7 @@
 import type { Mode } from './ModeSwitcher'
 
 // Path each mode navigates to; `null` means "not built yet" (build plan:
-// Review is T4.3, Ledger is T5.1). No router in this app (T0.1 scaffold,
+// Ledger is T5.1 / Agent F). No router in this app (T0.1 scaffold,
 // same "a single dev route doesn't justify one" call as main.tsx's /tokens
 // switch) — mode switching is a full navigation, preserving the query string
 // (`?project=`, etc.) so switching modes mid-session keeps context.
@@ -12,7 +12,7 @@ import type { Mode } from './ModeSwitcher'
 const MODE_PATHS: Record<Mode, string | null> = {
   Write: '/',
   Plan: '/plan',
-  Review: null,
+  Review: '/review',
   Ledger: null,
 }
 
@@ -20,7 +20,7 @@ export function isModeBuilt(mode: Mode): boolean {
   return MODE_PATHS[mode] !== null
 }
 
-/** Navigates to `mode` if it's built; a no-op for Review/Ledger. Shared by
+/** Navigates to `mode` if it's built; a no-op for Ledger. Shared by
  * ModeSwitcher's tab buttons and AppShell's ⌘1-4 shortcut (UI spec §2). */
 export function navigateToMode(mode: Mode) {
   const path = MODE_PATHS[mode]

@@ -88,7 +88,12 @@ export function WriteScreen() {
 
   if (loadError) {
     return (
-      <AppShell projectTitle="Table Read" activeMode="Write" ledgerCount={0}>
+      <AppShell
+        projectTitle="Table Read"
+        activeMode="Write"
+        ledgerCount={0}
+        projectId={projectId}
+      >
         <p className="p-8 text-15 text-tr-danger">
           Couldn&apos;t load this project: {loadError}
         </p>
@@ -98,7 +103,12 @@ export function WriteScreen() {
 
   if (!project || !scene) {
     return (
-      <AppShell projectTitle="Table Read" activeMode="Write" ledgerCount={0}>
+      <AppShell
+        projectTitle="Table Read"
+        activeMode="Write"
+        ledgerCount={0}
+        projectId={projectId}
+      >
         <p className="p-8 text-15 text-tr-text-secondary">Loading…</p>
       </AppShell>
     )
@@ -109,6 +119,7 @@ export function WriteScreen() {
       projectTitle={project.title}
       activeMode="Write"
       ledgerCount={ledgerCount}
+      projectId={projectId}
     >
       <div className="flex justify-center gap-6 px-6 py-8 pb-24">
         <ScriptCanvas scene={scene} canvasHandlers={canvasHandlers} />

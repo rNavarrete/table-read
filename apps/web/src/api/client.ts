@@ -1,5 +1,6 @@
 import type {
   BeatCandidate,
+  ChangeSet,
   ConsistencyFlag,
   LedgerExtraction,
   LedgerFact,
@@ -164,4 +165,53 @@ export function candidatesUrl(projectId: string, sceneId: string): string {
 /** Endpoint URL for the SSE tune stream (one candidate). */
 export function tuneUrl(projectId: string, sceneId: string): string {
   return `${BASE}/projects/${projectId}/scenes/${sceneId}/candidates/tune`
+}
+
+/** `POST /projects/{pid}/change-sets` (data contract §4 / T4.1) — classify
+ * blast radius, annotate locks / applyMode / before snippets, persist a draft
+ * ChangeSet. Does not mutate the project doc. */
+export function createChangeSet(
+  projectId: string,
+  body: { targetObjectId: string; instruction: string },
+): Promise<ChangeSet> {
+  return postJson<ChangeSet>(`/projects/${projectId}/change-sets`, body)
+}
+
+/** `POST /change-sets/{cid}/preview` — regenerate approved rows into the
+ * typed preview payload; does not mutate the project. */
+export function previewChangeSet(
+  changeSetId: string,
+  body: { approvedObjectIds: string[] },
+): Promise<ChangeSet> {
+  return postJson<ChangeSet>(`/change-sets/${changeSetId}/preview`, body)
+}
+
+/** `POST /change-sets/{cid}/apply` response (data contract §4). */
+export interface ApplyChangeSetResponse {
+  project: Project
+  changeSet: ChangeSet
+  consistencyFlags: ConsistencyFlag[]
+}
+
+/** `POST /change-sets/{cid}/apply` — writes the stored preview for approved
+ * ids only; 409 on locked / flag_only / null or stale preview. */
+export function applyChangeSet(
+  changeSetId: string,
+  body: { approvedObjectIds: string[] },
+): Promise<ApplyChangeSetResponse> {
+  return postJson<ApplyChangeSetResponse>(
+    `/change-sets/${changeSetId}/apply`,
+    body,
+  )
+}
+
+/** `POST /change-sets/{cid}/discard` → ChangeSet with status `discarded`. */
+export function discardChangeSet(changeSetId: string): Promise<ChangeSet> {
+  return postJson<ChangeSet>(`/change-sets/${changeSetId}/discard`, {})
+}
+
+/** `POST /change-sets/{cid}/flag` → ChangeSet with status `flagged` (leaves
+ * the project untouched). */
+export function flagChangeSet(changeSetId: string): Promise<ChangeSet> {
+  return postJson<ChangeSet>(`/change-sets/${changeSetId}/flag`, {})
 }
