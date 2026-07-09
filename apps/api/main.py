@@ -1,12 +1,20 @@
-"""Table Read API entrypoint.
-
-Endpoints beyond the health check land in later build-plan tasks (T1.x+),
-once the contract package (T0.2) defines the wire schemas they must satisfy.
-"""
+"""Table Read API entrypoint."""
 
 from fastapi import FastAPI
 
+from errors import register_error_handlers
+from routes import router
+from storage.db import Base, engine
+
+# Idempotent; the real dev-DB population happens via `make seed`
+# (storage/seed.py). Safe to call unconditionally on import — tests run
+# against a throwaway DATABASE_URL set before this module is ever imported
+# (see tests/conftest.py), so this never touches the dev DB in tests.
+Base.metadata.create_all(bind=engine)
+
 app = FastAPI(title="Table Read API")
+register_error_handlers(app)
+app.include_router(router)
 
 
 @app.get("/health")

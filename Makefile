@@ -17,7 +17,7 @@ endif
 # PATH it cached before the export above ran — so plain `npm ...` lines still
 # fail to resolve even though PATH is correct. `env` forces a real lookup.
 
-.PHONY: dev test lint check-contract test-api test-js lint-api lint-js
+.PHONY: dev test lint check-contract test-api test-js lint-api lint-js seed
 
 $(VENV_BIN)/activate: $(API_DIR)/requirements.txt $(API_DIR)/requirements-dev.txt
 	$(PYTHON) -m venv $(API_DIR)/.venv
@@ -55,3 +55,6 @@ lint-js: $(NODE_MARKER)
 
 check-contract: $(VENV_BIN)/activate $(NODE_MARKER)
 	$(VENV_BIN)/python scripts/check_contract.py
+
+seed: $(VENV_BIN)/activate
+	cd $(API_DIR) && $(VENV_BIN)/python -m storage.seed
