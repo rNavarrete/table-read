@@ -80,6 +80,15 @@ def _get_project_or_404(session: Session, pid: str) -> ProjectRow:
     return project
 
 
+def _expected_head(if_match: str | None) -> str | None:
+    """Normalize `If-Match` for snapshot CAS. Empty / missing → None (server
+    still CAS-guards against the observed head inside `mutate`)."""
+    if if_match is None:
+        return None
+    value = if_match.strip()
+    return value or None
+
+
 def _minimal_series_bible() -> dict:
     """A scaffolded but empty `SeriesBible` (data contract §4 POST /projects)."""
     return {
@@ -234,7 +243,9 @@ def list_consistency_flags(
 
 @flags_router.post("/{fid}/dismiss", response_model=ConsistencyFlag)
 def dismiss_consistency_flag(
-    fid: str, session: Session = Depends(get_session)
+    fid: str,
+    session: Session = Depends(get_session),
+    if_match: str | None = Header(default=None, alias="If-Match"),
 ) -> dict:
     """`POST /consistency-flags/{fid}/dismiss` — versioned flag-only mutation.
 
@@ -266,9 +277,16 @@ def dismiss_consistency_flag(
             snapshot_id=state.snapshot_id,
         )
 
-    snap = snapshots.mutate(
-        session, project_id, instruction="Dismissed consistency flag", mutator=mutator
-    )
+    try:
+        snap = snapshots.mutate(
+            session,
+            project_id,
+            instruction="Dismissed consistency flag",
+            mutator=mutator,
+            expected_head_snapshot_id=_expected_head(if_match),
+        )
+    except snapshots.StaleHead as exc:
+        raise ApiError(409, "CONFLICT_STALE_HEAD", str(exc)) from exc
     dismissed = next(f for f in snap.flags if f["id"] == fid)
     return dismissed
 
@@ -286,6 +304,7 @@ def import_script(
     content: str = Body(...),
     session: Session = Depends(get_session),
     llm: LlmClient = Depends(get_llm_client),
+    if_match: str | None = Header(default=None, alias="If-Match"),
 ) -> dict:
     project = _get_project_or_404(session, pid)
     if format not in _IMPORT_FORMATS:
@@ -293,7 +312,16 @@ def import_script(
             400, "VALIDATION", f"format must be one of {sorted(_IMPORT_FORMATS)}"
         )
     try:
-        return run_import(session, project, content, llm, instruction=f"Imported {format} script")
+        return run_import(
+            session,
+            project,
+            content,
+            llm,
+            instruction=f"Imported {format} script",
+            expected_head_snapshot_id=_expected_head(if_match),
+        )
+    except snapshots.StaleHead as exc:
+        raise ApiError(409, "CONFLICT_STALE_HEAD", str(exc)) from exc
     except locks.LockViolation as exc:
         # Import-as-replace into a target holding locked content or vouched
         # facts (rule 2, T3.2). Refused before any LLM call or mutation.
@@ -402,6 +430,7 @@ def accept_beat(
     after_beat_id: str | None = Body(default=None, alias="afterBeatId"),
     session: Session = Depends(get_session),
     llm: LlmClient = Depends(get_llm_client),
+    if_match: str | None = Header(default=None, alias="If-Match"),
 ) -> dict:
     """Accept a beat candidate (data contract §4): inserts the beat, snapshots,
     and triggers ledger extraction + consistency scan in one transaction →
@@ -424,9 +453,17 @@ def accept_beat(
 
     try:
         return accept.run_accept(
-            session, project, candidate, after_beat_id, llm,
-            scene_id=sid, instruction="Accepted beat candidate",
+            session,
+            project,
+            candidate,
+            after_beat_id,
+            llm,
+            scene_id=sid,
+            instruction="Accepted beat candidate",
+            expected_head_snapshot_id=_expected_head(if_match),
         )
+    except snapshots.StaleHead as exc:
+        raise ApiError(409, "CONFLICT_STALE_HEAD", str(exc)) from exc
     except locks.LockViolation as exc:
         raise ApiError(409, "LOCKED_OBJECT", str(exc)) from exc
     except SchemaInvalidLlmError as exc:
@@ -527,6 +564,7 @@ def apply_change_set(
     body: ChangeSetApprovedRequest,
     session: Session = Depends(get_session),
     llm: LlmClient = Depends(get_llm_client),
+    if_match: str | None = Header(default=None, alias="If-Match"),
 ) -> dict:
     """Review-mode apply (data contract §4 / T4.2): writes the stored preview
     payload verbatim (zero regenerate calls), approved-only; snapshots,
@@ -534,10 +572,16 @@ def apply_change_set(
     `{project, changeSet, consistencyFlags}`."""
     try:
         return change_sets.apply_change_set(
-            session, cid, approved_object_ids=body.approved_object_ids, llm=llm
+            session,
+            cid,
+            approved_object_ids=body.approved_object_ids,
+            llm=llm,
+            expected_head_snapshot_id=_expected_head(if_match),
         )
     except change_sets.ChangeSetNotFound as exc:
         raise ApiError(404, "NOT_FOUND", f"change set {cid!r} not found") from exc
+    except snapshots.StaleHead as exc:
+        raise ApiError(409, "CONFLICT_STALE_HEAD", str(exc)) from exc
     except change_sets.ApplyRejected as exc:
         raise ApiError(409, exc.code, str(exc)) from exc
     except locks.LockViolation as exc:
@@ -571,13 +615,24 @@ def flag_change_set(
 
 
 @router.post("/{pid}/undo", response_model=Project)
-def undo(pid: str, session: Session = Depends(get_session)) -> dict:
+def undo(
+    pid: str,
+    session: Session = Depends(get_session),
+    if_match: str | None = Header(default=None, alias="If-Match"),
+) -> dict:
     project = _get_project_or_404(session, pid)
     head = session.get(SnapshotRow, project.head_snapshot_id)
     if head is None or head.parent_id is None:
         raise ApiError(409, "VALIDATION", "nothing to undo")
 
-    snapshots.restore_parent(session, project)
+    try:
+        snapshots.restore_parent(
+            session,
+            project,
+            expected_head_snapshot_id=_expected_head(if_match),
+        )
+    except snapshots.StaleHead as exc:
+        raise ApiError(409, "CONFLICT_STALE_HEAD", str(exc)) from exc
     return session.get(ProjectRow, pid).doc
 
 
@@ -586,6 +641,7 @@ def batch_ledger(
     pid: str,
     body: LedgerBatchRequest,
     session: Session = Depends(get_session),
+    if_match: str | None = Header(default=None, alias="If-Match"),
 ) -> dict:
     """Batch confirm/reject (data contract §4). One snapshot for the whole
     batch; any invalid id fails the entire batch (400, nothing applied).
@@ -605,7 +661,10 @@ def batch_ledger(
                 ),
                 flags=state.flags,
             ),
+            expected_head_snapshot_id=_expected_head(if_match),
         )
+    except snapshots.StaleHead as exc:
+        raise ApiError(409, "CONFLICT_STALE_HEAD", str(exc)) from exc
     except ledger_mutations.FactNotFound as exc:
         raise ApiError(400, "VALIDATION", f"unknown fact id: {exc}") from exc
     except ledger_mutations.ConflictStaleProposal as exc:
@@ -630,6 +689,8 @@ def _mutate_ledger_fact(
     fact_id: str,
     instruction: str,
     transform,
+    *,
+    expected_head_snapshot_id: str | None = None,
 ) -> dict:
     """Look up a fact, run `transform(ledger) -> ledger` inside one snapshot
     transaction, return the updated fact wire dict. Maps ledger_mutations
@@ -644,7 +705,10 @@ def _mutate_ledger_fact(
             lambda state: MutationState(
                 doc=state.doc, ledger=transform(state.ledger), flags=state.flags
             ),
+            expected_head_snapshot_id=expected_head_snapshot_id,
         )
+    except snapshots.StaleHead as exc:
+        raise ApiError(409, "CONFLICT_STALE_HEAD", str(exc)) from exc
     except ledger_mutations.FactNotFound as exc:
         raise ApiError(404, "NOT_FOUND", f"fact {fact_id!r} not found") from exc
     except ledger_mutations.ConflictStaleProposal as exc:
@@ -659,24 +723,34 @@ def _mutate_ledger_fact(
 
 
 @ledger_router.post("/{fact_id}/confirm", response_model=LedgerFact)
-def confirm_ledger_fact(fact_id: str, session: Session = Depends(get_session)) -> dict:
+def confirm_ledger_fact(
+    fact_id: str,
+    session: Session = Depends(get_session),
+    if_match: str | None = Header(default=None, alias="If-Match"),
+) -> dict:
     """Confirm a pending_review fact (data contract §4 supersede semantics)."""
     return _mutate_ledger_fact(
         session,
         fact_id,
         "Ledger confirm",
         lambda ledger: ledger_mutations.confirm_fact(ledger, fact_id),
+        expected_head_snapshot_id=_expected_head(if_match),
     )
 
 
 @ledger_router.post("/{fact_id}/reject", response_model=LedgerFact)
-def reject_ledger_fact(fact_id: str, session: Session = Depends(get_session)) -> dict:
+def reject_ledger_fact(
+    fact_id: str,
+    session: Session = Depends(get_session),
+    if_match: str | None = Header(default=None, alias="If-Match"),
+) -> dict:
     """Reject a pending_review fact; supersede target left untouched."""
     return _mutate_ledger_fact(
         session,
         fact_id,
         "Ledger reject",
         lambda ledger: ledger_mutations.reject_fact(ledger, fact_id),
+        expected_head_snapshot_id=_expected_head(if_match),
     )
 
 
@@ -685,6 +759,7 @@ def edit_ledger_fact(
     fact_id: str,
     body: LedgerFactEdit,
     session: Session = Depends(get_session),
+    if_match: str | None = Header(default=None, alias="If-Match"),
 ) -> dict:
     """Edit fact text and/or knownBy; provenance becomes writer_authored."""
     if body.fact is None and body.known_by is None:
@@ -699,4 +774,5 @@ def edit_ledger_fact(
             fact_text=body.fact,
             known_by=body.known_by,
         ),
+        expected_head_snapshot_id=_expected_head(if_match),
     )

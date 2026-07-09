@@ -130,6 +130,39 @@ test('Review journey: Open Review → locked row → preview → apply → plan 
   ).toHaveValue(/marina/i)
 })
 
+test('after preview, mode-switcher re-entry still finds the Change Set', async ({
+  page,
+}) => {
+  // Preview flips status to `previewing`; Review picker must list it (not
+  // only `draft`) so Apply remains reachable after navigating away.
+  await page.goto('/plan')
+  await page.getByTestId('scene-card-scene-2').click()
+  await page.getByTestId('inspector').getByLabel('What happens').fill(MARINA)
+  await page
+    .getByTestId('inspector')
+    .getByRole('button', { name: 'Open Review' })
+    .click()
+  await expect(page.getByTestId('change-set-panel')).toBeVisible()
+
+  await page.getByRole('button', { name: 'Preview selected' }).click()
+  await expect(
+    page.getByRole('button', { name: 'Apply selected' }),
+  ).toBeEnabled()
+
+  // Mode switcher clears ?changeSet= and lands on the open picker / auto-open.
+  await page.getByRole('tab', { name: 'Plan' }).click()
+  await expect(page).toHaveURL(/\/plan/)
+  await page.getByRole('tab', { name: 'Review' }).click()
+
+  await expect(page.getByTestId('change-set-panel')).toBeVisible({
+    timeout: 10_000,
+  })
+  await expect(page.getByText(MARINA)).toBeVisible()
+  await expect(
+    page.getByRole('button', { name: 'Apply selected' }),
+  ).toBeEnabled()
+})
+
 test('Flag only marks Change Set flagged without mutating the project', async ({
   page,
   request,

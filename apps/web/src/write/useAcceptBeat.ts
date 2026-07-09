@@ -87,6 +87,7 @@ export function useAcceptBeat(
           sceneId,
           candidate,
           afterBeatId,
+          { expectedHeadSnapshotId: before.headSnapshotId },
         )
         setProject(response.project)
         setAcceptingIndex(null)

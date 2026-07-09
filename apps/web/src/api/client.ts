@@ -19,10 +19,26 @@ async function getJson<T>(path: string): Promise<T> {
   return (await res.json()) as T
 }
 
-async function postJson<T>(path: string, body: unknown): Promise<T> {
+type IfMatchOpts = { expectedHeadSnapshotId?: string | null }
+
+function ifMatchHeaders(
+  opts?: IfMatchOpts,
+): Record<string, string> | undefined {
+  if (!opts?.expectedHeadSnapshotId) return undefined
+  return { 'If-Match': opts.expectedHeadSnapshotId }
+}
+
+async function postJson<T>(
+  path: string,
+  body: unknown,
+  opts?: IfMatchOpts,
+): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...ifMatchHeaders(opts),
+    },
     body: JSON.stringify(body),
   })
   if (!res.ok) throw await toApiError(res)
@@ -32,11 +48,14 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
 async function patchJson<T>(
   path: string,
   body: unknown,
-  headers?: Record<string, string>,
+  opts?: IfMatchOpts,
 ): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json', ...headers },
+    headers: {
+      'Content-Type': 'application/json',
+      ...ifMatchHeaders(opts),
+    },
     body: JSON.stringify(body),
   })
   if (!res.ok) throw await toApiError(res)
@@ -77,18 +96,14 @@ export interface PatchResult {
 export async function patchProject(
   projectId: string,
   ops: JsonPatchOp[],
-  opts?: { expectedHeadSnapshotId?: string | null },
+  opts?: IfMatchOpts,
 ): Promise<PatchResult> {
-  const headers: Record<string, string> = {}
-  if (opts?.expectedHeadSnapshotId) {
-    // Optimistic concurrency: server 409s CONFLICT_STALE_HEAD if the live
-    // head moved since the client last loaded the project.
-    headers['If-Match'] = opts.expectedHeadSnapshotId
-  }
+  // Optimistic concurrency: server 409s CONFLICT_STALE_HEAD if the live
+  // head moved since the client last loaded the project.
   const body = await patchJson<Project | PatchResult>(
     `/projects/${projectId}`,
     ops,
-    headers,
+    opts,
   )
   // Structural edits return {project, consistencyFlags}; other edits the bare
   // Project (which has no `project` key). Normalize to PatchResult.
@@ -98,8 +113,11 @@ export async function patchProject(
 }
 
 /** `POST /projects/{pid}/undo` — restore parent snapshot (409 at root). */
-export function undoProject(projectId: string): Promise<Project> {
-  return postJson<Project>(`/projects/${projectId}/undo`, {})
+export function undoProject(
+  projectId: string,
+  opts?: IfMatchOpts,
+): Promise<Project> {
+  return postJson<Project>(`/projects/${projectId}/undo`, {}, opts)
 }
 
 /** `GET /projects/{pid}/export.fountain` — Fountain teleplay text. */
@@ -127,13 +145,19 @@ export function getLedger(
 }
 
 /** `POST /ledger/{factId}/confirm` — pending_review → active / writer_confirmed. */
-export function confirmLedgerFact(factId: string): Promise<LedgerFact> {
-  return postJson<LedgerFact>(`/ledger/${factId}/confirm`, {})
+export function confirmLedgerFact(
+  factId: string,
+  opts?: IfMatchOpts,
+): Promise<LedgerFact> {
+  return postJson<LedgerFact>(`/ledger/${factId}/confirm`, {}, opts)
 }
 
 /** `POST /ledger/{factId}/reject` — pending_review → rejected (prompt-ineligible). */
-export function rejectLedgerFact(factId: string): Promise<LedgerFact> {
-  return postJson<LedgerFact>(`/ledger/${factId}/reject`, {})
+export function rejectLedgerFact(
+  factId: string,
+  opts?: IfMatchOpts,
+): Promise<LedgerFact> {
+  return postJson<LedgerFact>(`/ledger/${factId}/reject`, {}, opts)
 }
 
 /** `PATCH /ledger/{factId}` — edit text/knownBy → writer_authored (and
@@ -141,18 +165,21 @@ export function rejectLedgerFact(factId: string): Promise<LedgerFact> {
 export function editLedgerFact(
   factId: string,
   body: { fact?: string; knownBy?: string[] },
+  opts?: IfMatchOpts,
 ): Promise<LedgerFact> {
-  return patchJson<LedgerFact>(`/ledger/${factId}`, body)
+  return patchJson<LedgerFact>(`/ledger/${factId}`, body, opts)
 }
 
 /** `POST /projects/{pid}/ledger/batch` — one snapshot for the whole batch. */
 export function batchLedgerReview(
   projectId: string,
   body: { confirmIds: string[]; rejectIds: string[] },
+  opts?: IfMatchOpts,
 ): Promise<{ ledger: LedgerFact[] }> {
   return postJson<{ ledger: LedgerFact[] }>(
     `/projects/${projectId}/ledger/batch`,
     body,
+    opts,
   )
 }
 
@@ -174,8 +201,13 @@ export function getConsistencyFlags(
  * refreshed (or the id is removed from local state). */
 export function dismissConsistencyFlag(
   flagId: string,
+  opts?: IfMatchOpts,
 ): Promise<ConsistencyFlag> {
-  return postJson<ConsistencyFlag>(`/consistency-flags/${flagId}/dismiss`, {})
+  return postJson<ConsistencyFlag>(
+    `/consistency-flags/${flagId}/dismiss`,
+    {},
+    opts,
+  )
 }
 
 /** One accept-response contradiction record: the contract's
@@ -208,6 +240,7 @@ export function acceptBeat(
   sceneId: string,
   candidate: BeatCandidate,
   afterBeatId: string | null,
+  opts?: IfMatchOpts,
 ): Promise<AcceptResponse> {
   return postJson<AcceptResponse>(
     `/projects/${projectId}/scenes/${sceneId}/beats`,
@@ -215,6 +248,7 @@ export function acceptBeat(
       candidate,
       afterBeatId,
     },
+    opts,
   )
 }
 
@@ -276,10 +310,12 @@ export interface ApplyChangeSetResponse {
 export function applyChangeSet(
   changeSetId: string,
   body: { approvedObjectIds: string[] },
+  opts?: IfMatchOpts,
 ): Promise<ApplyChangeSetResponse> {
   return postJson<ApplyChangeSetResponse>(
     `/change-sets/${changeSetId}/apply`,
     body,
+    opts,
   )
 }
 

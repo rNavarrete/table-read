@@ -141,7 +141,9 @@ export function LedgerScreen() {
       return f
     })
     void runMutation(factId, optimistic, async () => {
-      await confirmLedgerFact(factId)
+      await confirmLedgerFact(factId, {
+        expectedHeadSnapshotId: project?.headSnapshotId,
+      })
       // Refetch so supersede-target updates land (confirm may touch two facts).
       return getLedger(projectId)
     })
@@ -152,7 +154,9 @@ export function LedgerScreen() {
       f.id === factId ? { ...f, status: 'rejected' as const } : f,
     )
     void runMutation(factId, optimistic, async () => {
-      await rejectLedgerFact(factId)
+      await rejectLedgerFact(factId, {
+        expectedHeadSnapshotId: project?.headSnapshotId,
+      })
       return getLedger(projectId)
     })
   }
@@ -174,10 +178,14 @@ export function LedgerScreen() {
         : f,
     )
     void runMutation(factId, optimistic, async () => {
-      await editLedgerFact(factId, {
-        fact: body.fact,
-        knownBy: body.knownBy,
-      })
+      await editLedgerFact(
+        factId,
+        {
+          fact: body.fact,
+          knownBy: body.knownBy,
+        },
+        { expectedHeadSnapshotId: project?.headSnapshotId },
+      )
       return getLedger(projectId)
     })
   }
@@ -196,10 +204,14 @@ export function LedgerScreen() {
         : f,
     )
     void runMutation(null, optimistic, async () => {
-      const { ledger: next } = await batchLedgerReview(projectId, {
-        confirmIds: ids,
-        rejectIds: [],
-      })
+      const { ledger: next } = await batchLedgerReview(
+        projectId,
+        {
+          confirmIds: ids,
+          rejectIds: [],
+        },
+        { expectedHeadSnapshotId: project?.headSnapshotId },
+      )
       return next
     })
   }
@@ -221,10 +233,14 @@ export function LedgerScreen() {
       return { ...f, status: 'rejected' as const }
     })
     void runMutation(null, optimistic, async () => {
-      const { ledger: next } = await batchLedgerReview(projectId, {
-        confirmIds: action === 'accept' ? ids : [],
-        rejectIds: action === 'reject' ? ids : [],
-      })
+      const { ledger: next } = await batchLedgerReview(
+        projectId,
+        {
+          confirmIds: action === 'accept' ? ids : [],
+          rejectIds: action === 'reject' ? ids : [],
+        },
+        { expectedHeadSnapshotId: project?.headSnapshotId },
+      )
       return next
     })
   }

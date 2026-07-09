@@ -95,6 +95,52 @@ def test_list_project_change_sets_filters_by_status(seeded_project, mock_llm):
     assert draft["id"] not in discarded_ids
 
 
+def test_list_open_change_sets_includes_previewing(seeded_project, mock_llm):
+    """Review picker filter `draft,previewing` keeps previewed Change Sets visible."""
+    from schemas import RegeneratedElements
+
+    draft = _create().json()
+    previewing_id = _create(instruction="Will preview").json()["id"]
+    mock_llm.set_response(
+        "regenerate_elements",
+        RegeneratedElements.model_validate(
+            {
+                "beats": [
+                    {
+                        "beatId": "beat-4-2",
+                        "beatPlan": {
+                            "whatHappens": "AFTER",
+                            "audienceLearns": "x",
+                            "audienceFeels": "y",
+                        },
+                        "scriptText": "SCRIPT",
+                    }
+                ],
+                "scenes": [],
+                "continuityConflicts": [],
+            }
+        ),
+    )
+    preview = client.post(
+        f"/api/v1/change-sets/{previewing_id}/preview",
+        json={"approvedObjectIds": ["beat-4-2"]},
+    )
+    assert preview.status_code == 200
+    assert preview.json()["status"] == "previewing"
+
+    open_list = client.get(
+        f"/api/v1/projects/{PROJECT_ID}/change-sets",
+        params={"status": "draft,previewing"},
+    )
+    assert open_list.status_code == 200
+    open_ids = {cs["id"] for cs in open_list.json()}
+    assert draft["id"] in open_ids
+    assert previewing_id in open_ids
+    by_id = {cs["id"]: cs for cs in open_list.json()}
+    assert by_id[previewing_id]["status"] == "previewing"
+    assert by_id[draft["id"]]["status"] == "draft"
+
+
 def test_list_change_sets_unknown_project_404(seeded_project):
     resp = client.get("/api/v1/projects/proj-missing/change-sets")
     assert resp.status_code == 404
