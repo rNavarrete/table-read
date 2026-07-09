@@ -1,3 +1,5 @@
+import { isModeBuilt, navigateToMode } from './modeNavigation'
+
 export type Mode = 'Write' | 'Plan' | 'Review' | 'Ledger'
 
 export interface ModeSwitcherProps {
@@ -15,10 +17,10 @@ export interface ModeSwitcherProps {
 const MODES: Mode[] = ['Write', 'Plan', 'Review', 'Ledger']
 
 /**
- * The segmented mode control (UI spec §2). Only Write mode exists yet
- * (build plan: Plan/Review/Ledger are T3.1/T4.x/T5.1) — the other three
- * segments render disabled, per obligation 2 ("build the minimal shell this
- * task needs... don't build Plan/Review/Ledger").
+ * The segmented mode control (UI spec §2). Write and Plan are both built now
+ * (T3.1); Review/Ledger still render disabled (build plan: T4.x/T5.1).
+ * Clicking the inactive one of Write/Plan navigates (`navigateToMode`); the
+ * active tab and the two unbuilt modes are inert.
  */
 export function ModeSwitcher({ active, ledgerCount }: ModeSwitcherProps) {
   return (
@@ -29,7 +31,8 @@ export function ModeSwitcher({ active, ledgerCount }: ModeSwitcherProps) {
     >
       {MODES.map((mode) => {
         const isActive = mode === active
-        const disabled = !isActive
+        const builtElsewhere = !isActive && isModeBuilt(mode)
+        const disabled = !isActive && !builtElsewhere
         return (
           <button
             key={mode}
@@ -38,11 +41,14 @@ export function ModeSwitcher({ active, ledgerCount }: ModeSwitcherProps) {
             aria-selected={isActive}
             disabled={disabled}
             title={disabled ? `${mode} mode is not built yet` : undefined}
+            onClick={builtElsewhere ? () => navigateToMode(mode) : undefined}
             className={
               'flex items-center gap-1.5 rounded-card px-3 py-1 text-13 transition-colors motion-reduce:transition-none' +
               (isActive
                 ? ' bg-tr-coral-soft text-tr-text-primary'
-                : ' cursor-not-allowed text-tr-text-muted')
+                : disabled
+                  ? ' cursor-not-allowed text-tr-text-muted'
+                  : ' text-tr-text-secondary hover:bg-tr-surface-raised')
             }
           >
             {mode}

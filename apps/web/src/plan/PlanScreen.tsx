@@ -1,0 +1,188 @@
+import { useEffect, useMemo, useState } from 'react'
+import type { LedgerFact, Project } from 'contract'
+import { getLedger, getProject } from '../api/client'
+import { AppShell } from '../shell/AppShell'
+import { Board } from './Board'
+import { Inspector } from './Inspector'
+import type { PlanSelection } from './SceneCard'
+import { StoryLayersPanel } from './StoryLayersPanel'
+import {
+  buildBeatPatch,
+  buildSceneSwapPatch,
+  buildScenePatch,
+  swapScenesLocally,
+  withBeatField,
+  withSceneField,
+} from './planTree'
+import { useProjectPatch } from './useProjectPatch'
+
+// Same URL-param convention as write/WriteScreen.tsx (no router yet, no
+// project picker built anywhere in the app): `?project=<id>`, defaulting to
+// the seeded fixture.
+const DEFAULT_PROJECT_ID = 'proj-longpour'
+
+function useUrlParam(name: string): string | null {
+  return useMemo(
+    () => new URLSearchParams(window.location.search).get(name),
+    [name],
+  )
+}
+
+export function PlanScreen() {
+  const projectId = useUrlParam('project') ?? DEFAULT_PROJECT_ID
+
+  const [project, setProject] = useState<Project | null>(null)
+  const [ledger, setLedger] = useState<LedgerFact[]>([])
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [selection, setSelection] = useState<PlanSelection>(null)
+  const [collapsedActs, setCollapsedActs] = useState<Set<number>>(new Set())
+
+  useEffect(() => {
+    let cancelled = false
+    Promise.all([getProject(projectId), getLedger(projectId)])
+      .then(([loadedProject, loadedLedger]) => {
+        if (cancelled) return
+        setProject(loadedProject)
+        setLedger(loadedLedger)
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return
+        setLoadError(
+          err instanceof Error ? err.message : 'failed to load project',
+        )
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [projectId])
+
+  const patcher = useProjectPatch(projectId, project, setProject)
+
+  function toggleActCollapse(act: number) {
+    setCollapsedActs((prev) => {
+      const next = new Set(prev)
+      if (next.has(act)) next.delete(act)
+      else next.add(act)
+      return next
+    })
+  }
+
+  function handleReorder(draggedId: string, targetId: string) {
+    if (!project) return
+    const ops = buildSceneSwapPatch(project, draggedId, targetId)
+    if (!ops) return
+    void patcher.patch(ops, swapScenesLocally(project, draggedId, targetId))
+  }
+
+  function handleToggleSceneLock(sceneId: string, locked: boolean) {
+    if (!project) return
+    const ops = buildScenePatch(project, sceneId, 'locked', locked)
+    if (!ops) return
+    void patcher.patch(ops, withSceneField(project, sceneId, 'locked', locked))
+  }
+
+  function handleToggleBeatScriptLock(
+    sceneId: string,
+    beatId: string,
+    scriptLocked: boolean,
+  ) {
+    if (!project) return
+    const ops = buildBeatPatch(
+      project,
+      sceneId,
+      beatId,
+      'scriptLocked',
+      scriptLocked,
+    )
+    if (!ops) return
+    void patcher.patch(
+      ops,
+      withBeatField(project, sceneId, beatId, 'scriptLocked', scriptLocked),
+    )
+  }
+
+  function handleSaveWhatHappens(sceneId: string, value: string) {
+    if (!project) return
+    const ops = buildScenePatch(project, sceneId, 'whatHappens', value)
+    if (!ops) return
+    void patcher.patch(
+      ops,
+      withSceneField(project, sceneId, 'whatHappens', value),
+    )
+  }
+
+  if (loadError) {
+    return (
+      <AppShell projectTitle="Table Read" activeMode="Plan" ledgerCount={0}>
+        <p className="p-8 text-15 text-tr-danger">
+          Couldn&apos;t load this project: {loadError}
+        </p>
+      </AppShell>
+    )
+  }
+
+  if (!project) {
+    return (
+      <AppShell projectTitle="Table Read" activeMode="Plan" ledgerCount={0}>
+        <p className="p-8 text-15 text-tr-text-secondary">Loading…</p>
+      </AppShell>
+    )
+  }
+
+  // MVP: exactly one season, one episode (data contract §1).
+  const episode = project.seasons[0]?.episodes[0]
+  if (!episode) {
+    return (
+      <AppShell
+        projectTitle={project.title}
+        activeMode="Plan"
+        ledgerCount={ledger.length}
+      >
+        <p className="p-8 text-15 text-tr-text-secondary">
+          This project has no episode yet.
+        </p>
+      </AppShell>
+    )
+  }
+
+  return (
+    <AppShell
+      projectTitle={project.title}
+      activeMode="Plan"
+      ledgerCount={ledger.length}
+    >
+      <div className="flex">
+        <StoryLayersPanel
+          project={project}
+          episode={episode}
+          selection={selection}
+          collapsedActs={collapsedActs}
+          onSelectNothing={() => setSelection(null)}
+          onSelectScene={(sceneId) => setSelection({ type: 'scene', sceneId })}
+          onToggleActCollapse={toggleActCollapse}
+        />
+        <Board
+          project={project}
+          episode={episode}
+          selection={selection}
+          collapsedActs={collapsedActs}
+          onSelectScene={(sceneId) => setSelection({ type: 'scene', sceneId })}
+          onSelectBeat={(sceneId, beatId) =>
+            setSelection({ type: 'beat', sceneId, beatId })
+          }
+          onReorder={handleReorder}
+        />
+        <Inspector
+          project={project}
+          episode={episode}
+          ledger={ledger}
+          selection={selection}
+          pending={patcher.pending}
+          onToggleSceneLock={handleToggleSceneLock}
+          onToggleBeatScriptLock={handleToggleBeatScriptLock}
+          onSaveWhatHappens={handleSaveWhatHappens}
+        />
+      </div>
+    </AppShell>
+  )
+}
