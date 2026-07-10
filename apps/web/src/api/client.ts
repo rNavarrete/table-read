@@ -147,6 +147,15 @@ export function listProjects(): Promise<ProjectSummary[]> {
   return getJson<ProjectSummary[]>('/projects')
 }
 
+/** `DELETE /projects/{pid}` (data contract §4) — the canonical full purge:
+ * clears every project-scoped row across all six DB tables plus embeddings.
+ * Resolves on 204; a non-2xx surfaces as an `ApiError` so the dashboard can
+ * leave the row visible and report the failure (design spec §11). */
+export async function deleteProject(projectId: string): Promise<void> {
+  const res = await fetch(`${BASE}/projects/${projectId}`, { method: 'DELETE' })
+  if (!res.ok) throw await toApiError(res)
+}
+
 export function createProject(
   body: ProjectCreateRequest,
   opts: { idempotencyKey: string },

@@ -160,6 +160,32 @@ export function DashboardScreen() {
     }
   }, [reloadKey])
 
+  function handleDeleted(projectId: string) {
+    setLoadState((state) =>
+      state.status === 'ready'
+        ? {
+            status: 'ready',
+            projects: state.projects.filter(
+              (project) => project.id !== projectId,
+            ),
+          }
+        : state,
+    )
+  }
+
+  function handleRenamed(projectId: string, title: string) {
+    setLoadState((state) =>
+      state.status === 'ready'
+        ? {
+            status: 'ready',
+            projects: state.projects.map((project) =>
+              project.id === projectId ? { ...project, title } : project,
+            ),
+          }
+        : state,
+    )
+  }
+
   const projects = useMemo(
     () => (loadState.status === 'ready' ? loadState.projects.slice(0, 5) : []),
     [loadState],
@@ -286,7 +312,12 @@ export function DashboardScreen() {
           {loadState.status === 'ready' && filteredProjects.length > 0 && (
             <ul className="space-y-3">
               {filteredProjects.map((project) => (
-                <ProjectRow key={project.id} project={project} />
+                <ProjectRow
+                  key={project.id}
+                  project={project}
+                  onDeleted={handleDeleted}
+                  onRenamed={handleRenamed}
+                />
               ))}
             </ul>
           )}
