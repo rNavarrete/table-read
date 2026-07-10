@@ -92,13 +92,10 @@ export function PlanScreen() {
   }, [focusSceneId, project, projectId, selection])
 
   useEffect(() => {
-    if (!projectId) return
-    const sceneId =
-      effectiveSelection?.type === 'scene'
-        ? effectiveSelection.sceneId
-        : undefined
+    if (!projectId || !project) return
+    const sceneId = effectiveSelection?.sceneId
     saveResume(projectId, { mode: 'Plan', sceneId })
-  }, [effectiveSelection, projectId])
+  }, [effectiveSelection, project, projectId])
 
   // Deep-link from Review "Go to scene" / consistency flags: scroll + brief
   // highlight once the board mounts (selection already seeded from ?scene=).
