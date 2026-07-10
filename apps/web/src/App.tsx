@@ -1,6 +1,7 @@
 import { LedgerScreen } from './ledger/LedgerScreen'
 import { PlanScreen } from './plan/PlanScreen'
 import { DashboardScreen } from './projects/DashboardScreen'
+import { NewProjectStub } from './projects/NewProjectStub'
 import { ReviewScreen } from './review/ReviewScreen'
 import { WriteScreen } from './write/WriteScreen'
 
@@ -15,6 +16,12 @@ function App() {
     return null
   }
   if (path === '/projects') return <DashboardScreen />
+  if (path === '/projects/new/idea') {
+    return <NewProjectStub title="Start from an idea" />
+  }
+  if (path === '/projects/new/import') {
+    return <NewProjectStub title="Import a script" />
+  }
   if (path === '/plan') return <PlanScreen />
   if (path === '/review') return <ReviewScreen />
   if (path === '/ledger') return <LedgerScreen />
