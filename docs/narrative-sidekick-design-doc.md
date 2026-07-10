@@ -137,6 +137,16 @@ Primary navigation is four modes, each answering a different question:
 
 Gardener and Architect survive as **writer archetypes, not navigation**: Gardeners live mostly in Write and visit Plan; Architects start in Plan and descend into Write. Both pass through Review for every AI-proposed structural change, and both trust Ledger to hold continuity. Progressive disclosure still applies: new projects begin in a stepwise setup (premise → characters → theme → scene skeleton), and the full Plan canvas appears only once a plan exists.
 
+### 4.2a Project dashboard (entry point)
+
+The app opens on a **project dashboard** at `/projects` (the "Story Launcher"), not a hardcoded seeded project. It answers "what are we writing?" with creation first and recent work second:
+
+- Two creation paths — **Start from an idea** (guided setup: premise → format → optional characters/theme, then Plan scene-skeleton generation) and **Import a script** (Fountain/plain-text upload or paste).
+- A short **Continue writing** list of recent projects, each showing an actionable status (`N facts to review`, `Continue setup`, or `Ready to write`) and reopening to its last local mode/scene; a stale scene falls back safely to the first scene.
+- Every AI step stays explicit: creation and import never trigger the model until the writer confirms the source material.
+
+**Deletion is a permanent purge, not a fiction.** A project's overflow menu offers Rename, Export Fountain, and **Permanently delete**; delete requires typing the project's exact title, then removes every project-scoped store (there is no Trash or archive to imply recoverability). A failed purge leaves the project in place and reports the error.
+
 ### 4.3 Write mode
 
 The **script canvas is the hero**: a formatted teleplay page on a warm ivory surface, current scene's beats subtly delimited, maximum breathing room. Everything else defers to it.
@@ -190,6 +200,8 @@ Output format is fixed to **teleplay** (Fountain-style sluglines, ACTION, CHARAC
 3. Writer reviews/corrects the inferred plan, then can: get structural feedback, generate candidate next-episode premises, generate alternative continuations, or regenerate selected scenes.
 
 This makes the tool useful for the dominant professional workflow — extending an existing show — not just filling blank pages.
+
+**Import is the one explicit exception to "review before any AI-authored structural change."** The writer's single trigger is **Create & analyze script**; once pressed, the v1 pipeline (deterministic verbatim scene split + model-proposed beat boundaries) persists the imported scenes/beats atomically as the project's one root snapshot. The trade is deliberate and bounded: no model-generated text ever replaces the source (coverage is server-validated and byte-identical), the imported structure remains fully reviewable and reversible afterward in Plan/Undo, and every imported fact still enters the Ledger as `pending_review`. This preserves the existing v1 import contract rather than forcing a second full-script preview/apply copy.
 
 ### 4.9 Inspiration affordances
 
