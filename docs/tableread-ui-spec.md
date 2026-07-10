@@ -4,51 +4,55 @@ Implements design doc §4. Light theme only in MVP (dark is v2, but every color 
 
 ## 1. Design tokens
 
+Quiet Tool visual language: cool paper neutrals, slate-blue accent (`--tr-coral*` names retained), Instrument Sans for UI and display type.
+
 ```css
 :root {
-  /* Surfaces — warm ivory & clay */
-  --tr-surface-page:    #FAF6EF; /* app background, Write mode page area */
-  --tr-surface-raised:  #FFFDF8; /* cards, script canvas sheet */
-  --tr-surface-sunken:  #F1EAE0; /* panels, rails, command bar */
-  --tr-surface-clay:    #E8DCCB; /* frames on Plan canvas, hover fills */
-  --tr-border:          #DDD2C2;
-  --tr-border-strong:   #C4B6A1;
+  /* Surfaces — cool paper */
+  --tr-surface-page:    #F6F6F3; /* app background, Write mode page area */
+  --tr-surface-raised:  #FFFFFF; /* cards, script canvas sheet */
+  --tr-surface-sunken:  #F0F0EC; /* panels, rails, command bar */
+  --tr-surface-clay:    #EBEBE6; /* frames on Plan canvas, hover fills */
+  --tr-border:          #E8E8E2;
+  --tr-border-strong:   #D9D9D2;
 
   /* Text — charcoal, never pure black */
-  --tr-text-primary:    #2B2724;
-  --tr-text-secondary:  #6B615A;
-  --tr-text-muted:      #988D83;
+  --tr-text-primary:    #26272B;
+  --tr-text-secondary:  #84857D;
+  --tr-text-muted:      #9a9b92;
 
-  /* Primary action — muted coral */
-  --tr-coral:           #E0704F;
-  --tr-coral-hover:     #C95E3F;
-  --tr-coral-soft:      #F7DED4; /* selected/active tints */
+  /* Primary action — slate-blue (--tr-coral* names retained) */
+  --tr-coral:           #5B79A6;
+  --tr-coral-hover:     #4A6690;
+  --tr-coral-soft:      #DEE5EE; /* selected/active tints */
+  --tr-accent-ink:      #33445E; /* text on soft accent fill (selected pills) */
 
   /* Status hues */
-  --tr-sage:            #7E9B76; /* confirmed, high-confidence, success */
-  --tr-sage-soft:       #E4ECE0;
-  --tr-sky:             #6E93B8; /* informational, links, setup/payoff connectors */
-  --tr-sky-soft:        #E1EAF2;
-  --tr-amber:           #C9913B; /* needs review, speculative, pending */
-  --tr-amber-soft:      #F5E8D2;
+  --tr-sage:            #7D9678; /* confirmed, high-confidence, success */
+  --tr-sage-soft:       #E7EEE4;
+  --tr-sky:             #41608A; /* informational, links, setup/payoff connectors */
+  --tr-sky-soft:        #E4EBF2;
+  --tr-amber:           #8A6120; /* needs review, speculative, pending */
+  --tr-amber-soft:      #FBF4E6;
   --tr-danger:          #B0503C; /* destructive, errors only — not for AI content */
 
   /* Type */
-  --tr-font-ui:     "Inter", system-ui, sans-serif;
+  --tr-font-ui:     "Instrument Sans", system-ui, sans-serif;
   --tr-font-script: "Courier Prime", "Courier New", monospace; /* teleplay */
-  --tr-font-display:"Fraunces", Georgia, serif; /* headings, mode titles */
+  --tr-font-display:"Instrument Sans", system-ui, sans-serif; /* headings, mode titles */
 
   /* Scale: 12/13/15/17/22/28. Script canvas fixed 12pt Courier equivalent. */
   /* Spacing: 4-base — 4/8/12/16/24/32/48/64. Generous: default section pad 24. */
-  /* Radius: cards 10px, chips 999px, canvas frames 14px. */
-  /* Shadow: 0 1px 3px rgb(43 39 36 / 0.08), lift on drag: 0 8px 24px / 0.14 */
+  /* Radius: cards 12px, chips 999px, canvas frames 12px. */
+  /* Shadow: 0 1px 2px rgb(38 39 43 / 0.04), lift: 0 4px 16px rgb(38 39 43 / 0.08) */
   /* Motion: 160ms ease-out standard; streaming text has no animation. */
+  /* Layout: --tr-script-col 600px; Plan panels 232/296/214px; Ledger rail 198px; shell 52px. */
 }
 ```
 
 **Dark theme (v2, reserve tokens now):** page `#211D1A` (warm near-black), raised `#2A2522` (espresso), sunken/panels `#332B24` (deep clay), text `#F3EDE3` (ivory); coral/sage/sky/amber shift ~10% desaturated, soft variants become translucent overlays. Warm dark, not tech-noir.
 
-**Status hue semantics (consistent everywhere):** sage = confirmed/high-confidence · sky = informational/relational · amber = pending/speculative/needs-review · coral = the one primary action per surface. No purple "AI" gradients, no sparkle icons; AI-origin content is marked by a small `~` glyph chip in `--tr-text-muted`.
+**Status hue semantics (consistent everywhere):** sage = confirmed/high-confidence · sky = informational/relational · amber = pending/speculative/needs-review · coral (`--tr-coral*`) = the one primary action per surface (slate-blue values). No purple "AI" gradients, no sparkle icons; AI-origin content is marked by a small `~` glyph chip in `--tr-text-muted`.
 
 ## 2. App shell
 
