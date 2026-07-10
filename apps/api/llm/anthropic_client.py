@@ -318,11 +318,39 @@ class AnthropicClient:
             "stream": True,
         }
         usage: Any = None
+        # Writer-tier models (observed with claude-sonnet-5) sometimes emit a
+        # *second* tool_use block for the same forced tool in one message.
+        # Concatenating every input_json_delta then makes json.loads fail with
+        # "Extra data", which the orchestrator surfaces as SCHEMA_INVALID_LLM.
+        # Keep only the first matching tool_use block's deltas (index pinned
+        # on content_block_start); ignore later siblings. Non-streaming
+        # `_find_tool_use` already takes the first matching block.
+        active_tool_index: int | None = None
+        ignored_extra_tool_blocks = 0
         stream = self._sdk.messages.create(**kwargs)
         try:
             for event in stream:
                 etype = getattr(event, "type", None)
-                if etype == "content_block_delta":
+                if etype == "content_block_start":
+                    block = getattr(event, "content_block", None)
+                    if (
+                        getattr(block, "type", None) == "tool_use"
+                        and getattr(block, "name", None) == op.name
+                    ):
+                        index = getattr(event, "index", None)
+                        if active_tool_index is None:
+                            active_tool_index = index
+                        elif index != active_tool_index:
+                            ignored_extra_tool_blocks += 1
+                elif etype == "content_block_delta":
+                    # When content_block_start pinned a tool index, ignore
+                    # deltas from other blocks. When it didn't (legacy unit
+                    # fakes), forward every input_json_delta as before.
+                    if (
+                        active_tool_index is not None
+                        and getattr(event, "index", None) != active_tool_index
+                    ):
+                        continue
                     delta = getattr(event, "delta", None)
                     if getattr(delta, "type", None) == "input_json_delta":
                         yield getattr(delta, "partial_json", "")
@@ -338,6 +366,12 @@ class AnthropicClient:
             close = getattr(stream, "close", None)
             if close is not None:
                 close()
+        if ignored_extra_tool_blocks:
+            _logger.info(
+                "llm_stream_extra_tool_use op=%s ignored_blocks=%s",
+                op.name,
+                ignored_extra_tool_blocks,
+            )
         _logger.info(
             "llm_stream op=%s prompt_version=%s model=%s input_tokens=%s "
             "output_tokens=%s input_hash=%s",
