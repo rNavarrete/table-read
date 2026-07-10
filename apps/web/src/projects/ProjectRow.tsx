@@ -1,4 +1,5 @@
 import type { ProjectSummary } from 'contract'
+import { projectModeHref } from './projectRouting'
 import { rowStatus } from './dashboardStatus'
 
 function formatStatus(project: ProjectSummary): string {
@@ -34,7 +35,7 @@ export function ProjectRow({ project }: { project: ProjectSummary }) {
   return (
     <li>
       <a
-        href={`/write?project=${encodeURIComponent(project.id)}`}
+        href={projectModeHref(project.id)}
         className="flex items-center gap-4 rounded-card border border-tr-border bg-tr-surface-raised p-4 shadow-raised transition hover:border-tr-border-strong hover:shadow-lift motion-reduce:transition-none"
       >
         <div className="min-w-0 flex-1">

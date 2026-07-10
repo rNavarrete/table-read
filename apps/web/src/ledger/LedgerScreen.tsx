@@ -9,6 +9,8 @@ import {
   rejectLedgerFact,
 } from '../api/client'
 import { ApiError } from '../api/errors'
+import { requireProjectId } from '../projects/projectRouting'
+import { loadResume, saveResume } from '../projects/resumeContext'
 import { AppShell } from '../shell/AppShell'
 import { FactCard } from './FactCard'
 import { FilterRail } from './FilterRail'
@@ -20,8 +22,6 @@ import {
   pendingReviewFacts,
   type LedgerFilters,
 } from './filters'
-
-const DEFAULT_PROJECT_ID = 'proj-longpour'
 
 function useUrlParam(name: string): string | null {
   return useMemo(
@@ -35,8 +35,9 @@ function useUrlParam(name: string): string | null {
  * fact card grid. Server is source of truth; mutations roll back on 4xx/5xx.
  */
 export function LedgerScreen() {
-  const projectId = useUrlParam('project') ?? DEFAULT_PROJECT_ID
+  const projectId = requireProjectId()
   const focusFactId = useUrlParam('fact')
+  const activeProjectId = projectId ?? ''
 
   const [project, setProject] = useState<Project | null>(null)
   const [ledger, setLedger] = useState<LedgerFact[]>([])
@@ -47,6 +48,7 @@ export function LedgerScreen() {
   const inFlightRef = useRef(false)
 
   useEffect(() => {
+    if (!projectId) return
     let cancelled = false
     Promise.all([getProject(projectId), getLedger(projectId)])
       .then(([loadedProject, loadedLedger]) => {
@@ -63,6 +65,12 @@ export function LedgerScreen() {
     return () => {
       cancelled = true
     }
+  }, [projectId])
+
+  useEffect(() => {
+    if (!projectId) return
+    const resume = loadResume(projectId)
+    saveResume(projectId, { ...resume, mode: 'Ledger' })
   }, [projectId])
 
   useEffect(() => {
@@ -145,7 +153,7 @@ export function LedgerScreen() {
         expectedHeadSnapshotId: project?.headSnapshotId,
       })
       // Refetch so supersede-target updates land (confirm may touch two facts).
-      return getLedger(projectId)
+      return getLedger(activeProjectId)
     })
   }
 
@@ -157,7 +165,7 @@ export function LedgerScreen() {
       await rejectLedgerFact(factId, {
         expectedHeadSnapshotId: project?.headSnapshotId,
       })
-      return getLedger(projectId)
+      return getLedger(activeProjectId)
     })
   }
 
@@ -186,7 +194,7 @@ export function LedgerScreen() {
         },
         { expectedHeadSnapshotId: project?.headSnapshotId },
       )
-      return getLedger(projectId)
+      return getLedger(activeProjectId)
     })
   }
 
@@ -205,7 +213,7 @@ export function LedgerScreen() {
     )
     void runMutation(null, optimistic, async () => {
       const { ledger: next } = await batchLedgerReview(
-        projectId,
+        activeProjectId,
         {
           confirmIds: ids,
           rejectIds: [],
@@ -234,7 +242,7 @@ export function LedgerScreen() {
     })
     void runMutation(null, optimistic, async () => {
       const { ledger: next } = await batchLedgerReview(
-        projectId,
+        activeProjectId,
         {
           confirmIds: action === 'accept' ? ids : [],
           rejectIds: action === 'reject' ? ids : [],
@@ -248,11 +256,13 @@ export function LedgerScreen() {
   function handleSourceSpanClick(fact: LedgerFact) {
     const url = new URL(window.location.href)
     url.pathname = '/'
-    url.searchParams.set('project', projectId)
+    url.searchParams.set('project', activeProjectId)
     url.searchParams.set('scene', fact.sourceSpan.sceneId)
     url.searchParams.set('highlightBeat', fact.sourceSpan.beatId)
     window.location.assign(url.toString())
   }
+
+  if (!projectId) return null
 
   if (loadError) {
     return (

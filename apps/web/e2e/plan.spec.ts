@@ -18,7 +18,7 @@ import { expect, test } from '@playwright/test'
 test('reorder scene-4 before scene-3 (cross-act drag) persists after reload', async ({
   page,
 }) => {
-  await page.goto('/plan')
+  await page.goto('/plan?project=proj-longpour')
 
   const actOne = page.getByTestId('act-frame-1') // ACT ONE: scene-2, scene-3 in the seeded fixture
   const actTwo = page.getByTestId('act-frame-2') // ACT TWO: scene-4 in the seeded fixture
@@ -66,7 +66,7 @@ test('reorder scene-4 before scene-3 (cross-act drag) persists after reload', as
 test('lock icon renders on beat-1-2 (locked in fixture); beat-1-1 has none', async ({
   page,
 }) => {
-  await page.goto('/plan')
+  await page.goto('/plan?project=proj-longpour')
 
   const scene1 = page.getByTestId('scene-card-scene-1')
   await scene1.getByRole('button', { name: 'Expand beats' }).click()
@@ -83,7 +83,7 @@ test('lock icon renders on beat-1-2 (locked in fixture); beat-1-1 has none', asy
 test('inspector shows motivations and affected ledger facts for the selected scene', async ({
   page,
 }) => {
-  await page.goto('/plan')
+  await page.goto('/plan?project=proj-longpour')
 
   await page.getByTestId('scene-card-scene-1').click()
   const inspector = page.getByTestId('inspector')
@@ -110,7 +110,7 @@ test('inspector shows motivations and affected ledger facts for the selected sce
 test('locking a scene via the inspector disables drag and shows the read-only banner', async ({
   page,
 }) => {
-  await page.goto('/plan')
+  await page.goto('/plan?project=proj-longpour')
 
   const scene6 = page.getByTestId('scene-card-scene-6')
   await expect(scene6).toHaveAttribute('draggable', 'true')
@@ -138,7 +138,7 @@ test('locking a scene via the inspector disables drag and shows the read-only ba
 test('editing location is silent; editing whatHappens offers the Review path; both persist (T3.2)', async ({
   page,
 }) => {
-  await page.goto('/plan')
+  await page.goto('/plan?project=proj-longpour')
 
   // scene-2 is unlocked in the fixture; pick it so neither edit is blocked.
   // (The shared-DB note above holds: scene field edits are inert for the

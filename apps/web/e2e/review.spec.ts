@@ -53,7 +53,7 @@ test('Review journey: Open Review → locked row → preview → apply → plan 
     .find((s) => s.id === 'scene-4')!
     .beats!.find((b) => b.id === 'beat-4-2')!.whatHappens
 
-  await page.goto('/plan')
+  await page.goto('/plan?project=proj-longpour')
 
   await page.getByTestId('scene-card-scene-2').click()
   const inspector = page.getByTestId('inspector')
@@ -123,7 +123,7 @@ test('Review journey: Open Review → locked row → preview → apply → plan 
   expect(beat42After.whatHappens).not.toBe(beat42Before)
   expect(scene5After.whatHappens).toBe(scene5Before)
 
-  await page.goto('/plan')
+  await page.goto('/plan?project=proj-longpour')
   await page.getByTestId('scene-card-scene-2').click()
   await expect(
     page.getByTestId('inspector').getByLabel('What happens'),
@@ -135,7 +135,7 @@ test('after preview, mode-switcher re-entry still finds the Change Set', async (
 }) => {
   // Preview flips status to `previewing`; Review picker must list it (not
   // only `draft`) so Apply remains reachable after navigating away.
-  await page.goto('/plan')
+  await page.goto('/plan?project=proj-longpour')
   await page.getByTestId('scene-card-scene-2').click()
   await page.getByTestId('inspector').getByLabel('What happens').fill(MARINA)
   await page
@@ -171,7 +171,7 @@ test('Flag only marks Change Set flagged without mutating the project', async ({
     await request.get(`/api/v1/projects/${PROJECT_ID}`)
   ).json()
 
-  await page.goto('/plan')
+  await page.goto('/plan?project=proj-longpour')
   await page.getByTestId('scene-card-scene-2').click()
   await page.getByTestId('inspector').getByLabel('What happens').fill(MARINA)
   await page

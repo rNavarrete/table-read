@@ -8,7 +8,7 @@ import { expect, test } from '@playwright/test'
 test('scene-3: Next Beat streams 3 actionable cards; Accept inserts the beat and bumps the ledger badge', async ({
   page,
 }) => {
-  await page.goto('/?scene=scene-3')
+  await page.goto('/?project=proj-longpour&scene=scene-3')
 
   // The scene's existing beat (fixture: beat-3-1) is already on the page.
   await expect(page.getByTestId('beat-beat-3-1')).toBeVisible()

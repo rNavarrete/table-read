@@ -12,6 +12,9 @@ import { WriteScreen } from './write/WriteScreen'
 function App() {
   const path = window.location.pathname
   if (path === '/') {
+    if (new URLSearchParams(window.location.search).has('project')) {
+      return <WriteScreen />
+    }
     window.location.replace('/projects')
     return null
   }

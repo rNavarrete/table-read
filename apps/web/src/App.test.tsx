@@ -20,9 +20,11 @@ describe('App routing', () => {
 
     expect(screen.getByText('Start from an idea')).not.toBeNull()
     expect(screen.getByText('Coming soon.')).not.toBeNull()
-    expect(screen.getByRole('link', { name: 'Back to projects' }).getAttribute('href')).toBe(
-      '/projects',
-    )
+    expect(
+      screen
+        .getByRole('link', { name: 'Back to projects' })
+        .getAttribute('href'),
+    ).toBe('/projects')
     expect(screen.queryByTestId('write-screen')).toBeNull()
   })
 

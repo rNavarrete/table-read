@@ -122,9 +122,18 @@ export function AppShell({
   return (
     <div className="min-h-screen bg-tr-surface-page">
       <header className="flex h-shell-height items-center gap-6 bg-tr-surface-sunken px-6">
-        <h1 className="font-display text-17 font-semibold text-tr-text-primary">
-          {projectTitle}
-        </h1>
+        {projectId ? (
+          <a
+            href="/projects"
+            className="font-display text-17 font-semibold text-tr-text-primary"
+          >
+            {projectTitle}
+          </a>
+        ) : (
+          <h1 className="font-display text-17 font-semibold text-tr-text-primary">
+            {projectTitle}
+          </h1>
+        )}
         <ModeSwitcher
           active={activeMode}
           ledgerCount={ledgerCount}

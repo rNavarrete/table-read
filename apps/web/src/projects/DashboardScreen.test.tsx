@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { listProjects } from '../api/client'
 import { DashboardScreen } from './DashboardScreen'
 import { rowStatus } from './dashboardStatus'
+import { saveResume } from './resumeContext'
 
 vi.mock('../api/client', () => ({
   listProjects: vi.fn(),
@@ -13,6 +14,7 @@ vi.mock('../api/client', () => ({
 
 afterEach(() => {
   cleanup()
+  localStorage.clear()
   vi.resetAllMocks()
 })
 
@@ -101,6 +103,19 @@ describe('DashboardScreen', () => {
     expect(screen.getByText('Continue setup')).not.toBeNull()
     expect(screen.getAllByText('Ready to write').length).toBeGreaterThan(0)
     expect(screen.queryByText('Six')).toBeNull()
+  })
+
+  it('links a recent project to its last local mode and scene', async () => {
+    vi.mocked(listProjects).mockResolvedValue([project()])
+    saveResume('proj-longpour', { mode: 'Plan', sceneId: 'scene-3' })
+
+    render(<DashboardScreen />)
+
+    expect(
+      (await screen.findByRole('link', { name: /The Long Pour/ })).getAttribute(
+        'href',
+      ),
+    ).toBe('/plan?project=proj-longpour&scene=scene-3')
   })
 
   it('renders a search-empty state and can clear search', async () => {

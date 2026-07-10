@@ -7,7 +7,7 @@ import { expect, test } from '@playwright/test'
 test('locked beat (beat-1-2) renders read-only with a focus hint; the unlocked beat stays editable', async ({
   page,
 }) => {
-  await page.goto('/?scene=scene-1')
+  await page.goto('/?project=proj-longpour&scene=scene-1')
 
   const unlocked = page.getByTestId('beat-beat-1-1')
   await expect(unlocked).toBeEditable()
