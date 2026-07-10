@@ -12,6 +12,7 @@ both are T4.4a. Change-set apply's scan wiring remains T4.2.
 from __future__ import annotations
 
 from collections.abc import Callable
+from datetime import UTC
 
 import anthropic
 from fastapi import APIRouter, Body, Depends, Header, Query, Response
@@ -43,6 +44,7 @@ from schemas import (
     LedgerFact,
     LedgerFactEdit,
     Project,
+    ProjectSummary,
     ShowFormat,
 )
 from storage import snapshots
@@ -101,6 +103,43 @@ def _minimal_series_bible() -> dict:
         "narratorGoals": [],
         "worldQA": [],
     }
+
+
+def _has_usable_scene_skeleton(doc: dict) -> bool:
+    return any(
+        scene.get("beats")
+        for season in doc.get("seasons", [])
+        for episode in season.get("episodes", [])
+        for scene in episode.get("scenes", [])
+    )
+
+
+def _rfc3339_utc_z(value) -> str:
+    timestamp = value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+    return timestamp.isoformat().replace("+00:00", "Z")
+
+
+def _project_summary(session: Session, project: ProjectRow) -> dict:
+    pending_count = (
+        session.query(LedgerFactRow)
+        .filter_by(project_id=project.id, status="pending_review")
+        .count()
+    )
+    doc = project.doc
+    return {
+        "id": project.id,
+        "title": doc["title"],
+        "format": doc["format"],
+        "updatedAt": _rfc3339_utc_z(project.updated_at),
+        "pendingReviewCount": pending_count,
+        "setupState": "ready" if _has_usable_scene_skeleton(doc) else "incomplete",
+    }
+
+
+@router.get("", response_model=list[ProjectSummary])
+def list_projects(session: Session = Depends(get_session)) -> list[dict]:
+    projects = session.query(ProjectRow).order_by(ProjectRow.updated_at.desc()).all()
+    return [_project_summary(session, project) for project in projects]
 
 
 @router.post("", response_model=Project, status_code=201)

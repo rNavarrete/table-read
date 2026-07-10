@@ -110,6 +110,15 @@ export const Project = z.object({
   headSnapshotId: Id.nullable(),
 });
 // Ledger, snapshots, suggestionHistory live in separate stores (design doc §5).
+
+export const ProjectSummary = z.object({
+  id: Id,
+  title: z.string(),
+  format: ShowFormat,
+  updatedAt: z.string().datetime(),
+  pendingReviewCount: z.number().int().min(0),
+  setupState: z.enum(["incomplete", "ready"]),
+});
 ```
 
 ## 2. Generation / Review types
@@ -283,6 +292,7 @@ Defined transactions:
 
 **Projects**
 
+- `GET /projects` -> `ProjectSummary[]` sorted by `updatedAt` descending. `pendingReviewCount` counts Ledger facts with `status: "pending_review"`. `setupState` is `"ready"` iff the project has at least one scene containing at least one beat; otherwise `"incomplete"`. Summaries must not include full writer text fields such as `premise` or `seasons`.
 - `POST /projects` `{title, format, premise}` → `Project` — in one transaction: creates the project (minimal bible scaffolded) **and its root snapshot** (`parent_id: null`, `doc` = initial state, `ledger` = `[]`, `flags` = `[]`), setting `headSnapshotId` to it. `headSnapshotId` is therefore never null after creation — previews, undo, and forks always have an anchor. (Undo at root still 409s: the root has no parent.)
 - `GET /projects/{pid}` → `Project`
 - `PATCH /projects/{pid}` — JSON-patch body for direct writer edits (no regeneration); creates snapshot. Patches touching **structural plan fields** (scene/episode `whatHappens`, `premise`, storyline summaries) additionally trigger `scan_consistency` and return `{project, consistencyFlags}` — the "Save field only" path skips Review, never the flagging promise. Patches into locked ranges → 409 `LOCKED_OBJECT`.

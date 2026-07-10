@@ -5,6 +5,7 @@ import type {
   LedgerExtraction,
   LedgerFact,
   Project,
+  ProjectSummary,
 } from 'contract'
 import { toApiError } from './errors'
 
@@ -129,6 +130,10 @@ export async function exportFountain(projectId: string): Promise<string> {
 
 export function getProject(projectId: string): Promise<Project> {
   return getJson<Project>(`/projects/${projectId}`)
+}
+
+export function listProjects(): Promise<ProjectSummary[]> {
+  return getJson<ProjectSummary[]>('/projects')
 }
 
 export function getLedger(

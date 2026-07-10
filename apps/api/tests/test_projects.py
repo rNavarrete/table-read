@@ -5,6 +5,8 @@ T1.1 scope: POST /projects, PATCH /projects/{pid}, real undo (non-root
 restore), DELETE purge.
 """
 
+from datetime import UTC, datetime, timedelta
+
 from fastapi.testclient import TestClient
 
 from main import app
@@ -33,6 +35,63 @@ NEW_PROJECT_BODY = {
     },
     "premise": "A test premise.",
 }
+
+
+def _clear_project_tables(db_session):
+    for model in (
+        SnapshotRow,
+        LedgerFactRow,
+        ChangeSetRow,
+        ConsistencyFlagRow,
+        SuggestionHistoryRow,
+        ProjectRow,
+    ):
+        db_session.query(model).delete()
+    db_session.commit()
+
+
+def _parse_rfc3339_z(value: str) -> datetime:
+    assert value.endswith("Z")
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+def test_list_projects_empty_db_returns_empty_array(db_session):
+    _clear_project_tables(db_session)
+
+    response = client.get("/api/v1/projects")
+
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+def test_list_projects_returns_seeded_summary_without_full_doc(seeded_project):
+    response = client.get("/api/v1/projects")
+
+    assert response.status_code == 200
+    summaries = response.json()
+    long_pour = next(item for item in summaries if item["id"] == PROJECT_ID)
+    assert long_pour["title"] == "The Long Pour"
+    assert long_pour["format"]["genre"] == "drama"
+    assert long_pour["setupState"] == "ready"
+    assert long_pour["pendingReviewCount"] == 1
+    assert _parse_rfc3339_z(long_pour["updatedAt"]).tzinfo == UTC
+    assert "premise" not in long_pour
+    assert "seasons" not in long_pour
+
+
+def test_list_projects_sorts_by_updated_at_desc(db_session, seeded_project):
+    created = client.post("/api/v1/projects", json=NEW_PROJECT_BODY).json()
+    db_session.get(ProjectRow, PROJECT_ID).updated_at = datetime(2026, 7, 10, 12, 0, 0)
+    db_session.get(ProjectRow, created["id"]).updated_at = datetime(
+        2026, 7, 10, 12, 0, 0
+    ) + timedelta(minutes=5)
+    db_session.commit()
+
+    response = client.get("/api/v1/projects")
+
+    assert response.status_code == 200
+    assert [item["id"] for item in response.json()[:2]] == [created["id"], PROJECT_ID]
+    assert response.json()[0]["setupState"] == "incomplete"
 
 
 def test_get_project_returns_seeded_fixture(seeded_project):

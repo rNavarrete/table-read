@@ -62,6 +62,7 @@ SCHEMA_NAMES = [
     "SourceSpan",
     "LedgerFact",
     "Project",
+    "ProjectSummary",
     # §2
     "BeatCandidate",
     "ImpactedObject",

@@ -231,6 +231,20 @@ class Project(_Base):
 # Ledger, snapshots, suggestionHistory live in separate stores (design doc §5).
 
 
+class SetupState(StrEnum):
+    incomplete = "incomplete"
+    ready = "ready"
+
+
+class ProjectSummary(_Base):
+    id: Id
+    title: str
+    format: ShowFormat
+    updated_at: str
+    pending_review_count: int = Field(ge=0)
+    setup_state: SetupState
+
+
 # ─────────────────────────────────────────────────────────────────────────
 # §2. Generation / Review types
 # ─────────────────────────────────────────────────────────────────────────

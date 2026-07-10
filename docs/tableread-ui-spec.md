@@ -54,11 +54,25 @@ Quiet Tool visual language: cool paper neutrals, slate-blue accent (`--tr-coral*
 
 **Status hue semantics (consistent everywhere):** sage = confirmed/high-confidence · sky = informational/relational · amber = pending/speculative/needs-review · coral (`--tr-coral*`) = the one primary action per surface (slate-blue values). No purple "AI" gradients, no sparkle icons; AI-origin content is marked by a small `~` glyph chip in `--tr-text-muted`.
 
-## 2. App shell
+## 2. Dashboard / Story Launcher
+
+`/projects` is the app home. `/` redirects to `/projects`. The dashboard uses a Quiet Tool top bar with the Table Read wordmark on the left and a `--tr-coral` `+ New project` pill on the right, plus Settings and user/avatar affordances. The current Task 1 shell links `+ New project` and the launcher cards to the future wizard routes (`/projects/new/idea`, `/projects/new/import`).
+
+Centered content: eyebrow **BEGIN**, heading **What are we writing?**, subcopy **Shape a new idea, or bring in a script you already have.**, two launcher cards (**Start from an idea**, **Import a script**), then **Continue writing** with lightweight title search.
+
+Recent projects show at most five `ProjectSummary` rows ordered by server `updatedAt` descending. Each row displays title, format metadata (genre, runtime, act count), actionable status, relative last-edited time, and a reserved overflow affordance. Status priority is:
+
+1. `N facts to review` when `pendingReviewCount > 0`.
+2. `Continue setup` when `setupState === "incomplete"`.
+3. `Ready to write` otherwise.
+
+States: loading skeleton matching the list geometry; empty state preserving both creation cards; populated list; no-search-results message with Clear search; API error with Retry. The dashboard never substitutes seeded fixture data on error.
+
+## 3. App shell
 
 Top bar (52px, `--tr-shell-height`, `--tr-surface-sunken`): project title (Instrument Sans display font, 17px / 600) · mode switcher (clay segmented control: **Write · Plan · Review · Ledger**, active segment uses `--tr-coral-soft` + `--tr-accent-ink`) · undo · export · settings. Review segment shows an amber dot when a draft Change Set exists. Ledger segment shows amber count badge when the review queue is non-empty. Keyboard: `⌘1–4` switch modes. Settings opens a privacy panel stating writing is not used for training (prompt spec §8); do not claim ZDR in product copy.
 
-## 3. Write mode
+## 4. Write mode
 
 Layout: centered script column (max 600px, `--tr-script-col`) on `--tr-surface-page`; the script sheet itself is `--tr-surface-raised` with a subtle shadow — the hero. Right dock (~332px, `--tr-panel-candidate-dock`) for candidates; bottom command bar (floating pill, 56px, max 600px).
 
@@ -69,7 +83,7 @@ Layout: centered script column (max 600px, `--tr-script-col`) on `--tr-surface-p
 
 **States:** *Empty scene* — ghost text "Write, or press Next Beat" + single coral "Next Beat" button center-dock. *Streaming* — cards fill sequentially; command bar disabled with subtle progress shimmer on the dock border. *Error* — dock card with `--tr-danger` left border, message + Retry; script canvas untouched. *Continuity conflict on a candidate* — amber chip "conflicts with: Dan doesn't know (fact-04)" on the card; accepting requires a confirm click on the chip.
 
-## 4. Plan mode (MVP: simplified board)
+## 5. Plan mode (MVP: simplified board)
 
 Layout: left Story Layers panel (232px, sunken) · center board (page surface, pannable, not yet infinite/zoomable) · right inspector (296px, raised).
 
@@ -81,7 +95,7 @@ Layout: left Story Layers panel (232px, sunken) · center board (page surface, p
 
 **States:** *Nothing selected* — inspector shows episode summary + premise. *Drag* — card lifts (shadow token), siblings gap-animate. *Locked selection* — inspector fields read-only with lock banner "Locked — unlock to edit".
 
-## 5. Review mode
+## 6. Review mode
 
 Entered via mode switcher (lists draft Change Sets) or directly from Plan/Write triggers. One Change Set at a time.
 
@@ -95,7 +109,7 @@ Layout: quiet full-mode Review surface — compact header card with small instru
 
 **States:** *Classifying* — skeleton rows + "Mapping impact…" (boring, factual). *Previewing* — per-row shimmer on `after` pane only. *Applied* — rows collapse to sage check summary + "Undo all" (one snapshot revert), followed by a **post-apply consistency section**: any `scan_consistency` flags render as amber rows ("Scene 5 still stages the argument around the bar's finances") with actions *Open Change Set* / *Go to scene* / *Dismiss* — never auto-fixed. *409 lock conflict* — danger toast "A locked element was included — nothing was changed", selection preserved. Open consistency flags also badge the affected scene cards in Plan mode (small amber dot).
 
-## 6. Ledger mode
+## 7. Ledger mode
 
 Layout: left filter rail (198px: status, character, fact type) with accent-tint active filter pills · two-column fact card grid (center) · **review queue** pinned top when non-empty (amber banner: "3 facts awaiting review").
 
@@ -106,10 +120,10 @@ Layout: left filter rail (198px: status, character, fact type) with accent-tint 
 
 **States:** *Empty ledger* — "Facts appear as you write. Table Read tracks what's true so you don't have to." *Filtered empty* — plain "No facts match."
 
-## 7. Component inventory (build once, reuse)
+## 8. Component inventory (build once, reuse)
 
 `ModeSwitcher` · `Card` (raised/sunken variants) · `Chip` (status hues) · `LockToggle` · `ConfidenceBar` · `DiffPane` (plan + script variants) · `CandidateCard` · `CommandBar` · `InspectorField` (read-only-when-locked behavior built in) · `FactCard` · `ChangeSetRow` · `SsePane` (streaming text region) · `Toast`. Storybook story per component per state is part of each UI task's definition of done.
 
-## 8. Accessibility & feel
+## 9. Accessibility & feel
 
 All status meaning doubled with text/icon (never color alone); focus rings 2px sky; full keyboard path for Accept/Tune/Skip (`1/2/3` when dock focused) and Review checkboxes; `prefers-reduced-motion` kills lift/collapse animations; streaming text is `aria-live="polite"`. Feel target: closer to a well-made writing app than a dev tool — if a surface looks like a database admin panel, it's wrong (design doc §4.1 negative direction).

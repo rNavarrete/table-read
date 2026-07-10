@@ -203,6 +203,16 @@ export const Project = z.object({
 export type Project = z.infer<typeof Project>
 // Ledger, snapshots, suggestionHistory live in separate stores (design doc §5).
 
+export const ProjectSummary = z.object({
+  id: Id,
+  title: z.string(),
+  format: ShowFormat,
+  updatedAt: z.string().datetime(),
+  pendingReviewCount: z.number().int().min(0),
+  setupState: z.enum(['incomplete', 'ready']),
+})
+export type ProjectSummary = z.infer<typeof ProjectSummary>
+
 // ─────────────────────────────────────────────────────────────────────────
 // §2. Generation / Review types
 // ─────────────────────────────────────────────────────────────────────────

@@ -1,5 +1,6 @@
 import { LedgerScreen } from './ledger/LedgerScreen'
 import { PlanScreen } from './plan/PlanScreen'
+import { DashboardScreen } from './projects/DashboardScreen'
 import { ReviewScreen } from './review/ReviewScreen'
 import { WriteScreen } from './write/WriteScreen'
 
@@ -9,6 +10,11 @@ import { WriteScreen } from './write/WriteScreen'
 // `window.location.pathname`, so this is the one place that reads it back.
 function App() {
   const path = window.location.pathname
+  if (path === '/') {
+    window.location.replace('/projects')
+    return null
+  }
+  if (path === '/projects') return <DashboardScreen />
   if (path === '/plan') return <PlanScreen />
   if (path === '/review') return <ReviewScreen />
   if (path === '/ledger') return <LedgerScreen />
