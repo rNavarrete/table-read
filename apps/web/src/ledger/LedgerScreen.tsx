@@ -299,7 +299,7 @@ export function LedgerScreen() {
           )}
           {queue.length > 0 && (
             <section
-              className="rounded-card bg-tr-amber-soft p-4"
+              className="rounded-card border border-tr-border bg-tr-amber-soft p-4"
               aria-label="Review queue"
               data-testid="review-queue"
             >
@@ -359,7 +359,7 @@ export function LedgerScreen() {
                         </button>
                       </div>
                     </div>
-                    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                    <div className="grid gap-3 md:grid-cols-2">
                       {group.facts.map((fact) => (
                         <FactCard
                           key={`queue-${fact.id}`}
@@ -381,7 +381,7 @@ export function LedgerScreen() {
             </section>
           )}
           <section aria-label="Ledger facts">
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            <div className="grid gap-3 md:grid-cols-2">
               {gridFacts.map((fact) => (
                 <FactCard
                   key={fact.id}
