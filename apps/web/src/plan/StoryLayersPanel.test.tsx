@@ -160,6 +160,26 @@ describe('StoryLayersPanel', () => {
     expect(onSelectNothing).toHaveBeenCalledTimes(2)
   })
 
+  it('selected scene rows use soft accent fill with accent ink text', () => {
+    const ep = episode([scene()])
+    render(
+      <StoryLayersPanel
+        project={project(ep)}
+        episode={ep}
+        selection={{ type: 'scene', sceneId: 'scene-1' }}
+        collapsedActs={new Set()}
+        onSelectNothing={noop}
+        onSelectScene={noop}
+        onToggleActCollapse={noop}
+      />,
+    )
+    const selectedScene = screen.getByRole('button', {
+      name: /INT\. THE LONG POUR - NIGHT/,
+    })
+    expect(selectedScene.className).toContain('bg-tr-coral-soft')
+    expect(selectedScene.className).toContain('text-tr-accent-ink')
+  })
+
   it('the connector-row footer stub is disabled with the v2 tooltip', () => {
     const ep = episode([scene()])
     render(

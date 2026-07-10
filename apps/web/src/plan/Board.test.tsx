@@ -200,7 +200,7 @@ describe('Board / SceneCard / BeatCard', () => {
     expect(onSelectScene).toHaveBeenCalledWith('scene-1')
   })
 
-  it('a selected scene card carries the selected data attribute driving the coral outline', () => {
+  it('a selected scene card uses the Quiet Tool soft accent fill', () => {
     const ep = episode([scene()])
     render(
       <Board
@@ -216,8 +216,8 @@ describe('Board / SceneCard / BeatCard', () => {
       />,
     )
     const card = screen.getByTestId('scene-card-scene-1')
-    expect(card.className).toContain('outline-selected')
-    expect(card.className).toContain('outline-tr-coral')
+    expect(card.className).toContain('bg-tr-coral-soft')
+    expect(card.className).not.toContain('outline-selected')
   })
 
   it('the chevron expands the card to reveal nested beat cards; the locked beat shows a lock chip', async () => {
