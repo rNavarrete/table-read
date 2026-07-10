@@ -21,6 +21,7 @@ import anthropic
 from fastapi import APIRouter, Body, Depends, Header, Query, Response
 from fastapi.responses import PlainTextResponse, StreamingResponse
 from pydantic import ValidationError
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from drama_manager import (
@@ -172,6 +173,25 @@ def _project_summary(session: Session, project: ProjectRow) -> dict:
     }
 
 
+def _resolve_create_idempotency(
+    session: Session, idempotency_key: str, request_hash: str
+) -> dict | None:
+    existing = (
+        session.query(ProjectRow)
+        .filter_by(creation_idempotency_key=idempotency_key)
+        .one_or_none()
+    )
+    if existing is None:
+        return None
+    if existing.creation_request_hash == request_hash:
+        return existing.doc
+    raise ApiError(
+        409,
+        "IDEMPOTENCY_CONFLICT",
+        "Idempotency-Key was already used for a different project request",
+    )
+
+
 @router.get("", response_model=list[ProjectSummary])
 def list_projects(session: Session = Depends(get_session)) -> list[dict]:
     projects = session.query(ProjectRow).order_by(ProjectRow.updated_at.desc()).all()
@@ -188,19 +208,10 @@ def create_project(
         raise ApiError(400, "VALIDATION", "Idempotency-Key must not be empty")
 
     request_hash = _creation_request_hash(body)
-    existing = (
-        session.query(ProjectRow)
-        .filter_by(creation_idempotency_key=idempotency_key)
-        .one_or_none()
-    )
-    if existing is not None:
-        if existing.creation_request_hash == request_hash:
-            return existing.doc
-        raise ApiError(
-            409,
-            "IDEMPOTENCY_CONFLICT",
-            "Idempotency-Key was already used for a different project request",
-        )
+    if existing_doc := _resolve_create_idempotency(
+        session, idempotency_key, request_hash
+    ):
+        return existing_doc
 
     doc = {
         "id": None,  # server-assigned in snapshots.create_project
@@ -212,13 +223,21 @@ def create_project(
         "seasons": [],
         "headSnapshotId": None,  # server-assigned in snapshots.create_project
     }
-    project = snapshots.create_project(
-        session,
-        doc,
-        instruction="Project created",
-        creation_idempotency_key=idempotency_key,
-        creation_request_hash=request_hash,
-    )
+    try:
+        project = snapshots.create_project(
+            session,
+            doc,
+            instruction="Project created",
+            creation_idempotency_key=idempotency_key,
+            creation_request_hash=request_hash,
+        )
+    except IntegrityError:
+        session.rollback()
+        if existing_doc := _resolve_create_idempotency(
+            session, idempotency_key, request_hash
+        ):
+            return existing_doc
+        raise
     return project.doc
 
 

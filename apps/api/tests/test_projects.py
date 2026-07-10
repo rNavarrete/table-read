@@ -8,7 +8,9 @@ restore), DELETE purge.
 from datetime import UTC, datetime, timedelta
 
 from fastapi.testclient import TestClient
+from sqlalchemy.exc import IntegrityError
 
+import routes
 from llm.dependency import get_llm_client
 from main import app
 from storage.models import (
@@ -23,6 +25,16 @@ from storage.models import (
 client = TestClient(app)
 
 PROJECT_ID = "proj-longpour"
+MINIMAL_SERIES_BIBLE = {
+    "existentialQuestion": {"text": "", "locked": False},
+    "worldRules": [],
+    "storiesToAvoid": [],
+    "characters": [],
+    "relationships": [],
+    "audienceGoals": [],
+    "narratorGoals": [],
+    "worldQA": [],
+}
 
 NEW_PROJECT_BODY = {
     "title": "Test Show",
@@ -287,6 +299,118 @@ def test_create_project_idempotency_conflicts_on_different_request(db_session):
     assert conflict.status_code == 409
     assert conflict.json()["error"]["code"] == "IDEMPOTENCY_CONFLICT"
     assert db_session.query(ProjectRow).count() == 1
+
+
+def test_create_project_idempotency_replays_after_unique_race(db_session, monkeypatch):
+    _clear_project_tables(db_session)
+    headers = {"Idempotency-Key": "00000000-0000-4000-8000-000000000006"}
+    raced_doc = {
+        "id": "proj-raced",
+        "title": "Test Show",
+        "format": NEW_PROJECT_BODY["format"],
+        "enabledComponents": ["continuity_ledger"],
+        "premise": "A test premise.",
+        "seriesBible": MINIMAL_SERIES_BIBLE,
+        "seasons": [],
+        "headSnapshotId": "snap-raced",
+    }
+
+    def race_then_integrity_error(
+        session,
+        doc,
+        instruction,
+        *,
+        creation_idempotency_key=None,
+        creation_request_hash=None,
+    ):
+        session.add(
+            ProjectRow(
+                id=raced_doc["id"],
+                doc=raced_doc,
+                head_snapshot_id=raced_doc["headSnapshotId"],
+                creation_idempotency_key=creation_idempotency_key,
+                creation_request_hash=creation_request_hash,
+            )
+        )
+        session.add(
+            SnapshotRow(
+                id=raced_doc["headSnapshotId"],
+                project_id=raced_doc["id"],
+                parent_id=None,
+                instruction=instruction,
+                doc=raced_doc,
+                ledger=[],
+                flags=[],
+                ts="2026-07-10T00:00:00Z",
+            )
+        )
+        session.commit()
+        raise IntegrityError("unique race", params=None, orig=Exception("unique"))
+
+    monkeypatch.setattr(routes.snapshots, "create_project", race_then_integrity_error)
+
+    response = client.post("/api/v1/projects", json=NEW_PROJECT_BODY, headers=headers)
+
+    assert response.status_code == 201
+    assert response.json() == raced_doc
+    assert db_session.query(ProjectRow).count() == 1
+    assert db_session.query(SnapshotRow).count() == 1
+
+
+def test_create_project_idempotency_conflicts_after_unique_race(db_session, monkeypatch):
+    _clear_project_tables(db_session)
+    headers = {"Idempotency-Key": "00000000-0000-4000-8000-000000000007"}
+    raced_doc = {
+        "id": "proj-raced-conflict",
+        "title": "Different Show",
+        "format": NEW_PROJECT_BODY["format"],
+        "enabledComponents": ["continuity_ledger"],
+        "premise": "A different premise.",
+        "seriesBible": MINIMAL_SERIES_BIBLE,
+        "seasons": [],
+        "headSnapshotId": "snap-raced-conflict",
+    }
+
+    def race_then_integrity_error(
+        session,
+        doc,
+        instruction,
+        *,
+        creation_idempotency_key=None,
+        creation_request_hash=None,
+    ):
+        session.add(
+            ProjectRow(
+                id=raced_doc["id"],
+                doc=raced_doc,
+                head_snapshot_id=raced_doc["headSnapshotId"],
+                creation_idempotency_key=creation_idempotency_key,
+                creation_request_hash="different-request-hash",
+            )
+        )
+        session.add(
+            SnapshotRow(
+                id=raced_doc["headSnapshotId"],
+                project_id=raced_doc["id"],
+                parent_id=None,
+                instruction=instruction,
+                doc=raced_doc,
+                ledger=[],
+                flags=[],
+                ts="2026-07-10T00:00:00Z",
+            )
+        )
+        session.commit()
+        raise IntegrityError("unique race", params=None, orig=Exception("unique"))
+
+    monkeypatch.setattr(routes.snapshots, "create_project", race_then_integrity_error)
+
+    response = client.post("/api/v1/projects", json=NEW_PROJECT_BODY, headers=headers)
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "IDEMPOTENCY_CONFLICT"
+    assert db_session.query(ProjectRow).count() == 1
+    assert db_session.query(SnapshotRow).count() == 1
 
 
 def test_create_project_missing_field_returns_envelope_422(db_session):
