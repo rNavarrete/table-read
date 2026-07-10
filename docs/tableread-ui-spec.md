@@ -66,7 +66,7 @@ Recent projects show at most five `ProjectSummary` rows ordered by server `updat
 2. `Continue setup` when `setupState === "incomplete"`.
 3. `Ready to write` otherwise.
 
-The row overflow menu contains **Rename**, **Export Fountain**, and **Permanently delete** (design doc §4.4a). Rename edits the title via `PATCH /projects/{pid}` (`/title`); Export Fountain downloads `GET /projects/{pid}/export.fountain`. **Permanently delete** opens a confirmation modal that requires typing the project's **exact title** before the destructive button enables, then calls the canonical full-purge `DELETE /projects/{pid}`. There is no Trash/archive: the copy says so, and deletion cannot be undone. A failed purge leaves the row visible and reports the error (design spec §11); on success the row disappears from the list.
+The row overflow menu contains **Rename**, **Export Fountain**, and **Permanently delete** (design doc §4.2a). Rename edits the title via `PATCH /projects/{pid}` (`/title`); Export Fountain downloads `GET /projects/{pid}/export.fountain`. **Permanently delete** opens a confirmation modal that requires typing the project's **exact title** before the destructive button enables, then calls the canonical full-purge `DELETE /projects/{pid}`. There is no Trash/archive: the copy says so, and deletion cannot be undone. A failed purge leaves the row visible and reports the error (design spec §11); on success the row disappears from the list.
 
 States: loading skeleton matching the list geometry; empty state preserving both creation cards; populated list; no-search-results message with Clear search; API error with Retry. The dashboard never substitutes seeded fixture data on error.
 
