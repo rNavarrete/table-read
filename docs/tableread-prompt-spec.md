@@ -227,7 +227,7 @@ Server rules: `scriptText` is **sliced from the source by line range, never tran
 
 ## 8. Cross-cutting conventions
 
-- **Model pinning:** prompts reference model *roles* (`writer`, `classifier`), resolved via `config/models.toml`, which pins exact model IDs (e.g., `writer = "claude-sonnet-4-5-20250929"`) per PROMPT_VERSION. Every call logs both the role and the resolved model ID; changing a pinned ID is a versioned change requiring `make evals`, same as a prompt edit. Role assignments: `writer` = §1 candidates, §2 tune (tuning dialogue is still creative writing), §4 regenerate; `classifier` = §3 blast radius, §5 extraction, §6 suggestions, §7 segmentation, §8c consistency scan. (§7 segmentation was reassigned writer→classifier per the T6.1 escalation so it can run at temperature 0 as §7 requires — see build plan T6.1; the writer tier rejects sampling params.)
+- **Model pinning:** prompts reference model *roles* (`writer`, `classifier`), resolved via `config/models.toml`, which pins exact model IDs (e.g., `writer = "claude-sonnet-4-5-20250929"`) per PROMPT_VERSION. Every call logs both the role and the resolved model ID; changing a pinned ID is a versioned change requiring `make evals`, same as a prompt edit. Role assignments: `writer` = §1 candidates, §2 tune (tuning dialogue is still creative writing), §4 regenerate, §9 scene skeleton; `classifier` = §3 blast radius, §5 extraction, §6 suggestions, §7 segmentation, §8c consistency scan. (§7 segmentation was reassigned writer→classifier per the T6.1 escalation so it can run at temperature 0 as §7 requires — see build plan T6.1; the writer tier rejects sampling params.)
 - **Strict tool use:** every tool definition sets `strict: true`; candidate cards are actionable only after full tool-input validation (header policy + §8a).
 - **Real schemas, one source:** the canonical `input_schema` for every op is **generated from the Zod definitions in the data contract §2a** (`packages/contract`, via `z.toJSONSchema`) with `additionalProperties: false`, explicit `required` arrays, enums, and nullable fields — every operation type in this doc (`BeatCandidate`, `BlastRadius`, `RegeneratedElements`, `LedgerExtraction`, `InstructionSuggestions`, `SegmentedScene`, `ConsistencyScan`) is defined there and CI-diffed; the JSON blocks in this doc are readable summaries, not the artifact. Example of the real thing, `BeatCandidate`:
 
@@ -336,3 +336,26 @@ Purpose: the post-change sweep over **untouched** material — the operation tha
 ```
 
 Server behavior: flags attach to the Change Set (rendered as amber continuity annotations on a post-apply summary) and to the flagged scenes' Plan-mode inspectors; they are review items only — resolving one is always a writer action (open a new Change Set, edit directly, or dismiss). Flags referencing changed/locked-out IDs are dropped server-side. Worked example: after applying the marina change (§3), scene-5's plan still has the "your bar" argument staged around the bar's finances → `{objectId: "scene-5", factId: null, severity: "tension", explanation: "The argument's stakes reference the bar as the money's hiding place, which is no longer true."}`.
+
+## 9. `generate_scene_skeleton`
+
+Purpose: guided Plan setup's "Generate scene skeleton" gesture (new-project-flow design spec §6/§9.4) — proposes an ordered set of new scenes (with beat-plan seeds) that opens a project's first episode. Model: `writer` role. Driven **3x** by the product-wide convergent-diversity loop (`drama_manager/scene_skeleton.py`, the same AVOID-list mechanic as §1): each call's prompt carries the prior candidates' labels/one-line summaries this round so the three diverge.
+
+**Input:** series context (`premise`, `format`, theme), the project's characters (name/presentation/hiding/traits), `storiesToAvoid`, any existing scenes' plan summaries (so a re-run doesn't duplicate them), and `AVOID (prior candidates this round): {...}`. All source content inside `<source_data>` tags.
+
+**Output schema (`InitialSceneSkeleton`):**
+
+```json
+{
+  "label": "string, ≤40 chars",
+  "scenes": [{
+    "act": 0,
+    "location": "", "time": "", "socialSituation": "",
+    "whatHappens": "", "audienceLearns": "", "audienceFeels": "",
+    "motivations": [{ "characterId": "", "objective": "", "stakes": "", "obstacle": "" }],
+    "beatPlanSeeds": [{ "whatHappens": "", "audienceLearns": "", "audienceFeels": "" }]
+  }]
+}
+```
+
+The model never sets ids, `storyline`, or `scriptText` — the server mints a `proposalId` selection handle per scene and stamps `storyline: "A"` after validating every `motivations[].characterId` against the project's actual characters (an unknown id is `SCHEMA_INVALID_LLM`, not a fabricated character). MVP defers storyline inference: every proposed scene is tagged `"A"`. Selecting one of the three candidates creates an `initial_scene_skeleton` Change Set (data contract §9.4) already `previewing` — no further model call — and Change Set apply assigns the real `scene-*`/`beat-*` ids for the writer's approved subset.

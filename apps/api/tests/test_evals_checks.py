@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import pytest
 
+from drama_manager.render import PROMPT_VERSION
 from evals import checks
 from evals.checks import (
     continuity_eval,
@@ -222,7 +223,7 @@ def test_run_suite_dry_run_end_to_end_and_rule5_clean(session_factory, tmp_path)
     # fragment set) must also pass on a real suite report.
     report.write(tmp_path)
     # And it must carry the version + model ids that gate a prompt bump.
-    assert "0.6.0" in report.to_json()
+    assert PROMPT_VERSION in report.to_json()
 
 
 # ── cost visibility + CLI guards (review fixes 1 & 3) ──────────────────────────

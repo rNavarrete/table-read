@@ -106,6 +106,15 @@ Layout: left Story Layers panel (232px, sunken) · center board (page surface, p
 
 **States:** *Nothing selected* — inspector shows episode summary + premise. *Drag* — card lifts (shadow token), siblings gap-animate. *Locked selection* — inspector fields read-only with lock banner "Locked — unlock to edit".
 
+### 5a. Guided Plan setup
+
+Shown on Plan instead of the (otherwise empty) board while `setupState: "incomplete"` (no scene contains a beat yet — new-project-flow design spec §6/§9.4). Centered card: eyebrow "Guided Plan setup" · heading "Let's open your first episode." · one explicit, verb-labelled **Generate scene skeleton** button (never auto-triggered — CLAUDE.md rule 8) with a one-line description of what will be sent and what comes back, plus the trust note.
+
+- **Generating:** button becomes "Generating…", disabled; no partial results render.
+- **Three candidates** render side by side (the product-wide convergent loop): each a raised card with a label, scene count chip, and its proposed scenes (location + whatHappens, plan text only — no scriptText) as a compact list, ending in a **Choose this** button.
+- **Choosing:** creates the `initial_scene_skeleton` Change Set and hands off to Review mode (§6) — the AI proposal never writes the plan directly. Review renders the proposed scenes as ordinary `applyMode: "add"` rows (checkbox, no lock/flag glyph unless the target episode is locked) with `before` empty and `after` the proposed scene's summary; **Preview selected** is hidden for this Change Set kind (the chosen candidate already is the preview).
+- **Error:** inline danger text below the generator/candidates, local inputs preserved; the writer may retry or leave the panel to build manually.
+
 ## 6. Review mode
 
 Entered via mode switcher (lists draft Change Sets) or directly from Plan/Write triggers. One Change Set at a time.

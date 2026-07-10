@@ -564,4 +564,5 @@ def _fixture_valid_input_for(op_name: str) -> dict:
         "suggest_instructions": {"suggestions": ["a", "b", "c"]},
         "segment_scene": {"beats": [], "unassigned": []},
         "scan_consistency": {"flags": []},
+        "generate_scene_skeleton": {"label": "x", "scenes": []},
     }[op_name]

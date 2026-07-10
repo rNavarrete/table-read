@@ -48,6 +48,9 @@ export function ChangeSetPanel({
   const selectable = useMemo(() => selectableIds(changeSet), [changeSet])
   const selectedCount = selectable.filter((id) => selectedIds.has(id)).length
   const applied = changeSet.status === 'applied'
+  // §9.4: a selected skeleton candidate already IS the preview — there is
+  // no further model call to re-run, so Preview has nothing to do here.
+  const canPreview = changeSet.kind !== 'initial_scene_skeleton'
 
   function toggleExpanded(objectId: string) {
     setExpanded((prev) => {
@@ -182,14 +185,16 @@ export function ChangeSetPanel({
         <span className="text-13 text-tr-text-secondary">
           {selectedCount} of {selectable.length} selected
         </span>
-        <button
-          type="button"
-          disabled={previewing || applying || selectedCount === 0}
-          onClick={onPreview}
-          className="rounded-card border border-tr-coral bg-transparent px-3 py-1.5 text-13 font-medium text-tr-coral transition hover:bg-tr-coral-soft disabled:opacity-50"
-        >
-          {previewing ? 'Previewing…' : 'Preview selected'}
-        </button>
+        {canPreview && (
+          <button
+            type="button"
+            disabled={previewing || applying || selectedCount === 0}
+            onClick={onPreview}
+            className="rounded-card border border-tr-coral bg-transparent px-3 py-1.5 text-13 font-medium text-tr-coral transition hover:bg-tr-coral-soft disabled:opacity-50"
+          >
+            {previewing ? 'Previewing…' : 'Preview selected'}
+          </button>
+        )}
         <button
           type="button"
           disabled={

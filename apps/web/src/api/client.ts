@@ -2,6 +2,7 @@ import type {
   BeatCandidate,
   ChangeSet,
   ConsistencyFlag,
+  InitialSceneSkeletonCandidate,
   LedgerExtraction,
   LedgerFact,
   Project,
@@ -360,4 +361,30 @@ export function discardChangeSet(changeSetId: string): Promise<ChangeSet> {
  * the project untouched). */
 export function flagChangeSet(changeSetId: string): Promise<ChangeSet> {
   return postJson<ChangeSet>(`/change-sets/${changeSetId}/flag`, {})
+}
+
+/** `POST /projects/{pid}/scene-skeleton/candidates` (design spec §6/§9.4) —
+ * the explicit "Generate scene skeleton" gesture: runs the three-candidate
+ * convergent loop. Read-only; nothing is persisted. */
+export function generateSceneSkeletonCandidates(
+  projectId: string,
+): Promise<InitialSceneSkeletonCandidate[]> {
+  return postJson<InitialSceneSkeletonCandidate[]>(
+    `/projects/${projectId}/scene-skeleton/candidates`,
+    {},
+  )
+}
+
+/** `POST /projects/{pid}/scene-skeleton/change-sets` — selecting a
+ * generated candidate creates an `initial_scene_skeleton` ChangeSet already
+ * `previewing` and sends the writer to Review (never writes the plan
+ * directly). `candidate` is echoed back verbatim from generation. */
+export function createSceneSkeletonChangeSet(
+  projectId: string,
+  candidate: InitialSceneSkeletonCandidate,
+): Promise<ChangeSet> {
+  return postJson<ChangeSet>(
+    `/projects/${projectId}/scene-skeleton/change-sets`,
+    candidate,
+  )
 }

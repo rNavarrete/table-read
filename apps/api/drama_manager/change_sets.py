@@ -43,8 +43,11 @@ from llm.protocol import LlmClient
 from schemas import (
     ApplyMode,
     ChangeSet,
+    ChangeSetKind,
     ChangeSetPreview,
+    ConfidenceLevel,
     ImpactedObjectType,
+    InitialSceneSkeletonCandidate,
     RegeneratedElements,
 )
 from storage import snapshots
@@ -367,6 +370,336 @@ def create_change_set(
     return change_set
 
 
+# ── §9.4 guided-setup scene skeleton (Task 6) ─────────────────────────────────
+#
+# Selecting a generated candidate (drama_manager/scene_skeleton.py) creates a
+# ChangeSet that is already `previewing` — the candidate IS the preview, no
+# further model call — with `impacted[].objectId` set to each scene's
+# `proposalId` and `applyMode: "add"`. Apply (below) mints final scene/beat
+# ids for the approved proposals and inserts them into the project's single
+# episode (scaffolding it if the project has none yet), routed through the
+# same lock guard every other apply path uses (CLAUDE.md rule 2).
+
+
+def _episode_or_none(doc: dict) -> dict | None:
+    seasons = doc.get("seasons") or []
+    if seasons and seasons[0].get("episodes"):
+        return seasons[0]["episodes"][0]
+    return None
+
+
+def _episode_id_or_placeholder(doc: dict) -> str:
+    """The episode a skeleton Change Set targets — the existing episode id,
+    or the deterministic id `_scaffold_or_get_episode` will mint if the
+    project has none yet (fresh idea-path projects start with zero seasons —
+    `storage/project_scaffold.py`)."""
+    episode = _episode_or_none(doc)
+    return episode["id"] if episode is not None else "ep-1"
+
+
+def _episode_is_locked(doc: dict) -> bool:
+    episode = _episode_or_none(doc)
+    return bool(episode is not None and episode.get("locked"))
+
+
+def create_scene_skeleton_change_set(
+    session,
+    project: ProjectRow,
+    *,
+    candidate: dict,
+) -> dict:
+    """Select a generated §9.4 skeleton candidate: revalidate it against the
+    live project (schema, stale head, unknown character ids), then persist a
+    ChangeSet already `previewing` (the candidate IS the preview). Never
+    writes the project doc directly (CLAUDE.md rule 3 — "never write the
+    plan directly from generation").
+
+    Raises `ApplyRejected` for a stale `basedOnSnapshotId` or an unknown
+    `characterId` in a motivation (route -> 409)."""
+    validated = InitialSceneSkeletonCandidate.model_validate(candidate)
+    if validated.based_on_snapshot_id != project.head_snapshot_id:
+        raise ApplyRejected(
+            "PREVIEW_STALE",
+            "candidate.basedOnSnapshotId no longer matches the project head",
+        )
+
+    doc = project.doc
+    character_ids = {c["id"] for c in _iter_characters(doc)}
+    for scene in validated.scenes:
+        for motivation in scene.motivations:
+            if motivation.character_id not in character_ids:
+                raise ApplyRejected(
+                    "VALIDATION",
+                    f"motivation characterId {motivation.character_id!r} is "
+                    "not a project character",
+                )
+
+    scene_dicts = [s.model_dump(by_alias=True, mode="json") for s in validated.scenes]
+    episode_locked = _episode_is_locked(doc)
+    impacted = [
+        {
+            "objectType": ImpactedObjectType.scene.value,
+            "objectId": scene["proposalId"],
+            "applyMode": ApplyMode.add.value,
+            "reason": "New scene proposed by the guided-setup scene skeleton.",
+            "confidence": ConfidenceLevel.high.value,
+            "locked": episode_locked,
+            "before": "",
+            "after": scene["whatHappens"],
+            "continuityFlags": [],
+            "approved": False,
+        }
+        for scene in scene_dicts
+    ]
+    preview = {
+        "beatUpdates": [],
+        "sceneUpdates": [],
+        "continuityConflicts": [],
+        "basedOnSnapshotId": validated.based_on_snapshot_id,
+        "generatedAt": _utcnow_iso(),
+        "sceneAdditions": scene_dicts,
+    }
+    ChangeSetPreview.model_validate(preview)
+
+    change_set_id = _mint_change_set_id()
+    change_set = {
+        "id": change_set_id,
+        "projectId": project.id,
+        "kind": ChangeSetKind.initial_scene_skeleton.value,
+        "instruction": validated.label,
+        "targetObjectId": _episode_id_or_placeholder(doc),
+        "impacted": impacted,
+        "preview": preview,
+        "status": "previewing",
+        "createdAt": _utcnow_iso(),
+    }
+    ChangeSet.model_validate(change_set)
+
+    session.add(
+        ChangeSetRow(
+            id=change_set_id,
+            project_id=project.id,
+            doc=change_set,
+            status="previewing",
+        )
+    )
+    project.updated_at = datetime.now(UTC).replace(tzinfo=None)
+    session.commit()
+
+    _logger.info(
+        "scene_skeleton_change_set_created project_id=%s change_set_id=%s "
+        "candidate_id=%s scene_count=%d prompt_version=%s",
+        project.id,
+        change_set_id,
+        validated.candidate_id,
+        len(scene_dicts),
+        render.PROMPT_VERSION,
+    )
+    return change_set
+
+
+def _mint_scene_id() -> str:
+    return f"scene-{uuid.uuid4().hex}"
+
+
+def _mint_beat_id() -> str:
+    return f"beat-{uuid.uuid4().hex}"
+
+
+def _scaffold_or_get_episode(doc: dict) -> dict:
+    """Return `doc`'s single episode (mutating `doc` in place), scaffolding
+    `season-1`/`ep-1` if the project has none yet — mirrors
+    `fountain/pipeline.py`'s `_install_scenes` scaffold shape (MVP: exactly
+    one season, one episode)."""
+    seasons = doc.setdefault("seasons", [])
+    if seasons and seasons[0].get("episodes"):
+        return seasons[0]["episodes"][0]
+    episode = {
+        "id": "ep-1",
+        "index": 0,
+        "locked": False,
+        "title": doc.get("title", ""),
+        "premise": "",
+        "seasonFunction": "",
+        "storylines": [],
+        "scenes": [],
+    }
+    if seasons:
+        seasons[0]["episodes"] = [episode]
+    else:
+        doc["seasons"] = [
+            {
+                "id": "season-1",
+                "index": 0,
+                "locked": False,
+                "seasonArc": "",
+                "characterArcs": [],
+                "episodes": [episode],
+            }
+        ]
+    return episode
+
+
+def _build_final_scene(addition: dict, index: int) -> dict:
+    """One approved `SceneAddition` -> a final `Scene` wire dict: mint the
+    scene id and one beat id per seed (index-ordered), `scriptText: ""` and
+    both lock flags `False` (hard rule: "no scriptText in skeleton" — script
+    text is written later, through Write mode's Accept, like any other
+    planned beat)."""
+    beats = [
+        {
+            "id": _mint_beat_id(),
+            "index": bi,
+            "locked": False,
+            "whatHappens": seed["whatHappens"],
+            "audienceLearns": seed["audienceLearns"],
+            "audienceFeels": seed["audienceFeels"],
+            "scriptText": "",
+            "scriptLocked": False,
+        }
+        for bi, seed in enumerate(addition.get("beatPlanSeeds", []))
+    ]
+    return {
+        "id": _mint_scene_id(),
+        "index": index,
+        "act": addition.get("act", 0),
+        "storyline": "A",
+        "locked": False,
+        "location": addition.get("location", ""),
+        "time": addition.get("time", ""),
+        "socialSituation": addition.get("socialSituation", ""),
+        "whatHappens": addition.get("whatHappens", ""),
+        "audienceLearns": addition.get("audienceLearns", ""),
+        "audienceFeels": addition.get("audienceFeels", ""),
+        "motivations": addition.get("motivations", []),
+        "beats": beats,
+    }
+
+
+def _resolve_approved_scene_additions(
+    change_set: dict, approved_object_ids: list[str], doc: dict
+) -> list[dict]:
+    """Validate approved proposalIds against the stored preview's
+    `sceneAdditions` (rule 6: the stored preview is the only apply input —
+    never rendered snippets). Raises `ApplyRejected`: `LOCKED_OBJECT` when
+    the target episode is locked (CLAUDE.md rule 2 — checked before any
+    mutation), `VALIDATION` for an id that isn't a proposalId in this
+    ChangeSet. Returns the approved additions in the candidate's original
+    order, regardless of the request's order."""
+    preview = change_set.get("preview") or {}
+    scene_additions = preview.get("sceneAdditions")
+    if scene_additions is None:
+        raise ApplyRejected(
+            "VALIDATION", "ChangeSet has no scene-addition preview"
+        )
+    by_id = {s["proposalId"]: s for s in scene_additions}
+    impacted_by_id = _impacted_by_id(change_set)
+    episode_locked = _episode_is_locked(doc)
+
+    approved: list[dict] = []
+    for object_id in approved_object_ids:
+        scene = by_id.get(object_id)
+        if scene is None:
+            raise ApplyRejected(
+                "VALIDATION",
+                f"objectId {object_id!r} is not a proposalId in this ChangeSet",
+            )
+        hit = impacted_by_id.get(object_id)
+        if (hit is not None and hit.get("locked")) or episode_locked:
+            raise ApplyRejected(
+                "LOCKED_OBJECT",
+                f"objectId {object_id!r} targets a locked episode",
+            )
+        approved.append(scene)
+
+    order = {s["proposalId"]: i for i, s in enumerate(scene_additions)}
+    approved.sort(key=lambda s: order[s["proposalId"]])
+    return approved
+
+
+def _apply_scene_skeleton(
+    session,
+    row: ChangeSetRow,
+    change_set: dict,
+    project: ProjectRow,
+    *,
+    approved_object_ids: list[str],
+    expected_head_snapshot_id: str | None,
+) -> dict:
+    """Apply an `initial_scene_skeleton` ChangeSet: mint final scene/beat ids
+    for the approved proposals and insert them into the project's single
+    episode (scaffolding it if absent), routed through the same lock guard
+    every other apply path uses. No `regenerate_elements`/extraction/scan
+    calls — there is no existing content to regenerate and no script text
+    yet to extract facts from (that happens later, through Write mode's
+    Accept, like any other planned beat)."""
+    preview = change_set.get("preview")
+    if preview is None:
+        raise ApplyRejected(
+            "VALIDATION", "ChangeSet has no preview; nothing to apply"
+        )
+    if preview.get("basedOnSnapshotId") != project.head_snapshot_id:
+        raise ApplyRejected(
+            "PREVIEW_STALE",
+            "preview.basedOnSnapshotId no longer matches the project head",
+        )
+
+    approved_additions = _resolve_approved_scene_additions(
+        change_set, approved_object_ids, project.doc
+    )
+
+    approved_set = set(approved_object_ids)
+    for hit in change_set["impacted"]:
+        hit["approved"] = hit["objectId"] in approved_set
+
+    new_doc = copy.deepcopy(project.doc)
+    episode = _scaffold_or_get_episode(new_doc)
+    start_index = len(episode["scenes"])
+    for offset, addition in enumerate(approved_additions):
+        episode["scenes"].append(_build_final_scene(addition, start_index + offset))
+
+    # Rule 2, belt-and-suspenders: a locked episode is structurally frozen —
+    # this can only fire if `_resolve_approved_scene_additions`'s explicit
+    # check above missed a race (e.g. the lock toggled between the two
+    # reads); it can never silently let a locked-episode addition through.
+    locks.assert_no_locked_writes(project.doc, new_doc)
+
+    instruction = f"Applied scene skeleton {row.id}"
+
+    def mutator(state: snapshots.MutationState) -> snapshots.MutationState:
+        return snapshots.MutationState(
+            doc=new_doc,
+            ledger=state.ledger,
+            flags=state.flags,
+            snapshot_id=state.snapshot_id,
+        )
+
+    cas_expected = expected_head_snapshot_id or preview.get("basedOnSnapshotId")
+    snap = snapshots.mutate(
+        session,
+        project.id,
+        instruction,
+        mutator,
+        expected_head_snapshot_id=cas_expected,
+    )
+
+    change_set["status"] = "applied"
+    ChangeSet.model_validate(change_set)
+    row.doc = change_set
+    row.status = "applied"
+    session.commit()
+
+    _logger.info(
+        "scene_skeleton_change_set_applied change_set_id=%s snapshot=%s "
+        "approved_count=%d prompt_version=%s",
+        row.id,
+        snap.id,
+        len(approved_additions),
+        render.PROMPT_VERSION,
+    )
+    return {"project": snap.doc, "changeSet": change_set, "consistencyFlags": []}
+
+
 # ── T4.2 preview / apply / discard / flag ─────────────────────────────────────
 
 
@@ -523,6 +856,14 @@ def preview_change_set(
     Does not mutate the project doc or create a snapshot."""
     row = _get_change_set_row(session, change_set_id)
     change_set = copy.deepcopy(row.doc)
+    if change_set.get("kind") == ChangeSetKind.initial_scene_skeleton.value:
+        # §9.4: the candidate the writer selected already *is* the preview
+        # (create_scene_skeleton_change_set) — there is no further model
+        # call to re-run.
+        raise ApplyRejected(
+            "VALIDATION",
+            "initial_scene_skeleton ChangeSets are already previewed at creation",
+        )
     project = session.get(ProjectRow, row.project_id)
     if project is None:
         raise ChangeSetNotFound(change_set_id)
@@ -690,6 +1031,16 @@ def apply_change_set(
     project = session.get(ProjectRow, row.project_id)
     if project is None:
         raise ChangeSetNotFound(change_set_id)
+
+    if change_set.get("kind") == ChangeSetKind.initial_scene_skeleton.value:
+        return _apply_scene_skeleton(
+            session,
+            row,
+            change_set,
+            project,
+            approved_object_ids=approved_object_ids,
+            expected_head_snapshot_id=expected_head_snapshot_id,
+        )
 
     preview = change_set.get("preview")
     if preview is None:

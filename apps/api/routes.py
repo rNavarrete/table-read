@@ -31,6 +31,7 @@ from drama_manager import (
     ledger_mutations,
     locks,
     scan,
+    scene_skeleton,
 )
 from errors import ApiError
 from fountain import create_import
@@ -45,6 +46,7 @@ from schemas import (
     ChangeSet,
     ChangeSetApprovedRequest,
     ConsistencyFlag,
+    InitialSceneSkeletonCandidate,
     LedgerBatchRequest,
     LedgerFact,
     LedgerFactEdit,
@@ -664,6 +666,55 @@ def list_change_sets(
     """`GET /projects/{pid}/change-sets?status=` (data contract §4)."""
     _get_project_or_404(session, pid)
     return change_sets.list_change_sets(session, pid, status=status)
+
+
+@router.post(
+    "/{pid}/scene-skeleton/candidates",
+    response_model=list[InitialSceneSkeletonCandidate],
+    status_code=200,
+)
+def generate_scene_skeleton_candidates(
+    pid: str,
+    session: Session = Depends(get_session),
+    llm: LlmClient = Depends(get_llm_client),
+) -> list[dict]:
+    """Guided Plan setup (design spec §6/§9.4): the explicit "Generate scene
+    skeleton" gesture. Runs the three-candidate convergent loop
+    (`drama_manager/scene_skeleton.py`) and returns them for side-by-side
+    comparison. Read-only — nothing is persisted until the writer selects
+    one (`POST /{pid}/scene-skeleton/change-sets`)."""
+    project = _get_project_or_404(session, pid)
+    try:
+        return scene_skeleton.generate_candidates(project.doc, llm)
+    except SchemaInvalidLlmError as exc:
+        raise ApiError(502, "SCHEMA_INVALID_LLM", str(exc)) from exc
+    except anthropic.APIError as exc:
+        raise ApiError(503, "LLM_UNAVAILABLE", "the language model is unavailable") from exc
+
+
+@router.post(
+    "/{pid}/scene-skeleton/change-sets", response_model=ChangeSet, status_code=200
+)
+def create_scene_skeleton_change_set(
+    pid: str,
+    body: InitialSceneSkeletonCandidate,
+    session: Session = Depends(get_session),
+) -> dict:
+    """Choosing a skeleton candidate (design spec §6/§9.4 / CLAUDE.md rule
+    3): persists an `initial_scene_skeleton` ChangeSet already `previewing`
+    — the selected candidate IS the preview — and sends the writer to
+    Review. Never writes the project doc directly. `body` is the exact
+    candidate the writer compared (echoed back verbatim); a stale
+    `basedOnSnapshotId` or an unknown character id in a motivation → 409."""
+    project = _get_project_or_404(session, pid)
+    try:
+        return change_sets.create_scene_skeleton_change_set(
+            session,
+            project,
+            candidate=body.model_dump(by_alias=True, mode="json"),
+        )
+    except change_sets.ApplyRejected as exc:
+        raise ApiError(409, exc.code, str(exc)) from exc
 
 
 @change_sets_router.get("/{cid}", response_model=ChangeSet)

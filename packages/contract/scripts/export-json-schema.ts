@@ -35,6 +35,8 @@ const SCHEMA_NAMES = [
   'ProjectImportProgressEvent',
   'BeatUpdate',
   'SceneUpdate',
+  'SceneAddition',
+  'InitialSceneSkeletonCandidate',
   'ChangeSetPreview',
   'ChangeSet',
   // §2a
@@ -45,6 +47,7 @@ const SCHEMA_NAMES = [
   'InstructionSuggestions',
   'SegmentedScene',
   'ConsistencyScan',
+  'InitialSceneSkeleton',
 ] as const
 
 const { z } = await import('zod')

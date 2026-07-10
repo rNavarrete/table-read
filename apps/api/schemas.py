@@ -313,6 +313,9 @@ class ImpactedObjectType(StrEnum):
 class ApplyMode(StrEnum):
     regenerate = "regenerate"
     flag_only = "flag_only"
+    # §9.4 initial_scene_skeleton variant: objectId is a proposalId, not a
+    # final scene id (new-project-flow design spec §9.4).
+    add = "add"
 
 
 class ConfidenceLevel(StrEnum):
@@ -444,12 +447,51 @@ class ChangeSetContinuityConflict(_Base):
     explanation: str
 
 
+# §9.4 initial scene skeleton — guided-setup scene-addition Change Set
+# (new-project-flow design spec §6/§9.4). MVP defers storyline inference, so
+# every addition carries storyline "A" (Scene's own default) rather than a
+# model-set field. `proposal_id` is the server-assigned selection handle —
+# never the final scene id — minted once generation validates the model's
+# scene list (InitialSceneSkeleton below); the model never sets ids.
+class SceneAdditionStoryline(StrEnum):
+    """MVP: storyline inference is deferred (design spec §9.4) — every scene
+    addition is tagged 'A', a narrower enum than `StorylineId` (A/B/C)."""
+
+    a = "A"
+
+
+class SceneAddition(_Base):
+    proposal_id: Id
+    act: int = Field(ge=0)
+    storyline: SceneAdditionStoryline = SceneAdditionStoryline.a
+    location: str
+    time: str
+    social_situation: str
+    what_happens: str
+    audience_learns: str
+    audience_feels: str
+    motivations: list[Motivation]  # characterId references existing Characters
+    beat_plan_seeds: list[BeatPlan]  # ordered; apply mints beat ids/scriptText: "" server-side
+
+
+# One generated skeleton option (data contract §9.4): the writer compares
+# three of these side by side, then selects one to create a Change Set.
+class InitialSceneSkeletonCandidate(_Base):
+    candidate_id: Id
+    based_on_snapshot_id: Id  # the headSnapshotId this candidate was generated against
+    label: str = Field(max_length=40)
+    scenes: list[SceneAddition]  # ordered
+
+
 class ChangeSetPreview(_Base):
     beat_updates: list[BeatUpdate]
     scene_updates: list[SceneUpdate]
     continuity_conflicts: list[ChangeSetContinuityConflict]
     based_on_snapshot_id: Id  # head at preview time; apply 409s (PREVIEW_STALE) if head moved
     generated_at: str
+    # §9.4 initial_scene_skeleton variant: the chosen candidate's scene
+    # additions, verbatim. Null for the ordinary "edit" ChangeSet kind.
+    scene_additions: list[SceneAddition] | None = None
 
 
 class ChangeSetStatus(StrEnum):
@@ -460,10 +502,16 @@ class ChangeSetStatus(StrEnum):
     flagged = "flagged"
 
 
+class ChangeSetKind(StrEnum):
+    edit = "edit"
+    initial_scene_skeleton = "initial_scene_skeleton"
+
+
 class ChangeSet(_Base):
     id: Id
     project_id: Id
-    instruction: str  # the edit that triggered it
+    kind: ChangeSetKind = ChangeSetKind.edit
+    instruction: str  # the edit that triggered it (or a generated label for initial_scene_skeleton)
     target_object_id: Id
     impacted: list[ImpactedObject]
     preview: ChangeSetPreview | None  # null until POST /preview succeeds
@@ -501,6 +549,28 @@ class RegeneratedElements(_Base):
     beats: list[BeatUpdate]
     scenes: list[SceneUpdate]
     continuity_conflicts: list[ChangeSetContinuityConflict]
+
+
+# §9.4 generate_scene_skeleton — the guided-setup convergent loop calls this
+# 3x (drama_manager/scene_skeleton.py). The model emits no ids and no
+# `scriptText` (hard rule: "no scriptText in skeleton"); the server assigns
+# each scene a proposalId and stamps storyline "A" after validation,
+# producing a SceneAddition (§2 above) per scene.
+class InitialSceneSkeletonScene(_Base):
+    act: int = Field(ge=0)
+    location: str
+    time: str
+    social_situation: str
+    what_happens: str
+    audience_learns: str
+    audience_feels: str
+    motivations: list[Motivation]
+    beat_plan_seeds: list[BeatPlan]
+
+
+class InitialSceneSkeleton(_Base):
+    label: str = Field(max_length=40)
+    scenes: list[InitialSceneSkeletonScene]
 
 
 class ExtractedFactSourceSpan(_Base):

@@ -24,6 +24,7 @@ from schemas import (
     BeatCandidate,
     BlastRadius,
     ConsistencyScan,
+    InitialSceneSkeleton,
     InstructionSuggestions,
     LedgerExtraction,
     RegeneratedElements,
@@ -171,6 +172,65 @@ def _default_responses() -> dict[str, BaseModel]:
                 }
             ],
             unassigned=[],
+        ),
+        # §9.4 guided-setup scene skeleton: one diverse scene-addition set,
+        # motivations referencing the fixture's own characters so tests can
+        # exercise real character ids without a bespoke override.
+        "generate_scene_skeleton": InitialSceneSkeleton(
+            label="Cold open on the wire transfer",
+            scenes=[
+                {
+                    "act": 1,
+                    "location": "INT. THE LONG POUR - MORNING",
+                    "time": "MORNING",
+                    "socialSituation": "Marta corners Dan before the bar opens.",
+                    "whatHappens": (
+                        "Marta demands Dan explain the wire transfer before "
+                        "the morning delivery arrives."
+                    ),
+                    "audienceLearns": "Marta has already seen the paperwork.",
+                    "audienceFeels": "Coiled tension.",
+                    "motivations": [
+                        {
+                            "characterId": "char-marta",
+                            "objective": "Get Dan to admit the transfer.",
+                            "stakes": "The bar's survival.",
+                            "obstacle": "Dan's practiced calm.",
+                        }
+                    ],
+                    "beatPlanSeeds": [
+                        {
+                            "whatHappens": "Marta slides the printout across the bar.",
+                            "audienceLearns": "The transfer amount.",
+                            "audienceFeels": "Dread.",
+                        }
+                    ],
+                },
+                {
+                    "act": 1,
+                    "location": "EXT. MARINA - DAY",
+                    "time": "DAY",
+                    "socialSituation": "Dan meets Reyes at the marina to explain himself.",
+                    "whatHappens": "Dan tries to buy time from Reyes.",
+                    "audienceLearns": "Reyes is owed the money, not a bank.",
+                    "audienceFeels": "Rising dread.",
+                    "motivations": [
+                        {
+                            "characterId": "char-dan",
+                            "objective": "Delay Reyes without confessing.",
+                            "stakes": "His own safety.",
+                            "obstacle": "Reyes's patience is gone.",
+                        }
+                    ],
+                    "beatPlanSeeds": [
+                        {
+                            "whatHappens": "Dan offers a partial payment.",
+                            "audienceLearns": "Dan doesn't have the full amount.",
+                            "audienceFeels": "Anxiety.",
+                        }
+                    ],
+                },
+            ],
         ),
         "scan_consistency": ConsistencyScan(
             flags=[
@@ -361,6 +421,16 @@ class MockLlmClient:
     ) -> ConsistencyScan:
         return self._call(
             "scan_consistency",
+            system=system,
+            user_message=user_message,
+            prompt_version=prompt_version,
+        )
+
+    def generate_scene_skeleton(
+        self, *, system: str, user_message: str, prompt_version: str
+    ) -> InitialSceneSkeleton:
+        return self._call(
+            "generate_scene_skeleton",
             system=system,
             user_message=user_message,
             prompt_version=prompt_version,

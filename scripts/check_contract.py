@@ -75,6 +75,8 @@ SCHEMA_NAMES = [
     "ProjectImportProgressEvent",
     "BeatUpdate",
     "SceneUpdate",
+    "SceneAddition",
+    "InitialSceneSkeletonCandidate",
     "ChangeSetPreview",
     "ChangeSet",
     # §2a
@@ -85,6 +87,7 @@ SCHEMA_NAMES = [
     "InstructionSuggestions",
     "SegmentedScene",
     "ConsistencyScan",
+    "InitialSceneSkeleton",
 ]
 
 # JSON Schema keys that are cosmetic/library-specific noise, not part of the

@@ -52,7 +52,21 @@ function scene(overrides: Partial<Scene> = {}): Scene {
     audienceLearns: '',
     audienceFeels: '',
     motivations: [],
-    beats: [],
+    // A usable scene skeleton needs at least one beat (data contract §9.1
+    // setupState) — this fixture represents an already-planned project, not
+    // one that should show Guided setup.
+    beats: [
+      {
+        id: 'beat-1-1',
+        index: 0,
+        locked: false,
+        whatHappens: '',
+        audienceLearns: '',
+        audienceFeels: '',
+        scriptText: '',
+        scriptLocked: false,
+      },
+    ],
     ...overrides,
   }
 }

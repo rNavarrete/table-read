@@ -13,7 +13,9 @@ import { AppShell } from '../shell/AppShell'
 import { Toast } from '../shell/Toast'
 import { lockedObjectMessage, staleHeadMessage } from '../shell/toastCopy'
 import { Board } from './Board'
+import { GuidedSetup } from './GuidedSetup'
 import { Inspector } from './Inspector'
+import { needsGuidedSetup } from './needsGuidedSetup'
 import type { PlanSelection } from './SceneCard'
 import { StoryLayersPanel } from './StoryLayersPanel'
 import { sceneIdsWithOpenFlags } from './flaggedScenes'
@@ -269,6 +271,22 @@ export function PlanScreen() {
         projectId={projectId}
       >
         <p className="p-8 text-15 text-tr-text-secondary">Loading…</p>
+      </AppShell>
+    )
+  }
+
+  // Guided Plan setup (design spec §6/§9.4): shown while the project has no
+  // usable scene skeleton (no season/episode yet, or an episode with no
+  // scene containing a beat) — before the (otherwise empty) board.
+  if (needsGuidedSetup(project)) {
+    return (
+      <AppShell
+        projectTitle={project.title}
+        activeMode="Plan"
+        ledgerCount={ledger.filter((f) => f.status === 'pending_review').length}
+        projectId={projectId}
+      >
+        <GuidedSetup projectId={activeProjectId} />
       </AppShell>
     )
   }
