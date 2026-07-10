@@ -17,6 +17,9 @@ interface WizardShellProps {
   cancelHref?: string
   hasEnteredData?: boolean
   trustNote?: ReactNode
+  finalActionLabel?: string
+  onFinalAction?: () => void
+  isFinalActionDisabled?: boolean
 }
 
 function focusFirstInvalidField() {
@@ -32,6 +35,9 @@ export function WizardShell({
   cancelHref = '/projects',
   hasEnteredData = false,
   trustNote = TRUST_NOTE,
+  finalActionLabel = 'Continue',
+  onFinalAction,
+  isFinalActionDisabled = false,
 }: WizardShellProps) {
   const [currentIndex, setCurrentIndex] = useState(0)
   const currentStep = steps[currentIndex]
@@ -43,7 +49,11 @@ export function WizardShell({
       focusFirstInvalidField()
       return
     }
-    if (!isLastStep) setCurrentIndex((index) => index + 1)
+    if (!isLastStep) {
+      setCurrentIndex((index) => index + 1)
+      return
+    }
+    onFinalAction?.()
   }
 
   function handleCancel(event: MouseEvent<HTMLAnchorElement>) {
@@ -124,9 +134,10 @@ export function WizardShell({
           <button
             type="button"
             onClick={handleContinue}
+            disabled={isLastStep && isFinalActionDisabled}
             className="ml-auto rounded-card bg-tr-coral px-4 py-2 text-13 font-medium text-tr-surface-raised transition hover:bg-tr-coral-hover"
           >
-            Continue
+            {isLastStep ? finalActionLabel : 'Continue'}
           </button>
         </div>
       </main>

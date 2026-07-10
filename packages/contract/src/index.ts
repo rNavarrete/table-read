@@ -213,6 +213,27 @@ export const ProjectSummary = z.object({
 })
 export type ProjectSummary = z.infer<typeof ProjectSummary>
 
+export const CharacterSeed = z.object({
+  name: z.string().min(1),
+  traits: z.string().nullable().default(null),
+})
+export type CharacterSeed = z.input<typeof CharacterSeed>
+
+export const ProjectFoundationInput = z.object({
+  existentialQuestion: z.string().nullable().default(null),
+  storiesToAvoid: z.array(z.string()).nullable().default(null),
+  characters: z.array(CharacterSeed).nullable().default(null),
+})
+export type ProjectFoundationInput = z.input<typeof ProjectFoundationInput>
+
+export const ProjectCreateRequest = z.object({
+  title: z.string(),
+  format: ShowFormat,
+  premise: z.string(),
+  foundation: ProjectFoundationInput.nullable().default(null),
+})
+export type ProjectCreateRequest = z.input<typeof ProjectCreateRequest>
+
 // ─────────────────────────────────────────────────────────────────────────
 // §2. Generation / Review types
 // ─────────────────────────────────────────────────────────────────────────

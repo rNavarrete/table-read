@@ -5,6 +5,7 @@ import type {
   LedgerExtraction,
   LedgerFact,
   Project,
+  ProjectCreateRequest,
   ProjectSummary,
 } from 'contract'
 import { toApiError } from './errors'
@@ -21,6 +22,7 @@ async function getJson<T>(path: string): Promise<T> {
 }
 
 type IfMatchOpts = { expectedHeadSnapshotId?: string | null }
+type IdempotencyOpts = { idempotencyKey?: string }
 
 function ifMatchHeaders(
   opts?: IfMatchOpts,
@@ -29,16 +31,24 @@ function ifMatchHeaders(
   return { 'If-Match': opts.expectedHeadSnapshotId }
 }
 
+function idempotencyHeaders(
+  opts?: IdempotencyOpts,
+): Record<string, string> | undefined {
+  if (!opts?.idempotencyKey) return undefined
+  return { 'Idempotency-Key': opts.idempotencyKey }
+}
+
 async function postJson<T>(
   path: string,
   body: unknown,
-  opts?: IfMatchOpts,
+  opts?: IfMatchOpts & IdempotencyOpts,
 ): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       ...ifMatchHeaders(opts),
+      ...idempotencyHeaders(opts),
     },
     body: JSON.stringify(body),
   })
@@ -134,6 +144,15 @@ export function getProject(projectId: string): Promise<Project> {
 
 export function listProjects(): Promise<ProjectSummary[]> {
   return getJson<ProjectSummary[]>('/projects')
+}
+
+export function createProject(
+  body: ProjectCreateRequest,
+  opts: { idempotencyKey: string },
+): Promise<Project> {
+  return postJson<Project>('/projects', body, {
+    idempotencyKey: opts.idempotencyKey,
+  })
 }
 
 export function getLedger(

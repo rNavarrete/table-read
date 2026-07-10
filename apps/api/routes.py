@@ -11,6 +11,9 @@ both are T4.4a. Change-set apply's scan wiring remains T4.2.
 
 from __future__ import annotations
 
+import hashlib
+import json
+import uuid
 from collections.abc import Callable
 from datetime import UTC
 
@@ -44,8 +47,8 @@ from schemas import (
     LedgerFact,
     LedgerFactEdit,
     Project,
+    ProjectCreateRequest,
     ProjectSummary,
-    ShowFormat,
 )
 from storage import snapshots
 from storage.db import get_session
@@ -105,6 +108,39 @@ def _minimal_series_bible() -> dict:
     }
 
 
+def _series_bible_from_foundation(body: ProjectCreateRequest) -> dict:
+    bible = _minimal_series_bible()
+    foundation = body.foundation
+    if foundation is None:
+        return bible
+
+    bible["existentialQuestion"]["text"] = foundation.existential_question or ""
+    bible["storiesToAvoid"] = list(foundation.stories_to_avoid or [])
+    bible["characters"] = [
+        {
+            "id": f"char-{uuid.uuid4().hex}",
+            "name": seed.name,
+            "locked": False,
+            "embodiment": "",
+            "presentation": "",
+            "hiding": "",
+            "traits": seed.traits or "",
+            "seriesArc": "",
+        }
+        for seed in foundation.characters or []
+    ]
+    return bible
+
+
+def _creation_request_hash(body: ProjectCreateRequest) -> str:
+    canonical = json.dumps(
+        body.model_dump(by_alias=True, mode="json", exclude_none=True),
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
 def _has_usable_scene_skeleton(doc: dict) -> bool:
     return any(
         scene.get("beats")
@@ -144,22 +180,45 @@ def list_projects(session: Session = Depends(get_session)) -> list[dict]:
 
 @router.post("", response_model=Project, status_code=201)
 def create_project(
-    title: str = Body(...),
-    format: ShowFormat = Body(...),
-    premise: str = Body(...),
+    body: ProjectCreateRequest,
     session: Session = Depends(get_session),
+    idempotency_key: str = Header(..., alias="Idempotency-Key"),
 ) -> dict:
+    if not idempotency_key.strip():
+        raise ApiError(400, "VALIDATION", "Idempotency-Key must not be empty")
+
+    request_hash = _creation_request_hash(body)
+    existing = (
+        session.query(ProjectRow)
+        .filter_by(creation_idempotency_key=idempotency_key)
+        .one_or_none()
+    )
+    if existing is not None:
+        if existing.creation_request_hash == request_hash:
+            return existing.doc
+        raise ApiError(
+            409,
+            "IDEMPOTENCY_CONFLICT",
+            "Idempotency-Key was already used for a different project request",
+        )
+
     doc = {
         "id": None,  # server-assigned in snapshots.create_project
-        "title": title,
-        "format": format.model_dump(by_alias=True),
+        "title": body.title,
+        "format": body.format.model_dump(by_alias=True),
         "enabledComponents": list(_DEFAULT_ENABLED_COMPONENTS),
-        "premise": premise,
-        "seriesBible": _minimal_series_bible(),
+        "premise": body.premise,
+        "seriesBible": _series_bible_from_foundation(body),
         "seasons": [],
         "headSnapshotId": None,  # server-assigned in snapshots.create_project
     }
-    project = snapshots.create_project(session, doc, instruction="Project created")
+    project = snapshots.create_project(
+        session,
+        doc,
+        instruction="Project created",
+        creation_idempotency_key=idempotency_key,
+        creation_request_hash=request_hash,
+    )
     return project.doc
 
 

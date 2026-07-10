@@ -23,7 +23,7 @@ from pathlib import Path
 from sqlalchemy.orm import Session
 
 from schemas import PersistedState
-from storage.db import Base, SessionLocal, engine
+from storage.db import Base, SessionLocal, engine, ensure_storage_schema
 from storage.models import (
     ChangeSetRow,
     ConsistencyFlagRow,
@@ -138,6 +138,7 @@ def seed_envelope(session: Session, envelope: dict) -> None:
 
 def main() -> None:
     Base.metadata.create_all(bind=engine)
+    ensure_storage_schema()
     envelope = load_fixture()
     with SessionLocal() as session:
         seed_envelope(session, envelope)

@@ -245,6 +245,24 @@ class ProjectSummary(_Base):
     setup_state: SetupState
 
 
+class CharacterSeed(_Base):
+    name: str = Field(min_length=1)
+    traits: str | None = None
+
+
+class ProjectFoundationInput(_Base):
+    existential_question: str | None = None
+    stories_to_avoid: list[str] | None = None
+    characters: list[CharacterSeed] | None = None
+
+
+class ProjectCreateRequest(_Base):
+    title: str
+    format: ShowFormat
+    premise: str
+    foundation: ProjectFoundationInput | None = None
+
+
 # ─────────────────────────────────────────────────────────────────────────
 # §2. Generation / Review types
 # ─────────────────────────────────────────────────────────────────────────

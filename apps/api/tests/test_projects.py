@@ -9,6 +9,7 @@ from datetime import UTC, datetime, timedelta
 
 from fastapi.testclient import TestClient
 
+from llm.dependency import get_llm_client
 from main import app
 from storage.models import (
     ChangeSetRow,
@@ -35,6 +36,7 @@ NEW_PROJECT_BODY = {
     },
     "premise": "A test premise.",
 }
+NEW_PROJECT_HEADERS = {"Idempotency-Key": "00000000-0000-4000-8000-000000000001"}
 
 
 def _clear_project_tables(db_session):
@@ -80,7 +82,11 @@ def test_list_projects_returns_seeded_summary_without_full_doc(seeded_project):
 
 
 def test_list_projects_sorts_by_updated_at_desc(db_session, seeded_project):
-    created = client.post("/api/v1/projects", json=NEW_PROJECT_BODY).json()
+    created = client.post(
+        "/api/v1/projects",
+        json=NEW_PROJECT_BODY,
+        headers=NEW_PROJECT_HEADERS,
+    ).json()
     db_session.get(ProjectRow, PROJECT_ID).updated_at = datetime(2026, 7, 10, 12, 0, 0)
     db_session.get(ProjectRow, created["id"]).updated_at = datetime(
         2026, 7, 10, 12, 0, 0
@@ -168,7 +174,11 @@ def test_undo_missing_project_returns_404():
 
 
 def test_create_project_returns_project_with_root_snapshot(db_session):
-    response = client.post("/api/v1/projects", json=NEW_PROJECT_BODY)
+    response = client.post(
+        "/api/v1/projects",
+        json=NEW_PROJECT_BODY,
+        headers=NEW_PROJECT_HEADERS,
+    )
 
     assert response.status_code == 201
     project = response.json()
@@ -190,10 +200,99 @@ def test_create_project_returns_project_with_root_snapshot(db_session):
     assert root.flags == []
 
 
+def test_create_project_foundation_assigns_character_ids_and_snapshots(db_session):
+    body = {
+        **NEW_PROJECT_BODY,
+        "foundation": {
+            "existentialQuestion": "Can loyalty survive ambition?",
+            "storiesToAvoid": ["Secret twin reveal"],
+            "characters": [
+                {"name": "Marta", "traits": "guarded, precise"},
+                {"name": "Dane"},
+            ],
+        },
+    }
+
+    response = client.post(
+        "/api/v1/projects",
+        json=body,
+        headers={"Idempotency-Key": "00000000-0000-4000-8000-000000000002"},
+    )
+
+    assert response.status_code == 201
+    project = response.json()
+    bible = project["seriesBible"]
+    assert bible["existentialQuestion"] == {
+        "text": "Can loyalty survive ambition?",
+        "locked": False,
+    }
+    assert bible["storiesToAvoid"] == ["Secret twin reveal"]
+    assert [character["name"] for character in bible["characters"]] == ["Marta", "Dane"]
+    assert [character["traits"] for character in bible["characters"]] == [
+        "guarded, precise",
+        "",
+    ]
+    for character in bible["characters"]:
+        assert character["id"].startswith("char-")
+        assert character["locked"] is False
+        assert character["embodiment"] == ""
+        assert character["presentation"] == ""
+        assert character["hiding"] == ""
+        assert character["seriesArc"] == ""
+
+    root = db_session.get(SnapshotRow, project["headSnapshotId"])
+    assert root.doc["seriesBible"] == bible
+
+
+def test_create_project_does_not_resolve_llm_dependency(db_session):
+    def fail_if_called():
+        raise AssertionError("create project must not touch LLM")
+
+    app.dependency_overrides[get_llm_client] = fail_if_called
+    try:
+        response = client.post(
+            "/api/v1/projects",
+            json=NEW_PROJECT_BODY,
+            headers={"Idempotency-Key": "00000000-0000-4000-8000-000000000003"},
+        )
+    finally:
+        app.dependency_overrides.pop(get_llm_client, None)
+
+    assert response.status_code == 201
+
+
+def test_create_project_idempotency_replays_same_request(db_session):
+    _clear_project_tables(db_session)
+    headers = {"Idempotency-Key": "00000000-0000-4000-8000-000000000004"}
+
+    first = client.post("/api/v1/projects", json=NEW_PROJECT_BODY, headers=headers)
+    second = client.post("/api/v1/projects", json=NEW_PROJECT_BODY, headers=headers)
+
+    assert first.status_code == 201
+    assert second.status_code == 201
+    assert second.json() == first.json()
+    assert db_session.query(ProjectRow).count() == 1
+    assert db_session.query(SnapshotRow).count() == 1
+
+
+def test_create_project_idempotency_conflicts_on_different_request(db_session):
+    _clear_project_tables(db_session)
+    headers = {"Idempotency-Key": "00000000-0000-4000-8000-000000000005"}
+    first = client.post("/api/v1/projects", json=NEW_PROJECT_BODY, headers=headers)
+    changed_body = {**NEW_PROJECT_BODY, "title": "Different Show"}
+
+    conflict = client.post("/api/v1/projects", json=changed_body, headers=headers)
+
+    assert first.status_code == 201
+    assert conflict.status_code == 409
+    assert conflict.json()["error"]["code"] == "IDEMPOTENCY_CONFLICT"
+    assert db_session.query(ProjectRow).count() == 1
+
+
 def test_create_project_missing_field_returns_envelope_422(db_session):
     body = dict(NEW_PROJECT_BODY)
     del body["premise"]
-    response = client.post("/api/v1/projects", json=body)
+    response = client.post("/api/v1/projects", json=body, headers=NEW_PROJECT_HEADERS)
 
     assert response.status_code == 422
     # request-validation errors still speak the contract envelope (§4)
@@ -201,7 +300,11 @@ def test_create_project_missing_field_returns_envelope_422(db_session):
 
 
 def test_created_project_undo_at_root_returns_409(db_session):
-    project = client.post("/api/v1/projects", json=NEW_PROJECT_BODY).json()
+    project = client.post(
+        "/api/v1/projects",
+        json=NEW_PROJECT_BODY,
+        headers=NEW_PROJECT_HEADERS,
+    ).json()
     response = client.post(f"/api/v1/projects/{project['id']}/undo")
     assert response.status_code == 409
     assert response.json()["error"]["code"] == "VALIDATION"
@@ -299,7 +402,11 @@ def test_patch_missing_project_returns_404():
 
 
 def test_delete_purges_project(db_session):
-    project = client.post("/api/v1/projects", json=NEW_PROJECT_BODY).json()
+    project = client.post(
+        "/api/v1/projects",
+        json=NEW_PROJECT_BODY,
+        headers=NEW_PROJECT_HEADERS,
+    ).json()
     pid = project["id"]
 
     response = client.delete(f"/api/v1/projects/{pid}")

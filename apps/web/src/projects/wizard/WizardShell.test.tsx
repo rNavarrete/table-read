@@ -31,12 +31,14 @@ describe('WizardShell', () => {
     )
 
     expect(screen.getByText('Start from an idea')).not.toBeNull()
-    expect(screen.getByRole('heading', { name: 'Project basics' })).not.toBeNull()
+    expect(
+      screen.getByRole('heading', { name: 'Project basics' }),
+    ).not.toBeNull()
     expect(screen.getByText('Review')).not.toBeNull()
     expect(screen.getByText(TRUST_NOTE)).not.toBeNull()
-    expect(screen.getByRole('link', { name: 'Cancel' }).getAttribute('href')).toBe(
-      '/projects',
-    )
+    expect(
+      screen.getByRole('link', { name: 'Cancel' }).getAttribute('href'),
+    ).toBe('/projects')
     expect(
       (screen.getByRole('button', { name: 'Back' }) as HTMLButtonElement)
         .disabled,

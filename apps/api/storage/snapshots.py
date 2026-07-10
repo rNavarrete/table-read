@@ -74,7 +74,14 @@ class MutationState:
 Mutator = Callable[[MutationState], MutationState]
 
 
-def create_project(session: Session, doc: dict, instruction: str) -> ProjectRow:
+def create_project(
+    session: Session,
+    doc: dict,
+    instruction: str,
+    *,
+    creation_idempotency_key: str | None = None,
+    creation_request_hash: str | None = None,
+) -> ProjectRow:
     """Create a project and its root snapshot atomically (data contract §4).
 
     Server-assigns the project id and root snapshot id, stamps them into the
@@ -88,7 +95,13 @@ def create_project(session: Session, doc: dict, instruction: str) -> ProjectRow:
     doc["headSnapshotId"] = snapshot_id
 
     try:
-        project = ProjectRow(id=project_id, doc=doc, head_snapshot_id=snapshot_id)
+        project = ProjectRow(
+            id=project_id,
+            doc=doc,
+            head_snapshot_id=snapshot_id,
+            creation_idempotency_key=creation_idempotency_key,
+            creation_request_hash=creation_request_hash,
+        )
         session.add(project)
         session.add(
             SnapshotRow(

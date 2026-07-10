@@ -38,6 +38,10 @@ class ProjectRow(Base):
     id: Mapped[str] = mapped_column(primary_key=True)
     doc: Mapped[dict] = mapped_column(JSON)
     head_snapshot_id: Mapped[str | None] = mapped_column(default=None)
+    creation_idempotency_key: Mapped[str | None] = mapped_column(
+        unique=True, default=None
+    )
+    creation_request_hash: Mapped[str | None] = mapped_column(default=None)
     # §3 "timestamps": server-managed, set on insert. T1.1's mutation
     # transaction is expected to bump updated_at on each mutation; T0.3 only
     # needs the columns populated at seed/create time.

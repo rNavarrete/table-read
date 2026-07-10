@@ -23,6 +23,9 @@ const SCHEMA_NAMES = [
   'LedgerFact',
   'Project',
   'ProjectSummary',
+  'CharacterSeed',
+  'ProjectFoundationInput',
+  'ProjectCreateRequest',
   // §2
   'BeatCandidate',
   'ImpactedObject',

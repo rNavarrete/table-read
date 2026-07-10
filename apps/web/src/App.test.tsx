@@ -16,7 +16,9 @@ describe('App wizard routes', () => {
     render(<App />)
 
     expect(screen.getByText('Start from an idea')).not.toBeNull()
-    expect(screen.getByRole('heading', { name: 'Project basics' })).not.toBeNull()
+    expect(
+      screen.getByRole('heading', { name: 'Project basics' }),
+    ).not.toBeNull()
     expect(screen.getByText(TRUST_NOTE)).not.toBeNull()
     expect(screen.queryByText('Coming soon.')).toBeNull()
   })

@@ -119,6 +119,24 @@ export const ProjectSummary = z.object({
   pendingReviewCount: z.number().int().min(0),
   setupState: z.enum(["incomplete", "ready"]),
 });
+
+export const CharacterSeed = z.object({
+  name: z.string().min(1),
+  traits: z.string().nullable().default(null),
+});
+
+export const ProjectFoundationInput = z.object({
+  existentialQuestion: z.string().nullable().default(null),
+  storiesToAvoid: z.array(z.string()).nullable().default(null),
+  characters: z.array(CharacterSeed).nullable().default(null),
+});
+
+export const ProjectCreateRequest = z.object({
+  title: z.string(),
+  format: ShowFormat,
+  premise: z.string(),
+  foundation: ProjectFoundationInput.nullable().default(null),
+});
 ```
 
 ## 2. Generation / Review types
@@ -293,7 +311,7 @@ Defined transactions:
 **Projects**
 
 - `GET /projects` -> `ProjectSummary[]` sorted by `updatedAt` descending. `pendingReviewCount` counts Ledger facts with `status: "pending_review"`. `setupState` is `"ready"` iff the project has at least one scene containing at least one beat; otherwise `"incomplete"`. Summaries must not include full writer text fields such as `premise` or `seasons`.
-- `POST /projects` `{title, format, premise}` → `Project` — in one transaction: creates the project (minimal bible scaffolded) **and its root snapshot** (`parent_id: null`, `doc` = initial state, `ledger` = `[]`, `flags` = `[]`), setting `headSnapshotId` to it. `headSnapshotId` is therefore never null after creation — previews, undo, and forks always have an anchor. (Undo at root still 409s: the root has no parent.)
+- `POST /projects` `ProjectCreateRequest` with required `Idempotency-Key` header → `Project` — in one transaction: creates the project (minimal bible scaffolded, plus optional writer-supplied foundation) **and its root snapshot** (`parent_id: null`, `doc` = initial state, `ledger` = `[]`, `flags` = `[]`), setting `headSnapshotId` to it. `headSnapshotId` is therefore never null after creation — previews, undo, and forks always have an anchor. Character seeds contain no IDs; the server assigns `char-*`, sets `locked: false`, maps supplied `traits` or `""`, and initializes `embodiment`, `presentation`, `hiding`, and `seriesArc` to `""`. Project creation performs no LLM call. Same idempotency key + same canonical request hash replays the 201 response; same key + different hash returns 409 `IDEMPOTENCY_CONFLICT`; failed transactions persist no key.
 - `GET /projects/{pid}` → `Project`
 - `PATCH /projects/{pid}` — JSON-patch body for direct writer edits (no regeneration); creates snapshot. Patches touching **structural plan fields** (scene/episode `whatHappens`, `premise`, storyline summaries) additionally trigger `scan_consistency` and return `{project, consistencyFlags}` — the "Save field only" path skips Review, never the flagging promise. Patches into locked ranges → 409 `LOCKED_OBJECT`.
 - `POST /projects/{pid}/undo` → `Project` (moves head to parent snapshot)
@@ -343,7 +361,7 @@ Defined transactions:
 
 - `POST /projects/{pid}/suggest` `{context: "scene"|"beat", targetId}` → `{suggestions: string[3]}`
 
-**Error shape (all endpoints):** `{error: {code, message, details?}}`. Codes: `LOCKED_OBJECT`, `SCHEMA_INVALID_LLM` (after retry), `NOT_FOUND`, `VALIDATION`, `LLM_UNAVAILABLE`, `PREVIEW_STALE`, `CONFLICT_STALE_PROPOSAL`, `CONFLICT_STALE_HEAD`.
+**Error shape (all endpoints):** `{error: {code, message, details?}}`. Codes: `LOCKED_OBJECT`, `SCHEMA_INVALID_LLM` (after retry), `NOT_FOUND`, `VALIDATION`, `LLM_UNAVAILABLE`, `PREVIEW_STALE`, `CONFLICT_STALE_PROPOSAL`, `CONFLICT_STALE_HEAD`, `IDEMPOTENCY_CONFLICT`.
 
 **Optimistic concurrency:** every project-mutating write (PATCH, accept, ledger confirm/reject/edit/batch, flag dismiss, import, undo, Change Set apply) goes through an atomic compare-and-swap on `projects.head_snapshot_id` (`UPDATE … WHERE head_snapshot_id = :expected`). Clients SHOULD send `If-Match: <headSnapshotId>` on those mutations; when present and stale, the server returns 409 `CONFLICT_STALE_HEAD` and persists nothing. When omitted, the server still CAS-guards against the head observed at read time so two concurrent writers that both loaded H cannot both commit children of H. Change Set apply additionally rejects when `preview.basedOnSnapshotId` ≠ current head (`PREVIEW_STALE` — re-preview required) before the CAS.
 
