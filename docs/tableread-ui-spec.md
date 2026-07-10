@@ -46,7 +46,7 @@ Quiet Tool visual language: cool paper neutrals, slate-blue accent (`--tr-coral*
   /* Radius: cards 12px, chips 999px, canvas frames 12px. */
   /* Shadow: 0 1px 2px rgb(38 39 43 / 0.04), lift: 0 4px 16px rgb(38 39 43 / 0.08) */
   /* Motion: 160ms ease-out standard; streaming text has no animation. */
-  /* Layout: --tr-script-col 600px; Plan panels 232/296/214px; Ledger rail 198px; shell 52px. */
+  /* Layout: --tr-script-col 600px; --tr-panel-candidate-dock 332px; Plan panels 232/296/214px; Ledger rail 198px; shell 52px. */
 }
 ```
 
@@ -60,11 +60,11 @@ Top bar (52px, `--tr-shell-height`, `--tr-surface-sunken`): project title (Instr
 
 ## 3. Write mode
 
-Layout: centered script column (max 720px) on `--tr-surface-page`; the script sheet itself is `--tr-surface-raised` with a subtle shadow — the hero. Right dock (320px) for candidates; bottom command bar (floating, 56px, max 720px).
+Layout: centered script column (max 600px, `--tr-script-col`) on `--tr-surface-page`; the script sheet itself is `--tr-surface-raised` with a subtle shadow — the hero. Right dock (~332px, `--tr-panel-candidate-dock`) for candidates; bottom command bar (floating pill, 56px, max 600px).
 
 - **Script canvas:** Fountain rendered in `--tr-font-script`; current scene's beats separated by faint 1px `--tr-border` rules with beat labels in the left gutter (11px, muted, visible on hover only). **Direct typing is allowed only in unlocked ranges**: beats with `locked` or `scriptLocked` render read-only (lock glyph in the gutter; caret placement inside shows a brief "Locked — click the lock to edit" hint), while the insertion points immediately before and after a locked beat remain writable — you can write around locked material, never inside it. Unlocking is a one-click writer action on the gutter glyph (locks bind the AI *and* casual edits; they are the writer's own pins, so undoing one is deliberate, not accidental). This mirrors the data-contract guarantee: no mutation path, human or machine, writes into a locked range while the lock holds.
 - **Candidate cards:** stacked in right dock. Card = label (15px display font, e.g. "Tense refusal") + beat plan summary (13px secondary) + script preview (script font, 12px, max 8 lines, fade-out). Streaming: text appears token-by-token, no spinner-only state. Actions per card: **Accept** (coral, solid) · **Tune** (ghost; opens inline one-line input) · **Skip** (text button). Accepting animates the card content into the script canvas (160ms).
-- **Command bar:** placeholder *"Tell the scene where to go…"*. Submit = generate candidates with instruction. `/` focuses it. Not a chat: no history thread, no assistant bubbles.
+- **Command bar:** raised white floating pill with placeholder *"Tell the scene where to go…"*. Submit = generate candidates with instruction. `/` focuses it. Not a chat: no history thread, no assistant bubbles.
 - **Quiet AI rule (enforced):** while the script canvas has focus and the writer is typing, the dock dims to 40% opacity and never updates; no proactive generation ever.
 
 **States:** *Empty scene* — ghost text "Write, or press Next Beat" + single coral "Next Beat" button center-dock. *Streaming* — cards fill sequentially; command bar disabled with subtle progress shimmer on the dock border. *Error* — dock card with `--tr-danger` left border, message + Retry; script canvas untouched. *Continuity conflict on a candidate* — amber chip "conflicts with: Dan doesn't know (fact-04)" on the card; accepting requires a confirm click on the chip.

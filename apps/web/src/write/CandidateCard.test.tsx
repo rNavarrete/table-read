@@ -36,6 +36,18 @@ const baseProps = {
 }
 
 describe('CandidateCard', () => {
+  it('uses Quiet Tool card lift chrome', () => {
+    const c = candidate()
+    render(
+      <CandidateCard {...baseProps} slot={{ status: 'done', candidate: c }} />,
+    )
+    const card = screen.getByTestId('candidate-card-0')
+    expect(card.className).toContain('bg-tr-surface-raised')
+    expect(card.className).toContain('hover:shadow-lift')
+    expect(card.className).toContain('hover:-translate-y-px')
+    expect(card.className).toContain('motion-reduce:transform-none')
+  })
+
   it('streaming slot shows the growing provisional text and no action buttons — never actionable mid-stream', () => {
     const slot: CandidateSlot = {
       status: 'streaming',
@@ -63,6 +75,23 @@ describe('CandidateCard', () => {
     expect(screen.getByText('Quiet reveal')).not.toBeNull()
     await user.click(screen.getByRole('button', { name: /accept/i }))
     expect(onAccept).toHaveBeenCalledWith(c)
+  })
+
+  it('uses Quiet Tool action hierarchy for Accept, Tune, and Skip', () => {
+    const c = candidate()
+    render(
+      <CandidateCard {...baseProps} slot={{ status: 'done', candidate: c }} />,
+    )
+
+    expect(screen.getByRole('button', { name: /accept/i }).className).toContain(
+      'bg-tr-coral',
+    )
+    const tune = screen.getByRole('button', { name: /tune/i })
+    expect(tune.className).toContain('border-tr-coral')
+    expect(tune.className).toContain('text-tr-coral')
+    expect(screen.getByRole('button', { name: /skip/i }).className).toContain(
+      'opacity-60',
+    )
   })
 
   it('failed slot renders the error-state treatment (message + Retry), never a partial actionable card', async () => {

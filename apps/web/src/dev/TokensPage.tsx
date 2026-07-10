@@ -179,6 +179,11 @@ const TOKEN_GROUPS: TokenGroup[] = [
         kind: 'width',
       },
       {
+        cssVar: '--tr-panel-candidate-dock',
+        description: 'Write mode candidate dock width (UI spec §3)',
+        kind: 'width',
+      },
+      {
         cssVar: '--tr-panel-story-layers',
         description: 'Plan mode Story Layers panel width (UI spec §4)',
         kind: 'width',

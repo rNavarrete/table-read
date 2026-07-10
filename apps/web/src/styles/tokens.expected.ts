@@ -57,6 +57,7 @@ export const EXPECTED_TOKENS: Record<string, string> = {
   '--tr-motion-ease-standard': 'ease-out',
 
   '--tr-script-col': '600px',
+  '--tr-panel-candidate-dock': '332px',
   '--tr-panel-story-layers': '232px',
   '--tr-panel-inspector': '296px',
   '--tr-card-scene': '214px',

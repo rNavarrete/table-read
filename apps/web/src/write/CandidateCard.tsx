@@ -22,9 +22,9 @@ export interface CandidateCardProps {
 }
 
 const cardShell =
-  'rounded-card border border-tr-border bg-tr-surface-raised p-4 shadow-raised'
+  'rounded-card border border-tr-border bg-tr-surface-raised p-4 shadow-raised transition-[box-shadow,transform] hover:-translate-y-px hover:shadow-lift motion-reduce:transform-none motion-reduce:transition-none'
 const dangerShell =
-  'rounded-card border border-tr-border border-l-4 border-l-tr-danger bg-tr-surface-raised p-4 shadow-raised'
+  'rounded-card border border-tr-border border-l-4 border-l-tr-danger bg-tr-surface-raised p-4 shadow-raised transition-[box-shadow,transform] hover:-translate-y-px hover:shadow-lift motion-reduce:transform-none motion-reduce:transition-none'
 
 function ScriptPreview({ text }: { text: string }) {
   return (
@@ -286,7 +286,7 @@ export function CandidateCard({
               type="button"
               disabled={accepting}
               onClick={() => setTuneOpen(true)}
-              className="rounded-card border border-tr-border-strong px-3 py-1.5 text-13 text-tr-text-primary disabled:opacity-50"
+              className="rounded-card border border-tr-coral px-3 py-1.5 text-13 text-tr-coral disabled:opacity-50"
             >
               Tune
             </button>
@@ -294,7 +294,7 @@ export function CandidateCard({
               type="button"
               disabled={accepting}
               onClick={onSkip}
-              className="text-13 text-tr-text-secondary disabled:opacity-50"
+              className="text-13 text-tr-text-secondary opacity-60 disabled:opacity-50"
             >
               Skip
             </button>

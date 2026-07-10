@@ -68,8 +68,9 @@
   --tr-motion-duration-standard: 160ms;
   --tr-motion-ease-standard:     ease-out;
 
-  /* Layout: script column / command bar max-width — §3's 600px sheet width. */
+  /* Layout: Write mode (§3) script column / candidate dock. */
   --tr-script-col: 600px;
+  --tr-panel-candidate-dock: 332px;
 
   /* Layout: Plan mode board (§4) panel/card widths. */
   --tr-panel-story-layers: 232px;
@@ -149,6 +150,7 @@
      Tailwind v4's --spacing-* namespace backs w-, h-, p-, m-, gap- (etc.)
      utilities for named values, verified empirically — see the T3.1 task report. */
   --spacing-panel-story-layers: var(--tr-panel-story-layers);
+  --spacing-panel-candidate-dock: var(--tr-panel-candidate-dock);
   --spacing-panel-inspector: var(--tr-panel-inspector);
   --spacing-panel-ledger-filters: var(--tr-panel-ledger-filters);
   --spacing-card-scene: var(--tr-card-scene);
