@@ -297,9 +297,14 @@ export function ReviewScreen() {
           className="flex flex-col gap-4 p-6"
           data-testid="draft-change-sets"
         >
-          <h2 className="font-display text-17 text-tr-text-primary">
-            Open Change Sets
-          </h2>
+          <div className="flex flex-col gap-1">
+            <p className="text-12 uppercase tracking-wide text-tr-text-muted">
+              Review mode
+            </p>
+            <h2 className="font-display text-17 font-semibold text-tr-text-primary">
+              Open Change Sets
+            </h2>
+          </div>
           {drafts.length === 0 ? (
             <p className="text-15 text-tr-text-secondary">
               No open Change Sets. Open Review from a structural edit in Plan.
@@ -311,9 +316,9 @@ export function ReviewScreen() {
                   <button
                     type="button"
                     onClick={() => openChangeSet(projectId, cs.id)}
-                    className="w-full rounded-card border border-tr-border bg-tr-surface-raised px-4 py-3 text-left hover:border-tr-coral"
+                    className="w-full rounded-card border border-tr-border bg-tr-surface-raised px-4 py-3 text-left shadow-raised transition hover:border-tr-coral hover:shadow-lift"
                   >
-                    <p className="font-display text-15 text-tr-text-primary">
+                    <p className="font-display text-15 font-medium text-tr-text-primary">
                       &ldquo;{cs.instruction}&rdquo;
                     </p>
                     <p className="mt-1 text-13 text-tr-text-muted">

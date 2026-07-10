@@ -80,6 +80,28 @@ describe('ChangeSetPanel', () => {
     expect(screen.getByLabelText('Flag only')).not.toBeNull()
   })
 
+  it('uses quiet Review chrome copy around header and footer actions', () => {
+    render(
+      <ChangeSetPanel
+        changeSet={changeSet()}
+        selectedIds={new Set(['scene-2'])}
+        previewing={false}
+        applying={false}
+        hasPreview={false}
+        onToggleSelected={vi.fn()}
+        onPreview={vi.fn()}
+        onApply={vi.fn()}
+        onFlagOnly={vi.fn()}
+        onDiscard={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByText('Review proposed impact')).not.toBeNull()
+    expect(
+      screen.getByText('Nothing changes until you confirm.'),
+    ).not.toBeNull()
+  })
+
   it('disables Apply selected until hasPreview', () => {
     render(
       <ChangeSetPanel

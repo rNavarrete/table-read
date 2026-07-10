@@ -43,6 +43,27 @@ describe('ChangeSetRow', () => {
     expect(screen.getByText('direct')).not.toBeNull()
   })
 
+  it('summarizes before and after as compact chips while collapsed', () => {
+    render(
+      <ChangeSetRow
+        row={row({
+          before: 'Searches the bar safe.',
+          after: 'Searches the marina locker.',
+        })}
+        selected
+        expanded={false}
+        previewing={false}
+        onToggleSelected={noop}
+        onToggleExpanded={noop}
+      />,
+    )
+
+    expect(screen.getByText('Before')).not.toBeNull()
+    expect(screen.getByText('Searches the bar safe.')).not.toBeNull()
+    expect(screen.getByText('After')).not.toBeNull()
+    expect(screen.getByText('Searches the marina locker.')).not.toBeNull()
+  })
+
   it('renders locked rows without a checkbox, with lock glyph and reduced opacity', () => {
     const { container } = render(
       <ChangeSetRow

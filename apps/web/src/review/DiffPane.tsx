@@ -22,9 +22,9 @@ export function DiffPane({
   const scriptClass = variant === 'script' ? ' font-script text-12' : ' text-13'
 
   return (
-    <div className="grid grid-cols-2 gap-3">
+    <div className="grid grid-cols-2 gap-2">
       <div
-        className={`rounded-card border border-tr-border bg-tr-surface-sunken p-3${scriptClass}`}
+        className={`rounded-card border border-tr-border bg-tr-surface-sunken p-2.5${scriptClass}`}
         data-testid="diff-before"
       >
         <p className="mb-1 text-12 uppercase tracking-wide text-tr-text-muted">
@@ -40,7 +40,7 @@ export function DiffPane({
       </div>
       <div
         className={
-          `rounded-card border border-tr-border bg-tr-surface-raised p-3${scriptClass}` +
+          `rounded-card border border-tr-border bg-tr-surface-raised p-2.5 shadow-raised${scriptClass}` +
           (previewing ? ' animate-pulse' : '')
         }
         data-testid="diff-after"

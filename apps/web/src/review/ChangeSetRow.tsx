@@ -72,6 +72,7 @@ export function ChangeSetRow({
   const canSelect = !isLocked && !isFlagOnly
   const confidenceHue = row.confidence === 'high' ? 'sage' : 'amber'
   const confidenceLabel = row.confidence === 'high' ? 'direct' : 'speculative'
+  const afterSummary = row.after ?? 'Preview to generate'
 
   return (
     <div
@@ -88,7 +89,7 @@ export function ChangeSetRow({
             : undefined
       }
     >
-      <div className="flex items-center gap-3 px-3 py-2 pr-6">
+      <div className="flex items-center gap-2 px-3 py-2 pr-4">
         {canSelect ? (
           <input
             type="checkbox"
@@ -114,15 +115,33 @@ export function ChangeSetRow({
           </span>
         )}
 
-        <span className="text-13 text-tr-text-secondary" aria-hidden>
+        <span className="text-12 text-tr-text-secondary" aria-hidden>
           {OBJECT_GLYPH[row.objectType]}
         </span>
-        <span className="font-ui text-13 text-tr-text-primary">
+        <span className="font-ui text-13 font-medium text-tr-text-primary">
           {row.objectId}
         </span>
         <span className="min-w-0 flex-1 truncate text-13 text-tr-text-secondary">
           {row.reason}
         </span>
+
+        {!expanded && (
+          <div className="hidden min-w-0 flex-1 items-center gap-1.5 lg:flex">
+            <span className="inline-flex min-w-0 items-center gap-1 rounded-chip bg-tr-surface-clay px-2 py-0.5 text-12 text-tr-text-secondary">
+              <span className="uppercase tracking-wide text-tr-text-muted">
+                Before
+              </span>
+              <span className="truncate">{row.before || '—'}</span>
+            </span>
+            <span className="text-12 text-tr-text-muted" aria-hidden>
+              →
+            </span>
+            <span className="inline-flex min-w-0 items-center gap-1 rounded-chip bg-tr-coral-soft px-2 py-0.5 text-12 text-tr-accent-ink">
+              <span className="uppercase tracking-wide">After</span>
+              <span className="truncate">{afterSummary}</span>
+            </span>
+          </div>
+        )}
 
         <Chip hue={confidenceHue}>
           <span aria-hidden>{row.confidence === 'high' ? '●' : '◐'}</span>
@@ -154,14 +173,14 @@ export function ChangeSetRow({
           aria-expanded={expanded}
           aria-label={expanded ? 'Collapse row' : 'Expand row'}
           onClick={() => onToggleExpanded(row.objectId)}
-          className="text-13 text-tr-text-secondary"
+          className="text-13 text-tr-text-secondary hover:text-tr-text-primary"
         >
           {expanded ? '▾' : '▸'}
         </button>
       </div>
 
       {expanded && (
-        <div className="border-t border-tr-border px-3 py-3">
+        <div className="border-t border-tr-border bg-tr-surface-page px-3 py-3">
           <DiffPane
             before={row.before}
             after={row.after}

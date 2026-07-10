@@ -142,9 +142,12 @@ export function ChangeSetPanel({
       data-testid="change-set-panel"
       className="flex min-h-[calc(100vh-3.5rem)] flex-col"
     >
-      <div className="flex flex-1 flex-col gap-4 p-6 pb-24">
-        <header className="flex flex-col gap-2">
-          <p className="font-display text-22 text-tr-text-primary">
+      <div className="flex flex-1 flex-col gap-4 p-6 pb-28">
+        <header className="flex flex-col gap-2 rounded-card border border-tr-border bg-tr-surface-raised p-4 shadow-raised">
+          <p className="text-12 uppercase tracking-wide text-tr-text-muted">
+            Review proposed impact
+          </p>
+          <p className="font-display text-17 font-semibold text-tr-text-primary">
             &ldquo;{changeSet.instruction}&rdquo;
           </p>
           <div className="flex items-center gap-2">
@@ -173,7 +176,7 @@ export function ChangeSetPanel({
       </div>
 
       <footer
-        className="sticky bottom-0 flex items-center gap-4 border-t border-tr-border bg-tr-surface-sunken px-6 py-3"
+        className="sticky bottom-0 flex flex-wrap items-center gap-3 border-t border-tr-border bg-tr-surface-sunken px-6 py-3 shadow-raised"
         data-testid="change-set-footer"
       >
         <span className="text-13 text-tr-text-secondary">
@@ -183,7 +186,7 @@ export function ChangeSetPanel({
           type="button"
           disabled={previewing || applying || selectedCount === 0}
           onClick={onPreview}
-          className="rounded-card border border-tr-coral bg-transparent px-3 py-1 text-13 text-tr-coral disabled:opacity-50"
+          className="rounded-card border border-tr-coral bg-transparent px-3 py-1.5 text-13 font-medium text-tr-coral transition hover:bg-tr-coral-soft disabled:opacity-50"
         >
           {previewing ? 'Previewing…' : 'Preview selected'}
         </button>
@@ -193,7 +196,7 @@ export function ChangeSetPanel({
             !hasPreview || previewing || applying || selectedCount === 0
           }
           onClick={onApply}
-          className="rounded-card bg-tr-coral px-3 py-1 text-13 text-tr-surface-raised disabled:opacity-50"
+          className="rounded-card bg-tr-coral px-3 py-1.5 text-13 font-medium text-tr-surface-raised transition hover:bg-tr-coral-hover disabled:opacity-50"
         >
           {applying ? 'Applying…' : 'Apply selected'}
         </button>
@@ -221,6 +224,9 @@ export function ChangeSetPanel({
         >
           Create branch
         </button>
+        <p className="basis-full text-12 text-tr-text-muted">
+          Nothing changes until you confirm.
+        </p>
       </footer>
     </div>
   )
