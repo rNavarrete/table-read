@@ -343,8 +343,23 @@ class FakeInputJsonDelta:
 
 
 @dataclass
+class FakeToolUseContentBlock:
+    name: str = "generate_beat_candidates"
+    type: str = "tool_use"
+    id: str = "toolu_stream"
+
+
+@dataclass
+class FakeContentBlockStart:
+    content_block: FakeToolUseContentBlock
+    index: int = 0
+    type: str = "content_block_start"
+
+
+@dataclass
 class FakeContentBlockDelta:
     delta: FakeInputJsonDelta
+    index: int = 0
     type: str = "content_block_delta"
 
 
@@ -417,6 +432,32 @@ def test_stream_beat_candidate_forwards_only_input_json_delta_fragments():
     assert call["tool_choice"] == {"type": "tool", "name": "generate_beat_candidates"}
     # fine-grained tool streaming enabled on the tool
     assert call["tools"][0]["eager_input_streaming"] is True
+
+
+def test_stream_beat_candidate_ignores_second_tool_use_block():
+    """claude-sonnet-5 has been observed emitting two tool_use blocks for the
+    same forced tool; concatenating both JSON inputs breaks json.loads
+    (Extra data) and surfaces as SCHEMA_INVALID_LLM in Write mode."""
+    events = [
+        FakeMessageStart(message=FakeMessage(usage=FakeUsage(input_tokens=10, output_tokens=0))),
+        FakeContentBlockStart(
+            content_block=FakeToolUseContentBlock(id="toolu_a"), index=0
+        ),
+        FakeContentBlockDelta(delta=FakeInputJsonDelta('{"label":"first"}'), index=0),
+        FakeContentBlockStart(
+            content_block=FakeToolUseContentBlock(id="toolu_b"), index=1
+        ),
+        FakeContentBlockDelta(delta=FakeInputJsonDelta('{"label":"second"}'), index=1),
+        FakeMessageDelta(usage=FakeUsage(input_tokens=10, output_tokens=5)),
+    ]
+    sdk = FakeStreamingSdk(events)
+    client = AnthropicClient(sdk_client=sdk, models=_MODELS)
+
+    frags = list(
+        client.stream_beat_candidate(system="sys", user_message="hi", prompt_version="0.1.0")
+    )
+    assert frags == ['{"label":"first"}']
+    assert '{"label":"second"}' not in frags
 
 
 def test_stream_beat_candidate_logs_metadata_never_content(caplog):
