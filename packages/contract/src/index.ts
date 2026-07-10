@@ -234,6 +234,22 @@ export const ProjectCreateRequest = z.object({
 })
 export type ProjectCreateRequest = z.input<typeof ProjectCreateRequest>
 
+// §9.3 atomic create-and-import: project basics (no `foundation` — the
+// import path has no idea-path story-foundation step) plus the script
+// source. `premise` is optional (the import wizard has no premise step).
+export const ProjectImportCreateRequest = z.object({
+  title: z.string(),
+  format: ShowFormat,
+  premise: z.string().nullable().default(null),
+  source: z.object({
+    format: z.enum(['fountain', 'text']),
+    content: z.string(),
+  }),
+})
+export type ProjectImportCreateRequest = z.input<
+  typeof ProjectImportCreateRequest
+>
+
 // ─────────────────────────────────────────────────────────────────────────
 // §2. Generation / Review types
 // ─────────────────────────────────────────────────────────────────────────
@@ -277,6 +293,47 @@ export const ConsistencyFlag = z.object({
   sourceChange: Id, // the ChangeSet or accepted-beat snapshot that triggered the scan
 })
 export type ConsistencyFlag = z.infer<typeof ConsistencyFlag>
+
+// §9.3 atomic create-and-import result — same shape as the existing
+// `POST /projects/{pid}/import` response (data contract §4), returned as the
+// SSE stream's terminal `complete` payload.
+export const ProjectImportResult = z.object({
+  project: Project,
+  newFacts: z.array(LedgerFact),
+  consistencyFlags: z.array(ConsistencyFlag),
+})
+export type ProjectImportResult = z.infer<typeof ProjectImportResult>
+
+// §7 named import progress stages (design doc §7 step 4), in emission order.
+export const ProjectImportStageName = z.enum([
+  'parsing_scenes',
+  'segmenting_beats',
+  'extracting_facts',
+  'checking_consistency',
+  'saving',
+])
+export type ProjectImportStageName = z.infer<typeof ProjectImportStageName>
+
+// §9.3 SSE progress: a `stage` event per named stage (any number, in the
+// order above), then exactly one terminal `complete` or `failed`. `error`
+// matches the canonical `{code, message, details?}` envelope (data contract
+// §4) so the wizard's failure UI reuses the same error rendering as every
+// other endpoint.
+export const ProjectImportProgressEvent = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('stage'), name: ProjectImportStageName }),
+  z.object({ type: z.literal('complete'), result: ProjectImportResult }),
+  z.object({
+    type: z.literal('failed'),
+    error: z.object({
+      code: z.string(),
+      message: z.string(),
+      details: z.unknown().nullable().default(null),
+    }),
+  }),
+])
+export type ProjectImportProgressEvent = z.infer<
+  typeof ProjectImportProgressEvent
+>
 
 // Exact, typed preview content — what apply actually writes. `ImpactedObject.after`
 // is only the rendered display snippet; this is the source of truth.

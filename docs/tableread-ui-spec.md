@@ -68,6 +68,17 @@ Recent projects show at most five `ProjectSummary` rows ordered by server `updat
 
 States: loading skeleton matching the list geometry; empty state preserving both creation cards; populated list; no-search-results message with Clear search; API error with Retry. The dashboard never substitutes seeded fixture data on error.
 
+## 2a. New project wizard
+
+Both creation paths (`/projects/new/idea`, `/projects/new/import`) share `WizardShell`: visible step labels, Back/Continue/Cancel, the quiet trust note under the step body, browser-local drafts (`tr.wizard.v1.*`), and focus-first-invalid on a blocked Continue.
+
+**Import a script** (design doc §7) is the one wizard path with an explicit product exception to "review before AI-authored structural mutation": the writer's only trigger is the last step's **Create & analyze script** button, and once pressed the deterministic/verbatim scene split plus model-proposed beat boundaries persist atomically — reviewable afterward in Plan/Ledger/Undo, never before.
+
+1. **Add the script** — Upload (`.fountain`/`.txt`, filename + detected format shown) / Paste tabs. Selecting or pasting a file never uploads or analyzes it. An unsupported extension or empty file fails locally with plain-language guidance; no request leaves the browser.
+2. **Confirm basics** — title (prefilled from the filename when uploaded, editable) + the same `ShowFormat` presets as the idea path.
+3. **Review source** — source type/filename, byte/char/line counts, a deterministic detected-scene count (informational only — the server's own split during analysis is authoritative), and the trust note.
+4. **Analyze** — the named stages stream over SSE (`POST /projects/import`, data contract §9.3) as truthful text rows with a status word each (Pending / In progress / Done — never a spinner-only wait, `aria-live="polite"` announces the current stage): parsing scenes → segmenting beats → extracting facts → checking consistency → saving project. On the terminal `complete`, the draft clears and the writer lands in Plan with the imported scenes/beats and the Ledger pending-review badge. On `failed`, nothing was created — the draft (source + basics) stays intact and the step offers **Retry**, **Edit source** (jumps back to step 1 without losing the draft), and **Return to dashboard**.
+
 ## 3. App shell
 
 Top bar (52px, `--tr-shell-height`, `--tr-surface-sunken`): project title (Instrument Sans display font, 17px / 600) · mode switcher (clay segmented control: **Write · Plan · Review · Ledger**, active segment uses `--tr-coral-soft` + `--tr-accent-ink`) · undo · export · settings. Review segment shows an amber dot when a draft Change Set exists. Ledger segment shows amber count badge when the review queue is non-empty. Keyboard: `⌘1–4` switch modes. Settings opens a privacy panel stating writing is not used for training (prompt spec §8); do not claim ZDR in product copy.

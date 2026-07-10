@@ -16,7 +16,9 @@ export interface RawSseEvent {
  *
  * Frames are `event: <name>\n` + `data: <json>\n\n` (apps/api/sse.py) — text
  * is decoded incrementally so a frame split across network chunks
- * reassembles before parsing.
+ * reassembles before parsing. `headers` merges in extra request headers
+ * (e.g. `Idempotency-Key` for the create-and-import stream, data contract
+ * §9.3) alongside the fixed `Content-Type: application/json`.
  *
  * Throws `ApiError` if the connection itself never opens (non-2xx, or no
  * body). Once streaming has started, transport failures (a dropped
@@ -28,10 +30,11 @@ export async function* streamSse(
   url: string,
   body: unknown,
   signal?: AbortSignal,
+  headers?: Record<string, string>,
 ): AsyncGenerator<RawSseEvent, void, void> {
   const response = await fetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...headers },
     body: JSON.stringify(body),
     signal,
   })

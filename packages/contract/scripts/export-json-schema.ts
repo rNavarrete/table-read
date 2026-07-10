@@ -26,10 +26,13 @@ const SCHEMA_NAMES = [
   'CharacterSeed',
   'ProjectFoundationInput',
   'ProjectCreateRequest',
+  'ProjectImportCreateRequest',
   // §2
   'BeatCandidate',
   'ImpactedObject',
   'ConsistencyFlag',
+  'ProjectImportResult',
+  'ProjectImportProgressEvent',
   'BeatUpdate',
   'SceneUpdate',
   'ChangeSetPreview',

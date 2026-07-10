@@ -155,6 +155,14 @@ export function createProject(
   })
 }
 
+/** Endpoint URL for the atomic create-and-import SSE stream (data contract
+ * §9.3: `POST /projects/import`). Streamed responses don't fit the
+ * postJson helper above — write/api/sse.ts's `streamSse` POSTs here
+ * directly, the same way write/sse.ts does for candidate generation. */
+export function importCreateUrl(): string {
+  return `${BASE}/projects/import`
+}
+
 export function getLedger(
   projectId: string,
   opts?: { status?: string; characterId?: string },

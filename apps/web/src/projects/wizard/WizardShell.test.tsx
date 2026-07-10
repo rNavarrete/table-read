@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { TRUST_NOTE, WizardShell } from './WizardShell'
 
@@ -110,5 +111,69 @@ describe('WizardShell', () => {
     expect(validate).toHaveBeenCalled()
     expect(document.activeElement).toBe(screen.getByLabelText('Title'))
     expect(screen.queryByText('Format placeholder')).toBeNull()
+  })
+
+  it('jumps to a requested step id each time its token changes, without disturbing normal navigation', async () => {
+    const user = userEvent.setup()
+    const steps = [
+      {
+        id: 'source',
+        label: 'Add script',
+        title: 'Add the script',
+        body: <p>Source body</p>,
+      },
+      {
+        id: 'basics',
+        label: 'Confirm basics',
+        title: 'Confirm basics',
+        body: <p>Basics body</p>,
+      },
+      {
+        id: 'review',
+        label: 'Review source',
+        title: 'Review source',
+        body: <p>Review body</p>,
+      },
+    ]
+
+    function Harness() {
+      const [jumpTo, setJumpTo] = useState<
+        { stepId: string; token: number } | undefined
+      >(undefined)
+      return (
+        <>
+          <WizardShell title="Import a script" steps={steps} jumpTo={jumpTo} />
+          <button
+            type="button"
+            onClick={() =>
+              setJumpTo((current) => ({
+                stepId: 'source',
+                token: (current?.token ?? 0) + 1,
+              }))
+            }
+          >
+            Edit source
+          </button>
+        </>
+      )
+    }
+
+    render(<Harness />)
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    expect(screen.getByText('Review body')).not.toBeNull()
+
+    await user.click(screen.getByRole('button', { name: 'Edit source' }))
+    expect(screen.getByText('Source body')).not.toBeNull()
+
+    // Normal navigation still works after a jump.
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    expect(screen.getByText('Basics body')).not.toBeNull()
+
+    // A second jump to the *same* step id fires again (token changed).
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    expect(screen.getByText('Review body')).not.toBeNull()
+    await user.click(screen.getByRole('button', { name: 'Edit source' }))
+    expect(screen.getByText('Source body')).not.toBeNull()
   })
 })

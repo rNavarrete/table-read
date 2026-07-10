@@ -1,12 +1,19 @@
-"""The import transaction (data contract §4 `POST /projects/{pid}/import`).
+"""The import transaction (data contract §4 `POST /projects/{pid}/import`,
+and §9.3's atomic create-and-import — `fountain/create_import.py`).
 
 Two-stage parse (prompt spec §7) → ledger extraction over imported scenes
-(all facts `pending_review`, §4 step 2) → initial consistency scan (§4 step 3)
-→ **one** snapshot committing doc + ledger + flags (§4 step 4). Everything
+(all facts `pending_review`, §4 step 2) → initial consistency scan (§4 step
+3) → **one** write committing doc + ledger + flags (§4 step 4). Everything
 that can fail — the LLM calls and the server-side coverage validation — runs
-*before* the single `mutate()` write, so a failure persists nothing; the one
-DB write is `mutate()`, whose atomicity (storage/snapshots.py) makes a
-mid-transaction fault leave zero rows changed.
+inside `analyze_import`, entirely *before* either caller's single DB write
+(`run_import`'s `mutate()` below, or `create_import.py`'s
+`create_project_with_state`), so a failure persists nothing.
+
+`analyze_import` is a generator so a caller that wants named progress (the
+create-and-import SSE stream, data contract §9.3: `parsing_scenes` /
+`segmenting_beats` / `extracting_facts` / `checking_consistency`) can drive it
+one stage at a time; `run_import` below, which has no such caller, drains it
+in one call via `run_to_completion`.
 
 The LLM never controls text coverage (§7): `scriptText` is sliced verbatim
 from the source by `parse.validate_and_slice`, never transcribed by the model.
@@ -18,9 +25,12 @@ from __future__ import annotations
 
 import copy
 import logging
+from collections.abc import Generator
+from dataclasses import dataclass
 
 from drama_manager import locks, render
 from fountain.parse import (
+    CoverageError,
     ImportedBeat,
     locate_source_text,
     split_into_scenes,
@@ -32,43 +42,77 @@ from storage.models import LedgerFactRow, ProjectRow
 
 _logger = logging.getLogger("fountain.pipeline")
 
+# Stage names in emission order (data contract §9.3 / packages/contract
+# `ProjectImportStageName`). `analyze_import` yields exactly these, in order,
+# once each; "saving" is not among them — it belongs to the caller's own
+# single DB write, which happens *after* analysis completes.
+STAGE_PARSING_SCENES = "parsing_scenes"
+STAGE_SEGMENTING_BEATS = "segmenting_beats"
+STAGE_EXTRACTING_FACTS = "extracting_facts"
+STAGE_CHECKING_CONSISTENCY = "checking_consistency"
 
-def run_import(
-    session,
-    project: ProjectRow,
+
+@dataclass
+class ImportAnalysis:
+    """Everything `analyze_import` produces: a new project doc with the
+    imported episode installed, the extracted (all `pending_review`) ledger
+    facts, and the raw consistency flags — `sourceChange` left unstamped
+    (`""`), exactly like `run_import`'s old inline `raw_flags`, because the
+    snapshot id it belongs to isn't minted until the caller's write."""
+
+    new_doc: dict
+    new_facts: list[dict]
+    raw_flags: list[dict]
+
+
+def run_to_completion[T](gen: Generator[str, None, T]) -> T:
+    """Drive an `analyze_import`-shaped generator to completion, discarding
+    the stage names it yields, and return its final value. For callers (like
+    `run_import` below) that don't need per-stage progress."""
+    try:
+        while True:
+            next(gen)
+    except StopIteration as stop:
+        return stop.value
+
+
+def analyze_import(
+    project_doc: dict,
+    existing_ledger: list[dict],
     content: str,
     llm: LlmClient,
-    *,
-    instruction: str,
-    expected_head_snapshot_id: str | None = None,
-) -> dict:
-    """Run the full import for `content` into `project`, returning
-    `{project, newFacts, consistencyFlags}`. Raises `parse.CoverageError`
-    (→ VALIDATION) on a coverage failure, `locks.LockViolation` (→ 409
-    LOCKED_OBJECT) when the target holds locked content or vouched facts, and
-    lets LLM errors propagate for the route to map; nothing is persisted until
-    the final `mutate()`."""
+) -> Generator[str, None, ImportAnalysis]:
+    """Run every LLM/parsing stage of an import with **no DB access and no
+    mutation**, yielding the data-contract §9.3 stage name as each begins and
+    returning the assembled `ImportAnalysis` once complete. Shared analysis
+    core for `run_import` (import into an existing project) and
+    `fountain/create_import.py` (atomic create-and-import, T5) — the single
+    place either caller's DB write can safely follow, because nothing here
+    can fail *after* it.
+
+    Raises `parse.CoverageError` (→ `VALIDATION`) on a coverage failure, and
+    `locks.LockViolation` (→ `LOCKED_OBJECT`) when `project_doc` holds locked
+    content or vouched facts `existing_ledger` can't be replaced (rule 2);
+    both checked before any LLM call. Lets LLM errors propagate for the
+    caller to map. A fresh (just-scaffolded, no seasons) `project_doc` with
+    an empty `existing_ledger` is always writable, so create-and-import's
+    guard call here is zero-cost."""
     if not content:
         # An empty import has no scenes to segment; reject before touching the LLM.
-        from fountain.parse import CoverageError
-
         raise CoverageError("import content is empty")
 
-    project_doc = project.doc
-
-    # Rule 2 (T3.2): import-as-replace wipes the episode's scenes and the whole
-    # ledger, so refuse a target holding locked content or vouched (non
-    # pending_review) facts — before stage 1, so a refusal costs zero LLM calls
-    # and zero mutations (test plan, Fountain round-trip section).
-    existing_ledger = [
-        row.to_wire_dict()
-        for row in session.query(LedgerFactRow).filter_by(project_id=project.id).all()
-    ]
+    # Rule 2 (T3.2): import-as-replace wipes the episode's scenes and the
+    # whole ledger, so refuse a target holding locked content or vouched
+    # (non pending_review) facts — before stage 1, so a refusal costs zero
+    # LLM calls and zero mutations (test plan, Fountain round-trip section).
     locks.assert_import_target_writable(project_doc, existing_ledger)
 
     # ── Stage 1 + 2: deterministic split, then LLM segmentation + server-side
     # coverage validation + verbatim slicing, per scene. ────────────────────
+    yield STAGE_PARSING_SCENES
     spans = split_into_scenes(content)
+
+    yield STAGE_SEGMENTING_BEATS
     per_scene_beats: list[list[ImportedBeat]] = []
     for span in spans:
         system, user = render.build_segment_prompt(project_doc, span.lines, render.new_nonce())
@@ -124,6 +168,7 @@ def run_import(
     # ── Ledger extraction (§4 step 2): every import-derived fact is
     # pending_review, regardless of confidence. Fresh ledger → no existing
     # facts to contradict. ───────────────────────────────────────────────────
+    yield STAGE_EXTRACTING_FACTS
     new_facts: list[dict] = []
     for scene in scene_docs:
         system, user = render.build_extract_prompt(
@@ -136,6 +181,7 @@ def run_import(
             new_facts.append(_to_ledger_fact(ef, len(new_facts) + 1, beat_index))
 
     # ── Consistency scan (§4 step 3): one sweep across the imported episode. ──
+    yield STAGE_CHECKING_CONSISTENCY
     scene_summaries = [
         {"id": s["id"], "location": s["location"], "whatHappens": s["whatHappens"]}
         for s in scene_docs
@@ -161,7 +207,7 @@ def run_import(
                 "explanation": dump["explanation"],
                 "severity": dump["severity"],
                 "status": "open",
-                "sourceChange": "",  # stamped with the snapshot id inside the mutator
+                "sourceChange": "",  # stamped with the snapshot id by the caller's write
             }
         )
     for beat_id, (line_a, line_b) in unassigned_raw:
@@ -181,11 +227,40 @@ def run_import(
             }
         )
 
-    # ── The single write (§4 step 4): doc + ledger + flags in one snapshot. ──
+    return ImportAnalysis(new_doc=new_doc, new_facts=new_facts, raw_flags=raw_flags)
+
+
+def run_import(
+    session,
+    project: ProjectRow,
+    content: str,
+    llm: LlmClient,
+    *,
+    instruction: str,
+    expected_head_snapshot_id: str | None = None,
+) -> dict:
+    """Run the full import for `content` into `project`, returning
+    `{project, newFacts, consistencyFlags}`. Raises `parse.CoverageError`
+    (→ VALIDATION) on a coverage failure, `locks.LockViolation` (→ 409
+    LOCKED_OBJECT) when the target holds locked content or vouched facts, and
+    lets LLM errors propagate for the route to map; nothing is persisted until
+    the final `mutate()` (see `analyze_import`'s docstring for why that's safe)."""
+    existing_ledger = [
+        row.to_wire_dict()
+        for row in session.query(LedgerFactRow).filter_by(project_id=project.id).all()
+    ]
+    analysis = run_to_completion(
+        analyze_import(project.doc, existing_ledger, content, llm)
+    )
+
+    # ── the single write (§4 step 4): doc + ledger + flags in one snapshot. ──
     def mutator(state: snapshots.MutationState) -> snapshots.MutationState:
-        flags = [{**f, "sourceChange": state.snapshot_id} for f in raw_flags]
+        flags = [{**f, "sourceChange": state.snapshot_id} for f in analysis.raw_flags]
         return snapshots.MutationState(
-            doc=new_doc, ledger=new_facts, flags=flags, snapshot_id=state.snapshot_id
+            doc=analysis.new_doc,
+            ledger=analysis.new_facts,
+            flags=flags,
+            snapshot_id=state.snapshot_id,
         )
 
     snap = snapshots.mutate(
@@ -197,16 +272,12 @@ def run_import(
     )
 
     _logger.info(
-        "import project=%s snapshot=%s prompt_version=%s scenes=%d beats=%d "
-        "facts=%d flags=%d unassigned=%d",
+        "import project=%s snapshot=%s prompt_version=%s facts=%d flags=%d",
         project.id,
         snap.id,
         render.PROMPT_VERSION,
-        len(scene_docs),
-        len(beat_index),
-        len(new_facts),
+        len(analysis.new_facts),
         len(snap.flags),
-        len(unassigned_raw),
     )
     return {"project": snap.doc, "newFacts": snap.ledger, "consistencyFlags": snap.flags}
 

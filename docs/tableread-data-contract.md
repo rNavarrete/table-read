@@ -137,6 +137,18 @@ export const ProjectCreateRequest = z.object({
   premise: z.string(),
   foundation: ProjectFoundationInput.nullable().default(null),
 });
+
+// §9.3 atomic create-and-import: project basics (no `foundation`) plus the
+// script source. `premise` is optional (the import wizard has no premise step).
+export const ProjectImportCreateRequest = z.object({
+  title: z.string(),
+  format: ShowFormat,
+  premise: z.string().nullable().default(null),
+  source: z.object({
+    format: z.enum(["fountain", "text"]),
+    content: z.string(),
+  }),
+});
 ```
 
 ## 2. Generation / Review types
@@ -172,6 +184,35 @@ export const ConsistencyFlag = z.object({
   status: z.enum(["open", "dismissed", "resolved"]),
   sourceChange: Id,             // the ChangeSet or accepted-beat snapshot that triggered the scan
 });
+
+// §9.3 atomic create-and-import result — same shape as the existing
+// `POST /projects/{pid}/import` response, returned as the SSE stream's
+// terminal `complete` payload.
+export const ProjectImportResult = z.object({
+  project: Project,
+  newFacts: z.array(LedgerFact),
+  consistencyFlags: z.array(ConsistencyFlag),
+});
+
+// Named import progress stages (§7 step 4), in emission order.
+export const ProjectImportStageName = z.enum([
+  "parsing_scenes", "segmenting_beats", "extracting_facts",
+  "checking_consistency", "saving",
+]);
+
+// §9.3 SSE progress: any number of `stage` events (order above), then
+// exactly one terminal `complete` or `failed`. `error` matches the
+// canonical `{code, message, details?}` envelope.
+export const ProjectImportProgressEvent = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("stage"), name: ProjectImportStageName }),
+  z.object({ type: z.literal("complete"), result: ProjectImportResult }),
+  z.object({
+    type: z.literal("failed"),
+    error: z.object({
+      code: z.string(), message: z.string(), details: z.unknown().nullable().default(null),
+    }),
+  }),
+]);
 
 // Exact, typed preview content — what apply actually writes. `ImpactedObject.after`
 // is only the rendered display snippet; this is the source of truth.
@@ -320,6 +361,7 @@ Defined transactions:
   2. Run `extract_ledger_facts` over every imported scene; **all import-derived facts are created `pending_review` regardless of confidence** (nobody has vouched for inferences over a whole script — the writer batch-reviews them in the Ledger queue).
   3. Run `scan_consistency` across the imported episode (initial sweep — imports can carry internal contradictions).
   4. One snapshot committing doc + ledger + flags together; partial failure rolls back all of it.
+- `POST /projects/import` `ProjectImportCreateRequest` with required `Idempotency-Key` header → **SSE** (§9.3 atomic create-and-import — the import-wizard analogue of `POST /projects` above): reuses the same parse/import pipeline as `POST /projects/{pid}/import`, but creates the project **and** its imported state in one DB transaction — every LLM/parsing stage that can fail runs before that single write, never an empty root followed by an import child. Events: `stage {type: "stage", name}` for each named stage in order (`parsing_scenes`, `segmenting_beats`, `extracting_facts`, `checking_consistency`, `saving`), then exactly one terminal `complete {type: "complete", result: ProjectImportResult}` or `failed {type: "failed", error}`. `ProjectImportResult` is `{project, newFacts, consistencyFlags}` — the same shape `POST /projects/{pid}/import` returns. Idempotency mirrors `POST /projects`: a hash conflict is rejected with a plain 409 `IDEMPOTENCY_CONFLICT` JSON response *before* the stream opens (never a mid-stream surprise); a same-key/same-hash replay opens a stream whose only frame is the terminal `complete` with the original result; a failed transaction leaves no key, so a retry with the same key runs normally.
 - `GET /projects/{pid}/export.fountain` → `text/plain`
 - `DELETE /projects/{pid}` — purges every project-scoped row across **all six DB tables plus embeddings**: `projects`, `snapshots`, `ledger_facts`, `change_sets` (including stored previews — they contain generated script text and instructions), `consistency_flags`, `suggestion_history`, and the embedding blobs stored with suggestion history (privacy §7.1). One transaction; the purge test asserts zero remaining rows per table. ("All six DB tables plus embeddings" is the canonical phrasing — build plan and test plan use it verbatim.)
 

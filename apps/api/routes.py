@@ -33,6 +33,7 @@ from drama_manager import (
     scan,
 )
 from errors import ApiError
+from fountain import create_import
 from fountain.export import to_fountain
 from fountain.parse import CoverageError
 from fountain.pipeline import run_import
@@ -49,9 +50,10 @@ from schemas import (
     LedgerFactEdit,
     Project,
     ProjectCreateRequest,
+    ProjectImportCreateRequest,
     ProjectSummary,
 )
-from storage import snapshots
+from storage import project_scaffold, snapshots
 from storage.db import get_session
 from storage.models import ConsistencyFlagRow, LedgerFactRow, ProjectRow, SnapshotRow
 from storage.patching import PatchError, apply_json_patch
@@ -67,16 +69,6 @@ flags_router = APIRouter(prefix="/api/v1/consistency-flags", tags=["consistency-
 # Top-level Change Set mutations (data contract §4 Review): preview / apply /
 # discard / flag — not nested under `/projects/{pid}` (create stays nested).
 change_sets_router = APIRouter(prefix="/api/v1/change-sets", tags=["change-sets"])
-
-# Default component set for a new project (design doc §5 / fixture). The
-# writer toggles these in show-format settings later.
-_DEFAULT_ENABLED_COMPONENTS = [
-    "existential_question",
-    "audience_goals",
-    "motivations",
-    "desiderata",
-    "continuity_ledger",
-]
 
 
 def _get_project_or_404(session: Session, pid: str) -> ProjectRow:
@@ -95,22 +87,8 @@ def _expected_head(if_match: str | None) -> str | None:
     return value or None
 
 
-def _minimal_series_bible() -> dict:
-    """A scaffolded but empty `SeriesBible` (data contract §4 POST /projects)."""
-    return {
-        "existentialQuestion": {"text": "", "locked": False},
-        "worldRules": [],
-        "storiesToAvoid": [],
-        "characters": [],
-        "relationships": [],
-        "audienceGoals": [],
-        "narratorGoals": [],
-        "worldQA": [],
-    }
-
-
 def _series_bible_from_foundation(body: ProjectCreateRequest) -> dict:
-    bible = _minimal_series_bible()
+    bible = project_scaffold.minimal_series_bible()
     foundation = body.foundation
     if foundation is None:
         return bible
@@ -133,7 +111,12 @@ def _series_bible_from_foundation(body: ProjectCreateRequest) -> dict:
     return bible
 
 
-def _creation_request_hash(body: ProjectCreateRequest) -> str:
+def _creation_request_hash(
+    body: ProjectCreateRequest | ProjectImportCreateRequest,
+) -> str:
+    """Canonical request hash for the storage-only idempotency column (data
+    contract §9.3), shared by both project-creation transactions — the plain
+    idea create above and `create_and_import_project` below."""
     canonical = json.dumps(
         body.model_dump(by_alias=True, mode="json", exclude_none=True),
         sort_keys=True,
@@ -176,20 +159,17 @@ def _project_summary(session: Session, project: ProjectRow) -> dict:
 def _resolve_create_idempotency(
     session: Session, idempotency_key: str, request_hash: str
 ) -> dict | None:
-    existing = (
-        session.query(ProjectRow)
-        .filter_by(creation_idempotency_key=idempotency_key)
-        .one_or_none()
-    )
-    if existing is None:
-        return None
-    if existing.creation_request_hash == request_hash:
-        return existing.doc
-    raise ApiError(
-        409,
-        "IDEMPOTENCY_CONFLICT",
-        "Idempotency-Key was already used for a different project request",
-    )
+    """Thin route-layer wrapper around `snapshots.resolve_creation_idempotency`
+    (data contract §9.3, shared with `fountain/create_import.py`'s SSE path),
+    translating its `IdempotencyConflict` into the JSON 409 envelope and
+    unwrapping the row to the bare doc this route returns."""
+    try:
+        existing = snapshots.resolve_creation_idempotency(
+            session, idempotency_key, request_hash
+        )
+    except snapshots.IdempotencyConflict as exc:
+        raise ApiError(409, "IDEMPOTENCY_CONFLICT", str(exc)) from exc
+    return existing.doc if existing is not None else None
 
 
 @router.get("", response_model=list[ProjectSummary])
@@ -213,16 +193,10 @@ def create_project(
     ):
         return existing_doc
 
-    doc = {
-        "id": None,  # server-assigned in snapshots.create_project
-        "title": body.title,
-        "format": body.format.model_dump(by_alias=True),
-        "enabledComponents": list(_DEFAULT_ENABLED_COMPONENTS),
-        "premise": body.premise,
-        "seriesBible": _series_bible_from_foundation(body),
-        "seasons": [],
-        "headSnapshotId": None,  # server-assigned in snapshots.create_project
-    }
+    doc = project_scaffold.initial_project_doc(
+        body.title, body.format.model_dump(by_alias=True), body.premise
+    )
+    doc["seriesBible"] = _series_bible_from_foundation(body)
     try:
         project = snapshots.create_project(
             session,
@@ -239,6 +213,56 @@ def create_project(
             return existing_doc
         raise
     return project.doc
+
+
+@router.post("/import")
+def create_and_import_project(
+    body: ProjectImportCreateRequest,
+    session: Session = Depends(get_session),
+    llm: LlmClient = Depends(get_llm_client),
+    idempotency_key: str = Header(..., alias="Idempotency-Key"),
+) -> StreamingResponse:
+    """Atomic create-and-import (data contract §9.3): `POST /projects/import`
+    → SSE. Every LLM/parsing stage (`create_import.create_and_import_events`)
+    runs before the single DB write that creates the project **and** its
+    root snapshot with the imported doc/ledger/flags together — never an
+    empty root followed by an import child.
+
+    Idempotency mirrors plain project create (`create_project` above), with
+    one transport difference: a hash conflict is resolved *before* the
+    stream opens (a plain 409 JSON, like every other validation failure —
+    candidates.py's "bad ids are HTTP errors, not mid-stream SSE surprises"
+    convention), while a same-key/same-hash replay opens a stream whose only
+    frame is the terminal `complete` (`create_import.replay_events`)."""
+    if not idempotency_key.strip():
+        raise ApiError(400, "VALIDATION", "Idempotency-Key must not be empty")
+
+    request_hash = _creation_request_hash(body)
+    try:
+        existing = snapshots.resolve_creation_idempotency(
+            session, idempotency_key, request_hash
+        )
+    except snapshots.IdempotencyConflict as exc:
+        raise ApiError(409, "IDEMPOTENCY_CONFLICT", str(exc)) from exc
+
+    if existing is not None:
+        return StreamingResponse(
+            create_import.replay_events(session, existing.id),
+            media_type="text/event-stream",
+        )
+
+    events = create_import.create_and_import_events(
+        session,
+        title=body.title,
+        format_dict=body.format.model_dump(by_alias=True),
+        premise=body.premise or "",
+        source_format=body.source.format,
+        content=body.source.content,
+        llm=llm,
+        creation_idempotency_key=idempotency_key,
+        creation_request_hash=request_hash,
+    )
+    return StreamingResponse(events, media_type="text/event-stream")
 
 
 @router.get("/{pid}", response_model=Project)

@@ -20,6 +20,14 @@ interface WizardShellProps {
   finalActionLabel?: string
   onFinalAction?: () => void
   isFinalActionDisabled?: boolean
+  // Uncontrolled navigation (Back/Continue) is the norm; this is only for a
+  // parent that occasionally needs to *force* a jump — e.g. the import
+  // wizard's failure recovery "Edit source" action (design doc §7 step 4)
+  // jumping back to the source step from Analyze. `token` must change (e.g.
+  // an incrementing counter) each time the parent wants a jump to fire, even
+  // to the same `stepId` as last time; normal Back/Continue clicks keep
+  // working in between jumps.
+  jumpTo?: { stepId: string; token: number }
 }
 
 function focusFirstInvalidField() {
@@ -38,8 +46,18 @@ export function WizardShell({
   finalActionLabel = 'Continue',
   onFinalAction,
   isFinalActionDisabled = false,
+  jumpTo,
 }: WizardShellProps) {
   const [currentIndex, setCurrentIndex] = useState(0)
+  // "Adjusting state during render" (react.dev), not an effect: a jump is a
+  // one-shot response to a prop change, not a subscription to an external
+  // system, so this avoids the extra render an effect-based setState causes.
+  const [lastJumpToken, setLastJumpToken] = useState(jumpTo?.token)
+  if (jumpTo !== undefined && jumpTo.token !== lastJumpToken) {
+    setLastJumpToken(jumpTo.token)
+    const index = steps.findIndex((step) => step.id === jumpTo.stepId)
+    if (index !== -1) setCurrentIndex(index)
+  }
   const currentStep = steps[currentIndex]
   const isFirstStep = currentIndex === 0
   const isLastStep = currentIndex === steps.length - 1

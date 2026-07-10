@@ -20,9 +20,9 @@ index.ts's module header and the task report for why.
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Annotated
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, RootModel, StringConstraints
 from pydantic.alias_generators import to_camel
 
 # "scene-1", "beat-1-2", "fact-04", "char-marta"
@@ -263,6 +263,23 @@ class ProjectCreateRequest(_Base):
     foundation: ProjectFoundationInput | None = None
 
 
+class ProjectImportSourceFormat(StrEnum):
+    fountain = "fountain"
+    text = "text"
+
+
+class ProjectImportSource(_Base):
+    format: ProjectImportSourceFormat
+    content: str
+
+
+class ProjectImportCreateRequest(_Base):
+    title: str
+    format: ShowFormat
+    premise: str | None = None
+    source: ProjectImportSource
+
+
 # ─────────────────────────────────────────────────────────────────────────
 # §2. Generation / Review types
 # ─────────────────────────────────────────────────────────────────────────
@@ -343,6 +360,60 @@ class ConsistencyFlag(_Base):
     severity: FlagSeverity
     status: FlagStatus
     source_change: Id  # the ChangeSet or accepted-beat snapshot that triggered the scan
+
+
+class ProjectImportResult(_Base):
+    project: Project
+    new_facts: list[LedgerFact]
+    consistency_flags: list[ConsistencyFlag]
+
+
+class ImportProgressStageName(StrEnum):
+    parsing_scenes = "parsing_scenes"
+    segmenting_beats = "segmenting_beats"
+    extracting_facts = "extracting_facts"
+    checking_consistency = "checking_consistency"
+    saving = "saving"
+
+
+class ImportProgressStageEvent(_Base):
+    type: Literal["stage"]
+    name: ImportProgressStageName
+
+
+class ImportProgressCompleteEvent(_Base):
+    type: Literal["complete"]
+    result: ProjectImportResult
+
+
+class ImportProgressErrorBody(_Base):
+    code: str
+    message: str
+    details: object | None = None
+
+
+class ImportProgressFailedEvent(_Base):
+    type: Literal["failed"]
+    error: ImportProgressErrorBody
+
+
+class ProjectImportProgressEvent(
+    RootModel[
+        Annotated[
+            ImportProgressStageEvent
+            | ImportProgressCompleteEvent
+            | ImportProgressFailedEvent,
+            Field(discriminator="type"),
+        ]
+    ]
+):
+    """Mirrors the Zod discriminated union of the same name (data contract
+    §9.3). A `RootModel` so `model_json_schema()` exists for the CI schema
+    diff (scripts/check_contract.py) even though this type has no object
+    fields of its own — routes build the SSE payload as plain dicts (like
+    every other SSE event in this codebase; see drama_manager/candidates.py),
+    so this model exists for the contract diff and any caller that wants to
+    validate an event, not as a construction path."""
 
 
 # Exact, typed preview content — what apply actually writes. `ImpactedObject.after`
