@@ -20,6 +20,14 @@ describe('ModeSwitcher', () => {
     expect((ledger as HTMLButtonElement).disabled).toBe(false)
   })
 
+  it('uses Quiet Tool accent tint and ink on the active segment', () => {
+    render(<ModeSwitcher active="Write" ledgerCount={0} />)
+    const write = screen.getByRole('tab', { name: 'Write' })
+
+    expect(write.className).toContain('bg-tr-coral-soft')
+    expect(write.className).toContain('text-tr-accent-ink')
+  })
+
   it('shows an amber draft dot on Review when hasDraftChangeSet', () => {
     render(<ModeSwitcher active="Write" ledgerCount={0} hasDraftChangeSet />)
     expect(screen.getByLabelText('Draft Change Set')).not.toBeNull()

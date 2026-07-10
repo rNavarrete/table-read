@@ -56,7 +56,7 @@ Quiet Tool visual language: cool paper neutrals, slate-blue accent (`--tr-coral*
 
 ## 2. App shell
 
-Top bar (56px, `--tr-surface-sunken`): project title (display font) · mode switcher (segmented control: **Write · Plan · Review · Ledger**) · undo · export · settings. Review segment shows an amber dot when a draft Change Set exists. Ledger segment shows amber count badge when the review queue is non-empty. Keyboard: `⌘1–4` switch modes. Settings opens a privacy panel stating writing is not used for training (prompt spec §8); do not claim ZDR in product copy.
+Top bar (52px, `--tr-shell-height`, `--tr-surface-sunken`): project title (Instrument Sans display font, 17px / 600) · mode switcher (clay segmented control: **Write · Plan · Review · Ledger**, active segment uses `--tr-coral-soft` + `--tr-accent-ink`) · undo · export · settings. Review segment shows an amber dot when a draft Change Set exists. Ledger segment shows amber count badge when the review queue is non-empty. Keyboard: `⌘1–4` switch modes. Settings opens a privacy panel stating writing is not used for training (prompt spec §8); do not claim ZDR in product copy.
 
 ## 3. Write mode
 
