@@ -1,7 +1,10 @@
 import { LedgerScreen } from './ledger/LedgerScreen'
 import { PlanScreen } from './plan/PlanScreen'
 import { DashboardScreen } from './projects/DashboardScreen'
-import { NewProjectStub } from './projects/NewProjectStub'
+import {
+  IdeaWizardRoute,
+  ImportWizardRoute,
+} from './projects/wizard/NewProjectWizards'
 import { ReviewScreen } from './review/ReviewScreen'
 import { WriteScreen } from './write/WriteScreen'
 
@@ -20,10 +23,10 @@ function App() {
   }
   if (path === '/projects') return <DashboardScreen />
   if (path === '/projects/new/idea') {
-    return <NewProjectStub title="Start from an idea" />
+    return <IdeaWizardRoute />
   }
   if (path === '/projects/new/import') {
-    return <NewProjectStub title="Import a script" />
+    return <ImportWizardRoute />
   }
   if (path === '/plan') return <PlanScreen />
   if (path === '/review') return <ReviewScreen />

@@ -1,5 +1,11 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import {
+  cleanup,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { ProjectSummary } from 'contract'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -81,6 +87,30 @@ describe('DashboardScreen', () => {
     ).toBe('/projects/new/idea')
     expect(
       screen
+        .getByRole('link', { name: /Import a script/i })
+        .getAttribute('href'),
+    ).toBe('/projects/new/import')
+  })
+
+  it('opens the top-right new-project path chooser', async () => {
+    vi.mocked(listProjects).mockResolvedValue([])
+    const user = userEvent.setup()
+
+    render(<DashboardScreen />)
+
+    await screen.findByText('No projects yet')
+    await user.click(screen.getByRole('button', { name: '+ New project' }))
+
+    const dialog = screen.getByRole('dialog', { name: 'Choose a project path' })
+
+    expect(dialog).not.toBeNull()
+    expect(
+      within(dialog)
+        .getByRole('link', { name: /Start from an idea/i })
+        .getAttribute('href'),
+    ).toBe('/projects/new/idea')
+    expect(
+      within(dialog)
         .getByRole('link', { name: /Import a script/i })
         .getAttribute('href'),
     ).toBe('/projects/new/import')

@@ -52,6 +52,52 @@ function LoadingRows() {
   )
 }
 
+function PathChooser({ onClose }: { onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-10 flex items-center justify-center bg-tr-text-primary/40 px-6">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Choose a project path"
+        className="w-full max-w-2xl rounded-card border border-tr-border bg-tr-surface-raised p-6 shadow-lift"
+      >
+        <div className="flex items-start gap-4">
+          <div>
+            <p className="text-12 uppercase tracking-wide text-tr-text-muted">
+              New project
+            </p>
+            <h2 className="mt-2 font-display text-22 font-semibold text-tr-text-primary">
+              Choose a project path
+            </h2>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close project path chooser"
+            className="ml-auto rounded-chip px-2 py-1 text-17 text-tr-text-muted hover:bg-tr-surface-clay hover:text-tr-text-primary"
+          >
+            x
+          </button>
+        </div>
+        <div className="mt-5 grid gap-4 sm:grid-cols-2">
+          <LauncherCard
+            href="/projects/new/idea"
+            eyebrow="Start"
+            title="Start from an idea"
+            body="Build the premise, format, and story foundation before any AI step."
+          />
+          <LauncherCard
+            href="/projects/new/import"
+            eyebrow="Import"
+            title="Import a script"
+            body="Upload or paste Fountain or plain text, then confirm before processing."
+          />
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function EmptyState() {
   return (
     <div className="rounded-card border border-tr-border bg-tr-surface-raised p-5">
@@ -94,6 +140,7 @@ export function DashboardScreen() {
   const [loadState, setLoadState] = useState<LoadState>({ status: 'loading' })
   const [search, setSearch] = useState('')
   const [reloadKey, setReloadKey] = useState(0)
+  const [isChooserOpen, setIsChooserOpen] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -135,12 +182,13 @@ export function DashboardScreen() {
           Table Read
         </a>
         <div className="ml-auto flex items-center gap-4 text-13 text-tr-text-muted">
-          <a
-            href="/projects/new/idea"
+          <button
+            type="button"
+            onClick={() => setIsChooserOpen(true)}
             className="rounded-chip bg-tr-coral px-4 py-2 font-medium text-tr-surface-raised transition hover:bg-tr-coral-hover"
           >
             + New project
-          </a>
+          </button>
           <button type="button" className="hover:text-tr-text-secondary">
             Settings
           </button>
@@ -244,6 +292,7 @@ export function DashboardScreen() {
           )}
         </section>
       </main>
+      {isChooserOpen && <PathChooser onClose={() => setIsChooserOpen(false)} />}
     </div>
   )
 }
