@@ -7,3 +7,11 @@ body {
   background: var(--tr-surface-page);
   color: var(--tr-text-primary);
 }
+
+/* Adoption A9 — recipe overlay spotlight on a real control. */
+.recipe-highlight {
+  outline: 2px solid var(--tr-sky);
+  outline-offset: 3px;
+  position: relative;
+  z-index: 40;
+}

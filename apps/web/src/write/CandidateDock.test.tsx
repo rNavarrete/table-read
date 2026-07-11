@@ -19,6 +19,9 @@ describe('CandidateDock', () => {
       <CandidateDock
         session={idleSession}
         quiet={false}
+        focusedIndex={null}
+        craftLevel="standard"
+        onCraftLevelChange={() => {}}
         onNextBeat={() => {}}
         onSkip={() => {}}
         onReplace={() => {}}

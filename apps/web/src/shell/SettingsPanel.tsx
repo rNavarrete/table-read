@@ -1,13 +1,16 @@
 /**
- * Settings overlay — privacy copy (T6.3) + JSON export (adoption A6).
+ * Settings overlay — privacy copy (T6.3) + JSON export (adoption A6) +
+ * craft-level default (adoption A3).
  *
  * Product language follows prompt spec §8 / design doc §7.1: state that
  * writing is not used for training under standard API terms; do not claim
  * ZDR / zero-data-retention unless a ZDR agreement is executed.
  */
 
-import { useState } from 'react'
-import { exportProjectJson } from '../api/client'
+import { useEffect, useState } from 'react'
+import type { CraftLevel } from 'contract'
+import { exportProjectJson, getProject, patchProject } from '../api/client'
+import { CraftLevelPicker } from '../write/CraftLevelPicker'
 
 export interface SettingsPanelProps {
   open: boolean
@@ -28,6 +31,29 @@ export function SettingsPanel({
 }: SettingsPanelProps) {
   const [exporting, setExporting] = useState(false)
   const [exportError, setExportError] = useState<string | null>(null)
+  const [craftLevel, setCraftLevel] = useState<CraftLevel>('standard')
+  const [craftError, setCraftError] = useState<string | null>(null)
+  const [craftSaving, setCraftSaving] = useState(false)
+
+  useEffect(() => {
+    if (!open || !projectId) return
+    let cancelled = false
+    getProject(projectId)
+      .then((project) => {
+        if (cancelled) return
+        setCraftLevel(project.defaultCraftLevel ?? 'standard')
+        setCraftError(null)
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return
+        setCraftError(
+          err instanceof Error ? err.message : 'Failed to load craft default',
+        )
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [open, projectId])
 
   if (!open) return null
 
@@ -51,6 +77,26 @@ export function SettingsPanel({
       setExportError(err instanceof Error ? err.message : 'Export failed')
     } finally {
       setExporting(false)
+    }
+  }
+
+  async function handleCraftLevelChange(level: CraftLevel) {
+    if (!projectId) return
+    const prev = craftLevel
+    setCraftLevel(level)
+    setCraftSaving(true)
+    setCraftError(null)
+    try {
+      await patchProject(projectId, [
+        { op: 'add', path: '/defaultCraftLevel', value: level },
+      ])
+    } catch (err) {
+      setCraftLevel(prev)
+      setCraftError(
+        err instanceof Error ? err.message : 'Failed to save craft default',
+      )
+    } finally {
+      setCraftSaving(false)
     }
   }
 
@@ -108,6 +154,25 @@ export function SettingsPanel({
             </div>
           ) : null}
         </section>
+        {projectId ? (
+          <section className="flex flex-col gap-3 border-t border-tr-border px-6 py-5">
+            <h3 className="text-15 text-tr-text-primary">Craft level</h3>
+            <p className="text-13 text-tr-text-secondary">
+              Default for Write candidates and Change Set preview. Per-request
+              pickers can still override.
+            </p>
+            <CraftLevelPicker
+              value={craftLevel}
+              onChange={(level) => void handleCraftLevelChange(level)}
+              disabled={craftSaving}
+            />
+            {craftError ? (
+              <p className="text-13 text-tr-danger" role="alert">
+                {craftError}
+              </p>
+            ) : null}
+          </section>
+        ) : null}
       </aside>
     </div>
   )

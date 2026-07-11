@@ -1,6 +1,12 @@
 import { useMemo, useState } from 'react'
-import type { ChangeSet, ConsistencyFlag, SceneAddition } from 'contract'
+import type {
+  ChangeSet,
+  ConsistencyFlag,
+  CraftLevel,
+  SceneAddition,
+} from 'contract'
 import { Chip } from '../plan/Chip'
+import { CraftLevelPicker } from '../write/CraftLevelPicker'
 import { ChangeSetRow } from './ChangeSetRow'
 import { selectableIds } from './selectableIds'
 
@@ -12,6 +18,8 @@ export interface ChangeSetPanelProps {
   applying: boolean
   /** True once a successful preview has filled `after` for the selection. */
   hasPreview: boolean
+  craftLevel: CraftLevel
+  onCraftLevelChange: (level: CraftLevel) => void
   postApplyFlags?: ConsistencyFlag[]
   onToggleSelected: (objectId: string) => void
   onPreview: () => void
@@ -35,6 +43,8 @@ export function ChangeSetPanel({
   previewing,
   applying,
   hasPreview,
+  craftLevel,
+  onCraftLevelChange,
   postApplyFlags = [],
   onToggleSelected,
   onPreview,
@@ -176,6 +186,15 @@ export function ChangeSetPanel({
               {changeSet.status}
             </Chip>
           </div>
+          {canPreview ? (
+            <div className="mt-1">
+              <CraftLevelPicker
+                value={craftLevel}
+                onChange={onCraftLevelChange}
+                disabled={previewing || applying}
+              />
+            </div>
+          ) : null}
         </header>
 
         <div className="flex flex-col gap-2" role="list">

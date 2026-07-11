@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useReducer, useRef } from 'react'
+import type { CraftLevel } from 'contract'
 import { candidatesUrl } from '../api/client'
 import { streamSse } from '../api/sse'
 import {
@@ -12,6 +13,7 @@ import {
 export interface GenerateRequest {
   afterBeatId: string | null
   instruction?: string
+  craftLevel?: CraftLevel
 }
 
 /**
@@ -41,6 +43,7 @@ export function useCandidateSession(projectId: string, sceneId: string) {
             {
               afterBeatId: request.afterBeatId,
               instruction: request.instruction,
+              craftLevel: request.craftLevel,
             },
             controller.signal,
           )

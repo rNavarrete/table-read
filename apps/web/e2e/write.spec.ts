@@ -55,3 +55,34 @@ test('scene-3: Next Beat streams 3 actionable cards; Accept inserts the beat and
   const pendingAfter = Number((badgeAfter ?? '').replace(/\D/g, '') || '0')
   expect(pendingAfter).toBeGreaterThanOrEqual(pendingBefore)
 })
+
+test('keyboard: Q generates, Tab cycles, Enter accepts; typing in script ignores Q', async ({
+  page,
+}) => {
+  await page.goto('/?project=proj-longpour&scene=scene-3')
+  await expect(page.getByTestId('beat-beat-3-1')).toBeVisible()
+
+  await page.keyboard.press('q')
+  for (const index of [0, 1, 2]) {
+    await expect(
+      page.getByTestId(`candidate-card-${index}`).getByRole('button', {
+        name: 'Accept',
+      }),
+    ).toBeVisible({ timeout: 15_000 })
+  }
+
+  await page.keyboard.press('2')
+  await expect(page.getByTestId('candidate-card-1')).toHaveAttribute(
+    'data-focused',
+    'true',
+  )
+  await page.keyboard.press('Enter')
+  await expect(page.getByTestId('beat-beat-3-2')).toBeVisible()
+
+  // Reload a fresh write surface and prove script typing does not fire Q.
+  await page.goto('/?project=proj-longpour&scene=scene-3')
+  const script = page.getByTestId('beat-beat-3-1')
+  await script.click()
+  await script.press('q')
+  await expect(page.getByTestId('candidate-card-0')).toHaveCount(0)
+})

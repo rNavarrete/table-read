@@ -2,13 +2,17 @@ import type {
   BeatCandidate,
   ChangeSet,
   ConsistencyFlag,
+  CraftLevel,
   InitialSceneSkeletonCandidate,
   LedgerExtraction,
   LedgerFact,
   Project,
   ProjectCreateRequest,
   ProjectSummary,
+  SnapshotSummary,
+  SuggestRequest,
 } from 'contract'
+
 import { toApiError } from './errors'
 
 // Relative, not absolute: same-origin under the Vite dev proxy
@@ -130,6 +134,34 @@ export function undoProject(
   opts?: IfMatchOpts,
 ): Promise<Project> {
   return postJson<Project>(`/projects/${projectId}/undo`, {}, opts)
+}
+
+/** `GET /projects/{pid}/snapshots` — restorable ancestors (adoption A5). */
+export function listProjectSnapshots(
+  projectId: string,
+): Promise<SnapshotSummary[]> {
+  return getJson<SnapshotSummary[]>(`/projects/${projectId}/snapshots`)
+}
+
+/** `POST /projects/{pid}/restore` — jump head to an ancestor snapshot. */
+export function restoreProject(
+  projectId: string,
+  snapshotId: string,
+  opts?: IfMatchOpts,
+): Promise<Project> {
+  return postJson<Project>(
+    `/projects/${projectId}/restore`,
+    { snapshotId },
+    opts,
+  )
+}
+
+/** `POST /projects/{pid}/suggest` — 3 contextual instruction chips (A4). */
+export function suggestInstructions(
+  projectId: string,
+  body: SuggestRequest,
+): Promise<{ suggestions: [string, string, string] }> {
+  return postJson(`/projects/${projectId}/suggest`, body)
 }
 
 /** `GET /projects/{pid}/export.fountain` — Fountain teleplay text. */
@@ -340,7 +372,7 @@ export function listChangeSets(
  * typed preview payload; does not mutate the project. */
 export function previewChangeSet(
   changeSetId: string,
-  body: { approvedObjectIds: string[] },
+  body: { approvedObjectIds: string[]; craftLevel?: CraftLevel },
 ): Promise<ChangeSet> {
   return postJson<ChangeSet>(`/change-sets/${changeSetId}/preview`, body)
 }

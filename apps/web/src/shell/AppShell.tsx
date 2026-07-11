@@ -1,5 +1,11 @@
-import { useEffect, useState, type ReactNode } from 'react'
-import { exportFountain, undoProject } from '../api/client'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import type { SnapshotSummary } from 'contract'
+import {
+  exportFountain,
+  listProjectSnapshots,
+  restoreProject,
+  undoProject,
+} from '../api/client'
 import { ApiError } from '../api/errors'
 import { hasDraftChangeSet } from '../review/changeSetSession'
 import { ModeSwitcher, type Mode } from './ModeSwitcher'
@@ -49,10 +55,23 @@ function useModeShortcuts() {
   }, [])
 }
 
+function formatSnapshotAge(value: string): string {
+  const then = new Date(value).getTime()
+  if (Number.isNaN(then)) return 'recently'
+  const minutes = Math.max(0, Math.round((Date.now() - then) / 60000))
+  if (minutes < 1) return 'just now'
+  if (minutes < 60) return `${minutes}m ago`
+  const hours = Math.round(minutes / 60)
+  if (hours < 24) return `${hours}h ago`
+  const days = Math.round(hours / 24)
+  return `${days}d ago`
+}
+
 /**
  * The app shell (UI spec §2): a 52px top bar (project title, mode switcher,
  * undo/export/settings) over the mode content. Settings opens the privacy
  * panel (T6.3). Undo / Export call the real API when `projectId` is set.
+ * Undo history dropdown lists ~20 ancestors (adoption A5).
  */
 export function AppShell({
   projectTitle,
@@ -67,15 +86,59 @@ export function AppShell({
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const [historyLoading, setHistoryLoading] = useState(false)
+  const [history, setHistory] = useState<SnapshotSummary[] | null>(null)
+  const historyRef = useRef<HTMLDivElement>(null)
   // Read session stash during render (no effect): create navigates away, and
   // Review mutations re-render this shell as the parent of ReviewScreen.
   const draftDot = projectId ? hasDraftChangeSet(projectId) : false
   const undoEnabled = Boolean(projectId) && canUndo && !busy
-  const exportEnabled = Boolean(projectId) && !busy
+
+  useEffect(() => {
+    if (!historyOpen) return
+    function onPointerDown(event: PointerEvent) {
+      if (
+        historyRef.current &&
+        !historyRef.current.contains(event.target as Node)
+      ) {
+        setHistoryOpen(false)
+      }
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    return () => document.removeEventListener('pointerdown', onPointerDown)
+  }, [historyOpen])
+
+  async function openHistory() {
+    if (!projectId || busy || !canUndo) return
+    if (historyOpen) {
+      setHistoryOpen(false)
+      return
+    }
+    setHistoryOpen(true)
+    setHistoryLoading(true)
+    setHistory(null)
+    try {
+      const entries = await listProjectSnapshots(projectId)
+      setHistory(entries)
+    } catch (err) {
+      setHistoryOpen(false)
+      setToast(
+        err instanceof ApiError
+          ? err.message
+          : err instanceof Error
+            ? err.message
+            : 'Could not load undo history',
+      )
+    } finally {
+      setHistoryLoading(false)
+    }
+  }
 
   async function handleUndo() {
     if (!projectId || busy) return
     setBusy(true)
+    setHistoryOpen(false)
     try {
       if (onUndo) {
         await onUndo()
@@ -94,6 +157,26 @@ export function AppShell({
           : err instanceof Error
             ? err.message
             : 'Undo failed',
+      )
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function handleRestore(snapshotId: string) {
+    if (!projectId || busy) return
+    setBusy(true)
+    setHistoryOpen(false)
+    try {
+      await restoreProject(projectId, snapshotId)
+      window.location.reload()
+    } catch (err) {
+      setToast(
+        err instanceof ApiError
+          ? err.message
+          : err instanceof Error
+            ? err.message
+            : 'Restore failed',
       )
     } finally {
       setBusy(false)
@@ -119,6 +202,8 @@ export function AppShell({
     }
   }
 
+  const exportEnabled = Boolean(projectId) && !busy
+
   return (
     <div className="min-h-screen bg-tr-surface-page">
       <header className="flex h-shell-height items-center gap-6 bg-tr-surface-sunken px-6">
@@ -140,25 +225,82 @@ export function AppShell({
           hasDraftChangeSet={draftDot}
         />
         <div className="ml-auto flex items-center gap-4 text-13 text-tr-text-muted">
-          <button
-            type="button"
-            disabled={!undoEnabled}
-            title={
-              !projectId
-                ? 'Undo (no project loaded)'
-                : !canUndo
-                  ? 'Nothing to undo'
-                  : 'Undo last change'
-            }
-            onClick={() => void handleUndo()}
-            className={
-              undoEnabled
-                ? 'text-tr-text-muted hover:text-tr-text-secondary'
-                : 'cursor-not-allowed opacity-50'
-            }
-          >
-            Undo
-          </button>
+          <div ref={historyRef} className="relative flex items-center">
+            <button
+              type="button"
+              disabled={!undoEnabled}
+              data-testid="undo-button"
+              title={
+                !projectId
+                  ? 'Undo (no project loaded)'
+                  : !canUndo
+                    ? 'Nothing to undo'
+                    : 'Undo last change'
+              }
+              onClick={() => void handleUndo()}
+              className={
+                undoEnabled
+                  ? 'text-tr-text-muted hover:text-tr-text-secondary'
+                  : 'cursor-not-allowed opacity-50'
+              }
+            >
+              Undo
+            </button>
+            <button
+              type="button"
+              disabled={!undoEnabled}
+              data-testid="undo-history"
+              aria-expanded={historyOpen}
+              aria-haspopup="listbox"
+              title={
+                undoEnabled ? 'Undo history' : 'Nothing to undo'
+              }
+              onClick={() => void openHistory()}
+              className={
+                (undoEnabled
+                  ? 'ml-1 text-tr-text-muted hover:text-tr-text-secondary'
+                  : 'ml-1 cursor-not-allowed opacity-50') +
+                ' px-0.5'
+              }
+            >
+              ▾
+            </button>
+            {historyOpen && (
+              <div
+                role="listbox"
+                aria-label="Undo history"
+                className="absolute right-0 top-full z-40 mt-2 max-h-80 w-72 overflow-y-auto rounded-card border border-tr-border bg-tr-surface-raised py-1 shadow-lift"
+              >
+                {historyLoading && (
+                  <p className="px-3 py-2 text-13 text-tr-text-muted">
+                    Loading…
+                  </p>
+                )}
+                {!historyLoading && history && history.length === 0 && (
+                  <p className="px-3 py-2 text-13 text-tr-text-muted">
+                    No earlier versions
+                  </p>
+                )}
+                {!historyLoading &&
+                  history?.map((entry) => (
+                    <button
+                      key={entry.id}
+                      type="button"
+                      role="option"
+                      className="flex w-full flex-col gap-0.5 px-3 py-2 text-left hover:bg-tr-surface-clay"
+                      onClick={() => void handleRestore(entry.id)}
+                    >
+                      <span className="truncate text-13 text-tr-text-primary">
+                        {entry.instruction}
+                      </span>
+                      <span className="text-13 text-tr-text-muted">
+                        {formatSnapshotAge(entry.ts)}
+                      </span>
+                    </button>
+                  ))}
+              </div>
+            )}
+          </div>
           <button
             type="button"
             disabled={!exportEnabled}

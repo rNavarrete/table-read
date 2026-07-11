@@ -27,6 +27,7 @@ export function ModeSwitcher({
     <div
       role="tablist"
       aria-label="Mode"
+      data-testid="mode-switcher"
       className="flex items-center gap-1 rounded-card bg-tr-surface-clay p-1"
     >
       {MODES.map((mode) => {

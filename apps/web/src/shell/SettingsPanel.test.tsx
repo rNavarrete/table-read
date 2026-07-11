@@ -52,4 +52,9 @@ describe('SettingsPanel', () => {
       screen.queryByRole('button', { name: 'Export project JSON' }),
     ).toBeNull()
   })
+
+  it('hides craft level when no project is loaded', () => {
+    render(<SettingsPanel open onClose={() => {}} />)
+    expect(screen.queryByTestId('craft-level-picker')).toBeNull()
+  })
 })

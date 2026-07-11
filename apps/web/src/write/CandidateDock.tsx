@@ -1,6 +1,7 @@
-import type { BeatCandidate } from 'contract'
+import type { BeatCandidate, CraftLevel } from 'contract'
 import type { CandidateSession } from './candidateReducer'
 import { CandidateCard } from './CandidateCard'
+import { CraftLevelPicker } from './CraftLevelPicker'
 import type { AcceptErrorState } from './useAcceptBeat'
 import { useFrozenWhen } from './useFrozenWhen'
 
@@ -10,6 +11,10 @@ export interface CandidateDockProps {
    * is focused. Dims the whole dock to 40% and freezes its content (never
    * updates), and additionally hides every actionable control inside it. */
   quiet: boolean
+  /** Keyboard focus among candidate cards (adoption A8). */
+  focusedIndex: number | null
+  craftLevel: CraftLevel
+  onCraftLevelChange: (level: CraftLevel) => void
   onNextBeat: () => void
   onSkip: (index: number) => void
   onReplace: (index: number, candidate: BeatCandidate) => void
@@ -40,12 +45,13 @@ function NextBeatButton({
         type="button"
         onClick={onClick}
         disabled={disabled}
+        data-testid="next-beat"
         className={
           'rounded-card bg-tr-coral px-4 py-2 text-15 text-tr-surface-raised transition-colors hover:bg-tr-coral-hover disabled:opacity-50 motion-reduce:transition-none' +
           (hidden ? ' invisible' : '')
         }
       >
-        Next Beat
+        Next Beat <span aria-hidden="true">[Q]</span>
       </button>
     </div>
   )
@@ -66,6 +72,9 @@ function NextBeatButton({
 export function CandidateDock({
   session: liveSession,
   quiet,
+  focusedIndex,
+  craftLevel,
+  onCraftLevelChange,
   onNextBeat,
   onSkip,
   onReplace,
@@ -92,6 +101,15 @@ export function CandidateDock({
       aria-label="Candidate dock"
       data-testid="candidate-dock"
     >
+      {!quiet && (
+        <div className="mb-3">
+          <CraftLevelPicker
+            value={craftLevel}
+            onChange={onCraftLevelChange}
+            disabled={streaming}
+          />
+        </div>
+      )}
       {session.connectionError ? (
         <div className="rounded-card border border-tr-border border-l-4 border-l-tr-danger bg-tr-surface-raised p-4">
           <p className="text-13 text-tr-text-primary">
@@ -133,6 +151,7 @@ export function CandidateDock({
                     projectId={projectId}
                     sceneId={sceneId}
                     controlsHidden={quiet}
+                    focused={focusedIndex === index}
                     accepting={acceptingIndex === index}
                     acceptError={errorByIndex[index] ?? null}
                     onAccept={(candidate) => onAccept(index, candidate)}

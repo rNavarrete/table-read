@@ -1,0 +1,140 @@
+[
+  {
+    "id": "break-first-scene",
+    "title": "Break your first scene",
+    "summary": "Generate three beat options and put one on the page.",
+    "href": "/?project=proj-longpour&scene=scene-3&tour=break-first-scene",
+    "steps": [
+      {
+        "title": "Open Write on scene 3",
+        "body": "You're in The Long Pour, scene 3. The script sheet is the hero; the dock on the right is where AI drafts land.",
+        "target": "script-scene-slug"
+      },
+      {
+        "title": "Ask for the next beat",
+        "body": "Press Next Beat (or Q). Three labeled candidates stream into the dock — nothing writes until you Accept.",
+        "target": "next-beat"
+      },
+      {
+        "title": "Accept one card",
+        "body": "When Accept appears on a card, click it. The beat lands in the script and the ledger may pick up new facts.",
+        "target": "candidate-dock"
+      }
+    ]
+  },
+  {
+    "id": "lock-and-regenerate",
+    "title": "Lock what you love, regenerate the rest",
+    "summary": "Pin a scene so the AI cannot overwrite it, then keep editing around it.",
+    "href": "/plan?project=proj-longpour&tour=lock-and-regenerate",
+    "steps": [
+      {
+        "title": "Open Plan mode",
+        "body": "Plan is the board for structure. Select a scene card to inspect it.",
+        "target": "mode-switcher"
+      },
+      {
+        "title": "Select a scene",
+        "body": "Click scene 3 on the board. The inspector on the right shows its plan fields.",
+        "target": "scene-card-scene-3"
+      },
+      {
+        "title": "Flip the lock",
+        "body": "Use the Scene lock toggle. Locked material is sacred — generation and apply will refuse to touch it.",
+        "target": "lock-toggle"
+      }
+    ]
+  },
+  {
+    "id": "review-a-change",
+    "title": "Review a change before it lands",
+    "summary": "See how Change Sets preview impact before anything is written.",
+    "href": "/review?project=proj-longpour&tour=review-a-change",
+    "steps": [
+      {
+        "title": "Enter Review",
+        "body": "Review lists open Change Sets, or shows one when linked from Plan. Nothing applies until you confirm.",
+        "target": "mode-switcher"
+      },
+      {
+        "title": "Drafts or the panel",
+        "body": "If you have a draft Change Set, open it. Otherwise you'll see the empty state — create one from a structural Plan edit.",
+        "target": "draft-change-sets"
+      },
+      {
+        "title": "Remember the rule",
+        "body": "Preview fills after panes; Apply is disabled until previewed. Flag only and Discard never mutate the plan.",
+        "target": "mode-switcher"
+      }
+    ]
+  },
+  {
+    "id": "audit-facts",
+    "title": "Audit your story's facts",
+    "summary": "Walk the continuity ledger and clear the review queue.",
+    "href": "/ledger?project=proj-longpour&tour=audit-facts",
+    "steps": [
+      {
+        "title": "Open Ledger",
+        "body": "Ledger tracks what's true in the story. Pending facts wear an amber count on the mode switcher.",
+        "target": "mode-switcher"
+      },
+      {
+        "title": "Filter rail",
+        "body": "Use the filter rail to focus status or type. Start with the review queue when it has items.",
+        "target": "ledger-filter-rail"
+      },
+      {
+        "title": "Review a fact",
+        "body": "Accept, edit, or reject — each action snapshots, so Undo can reverse a mistake. Pending facts appear in the amber review queue when present.",
+        "target": "ledger-filter-rail"
+      }
+    ]
+  },
+  {
+    "id": "suggest-and-write",
+    "title": "Steer with a one-line instruction",
+    "summary": "Use the command bar and suggestion chips without opening a chat.",
+    "href": "/?project=proj-longpour&scene=scene-3&tour=suggest-and-write",
+    "steps": [
+      {
+        "title": "Find the command bar",
+        "body": "The floating pill under the script is not a chat — one instruction, then generate.",
+        "target": "command-bar"
+      },
+      {
+        "title": "Optional chips",
+        "body": "When the bar is empty and focused, muted suggestion chips may appear. Click inserts text only — never auto-generates.",
+        "target": "command-bar"
+      },
+      {
+        "title": "Submit to draft",
+        "body": "Submit the instruction to stream candidates into the dock. Accept still decides what lands.",
+        "target": "candidate-dock"
+      }
+    ]
+  },
+  {
+    "id": "undo-timeline",
+    "title": "Undo more than one step",
+    "summary": "Use Undo and the history dropdown to restore an earlier snapshot.",
+    "href": "/?project=proj-longpour&scene=scene-3&tour=undo-timeline",
+    "steps": [
+      {
+        "title": "Find Undo",
+        "body": "Top bar Undo reverts one snapshot. The ▾ control opens ancestor history.",
+        "target": "undo-button"
+      },
+      {
+        "title": "Open history",
+        "body": "Click the history control to list recent instructions with relative times.",
+        "target": "undo-history"
+      },
+      {
+        "title": "Restore when needed",
+        "body": "Choosing an ancestor restores that snapshot and reloads. Only ancestors of the current head are allowed.",
+        "target": "undo-history"
+      }
+    ]
+  }
+]

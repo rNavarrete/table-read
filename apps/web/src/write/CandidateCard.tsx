@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import type { BeatCandidate } from 'contract'
+import { suggestInstructions } from '../api/client'
 import type { CandidateSlot } from './candidateReducer'
+import { SuggestionChips } from './SuggestionChips'
 import { useTuneSession } from './useTuneSession'
 import type { AcceptErrorState } from './useAcceptBeat'
 
@@ -11,6 +13,8 @@ export interface CandidateCardProps {
   sceneId: string
   /** Quiet-AI: true while the canvas is focused — buttons hide (obligation 5). */
   controlsHidden: boolean
+  /** Keyboard focus ring (adoption A8). */
+  focused?: boolean
   accepting: boolean
   acceptError: AcceptErrorState | null
   onAccept: (candidate: BeatCandidate) => void
@@ -90,6 +94,7 @@ export function CandidateCard({
   projectId,
   sceneId,
   controlsHidden,
+  focused = false,
   accepting,
   acceptError,
   onAccept,
@@ -101,6 +106,7 @@ export function CandidateCard({
   const [tuneOpen, setTuneOpen] = useState(false)
   const [instruction, setInstruction] = useState('')
   const [conflictsConfirmed, setConflictsConfirmed] = useState(false)
+  const [tuneSuggestions, setTuneSuggestions] = useState<string[]>([])
 
   const tuning = tuneSession.session.phase !== 'idle'
   const tuneResult = tuneSession.session.slot
@@ -143,6 +149,21 @@ export function CandidateCard({
     event.preventDefault()
     if (slot.status !== 'done' || !instruction.trim()) return
     tuneSession.tune(slot.candidate, instruction.trim())
+  }
+
+  async function loadTuneSuggestions() {
+    if (instruction.trim()) return
+    try {
+      const result = await suggestInstructions(projectId, {
+        context: 'scene',
+        targetId: sceneId,
+        surface: 'tune',
+        draftScript: null,
+      })
+      setTuneSuggestions(result.suggestions)
+    } catch {
+      setTuneSuggestions([])
+    }
   }
 
   if (slot.status === 'streaming') {
@@ -189,13 +210,17 @@ export function CandidateCard({
   const candidate = slot.candidate
   const hasConflicts = candidate.continuityConflicts.length > 0
   const acceptDisabled = accepting || (hasConflicts && !conflictsConfirmed)
+  const focusRing = focused ? ' ring-2 ring-tr-sky' : ''
 
   return (
     <div
-      className={acceptError ? dangerShell : cardShell}
+      className={(acceptError ? dangerShell : cardShell) + focusRing}
       data-testid={`candidate-card-${index}`}
+      data-focused={focused ? 'true' : undefined}
+      aria-selected={focused}
     >
       <p className="font-display text-15 text-tr-text-primary">
+        <span className="mr-2 text-13 text-tr-text-muted">[{index + 1}]</span>
         {candidate.label}
       </p>
       <p className="mt-1 text-13 text-tr-text-secondary">
@@ -246,28 +271,46 @@ export function CandidateCard({
               )}
             </div>
           ) : (
-            <form onSubmit={submitTune} className="flex gap-2">
-              <input
-                autoFocus
-                value={instruction}
-                onChange={(event) => setInstruction(event.target.value)}
-                placeholder="Adjust this beat…"
-                className="min-w-0 flex-1 rounded-card border border-tr-border bg-tr-surface-page px-3 py-1.5 text-13 text-tr-text-primary outline-none focus:border-tr-sky"
-              />
-              <button
-                type="submit"
-                disabled={!instruction.trim()}
-                className="rounded-card border border-tr-border px-3 py-1.5 text-13 text-tr-text-primary disabled:opacity-50"
-              >
-                Go
-              </button>
-              <button
-                type="button"
-                onClick={() => setTuneOpen(false)}
-                className="text-13 text-tr-text-secondary"
-              >
-                Cancel
-              </button>
+            <form onSubmit={submitTune} className="flex flex-col gap-2">
+              <div className="flex gap-2">
+                <input
+                  autoFocus
+                  value={instruction}
+                  onChange={(event) => {
+                    setInstruction(event.target.value)
+                    if (event.target.value.trim()) setTuneSuggestions([])
+                  }}
+                  onFocus={() => void loadTuneSuggestions()}
+                  placeholder="Adjust this beat…"
+                  className="min-w-0 flex-1 rounded-card border border-tr-border bg-tr-surface-page px-3 py-1.5 text-13 text-tr-text-primary outline-none focus:border-tr-sky"
+                />
+                <button
+                  type="submit"
+                  disabled={!instruction.trim()}
+                  className="rounded-card border border-tr-border px-3 py-1.5 text-13 text-tr-text-primary disabled:opacity-50"
+                >
+                  Go
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTuneOpen(false)
+                    setTuneSuggestions([])
+                  }}
+                  className="text-13 text-tr-text-secondary"
+                >
+                  Cancel
+                </button>
+              </div>
+              {!instruction.trim() && (
+                <SuggestionChips
+                  suggestions={tuneSuggestions}
+                  onPick={(text) => {
+                    setInstruction(text)
+                    setTuneSuggestions([])
+                  }}
+                />
+              )}
             </form>
           )}
         </div>
@@ -280,7 +323,15 @@ export function CandidateCard({
               onClick={() => onAccept(candidate)}
               className="rounded-card bg-tr-coral px-3 py-1.5 text-13 text-tr-surface-raised transition-colors hover:bg-tr-coral-hover disabled:opacity-50 motion-reduce:transition-none"
             >
-              {accepting ? 'Accepting…' : acceptError ? 'Retry' : 'Accept'}
+              {accepting
+                ? 'Accepting…'
+                : acceptError
+                  ? 'Retry'
+                  : (
+                      <>
+                        Accept <span aria-hidden="true">[↵]</span>
+                      </>
+                    )}
             </button>
             <button
               type="button"

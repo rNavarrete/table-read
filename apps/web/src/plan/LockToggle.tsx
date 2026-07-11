@@ -45,6 +45,7 @@ export function LockToggle({
       role="switch"
       aria-checked={locked}
       disabled={disabled}
+      data-testid="lock-toggle"
       onClick={() => onChange(!locked)}
       className={
         'inline-flex items-center gap-2 rounded-chip border px-3 py-1.5 text-13 transition-colors motion-reduce:transition-none disabled:opacity-50' +

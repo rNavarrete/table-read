@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { ProjectSummary } from 'contract'
 import { listProjects } from '../api/client'
+import { RecipePicker } from '../onboarding/RecipePicker'
 import { ProjectRow } from './ProjectRow'
 
 type LoadState =
@@ -258,6 +259,8 @@ export function DashboardScreen() {
             body="Upload or paste Fountain or plain text, then confirm before processing."
           />
         </section>
+
+        <RecipePicker />
 
         <section className="space-y-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end">

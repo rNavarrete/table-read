@@ -1,3 +1,4 @@
+import { RecipeHost } from './onboarding/RecipeOverlay'
 import { LedgerScreen } from './ledger/LedgerScreen'
 import { PlanScreen } from './plan/PlanScreen'
 import { DashboardScreen } from './projects/DashboardScreen'
@@ -14,24 +15,28 @@ import { WriteScreen } from './write/WriteScreen'
 // `window.location.pathname`, so this is the one place that reads it back.
 function App() {
   const path = window.location.pathname
+  let screen = null
   if (path === '/') {
     if (new URLSearchParams(window.location.search).has('project')) {
-      return <WriteScreen />
+      screen = <WriteScreen />
+    } else {
+      window.location.replace('/projects')
+      return null
     }
-    window.location.replace('/projects')
-    return null
-  }
-  if (path === '/projects') return <DashboardScreen />
-  if (path === '/projects/new/idea') {
-    return <IdeaWizardRoute />
-  }
-  if (path === '/projects/new/import') {
-    return <ImportWizardRoute />
-  }
-  if (path === '/plan') return <PlanScreen />
-  if (path === '/review') return <ReviewScreen />
-  if (path === '/ledger') return <LedgerScreen />
-  return <WriteScreen />
+  } else if (path === '/projects') screen = <DashboardScreen />
+  else if (path === '/projects/new/idea') screen = <IdeaWizardRoute />
+  else if (path === '/projects/new/import') screen = <ImportWizardRoute />
+  else if (path === '/plan') screen = <PlanScreen />
+  else if (path === '/review') screen = <ReviewScreen />
+  else if (path === '/ledger') screen = <LedgerScreen />
+  else screen = <WriteScreen />
+
+  return (
+    <>
+      {screen}
+      <RecipeHost />
+    </>
+  )
 }
 
 export default App

@@ -56,23 +56,31 @@ function changeSet(overrides: Partial<ChangeSet> = {}): ChangeSet {
   }
 }
 
+function renderPanel(
+  overrides: Partial<React.ComponentProps<typeof ChangeSetPanel>> = {},
+) {
+  return render(
+    <ChangeSetPanel
+      changeSet={changeSet()}
+      selectedIds={new Set(['scene-2', 'beat-4-2'])}
+      previewing={false}
+      applying={false}
+      hasPreview={false}
+      craftLevel="standard"
+      onCraftLevelChange={vi.fn()}
+      onToggleSelected={vi.fn()}
+      onPreview={vi.fn()}
+      onApply={vi.fn()}
+      onFlagOnly={vi.fn()}
+      onDiscard={vi.fn()}
+      {...overrides}
+    />,
+  )
+}
+
 describe('ChangeSetPanel', () => {
   it('shows instruction, target chip, selected count excluding locked and flag_only', () => {
-    const cs = changeSet()
-    render(
-      <ChangeSetPanel
-        changeSet={cs}
-        selectedIds={new Set(['scene-2', 'beat-4-2'])}
-        previewing={false}
-        applying={false}
-        hasPreview={false}
-        onToggleSelected={vi.fn()}
-        onPreview={vi.fn()}
-        onApply={vi.fn()}
-        onFlagOnly={vi.fn()}
-        onDiscard={vi.fn()}
-      />,
-    )
+    renderPanel()
     expect(screen.getByText(/Dan hides the money at the marina/)).not.toBeNull()
     expect(screen.getByTestId('change-set-row-scene-2')).not.toBeNull()
     expect(screen.getByText('2 of 2 selected')).not.toBeNull()
@@ -81,20 +89,7 @@ describe('ChangeSetPanel', () => {
   })
 
   it('uses quiet Review chrome copy around header and footer actions', () => {
-    render(
-      <ChangeSetPanel
-        changeSet={changeSet()}
-        selectedIds={new Set(['scene-2'])}
-        previewing={false}
-        applying={false}
-        hasPreview={false}
-        onToggleSelected={vi.fn()}
-        onPreview={vi.fn()}
-        onApply={vi.fn()}
-        onFlagOnly={vi.fn()}
-        onDiscard={vi.fn()}
-      />,
-    )
+    renderPanel({ selectedIds: new Set(['scene-2']) })
 
     expect(screen.getByText('Review proposed impact')).not.toBeNull()
     expect(
@@ -102,21 +97,13 @@ describe('ChangeSetPanel', () => {
     ).not.toBeNull()
   })
 
+  it('shows craft level picker before preview', () => {
+    renderPanel({ selectedIds: new Set(['scene-2']) })
+    expect(screen.getByTestId('craft-level-picker')).not.toBeNull()
+  })
+
   it('disables Apply selected until hasPreview', () => {
-    render(
-      <ChangeSetPanel
-        changeSet={changeSet()}
-        selectedIds={new Set(['scene-2'])}
-        previewing={false}
-        applying={false}
-        hasPreview={false}
-        onToggleSelected={vi.fn()}
-        onPreview={vi.fn()}
-        onApply={vi.fn()}
-        onFlagOnly={vi.fn()}
-        onDiscard={vi.fn()}
-      />,
-    )
+    renderPanel({ selectedIds: new Set(['scene-2']) })
     expect(
       (
         screen.getByRole('button', {
@@ -134,20 +121,7 @@ describe('ChangeSetPanel', () => {
   })
 
   it('Create branch is disabled with v2 tooltip', () => {
-    render(
-      <ChangeSetPanel
-        changeSet={changeSet()}
-        selectedIds={new Set()}
-        previewing={false}
-        applying={false}
-        hasPreview={false}
-        onToggleSelected={vi.fn()}
-        onPreview={vi.fn()}
-        onApply={vi.fn()}
-        onFlagOnly={vi.fn()}
-        onDiscard={vi.fn()}
-      />,
-    )
+    renderPanel({ selectedIds: new Set() })
     const branch = screen.getByRole('button', {
       name: 'Create branch',
     }) as HTMLButtonElement
@@ -156,34 +130,25 @@ describe('ChangeSetPanel', () => {
   })
 
   it('applied state shows sage summary and post-apply flags', () => {
-    render(
-      <ChangeSetPanel
-        changeSet={changeSet({ status: 'applied' })}
-        selectedIds={new Set(['scene-2'])}
-        previewing={false}
-        applying={false}
-        hasPreview
-        postApplyFlags={[
-          {
-            id: 'flag-1',
-            objectType: 'scene',
-            objectId: 'scene-5',
-            factId: null,
-            explanation: 'Scene 5 still stages the argument around the bar.',
-            severity: 'tension',
-            status: 'open',
-            sourceChange: 'cs-1',
-          },
-        ]}
-        onToggleSelected={vi.fn()}
-        onPreview={vi.fn()}
-        onApply={vi.fn()}
-        onFlagOnly={vi.fn()}
-        onDiscard={vi.fn()}
-        onGoToScene={vi.fn()}
-        onDismissFlag={vi.fn()}
-      />,
-    )
+    renderPanel({
+      changeSet: changeSet({ status: 'applied' }),
+      selectedIds: new Set(['scene-2']),
+      hasPreview: true,
+      postApplyFlags: [
+        {
+          id: 'flag-1',
+          objectType: 'scene',
+          objectId: 'scene-5',
+          factId: null,
+          explanation: 'Scene 5 still stages the argument around the bar.',
+          severity: 'tension',
+          status: 'open',
+          sourceChange: 'cs-1',
+        },
+      ],
+      onGoToScene: vi.fn(),
+      onDismissFlag: vi.fn(),
+    })
     expect(screen.getByTestId('applied-summary')).not.toBeNull()
     expect(screen.getByText(/Scene 5 still stages the argument/)).not.toBeNull()
   })
@@ -191,20 +156,10 @@ describe('ChangeSetPanel', () => {
   it('Preview selected calls onPreview', async () => {
     const user = userEvent.setup()
     const onPreview = vi.fn()
-    render(
-      <ChangeSetPanel
-        changeSet={changeSet()}
-        selectedIds={new Set(['scene-2'])}
-        previewing={false}
-        applying={false}
-        hasPreview={false}
-        onToggleSelected={vi.fn()}
-        onPreview={onPreview}
-        onApply={vi.fn()}
-        onFlagOnly={vi.fn()}
-        onDiscard={vi.fn()}
-      />,
-    )
+    renderPanel({
+      selectedIds: new Set(['scene-2']),
+      onPreview,
+    })
     await user.click(screen.getByRole('button', { name: 'Preview selected' }))
     expect(onPreview).toHaveBeenCalled()
   })

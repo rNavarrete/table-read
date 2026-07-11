@@ -1,17 +1,18 @@
-import { useEffect, useMemo, useState } from 'react'
-import type { BeatCandidate, Project } from 'contract'
-import { getLedger, getProject } from '../api/client'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { BeatCandidate, CraftLevel, Project } from 'contract'
+import { getLedger, getProject, patchProject } from '../api/client'
 import { requireProjectId } from '../projects/projectRouting'
 import { loadResume, saveResume } from '../projects/resumeContext'
 import { AppShell } from '../shell/AppShell'
 import { Toast } from '../shell/Toast'
 import { llmUnavailableMessage } from '../shell/toastCopy'
 import { CandidateDock } from './CandidateDock'
-import { CommandBar } from './CommandBar'
+import { CommandBar, type CommandBarHandle } from './CommandBar'
 import { ScriptCanvas } from './ScriptCanvas'
 import { useAcceptBeat } from './useAcceptBeat'
 import { useCandidateSession } from './useCandidateSession'
 import { useQuietAi } from './useQuietAi'
+import { useWriteKeyboard } from './useWriteKeyboard'
 import { allScenes, pickDefaultScene } from './projectTree'
 
 function useUrlParam(name: string): string | null {
@@ -30,19 +31,18 @@ export function WriteScreen() {
   const [project, setProject] = useState<Project | null>(null)
   const [ledgerCount, setLedgerCount] = useState(0)
   const [loadError, setLoadError] = useState<string | null>(null)
+  const [focusedCard, setFocusedCard] = useState(0)
+  const [craftLevel, setCraftLevel] = useState<CraftLevel>('standard')
+  const commandBarRef = useRef<CommandBarHandle>(null)
 
   useEffect(() => {
     if (!projectId) return
-    // `project`/`loadError` already start at their reset values (null) from
-    // `useState` — no synchronous reset is needed here (there's also no UI
-    // yet that changes `projectId` mid-session; the effect fires once, on
-    // mount, reading the id straight off the URL).
     let cancelled = false
     Promise.all([getProject(projectId), getLedger(projectId)])
       .then(([loadedProject, ledger]) => {
         if (cancelled) return
         setProject(loadedProject)
-        // UI spec §2: Ledger badge = review-queue (pending_review) count.
+        setCraftLevel(loadedProject.defaultCraftLevel ?? 'standard')
         setLedgerCount(
           ledger.filter((f) => f.status === 'pending_review').length,
         )
@@ -86,25 +86,63 @@ export function WriteScreen() {
     setProject,
   )
 
+  const slots = candidateSession.session.slots
+  const hasCards = slots.length > 0
+  const streaming = candidateSession.session.phase === 'streaming'
+
+  useEffect(() => {
+    if (!hasCards) {
+      setFocusedCard(0)
+      return
+    }
+    setFocusedCard((i) => Math.min(i, slots.length - 1))
+  }, [hasCards, slots.length])
+
   function lastBeatId(): string | null {
     if (!scene || scene.beats.length === 0) return null
     return scene.beats[scene.beats.length - 1].id
   }
 
-  function handleNextBeat() {
-    candidateSession.generate({ afterBeatId: lastBeatId() })
-  }
+  const handleNextBeat = useCallback(() => {
+    candidateSession.generate({
+      afterBeatId: lastBeatId(),
+      craftLevel,
+    })
+  }, [candidateSession, scene, craftLevel])
 
   function handleCommandBarSubmit(instruction: string) {
-    candidateSession.generate({ afterBeatId: lastBeatId(), instruction })
+    candidateSession.generate({
+      afterBeatId: lastBeatId(),
+      instruction,
+      craftLevel,
+    })
+  }
+
+  async function handleCraftLevelChange(level: CraftLevel) {
+    setCraftLevel(level)
+    if (!projectId || !project) return
+    const prev = project.defaultCraftLevel ?? 'standard'
+    if (prev === level) return
+    setProject({ ...project, defaultCraftLevel: level })
+    try {
+      const result = await patchProject(projectId, [
+        {
+          op: 'add',
+          path: '/defaultCraftLevel',
+          value: level,
+        },
+      ])
+      setProject(result.project)
+    } catch {
+      setCraftLevel(prev)
+      setProject(project)
+    }
   }
 
   async function handleAccept(index: number, candidate: BeatCandidate) {
     const response = await accept.accept(index, candidate, lastBeatId())
     if (response) {
       candidateSession.skip(index)
-      // Badge tracks pending_review only — high-confidence newFacts stay
-      // active and don't bump the queue; low-confidence ones do.
       const pendingDelta = response.newFacts.filter(
         (f) => f.status === 'pending_review',
       ).length
@@ -114,8 +152,30 @@ export function WriteScreen() {
     }
   }
 
-  // Cross-cutting toast for accept 503 (UI spec §3 keeps the inline card
-  // error; this is additive visibility). Dismiss clears that card's error.
+  const acceptFocused = useCallback(() => {
+    const slot = slots[focusedCard]
+    if (!slot || slot.status !== 'done') return
+    if (slot.candidate.continuityConflicts.length > 0) return
+    void handleAccept(focusedCard, slot.candidate)
+  }, [slots, focusedCard, accept, candidateSession, scene])
+
+  useWriteKeyboard({
+    quiet,
+    streaming,
+    hasCards,
+    onGenerate: handleNextBeat,
+    onFocusCommandBar: () => commandBarRef.current?.focus(),
+    onCycleFocus: (delta) => {
+      if (!hasCards) return
+      setFocusedCard((i) => (i + delta + slots.length) % slots.length)
+    },
+    onAcceptFocused: acceptFocused,
+    onDismissDock: () => candidateSession.reset(),
+    onSelectCard: (index) => {
+      if (index >= 0 && index < slots.length) setFocusedCard(index)
+    },
+  })
+
   const llmUnavailableAccept = Object.entries(accept.errorByIndex).find(
     ([, err]) => err.code === 'LLM_UNAVAILABLE',
   )
@@ -174,6 +234,9 @@ export function WriteScreen() {
         <CandidateDock
           session={candidateSession.session}
           quiet={quiet}
+          focusedIndex={hasCards ? focusedCard : null}
+          craftLevel={craftLevel}
+          onCraftLevelChange={(level) => void handleCraftLevelChange(level)}
           onNextBeat={handleNextBeat}
           onSkip={candidateSession.skip}
           onReplace={(index, candidate) =>
@@ -188,9 +251,12 @@ export function WriteScreen() {
         />
       </div>
       <CommandBar
+        ref={commandBarRef}
         onSubmit={handleCommandBarSubmit}
-        disabled={candidateSession.session.phase === 'streaming'}
+        disabled={streaming}
         hidden={quiet}
+        projectId={projectId}
+        sceneId={scene.id}
       />
     </AppShell>
   )

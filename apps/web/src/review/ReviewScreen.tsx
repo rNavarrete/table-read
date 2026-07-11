@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { ChangeSet, ConsistencyFlag, Project } from 'contract'
+import type { ChangeSet, ConsistencyFlag, CraftLevel, Project } from 'contract'
 import {
   applyChangeSet,
   discardChangeSet,
@@ -9,6 +9,7 @@ import {
   getLedger,
   getProject,
   listChangeSets,
+  patchProject,
   previewChangeSet,
   undoProject,
 } from '../api/client'
@@ -65,6 +66,7 @@ export function ReviewScreen() {
   const [loadError, setLoadError] = useState<string | null>(null)
   // False until the draft list or the targeted Change Set finishes loading.
   const [changeSetReady, setChangeSetReady] = useState(false)
+  const [craftLevel, setCraftLevel] = useState<CraftLevel>('standard')
 
   useEffect(() => {
     if (!projectId) return
@@ -73,6 +75,7 @@ export function ReviewScreen() {
       .then(([loadedProject, ledger]) => {
         if (cancelled) return
         setProject(loadedProject)
+        setCraftLevel(loadedProject.defaultCraftLevel ?? 'standard')
         setLedgerCount(pendingReviewCount(ledger))
       })
       .catch((err: unknown) => {
@@ -180,6 +183,7 @@ export function ReviewScreen() {
     try {
       const updated = await previewChangeSet(changeSet.id, {
         approvedObjectIds,
+        craftLevel,
       })
       setChangeSet(updated)
       stashChangeSet(updated)
@@ -197,6 +201,26 @@ export function ReviewScreen() {
       }
     } finally {
       setPreviewing(false)
+    }
+  }
+
+  async function handleCraftLevelChange(level: CraftLevel) {
+    setCraftLevel(level)
+    if (!project || !projectId) return
+    const prev = project.defaultCraftLevel ?? 'standard'
+    if (prev === level) return
+    setProject({ ...project, defaultCraftLevel: level })
+    try {
+      await patchProject(projectId, [
+        {
+          op: 'add',
+          path: '/defaultCraftLevel',
+          value: level,
+        },
+      ])
+    } catch {
+      setCraftLevel(prev)
+      setProject({ ...project, defaultCraftLevel: prev })
     }
   }
 
@@ -399,6 +423,8 @@ export function ReviewScreen() {
         previewing={previewing}
         applying={applying}
         hasPreview={hasPreview}
+        craftLevel={craftLevel}
+        onCraftLevelChange={(level) => void handleCraftLevelChange(level)}
         postApplyFlags={postApplyFlags}
         onToggleSelected={toggleSelected}
         onPreview={() => void handlePreview()}

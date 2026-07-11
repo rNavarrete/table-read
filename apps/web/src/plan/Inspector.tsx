@@ -1,5 +1,7 @@
 import { useState } from 'react'
 import type { Episode, LedgerFact, Project, Scene } from 'contract'
+import { suggestInstructions } from '../api/client'
+import { SuggestionChips } from '../write/SuggestionChips'
 import { Chip } from './Chip'
 import { LockToggle } from './LockToggle'
 import type { PlanSelection } from './SceneCard'
@@ -98,6 +100,8 @@ function EditableField({
   openingReview,
   onSave,
   onOpenReview,
+  suggestSceneId,
+  projectId,
 }: {
   label: string
   value: string
@@ -109,11 +113,30 @@ function EditableField({
   onSave: (value: string) => void
   /** When set, Open Review is enabled for this structural field. */
   onOpenReview?: (instruction: string) => void
+  /** When set and draft is empty, load A4 suggestion chips for scene premise. */
+  suggestSceneId?: string
+  projectId?: string
 }) {
   const [draft, setDraft] = useState(value)
+  const [suggestions, setSuggestions] = useState<string[]>([])
   const dirty = draft !== value
   const controlClass =
     'mt-1 w-full rounded-card border border-tr-border bg-tr-surface-raised p-2 text-13 text-tr-text-primary outline-none focus:border-tr-sky disabled:opacity-50'
+
+  async function loadSuggestions() {
+    if (!suggestSceneId || !projectId || draft.trim() || locked) return
+    try {
+      const result = await suggestInstructions(projectId, {
+        context: 'scene',
+        targetId: suggestSceneId,
+        surface: 'scene_premise',
+        draftScript: null,
+      })
+      setSuggestions(result.suggestions)
+    } catch {
+      setSuggestions([])
+    }
+  }
 
   return (
     <div>
@@ -126,7 +149,11 @@ function EditableField({
           value={draft}
           readOnly={locked}
           disabled={saving || !!openingReview}
-          onChange={(e) => setDraft(e.target.value)}
+          onChange={(e) => {
+            setDraft(e.target.value)
+            if (e.target.value.trim()) setSuggestions([])
+          }}
+          onFocus={() => void loadSuggestions()}
           rows={4}
           className={`${controlClass} resize-none`}
         />
@@ -137,8 +164,22 @@ function EditableField({
           value={draft}
           readOnly={locked}
           disabled={saving || !!openingReview}
-          onChange={(e) => setDraft(e.target.value)}
+          onChange={(e) => {
+            setDraft(e.target.value)
+            if (e.target.value.trim()) setSuggestions([])
+          }}
+          onFocus={() => void loadSuggestions()}
           className={controlClass}
+        />
+      )}
+      {!draft.trim() && !locked && (
+        <SuggestionChips
+          suggestions={suggestions}
+          disabled={saving || !!openingReview}
+          onPick={(text) => {
+            setDraft(text)
+            setSuggestions([])
+          }}
         />
       )}
       {dirty && !locked && structural && (
@@ -411,6 +452,8 @@ export function Inspector({
             locked={locked}
             saving={pending}
             openingReview={openingReview}
+            projectId={project.id}
+            suggestSceneId={scene.id}
             onSave={(value) => onSaveSceneField(scene.id, 'whatHappens', value)}
             onOpenReview={
               onOpenReview
