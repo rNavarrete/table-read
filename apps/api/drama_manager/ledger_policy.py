@@ -28,31 +28,29 @@ Policy (§5):
 
 from __future__ import annotations
 
+import uuid
+
 from schemas import LedgerExtraction
 
 CONFIDENCE_FLOOR = 0.8
 
 
 class IdMinter:
-    """Mints unique zero-padded kebab ids (`fact-09`, `flag-03`) that never
-    collide with an existing set. Starts one past the highest existing numeric
-    suffix for the prefix, and skips any id already taken."""
+    """Mints globally unique kebab ids (`fact-<hex>`, `flag-<hex>`).
+
+    Avoids cross-project collisions on the `ledger_facts` / `consistency_flags`
+    primary keys (those tables key by `id` alone, matching `/ledger/{factId}`).
+    Skips any id already present in `existing_ids`.
+    """
 
     def __init__(self, existing_ids: list[str], prefix: str, width: int = 2) -> None:
+        del width  # retained for call-site compatibility; minting is no longer ordinal
         self._used = set(existing_ids)
         self._prefix = prefix
-        self._width = width
-        numbers = [
-            int(i[len(prefix):])
-            for i in existing_ids
-            if i.startswith(prefix) and i[len(prefix):].isdigit()
-        ]
-        self._n = max(numbers, default=0)
 
     def mint(self) -> str:
         while True:
-            self._n += 1
-            candidate = f"{self._prefix}{self._n:0{self._width}d}"
+            candidate = f"{self._prefix}{uuid.uuid4().hex[:12]}"
             if candidate not in self._used:
                 self._used.add(candidate)
                 return candidate

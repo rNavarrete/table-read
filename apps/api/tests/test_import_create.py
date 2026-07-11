@@ -123,11 +123,9 @@ def _parse_sse(text: str) -> list[tuple[str, dict]]:
 
 
 def _table_counts(db_session) -> dict:
-    """Snapshot of row counts across every table a project touches. The test
-    DB accumulates rows across this whole file's (and the suite's) tests —
-    LedgerFactRow's `id` is a bare, ordinal, non-project-scoped primary key
-    (`fact-01`, ...; storage/models.py) — so fault-injection assertions must
-    compare *before vs. after*, never an absolute count."""
+    """Snapshot of row counts across every table a project touches. Fault-
+    injection assertions compare *before vs. after*, never an absolute count
+    (the suite DB accumulates rows across tests)."""
     return {
         model: db_session.query(model).count()
         for model in (ProjectRow, SnapshotRow, LedgerFactRow, ConsistencyFlagRow)
@@ -136,22 +134,6 @@ def _table_counts(db_session) -> dict:
 
 def _assert_no_new_rows(db_session, baseline: dict) -> None:
     assert _table_counts(db_session) == baseline
-
-
-@pytest.fixture(autouse=True)
-def _clear_colliding_ordinal_ids(db_session):
-    """`LedgerFactRow`/`ConsistencyFlagRow` ids are bare ordinals (`fact-01`,
-    `flag-01`, ...; storage/models.py), not scoped by `project_id` — a prior
-    test elsewhere in the suite (most likely one touching the seeded fixture
-    project) can leave one of these ids attached to a *different* project.
-    Every fresh create-and-import here mints the same first ordinals, so
-    clear them before each test rather than relying on suite-wide run order;
-    each of *this* file's own successful imports also purges its project
-    immediately after asserting, for the same reason."""
-    db_session.query(LedgerFactRow).filter(LedgerFactRow.id == "fact-01").delete()
-    db_session.query(ConsistencyFlagRow).filter(ConsistencyFlagRow.id == "flag-01").delete()
-    db_session.commit()
-    yield
 
 
 @pytest.fixture()
@@ -199,9 +181,8 @@ def test_success_streams_named_stages_then_complete(db_session, mock_llm):
     for fact in result["newFacts"]:
         assert fact["status"] == "pending_review"
         assert fact["provenance"] == "inferred"
+        assert fact["id"].startswith("fact-")
 
-    # See test_success_creates_exactly_one_project_and_one_root_snapshot's
-    # comment: LedgerFactRow ids are bare ordinals, not project-scoped.
     snapshots.purge_project(db_session, project["id"])
 
 
@@ -227,10 +208,13 @@ def test_success_creates_exactly_one_project_and_one_root_snapshot(db_session, m
     facts = db_session.query(LedgerFactRow).filter_by(project_id=pid).all()
     assert len(facts) == len(snaps[0].ledger)
     assert all(f.status == "pending_review" for f in facts)
+    # Globally unique minting (not ordinal fact-01) so imports coexist with
+    # the seeded fixture's ledger rows.
+    assert all(
+        f.id.startswith("fact-") and not f.id.removeprefix("fact-").isdigit()
+        for f in facts
+    )
 
-    # LedgerFactRow.id is a bare ordinal PK (fact-01, ...), not project-scoped
-    # (storage/models.py) — purge this project's facts immediately so a later
-    # test's fresh project can mint the same ordinal without colliding.
     snapshots.purge_project(db_session, pid)
 
 
@@ -253,8 +237,9 @@ def test_success_persists_open_consistency_flags(db_session, mock_llm):
     assert len(flags) == 1
     assert flags[0]["status"] == "open"
     assert flags[0]["sourceChange"] == result["project"]["headSnapshotId"]
+    assert flags[0]["id"].startswith("flag-")
+    assert not flags[0]["id"].removeprefix("flag-").isdigit()
 
-    # ConsistencyFlagRow.id is also a bare ordinal PK — see the purge note above.
     snapshots.purge_project(db_session, result["project"]["id"])
 
 
@@ -387,6 +372,7 @@ def test_idempotency_unique_race_replays_winning_request(db_session, monkeypatch
         },
         "seasons": [],
         "headSnapshotId": "snap-raced-import",
+        "defaultCraftLevel": "standard",
     }
 
     def race_then_integrity_error(*args, **kwargs):

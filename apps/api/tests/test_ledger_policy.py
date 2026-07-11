@@ -205,7 +205,7 @@ def test_contradiction_against_unknown_fact_is_dropped():
 
 
 def test_new_fact_ids_do_not_collide_with_existing_ledger():
-    ledger = [_fact07()]  # fact-07 present; next mint must be fact-08+
+    ledger = [_fact07()]  # fact-07 present; next mint must not reuse it
     extraction = _extraction(
         new_facts=[_fact(0.9), _fact(0.9)],
         contradictions=[{"existingFactId": "fact-07", "explanation": "x",
@@ -213,5 +213,7 @@ def test_new_fact_ids_do_not_collide_with_existing_ledger():
     )
     new_facts, proposals, _c = _apply(extraction, existing_ledger=ledger)
     minted = [f["id"] for f in new_facts] + [p["id"] for p in proposals]
-    assert minted == ["fact-08", "fact-09", "fact-10"]
+    assert len(minted) == 3
+    assert len(set(minted)) == 3
     assert "fact-07" not in minted
+    assert all(i.startswith("fact-") for i in minted)

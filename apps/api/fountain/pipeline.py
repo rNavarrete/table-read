@@ -29,6 +29,7 @@ from collections.abc import Generator
 from dataclasses import dataclass
 
 from drama_manager import locks, render
+from drama_manager.ledger_policy import IdMinter
 from fountain.parse import (
     CoverageError,
     ImportedBeat,
@@ -170,6 +171,7 @@ def analyze_import(
     # facts to contradict. ───────────────────────────────────────────────────
     yield STAGE_EXTRACTING_FACTS
     new_facts: list[dict] = []
+    fact_minter = IdMinter([], "fact-")
     for scene in scene_docs:
         system, user = render.build_extract_prompt(
             new_doc, episode_id, scene, [], characters, render.new_nonce()
@@ -178,7 +180,7 @@ def analyze_import(
             system=system, user_message=user, prompt_version=render.PROMPT_VERSION
         )
         for ef in extraction.new_facts:
-            new_facts.append(_to_ledger_fact(ef, len(new_facts) + 1, beat_index))
+            new_facts.append(_to_ledger_fact(ef, fact_minter.mint(), beat_index))
 
     # ── Consistency scan (§4 step 3): one sweep across the imported episode. ──
     yield STAGE_CHECKING_CONSISTENCY
@@ -193,6 +195,7 @@ def analyze_import(
         system=system, user_message=user, prompt_version=render.PROMPT_VERSION
     )
 
+    flag_minter = IdMinter([], "flag-")
     raw_flags: list[dict] = []
     for f in scan.flags:
         if f.object_id not in known_ids:  # §8c: drop flags for unknown ids
@@ -200,7 +203,7 @@ def analyze_import(
         dump = f.model_dump(by_alias=True, mode="json")
         raw_flags.append(
             {
-                "id": f"flag-{len(raw_flags) + 1:02d}",
+                "id": flag_minter.mint(),
                 "objectType": dump["objectType"],
                 "objectId": dump["objectId"],
                 "factId": dump["factId"],
@@ -213,7 +216,7 @@ def analyze_import(
     for beat_id, (line_a, line_b) in unassigned_raw:
         raw_flags.append(
             {
-                "id": f"flag-{len(raw_flags) + 1:02d}",
+                "id": flag_minter.mint(),
                 "objectType": "beat",
                 "objectId": beat_id,
                 "factId": None,
@@ -319,7 +322,7 @@ def _install_scenes(project_doc: dict, scene_docs: list[dict]) -> tuple[dict, st
     return doc, episode["id"]
 
 
-def _to_ledger_fact(extracted, ordinal: int, beat_index: dict) -> dict:
+def _to_ledger_fact(extracted, fact_id: str, beat_index: dict) -> dict:
     """Convert one model `ExtractedFact` into a persisted `LedgerFact` wire dict:
     server-assigned id, `inferred`/`pending_review` (§4 step 2), and char
     offsets located verbatim within the referenced beat (§5)."""
@@ -334,7 +337,7 @@ def _to_ledger_fact(extracted, ordinal: int, beat_index: dict) -> dict:
     span["charStart"] = char_start
     span["charEnd"] = char_end
     return {
-        "id": f"fact-{ordinal:02d}",
+        "id": fact_id,
         "fact": dump["fact"],
         "factType": dump["factType"],
         "sourceSpan": span,

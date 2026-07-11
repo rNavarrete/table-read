@@ -5,19 +5,9 @@ import { expect, test } from '@playwright/test'
 // against the real api + seeded fixture DB + MockLlmClient — the real
 // create-and-import pipeline and SSE stream, no route interception.
 //
-// WHY THIS SPEC RUNS LAST (the `zz-` prefix) AND EMPTIES THE DB FIRST:
-// Playwright runs the e2e files serially in alphabetical order against one
-// shared, fixture-seeded database. A real create-and-import mints ledger fact
-// ids as bare ordinals (`fact-01`, ...; storage/models.py `LedgerFactRow.id`
-// is the sole PK, not scoped by project), so importing while the seed's
-// `fact-01…08` still exist hits `UNIQUE constraint failed: ledger_facts.id`
-// and the import fails. (That global-ordinal fact id scheme is a real
-// multi-project limitation from the Task 1/Task 5 work — see the Task 7
-// report's Concerns section; it is out of scope to fix here.) Emptying the DB
-// makes the mock's deterministic single extracted fact land cleanly. Because
-// this destroys the shared seed, it must be the final spec — every other spec
-// (which depends on proj-longpour) is alphabetically earlier and has already
-// run by now.
+// Import mints globally unique `fact-<hex>` / `flag-<hex>` ids, so this can
+// run alongside the seeded Long Pour ledger without UNIQUE collisions. The
+// `zz-` prefix still keeps it last so earlier specs keep a stable seed.
 
 const FILENAME = 'the-long-pour.fountain'
 // Exactly six lines with a single slugline: the deterministic scene split
@@ -36,14 +26,6 @@ const SOURCE = [
 test('import a script → Plan shows scenes/beats and the Ledger pending queue', async ({
   page,
 }) => {
-  // Empty the shared DB so the imported project's ordinal fact ids don't
-  // collide with the seed's (see the file header).
-  const existing = await page.request.get('/api/v1/projects')
-  for (const project of (await existing.json()) as Array<{ id: string }>) {
-    const purged = await page.request.delete(`/api/v1/projects/${project.id}`)
-    expect(purged.ok()).toBeTruthy()
-  }
-
   await page.goto('/projects/new/import')
 
   // Step 1 — upload the Fountain source.
