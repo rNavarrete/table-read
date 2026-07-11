@@ -11,7 +11,7 @@ import tomllib
 from pathlib import Path
 
 from drama_manager import render
-from evals import checks, probes
+from evals import adoption, checks, probes
 from evals.graders import Judge
 from evals.harness import SuiteReport
 from llm.protocol import LlmClient
@@ -31,6 +31,9 @@ EVAL_KEYS: dict[str, str] = {
     "lock": "lockViolation",
     "continuity": "continuityAdherence",
     "segmentation": "segmentationDeterminism",
+    "lock-repair": "lockRepairQuality",
+    "import-inference": "importInference",
+    "subtext": "subtextFidelity",
 }
 
 
@@ -45,24 +48,40 @@ def nominal_call_estimate(runs: int) -> dict:
     """Nominal (retry-free) real-API call counts per eval family — cost
     visibility for the report header and the Makefile target.
 
-    Per family: schema = one call per probe per run (7 × runs). lock = up to 3
+    Per family: schema = one call per probe per run (8 × runs). lock = up to 3
     product calls per regenerate attempt (preview's regenerate + apply's
     extract + scan; guard rejections stop after 1) plus 1 per candidate attempt
     → ≤ 4 × runs. continuity = 3 grader calibration calls + (1 generate +
-    1 grade) × runs. segmentation = 1 × runs. Rule-9 retries can add up to one
-    extra call per product call (observed-worst budget ≈ 1.5× total). At the
-    default 20 runs: 283 nominal (schema 140, lock 80, continuity 43,
-    segmentation 20) — ≈280–300, up to ~420 with retries; `--runs 1` ≈ 15–20."""
+    1 grade) × runs. segmentation = 1 × runs. Adoption soft evals: lock-repair
+    and subtext = 1 × runs each; import-inference = 1 × runs. Rule-9 retries can
+    add up to one extra call per product call (observed-worst budget ≈ 1.5×
+    total). At the default 20 runs: 363 nominal (schema 160, lock 80,
+    continuity 43, segmentation 20, lock-repair 20, import-inference 20,
+    subtext 20) — ≈360–380; `--runs 1` ≈ 18–25."""
     schema = len(probes.SCHEMA_PROBES) * runs
     lock = 4 * runs
     continuity = 3 + 2 * runs
     segmentation = runs
+    lock_repair = runs
+    import_inference = runs
+    subtext = runs
     return {
         "schemaValidity": schema,
         "lockViolation": lock,
         "continuityAdherence": continuity,
         "segmentationDeterminism": segmentation,
-        "totalNominal": schema + lock + continuity + segmentation,
+        "lockRepairQuality": lock_repair,
+        "importInference": import_inference,
+        "subtextFidelity": subtext,
+        "totalNominal": (
+            schema
+            + lock
+            + continuity
+            + segmentation
+            + lock_repair
+            + import_inference
+            + subtext
+        ),
     }
 
 
@@ -99,6 +118,12 @@ def run_suite(
         results.append(checks.continuity_eval(client, ctx, judge, runs=runs, capture=capture))
     if want("segmentation"):
         results.append(checks.segmentation_determinism_eval(client, ctx, runs=runs))
+    if want("lock-repair"):
+        results.append(adoption.lock_repair_eval(client, ctx, runs=runs))
+    if want("import-inference"):
+        results.append(adoption.import_inference_eval(client, runs=runs))
+    if want("subtext"):
+        results.append(adoption.subtext_eval(client, ctx, runs=runs))
 
     estimate = nominal_call_estimate(runs)
     if only is not None:

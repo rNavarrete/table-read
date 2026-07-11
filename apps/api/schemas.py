@@ -217,6 +217,12 @@ class LedgerFact(_Base):
     superseded_by: Id | None
 
 
+class CraftLevel(StrEnum):
+    fast = "fast"
+    standard = "standard"
+    considered = "considered"
+
+
 class Project(_Base):
     id: Id
     title: str
@@ -226,6 +232,7 @@ class Project(_Base):
     series_bible: SeriesBible
     seasons: list[Season]
     head_snapshot_id: Id | None
+    default_craft_level: CraftLevel = CraftLevel.standard
 
 
 # Ledger, snapshots, suggestionHistory live in separate stores (design doc §5).
@@ -278,6 +285,20 @@ class ProjectImportCreateRequest(_Base):
     format: ShowFormat
     premise: str | None = None
     source: ProjectImportSource
+
+
+class SnapshotSummary(_Base):
+    """One restorable ancestor entry for the undo timeline (adoption A5)."""
+
+    id: Id
+    instruction: str
+    ts: str
+
+
+class ProjectRestoreRequest(_Base):
+    """POST /projects/{pid}/restore — jump head to an ancestor snapshot."""
+
+    snapshot_id: Id
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -608,6 +629,15 @@ class InstructionSuggestions(_Base):
     suggestions: list[str] = Field(min_length=3, max_length=3)
 
 
+class SuggestRequest(_Base):
+    """POST /projects/{pid}/suggest — adoption A4 carousel context."""
+
+    context: Literal["scene", "beat"]
+    target_id: Id
+    surface: Literal["command_bar", "scene_premise", "tune"]
+    draft_script: str | None = None
+
+
 class SegmentedSceneBeat(_Base):
     start_line: int = Field(ge=0)
     end_line: int = Field(ge=0)
@@ -704,4 +734,5 @@ class ChangeSetApprovedRequest(_Base):
     """POST /change-sets/{cid}/preview|apply — approved regenerate targets."""
 
     approved_object_ids: list[Id]
+    craft_level: CraftLevel | None = None
 

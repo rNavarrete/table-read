@@ -26,6 +26,9 @@ and flags never outlive the content that established them).
   - `restore_parent` (undo) — restore doc/ledger/flags byte-identical from
     the current head's parent; move head to it; no new snapshot row. Same
     CAS on the head column.
+  - `restore_to_snapshot` (adoption A5) — same as undo for any proper
+    ancestor of head; non-ancestor rejected. `list_ancestor_snapshots`
+    walks head→root for the undo timeline UI.
   - `purge_project` (delete) — drop every project-scoped row across all six
     tables (embeddings included), one transaction.
 
@@ -92,6 +95,7 @@ def create_project(
     doc (`id`, `headSnapshotId`), and writes the root snapshot with empty
     ledger/flags. Returns the persisted `ProjectRow`.
     """
+    instruction = _require_instruction(instruction)
     project_id = _mint_id("proj")
     snapshot_id = _mint_id("snap")
     doc = copy.deepcopy(doc)
@@ -197,6 +201,7 @@ def create_project_with_state(
     here means a concurrent writer already claimed `creation_idempotency_key`
     (caller resolves via `resolve_creation_idempotency`, exactly like
     `create_project`'s callers do)."""
+    instruction = _require_instruction(instruction)
     doc = copy.deepcopy(doc)
     doc["id"] = project_id
     doc["headSnapshotId"] = snapshot_id
@@ -243,6 +248,25 @@ class StaleHead(Exception):
         )
 
 
+class EmptyInstruction(ValueError):
+    """Snapshot instruction must be non-empty (adoption A5 / contract §3)."""
+
+
+class RestoreRejected(Exception):
+    """Restore target is not a proper ancestor of the current head (A5)."""
+
+    def __init__(self, message: str) -> None:
+        self.message = message
+        super().__init__(message)
+
+
+def _require_instruction(instruction: str) -> str:
+    text = (instruction or "").strip()
+    if not text:
+        raise EmptyInstruction("snapshot instruction must be non-empty")
+    return text
+
+
 def mutate(
     session: Session,
     project_id: str,
@@ -265,6 +289,7 @@ def mutate(
     observed at read time so two concurrent writers that both loaded H cannot
     both commit children of H.
     """
+    instruction = _require_instruction(instruction)
     project = session.get(ProjectRow, project_id)
     if project is None:  # defensive: routes 404 before calling
         raise LookupError(f"project {project_id!r} not found")
@@ -339,14 +364,7 @@ def restore_parent(
     *,
     expected_head_snapshot_id: str | None = None,
 ) -> ProjectRow:
-    """Undo: restore state from the current head's parent snapshot (§3).
-
-    Restores `projects.doc`, `ledger_facts`, and `consistency_flags`
-    byte-identical from the parent snapshot and moves head to it, in one
-    transaction, via the same CAS as `mutate`. No new snapshot row is written
-    (a later mutation forks the tree). The caller guarantees a parent exists
-    (undo-at-root is a 409).
-    """
+    """Undo one step: restore the current head's parent (A5 / §3)."""
     observed_head = project.head_snapshot_id
     cas_expected = (
         expected_head_snapshot_id
@@ -361,23 +379,64 @@ def restore_parent(
 
     head = session.get(SnapshotRow, cas_expected)
     if head is None or head.parent_id is None:
-        # Defensive: routes already 409 when there is nothing to undo.
         raise LookupError(f"no parent for head {cas_expected!r}")
-    parent = session.get(SnapshotRow, head.parent_id)
-    if parent is None:
-        raise LookupError(f"parent snapshot {head.parent_id!r} not found")
+    return restore_to_snapshot(
+        session,
+        project,
+        head.parent_id,
+        expected_head_snapshot_id=cas_expected,
+    )
 
-    restored_doc = copy.deepcopy(parent.doc)
+
+def restore_to_snapshot(
+    session: Session,
+    project: ProjectRow,
+    snapshot_id: str,
+    *,
+    expected_head_snapshot_id: str | None = None,
+) -> ProjectRow:
+    """Restore doc+ledger+flags from an ancestor snapshot (adoption A5).
+
+    Target must be a *proper* ancestor of the current head (not the head
+    itself, not an unrelated fork). One transaction; no new snapshot row;
+    later mutations fork from the restored head.
+    """
+    observed_head = project.head_snapshot_id
+    cas_expected = (
+        expected_head_snapshot_id
+        if expected_head_snapshot_id is not None
+        else observed_head
+    )
+    if (
+        expected_head_snapshot_id is not None
+        and observed_head != expected_head_snapshot_id
+    ):
+        raise StaleHead(expected_head_snapshot_id, observed_head)
+
+    if cas_expected is None:
+        raise RestoreRejected("project has no head snapshot")
+    if snapshot_id == cas_expected:
+        raise RestoreRejected("snapshot is already the project head")
+    if not _is_proper_ancestor(session, cas_expected, snapshot_id):
+        raise RestoreRejected(
+            f"snapshot {snapshot_id!r} is not an ancestor of head {cas_expected!r}"
+        )
+
+    target = session.get(SnapshotRow, snapshot_id)
+    if target is None or target.project_id != project.id:
+        raise RestoreRejected(f"snapshot {snapshot_id!r} not found")
+
+    restored_doc = copy.deepcopy(target.doc)
     try:
         _cas_bump_head(
             session,
             project.id,
             expected_head=cas_expected,
-            new_head=parent.id,
+            new_head=target.id,
             new_doc=restored_doc,
         )
-        _rewrite_ledger(session, project.id, parent.ledger)
-        _rewrite_flags(session, project.id, parent.flags)
+        _rewrite_ledger(session, project.id, target.ledger)
+        _rewrite_flags(session, project.id, target.flags)
         session.commit()
     except StaleHead:
         session.rollback()
@@ -387,6 +446,50 @@ def restore_parent(
         raise
     session.refresh(project)
     return project
+
+
+def list_ancestor_snapshots(
+    session: Session,
+    project_id: str,
+    *,
+    limit: int = 20,
+) -> list[dict]:
+    """Walk from head toward root; return up to `limit` proper ancestors
+    (restorable targets), nearest parent first. Wire: id, instruction, ts."""
+    project = session.get(ProjectRow, project_id)
+    if project is None or project.head_snapshot_id is None:
+        return []
+    out: list[dict] = []
+    current = session.get(SnapshotRow, project.head_snapshot_id)
+    while current is not None and current.parent_id is not None and len(out) < limit:
+        parent = session.get(SnapshotRow, current.parent_id)
+        if parent is None:
+            break
+        out.append(
+            {
+                "id": parent.id,
+                "instruction": parent.instruction,
+                "ts": parent.ts,
+            }
+        )
+        current = parent
+    return out
+
+
+def _is_proper_ancestor(
+    session: Session, head_id: str, candidate_id: str
+) -> bool:
+    """True when `candidate_id` appears on the parent chain of `head_id`."""
+    current = session.get(SnapshotRow, head_id)
+    seen: set[str] = set()
+    while current is not None and current.parent_id is not None:
+        if current.parent_id in seen:
+            break  # cycle guard
+        seen.add(current.parent_id)
+        if current.parent_id == candidate_id:
+            return True
+        current = session.get(SnapshotRow, current.parent_id)
+    return False
 
 
 def purge_project(session: Session, project_id: str) -> None:

@@ -46,4 +46,5 @@ def initial_project_doc(title: str, format_dict: dict, premise: str) -> dict:
         "seriesBible": minimal_series_bible(),
         "seasons": [],
         "headSnapshotId": None,
+        "defaultCraftLevel": "standard",
     }

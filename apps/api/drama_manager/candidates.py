@@ -40,6 +40,8 @@ CANDIDATE_COUNT = 3
 TOKEN_BUDGET = 6000
 _LLM_UNAVAILABLE = "LLM_UNAVAILABLE"  # data contract §4 (route/stream-layer mapping)
 
+CRAFT_COUNTS = {"fast": 1, "standard": 3, "considered": 3}
+
 # Event names (data contract §4 SSE stream).
 CANDIDATE_START = "candidate_start"
 DELTA = "delta"
@@ -354,19 +356,33 @@ def generate_candidate_events(
     scene_id: str,
     after_beat_id: str | None,
     instruction: str,
-    count: int = CANDIDATE_COUNT,
+    craft_level: str = "standard",
+    count: int | None = None,
 ) -> Iterator[Event]:
     """Yield the SSE event tuples for a candidate-generation request (data
-    contract §4). Sequential diversity: each call's prompt carries the AVOID
-    list of prior candidates this round (labels + one-line summaries), so the
-    3 calls diverge. Validation of `scene_id`/`afterBeatId` happens before the
-    stream starts (the route surfaces those as HTTP errors); once streaming,
-    every failure mode is SSE-shaped.
+    contract §4 / adoption A3 craft levels).
 
-    Emits, per candidate: `candidate_start {index}`, zero or more `delta
-    {text}`, then exactly one of `candidate_done {BeatCandidate}` /
-    `candidate_failed {error}`. Never both, never a partial card. Closes with a
-    single `done`."""
+    - fast: 1 streamed candidate
+    - standard: 3 streamed (default)
+    - considered: 3 sync diversity samples + 1 streamed polished pick
+      (extra `generate_beat_candidates` calls — critique-and-select without a
+      new op)
+    """
+    level = craft_level if craft_level in CRAFT_COUNTS else "standard"
+    if count is None:
+        count = CRAFT_COUNTS[level]
+
+    if level == "considered":
+        yield from _considered_events(
+            llm,
+            doc,
+            ledger,
+            scene_id=scene_id,
+            after_beat_id=after_beat_id,
+            instruction=instruction,
+        )
+        return
+
     avoid: list[dict] = []
     for index in range(count):
         yield (CANDIDATE_START, {"index": index})
@@ -389,6 +405,68 @@ def generate_candidate_events(
             avoid.append(
                 {"label": candidate.label, "summary": _one_line(candidate.beat_plan.what_happens)}
             )
+    yield (DONE, {})
+
+
+def _considered_events(
+    llm: LlmClient,
+    doc: dict,
+    ledger: list[dict],
+    *,
+    scene_id: str,
+    after_beat_id: str | None,
+    instruction: str,
+) -> Iterator[Event]:
+    """Generate three sync drafts, then stream one polished selection (A3)."""
+    avoid: list[dict] = []
+    drafts: list[dict] = []
+    for _ in range(CANDIDATE_COUNT):
+        nonce = render.new_nonce()
+        system, user = build_candidate_bundle(
+            doc,
+            ledger,
+            scene_id=scene_id,
+            after_beat_id=after_beat_id,
+            instruction=instruction,
+            avoid=avoid,
+            nonce=nonce,
+        )
+        candidate = llm.generate_beat_candidates(
+            system=system, user_message=user, prompt_version=render.PROMPT_VERSION
+        )
+        wire = candidate.model_dump(by_alias=True, mode="json")
+        drafts.append(wire)
+        avoid.append(
+            {
+                "label": candidate.label,
+                "summary": _one_line(candidate.beat_plan.what_happens),
+            }
+        )
+
+    polish_instruction = (
+        (instruction.strip() + "\n\n" if instruction.strip() else "")
+        + "CRITIQUE AND SELECT: Prior drafts this round were: "
+        + "; ".join(f"{d.get('label', '')} — {_one_line(d.get('beatPlan', {}).get('whatHappens', ''))}" for d in drafts)
+        + ". Return a single polished best beat that keeps the strongest choice "
+        "and improves weak lines. Do not merely copy one draft verbatim."
+    )
+    yield (CANDIDATE_START, {"index": 0})
+    nonce = render.new_nonce()
+    system, user = build_candidate_bundle(
+        doc,
+        ledger,
+        scene_id=scene_id,
+        after_beat_id=after_beat_id,
+        instruction=polish_instruction,
+        avoid=avoid,
+        nonce=nonce,
+    )
+    result = yield from _stream_one(
+        _candidate_stream(llm), system, user, nonce, "generate_beat_candidates"
+    )
+    if result is not None:
+        _candidate, wire = result
+        yield (CANDIDATE_DONE, wire)
     yield (DONE, {})
 
 

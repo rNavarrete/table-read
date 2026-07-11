@@ -70,9 +70,9 @@ def test_schema_validity_all_valid_passes():
     result = schema_validity_eval(MockLlmClient(), ctx, runs=2)
     assert result.score == 1.0
     assert result.meets_gate and not result.blocks
-    # 7 ops have real prompt builders; suggest_instructions is flagged uncovered.
-    assert result.detail["perOp"].keys() >= {"generate_beat_candidates", "segment_scene"}
-    assert any("suggest_instructions" in n for n in result.notes)
+    # All registered ops have real prompt builders (incl. suggest_instructions / A4).
+    assert result.detail["perOp"].keys() >= {"generate_beat_candidates", "segment_scene", "suggest_instructions"}
+    assert not any("suggest_instructions" in n and "uncovered" in n.lower() for n in result.notes)
 
 
 def test_schema_validity_one_failing_op_blocks():
@@ -215,6 +215,9 @@ def test_run_suite_dry_run_end_to_end_and_rule5_clean(session_factory, tmp_path)
         "lock-violation",
         "continuity-adherence",
         "segmentation-determinism",
+        "lock-repair-quality",
+        "import-inference",
+        "subtext-fidelity",
     ]
     assert report.exit_code == 0
     # Rule 5: the report must carry no fixture/writer text.
@@ -233,12 +236,15 @@ def test_nominal_call_estimate_matches_reviewer_numbers():
     from evals.suite import nominal_call_estimate
 
     full = nominal_call_estimate(20)
-    assert full["schemaValidity"] == 140
+    assert full["schemaValidity"] == 160
     assert full["lockViolation"] == 80
     assert full["continuityAdherence"] == 43
     assert full["segmentationDeterminism"] == 20
-    assert full["totalNominal"] == 283  # ≈280–300 nominal, ~420 with retries
-    assert 15 <= nominal_call_estimate(1)["totalNominal"] <= 20
+    assert full["lockRepairQuality"] == 20
+    assert full["importInference"] == 20
+    assert full["subtextFidelity"] == 20
+    assert full["totalNominal"] == 363
+    assert 18 <= nominal_call_estimate(1)["totalNominal"] <= 25
 
 
 def test_run_suite_report_carries_call_estimate(session_factory):

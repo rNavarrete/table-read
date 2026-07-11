@@ -886,10 +886,12 @@ def preview_change_set(
     *,
     approved_object_ids: list[str],
     llm: LlmClient,
+    craft_level: str | None = None,
 ) -> dict:
     """Run `regenerate_elements`, store typed preview, return updated ChangeSet.
 
-    Does not mutate the project doc or create a snapshot."""
+    Does not mutate the project doc or create a snapshot. `craft_level=
+    considered` runs a second polish regenerate (adoption A3)."""
     row = _get_change_set_row(session, change_set_id)
     change_set = copy.deepcopy(row.doc)
     if change_set.get("kind") == ChangeSetKind.initial_scene_skeleton.value:
@@ -951,6 +953,29 @@ def preview_change_set(
         system=system, user_message=user, prompt_version=render.PROMPT_VERSION
     )
     _validate_regenerated_ids(regenerated, allowed)
+
+    if (craft_level or "standard") == "considered":
+        polish_nonce = render.new_nonce()
+        polish_system, polish_user = render.build_regenerate_prompt(
+            doc,
+            regenerate_ids=regenerate_ids,
+            instruction=(
+                change_set["instruction"]
+                + "\n\nCRITIQUE AND SELECT: Polish the regenerated elements — "
+                "keep the strongest beats, tighten weak lines, do not expand scope."
+            ),
+            locked_siblings=_locked_siblings_for_regenerate(doc, allowed),
+            neighbor_scenes=_neighbor_scene_summaries(doc, allowed),
+            continuity_facts=_active_facts(ledger),
+            characters=characters,
+            nonce=polish_nonce,
+        )
+        regenerated = llm.regenerate_elements(
+            system=polish_system,
+            user_message=polish_user,
+            prompt_version=render.PROMPT_VERSION,
+        )
+        _validate_regenerated_ids(regenerated, allowed)
 
     preview = _preview_wire_from_regenerated(regenerated, project.head_snapshot_id)
     _annotate_after_from_preview(change_set, preview)

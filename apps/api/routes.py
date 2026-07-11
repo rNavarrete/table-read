@@ -32,6 +32,7 @@ from drama_manager import (
     locks,
     scan,
     scene_skeleton,
+    suggest as suggest_mod,
 )
 from errors import ApiError
 from fountain import create_import
@@ -47,13 +48,17 @@ from schemas import (
     ChangeSetApprovedRequest,
     ConsistencyFlag,
     InitialSceneSkeletonCandidate,
+    InstructionSuggestions,
     LedgerBatchRequest,
     LedgerFact,
     LedgerFactEdit,
     Project,
     ProjectCreateRequest,
     ProjectImportCreateRequest,
+    ProjectRestoreRequest,
     ProjectSummary,
+    SnapshotSummary,
+    SuggestRequest,
 )
 from storage import project_scaffold, snapshots
 from storage.db import get_session
@@ -501,19 +506,15 @@ def generate_candidates(
     sid: str,
     after_beat_id: str | None = Body(default=None, alias="afterBeatId"),
     instruction: str | None = Body(default=None),
+    craft_level: str | None = Body(default=None, alias="craftLevel"),
     session: Session = Depends(get_session),
     llm: LlmClient = Depends(get_llm_client),
 ) -> StreamingResponse:
     """Write-mode candidate generation (data contract §4): streams
-    `candidate_start`/`delta`/`candidate_done`|`candidate_failed` ×3, then
-    `done`. Read-only w.r.t. the doc — generation persists nothing until Accept
-    (T2.2). This POST *is* the explicit writer gesture (design doc §4.3 /
-    CLAUDE.md rule 8): no polling, no proactive generation.
-
-    Target ids are validated before the stream opens so bad ids are HTTP errors,
-    not mid-stream SSE surprises; once streaming, every failure is SSE-shaped
-    (candidate_failed). Doc + ledger are materialized here so the stream
-    generator never touches the DB session after this handler returns."""
+    `candidate_start`/`delta`/`candidate_done`|`candidate_failed` ×N, then
+    `done`. `craftLevel` (adoption A3): fast=1, standard=3, considered=
+    sync drafts + one polished stream. Read-only until Accept.
+    """
     project = _get_project_or_404(session, pid)
     doc = project.doc
     try:
@@ -524,6 +525,10 @@ def generate_candidates(
         raise ApiError(
             400, "VALIDATION", f"afterBeatId {after_beat_id!r} is not a beat of scene {sid!r}"
         ) from exc
+
+    level = craft_level or doc.get("defaultCraftLevel") or "standard"
+    if level not in candidates.CRAFT_COUNTS:
+        raise ApiError(400, "VALIDATION", f"unknown craftLevel {level!r}")
 
     ledger = [
         row.to_wire_dict()
@@ -536,6 +541,7 @@ def generate_candidates(
         scene_id=sid,
         after_beat_id=after_beat_id,
         instruction=instruction or "",
+        craft_level=level,
     )
     return StreamingResponse(candidates.to_sse(events), media_type="text/event-stream")
 
@@ -752,7 +758,13 @@ def preview_change_set(
     and renders `after` display snippets. Does not mutate the project doc."""
     try:
         return change_sets.preview_change_set(
-            session, cid, approved_object_ids=body.approved_object_ids, llm=llm
+            session,
+            cid,
+            approved_object_ids=body.approved_object_ids,
+            llm=llm,
+            craft_level=(
+                body.craft_level.value if body.craft_level is not None else None
+            ),
         )
     except change_sets.ChangeSetNotFound as exc:
         raise ApiError(404, "NOT_FOUND", f"change set {cid!r} not found") from exc
@@ -840,6 +852,76 @@ def undo(
     except snapshots.StaleHead as exc:
         raise ApiError(409, "CONFLICT_STALE_HEAD", str(exc)) from exc
     return session.get(ProjectRow, pid).doc
+
+
+@router.get("/{pid}/snapshots", response_model=list[SnapshotSummary])
+def list_snapshots(pid: str, session: Session = Depends(get_session)) -> list[dict]:
+    """Ancestor chain of the current head (adoption A5) — up to 20 restorable
+    targets, nearest parent first. Does not include the current head."""
+    _get_project_or_404(session, pid)
+    return snapshots.list_ancestor_snapshots(session, pid, limit=20)
+
+
+@router.post("/{pid}/restore", response_model=Project)
+def restore_project(
+    pid: str,
+    body: ProjectRestoreRequest,
+    session: Session = Depends(get_session),
+    if_match: str | None = Header(default=None, alias="If-Match"),
+) -> dict:
+    """Restore to an ancestor snapshot (adoption A5). Non-ancestor → 409."""
+    project = _get_project_or_404(session, pid)
+    try:
+        snapshots.restore_to_snapshot(
+            session,
+            project,
+            body.snapshot_id,
+            expected_head_snapshot_id=_expected_head(if_match),
+        )
+    except snapshots.StaleHead as exc:
+        raise ApiError(409, "CONFLICT_STALE_HEAD", str(exc)) from exc
+    except snapshots.RestoreRejected as exc:
+        raise ApiError(409, "VALIDATION", exc.message) from exc
+    return session.get(ProjectRow, pid).doc
+
+
+@router.post("/{pid}/suggest", response_model=InstructionSuggestions)
+def suggest_instructions(
+    pid: str,
+    body: SuggestRequest,
+    session: Session = Depends(get_session),
+    llm: LlmClient = Depends(get_llm_client),
+) -> dict:
+    """Adoption A4: 3 contextual instruction chips. Never auto-executes —
+    the client inserts into an input on click only."""
+    project = _get_project_or_404(session, pid)
+    ledger = [
+        row.to_wire_dict()
+        for row in session.query(LedgerFactRow).filter_by(project_id=pid).all()
+    ]
+    try:
+        suggestions = suggest_mod.suggest_for_surface(
+            session,
+            llm,
+            project_id=pid,
+            doc=project.doc,
+            ledger=ledger,
+            context=body.context,
+            target_id=body.target_id,
+            surface=body.surface,
+            draft_script=body.draft_script,
+        )
+    except suggest_mod.SuggestTargetError as exc:
+        raise ApiError(400, "VALIDATION", str(exc)) from exc
+    except candidates.SceneNotFound as exc:
+        raise ApiError(404, "NOT_FOUND", f"scene {exc.args[0]!r} not found") from exc
+    except candidates.BeatNotFound as exc:
+        raise ApiError(404, "NOT_FOUND", f"beat {exc.args[0]!r} not found") from exc
+    except SchemaInvalidLlmError as exc:
+        raise ApiError(502, "SCHEMA_INVALID_LLM", str(exc)) from exc
+    except anthropic.APIError as exc:
+        raise ApiError(503, "LLM_UNAVAILABLE", "the language model is unavailable") from exc
+    return {"suggestions": suggestions}
 
 
 @router.post("/{pid}/ledger/batch")

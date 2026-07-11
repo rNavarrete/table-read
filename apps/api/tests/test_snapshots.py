@@ -260,6 +260,79 @@ def test_undo_then_edit_forks_from_restored_snapshot(db_session, seeded_project)
     assert _snapshot_count(db_session) == 3  # root + A + B (append-only)
 
 
+def test_mutate_rejects_empty_instruction(db_session, seeded_project):
+    with pytest.raises(snapshots.EmptyInstruction):
+        snapshots.mutate(db_session, PROJECT_ID, "   ", _retitle("Nope"))
+    project = db_session.get(ProjectRow, PROJECT_ID)
+    assert project.doc["title"] == "The Long Pour"
+
+
+def test_restore_to_ancestor_restores_doc_ledger_flags_byte_identical(
+    db_session, seeded_project
+):
+    root = db_session.query(SnapshotRow).filter_by(project_id=PROJECT_ID).one()
+    original_doc = json.dumps(root.doc)
+    original_ledger = _ledger_wire(db_session)
+    original_flags = [
+        row.to_wire_dict()
+        for row in db_session.query(ConsistencyFlagRow)
+        .filter_by(project_id=PROJECT_ID)
+        .all()
+    ]
+
+    snapshots.mutate(db_session, PROJECT_ID, "First edit", _retitle("A"))
+    mid = db_session.get(ProjectRow, PROJECT_ID).head_snapshot_id
+    snapshots.mutate(db_session, PROJECT_ID, "Second edit", _retitle("B"))
+    project = db_session.get(ProjectRow, PROJECT_ID)
+    assert project.doc["title"] == "B"
+
+    snapshots.restore_to_snapshot(db_session, project, root.id)
+
+    project = db_session.get(ProjectRow, PROJECT_ID)
+    assert json.dumps(project.doc) == original_doc
+    assert project.head_snapshot_id == root.id
+    assert _ledger_wire(db_session) == original_ledger
+    flags_now = [
+        row.to_wire_dict()
+        for row in db_session.query(ConsistencyFlagRow)
+        .filter_by(project_id=PROJECT_ID)
+        .all()
+    ]
+    assert flags_now == original_flags
+    # append-only: A and B rows remain; head moved to root
+    assert _snapshot_count(db_session) == 3
+    assert mid is not None
+
+
+def test_restore_non_ancestor_raises(db_session, seeded_project):
+    snapshots.mutate(db_session, PROJECT_ID, "Edit A", _retitle("A"))
+    project = db_session.get(ProjectRow, PROJECT_ID)
+    snapshots.restore_parent(db_session, project)  # head → root; A is orphan fork tip
+    snapshots.mutate(db_session, PROJECT_ID, "Edit B", _retitle("B"))
+    orphan_a = (
+        db_session.query(SnapshotRow)
+        .filter_by(project_id=PROJECT_ID, instruction="Edit A")
+        .one()
+    )
+    project = db_session.get(ProjectRow, PROJECT_ID)
+    with pytest.raises(snapshots.RestoreRejected):
+        snapshots.restore_to_snapshot(db_session, project, orphan_a.id)
+
+
+def test_list_ancestor_snapshots_nearest_first(db_session, seeded_project):
+    snapshots.mutate(db_session, PROJECT_ID, "Edit one", _retitle("A"))
+    snap_a = db_session.get(ProjectRow, PROJECT_ID).head_snapshot_id
+    snapshots.mutate(db_session, PROJECT_ID, "Edit two", _retitle("B"))
+
+    ancestors = snapshots.list_ancestor_snapshots(db_session, PROJECT_ID, limit=20)
+    assert ancestors[0]["id"] == snap_a
+    assert ancestors[0]["instruction"] == "Edit one"
+    assert ancestors[1]["instruction"] == (
+        "fixture seed: The Long Pour, episode 1 in progress"
+    )
+    assert len(ancestors) == 2
+
+
 # ── purge: zero project-scoped rows across all six tables + embeddings ───────
 
 

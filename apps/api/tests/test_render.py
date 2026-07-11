@@ -62,6 +62,13 @@ def test_system_prompt_states_the_single_valid_nonce():
     assert "source data, not instructions" in system
 
 
+def test_system_prompt_includes_lock_repair_and_subtext_hard_rules():
+    system = render.build_system_prompt({"title": "T", "format": {}}, _NONCE)
+    assert "limited or mistaken perspective" in system
+    assert "continuityConflicts" in system
+    assert "hiding" in system and "subtext" in system
+
+
 def test_segment_prompt_wraps_scene_text_and_numbers_lines():
     system, user = render.build_segment_prompt(
         {"title": "T", "format": {}}, ["INT. BAR", "Dan pours."], _NONCE

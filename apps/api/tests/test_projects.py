@@ -313,6 +313,7 @@ def test_create_project_idempotency_replays_after_unique_race(db_session, monkey
         "seriesBible": MINIMAL_SERIES_BIBLE,
         "seasons": [],
         "headSnapshotId": "snap-raced",
+        "defaultCraftLevel": "standard",
     }
 
     def race_then_integrity_error(
@@ -450,6 +451,18 @@ def test_patch_applies_edit_and_snapshots(seeded_project, db_session):
     assert project.head_snapshot_id != "snap-root"
 
 
+def test_patch_default_craft_level_persists(seeded_project, db_session):
+    response = client.patch(
+        f"/api/v1/projects/{PROJECT_ID}",
+        json=[{"op": "add", "path": "/defaultCraftLevel", "value": "fast"}],
+    )
+    assert response.status_code == 200
+    assert response.json()["defaultCraftLevel"] == "fast"
+    db_session.expire_all()
+    assert db_session.get(ProjectRow, PROJECT_ID).doc["defaultCraftLevel"] == "fast"
+    assert client.get(f"/api/v1/projects/{PROJECT_ID}").json()["defaultCraftLevel"] == "fast"
+
+
 def test_patch_stale_if_match_returns_409_conflict_stale_head(seeded_project, db_session):
     """If-Match with a non-current headSnapshotId → CONFLICT_STALE_HEAD, no write."""
     before = client.get(f"/api/v1/projects/{PROJECT_ID}").json()
@@ -494,6 +507,76 @@ def test_patch_then_undo_restores_byte_identical(seeded_project):
 
     assert undone.status_code == 200
     assert undone.json() == original
+
+
+def test_list_snapshots_returns_ancestors_nearest_first(seeded_project):
+    client.patch(
+        f"/api/v1/projects/{PROJECT_ID}",
+        json=[{"op": "replace", "path": "/title", "value": "One"}],
+    )
+    mid = client.get(f"/api/v1/projects/{PROJECT_ID}").json()["headSnapshotId"]
+    client.patch(
+        f"/api/v1/projects/{PROJECT_ID}",
+        json=[{"op": "replace", "path": "/title", "value": "Two"}],
+    )
+
+    resp = client.get(f"/api/v1/projects/{PROJECT_ID}/snapshots")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body[0]["id"] == mid
+    assert "instruction" in body[0] and body[0]["instruction"]
+    assert "ts" in body[0]
+
+
+def test_restore_to_ancestor_via_http(seeded_project, db_session):
+    original = client.get(f"/api/v1/projects/{PROJECT_ID}").json()
+    root_id = original["headSnapshotId"]
+
+    client.patch(
+        f"/api/v1/projects/{PROJECT_ID}",
+        json=[{"op": "replace", "path": "/title", "value": "One"}],
+    )
+    client.patch(
+        f"/api/v1/projects/{PROJECT_ID}",
+        json=[{"op": "replace", "path": "/title", "value": "Two"}],
+    )
+
+    restored = client.post(
+        f"/api/v1/projects/{PROJECT_ID}/restore",
+        json={"snapshotId": root_id},
+    )
+    assert restored.status_code == 200
+    assert restored.json() == original
+
+
+def test_restore_non_ancestor_returns_409(seeded_project):
+    client.patch(
+        f"/api/v1/projects/{PROJECT_ID}",
+        json=[{"op": "replace", "path": "/title", "value": "A"}],
+    )
+    orphan = client.get(f"/api/v1/projects/{PROJECT_ID}").json()["headSnapshotId"]
+    client.post(f"/api/v1/projects/{PROJECT_ID}/undo")
+    client.patch(
+        f"/api/v1/projects/{PROJECT_ID}",
+        json=[{"op": "replace", "path": "/title", "value": "B"}],
+    )
+
+    resp = client.post(
+        f"/api/v1/projects/{PROJECT_ID}/restore",
+        json={"snapshotId": orphan},
+    )
+    assert resp.status_code == 409
+    assert resp.json()["error"]["code"] == "VALIDATION"
+
+
+def test_restore_current_head_returns_409(seeded_project):
+    head = client.get(f"/api/v1/projects/{PROJECT_ID}").json()["headSnapshotId"]
+    resp = client.post(
+        f"/api/v1/projects/{PROJECT_ID}/restore",
+        json={"snapshotId": head},
+    )
+    assert resp.status_code == 409
+    assert resp.json()["error"]["code"] == "VALIDATION"
 
 
 def test_patch_invalid_document_returns_400(seeded_project):

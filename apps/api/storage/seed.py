@@ -42,9 +42,12 @@ def load_fixture(path: Path = FIXTURE_PATH) -> dict:
 
 def seed_envelope(session: Session, envelope: dict) -> None:
     """Write a persisted-state envelope to its six stores (replace semantics)."""
+    project_doc = dict(envelope["project"])
+    if "defaultCraftLevel" not in project_doc:
+        project_doc["defaultCraftLevel"] = "standard"
+    envelope = {**envelope, "project": project_doc}
     PersistedState.model_validate(envelope)  # shape check; raises before any write
 
-    project_doc = envelope["project"]
     project_id = project_doc["id"]
 
     for model in (

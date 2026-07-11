@@ -30,7 +30,15 @@ _DEFAULT_CAPTURE = Path(__file__).resolve().parent / "captures"
 # because argparse needs them at parse time, and importing evals.suite here would
 # pull `storage` in before main() sets DATABASE_URL. A self-test asserts these
 # stay in sync with suite.EVAL_KEYS.
-_ONLY_CHOICES = ("continuity", "lock", "schema", "segmentation")
+_ONLY_CHOICES = (
+    "continuity",
+    "lock",
+    "schema",
+    "segmentation",
+    "lock-repair",
+    "import-inference",
+    "subtext",
+)
 
 
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:

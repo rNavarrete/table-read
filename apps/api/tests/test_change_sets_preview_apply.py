@@ -79,10 +79,13 @@ def _regen(*object_ids: str) -> RegeneratedElements:
     )
 
 
-def _preview(cid: str, approved: list[str]):
+def _preview(cid: str, approved: list[str], *, craft_level: str | None = None):
+    body: dict = {"approvedObjectIds": approved}
+    if craft_level is not None:
+        body["craftLevel"] = craft_level
     return client.post(
         f"/api/v1/change-sets/{cid}/preview",
-        json={"approvedObjectIds": approved},
+        json=body,
     )
 
 
@@ -121,6 +124,16 @@ def test_preview_stores_typed_payload_and_after_snippets_without_mutating_doc(
     db_session.expire_all()
     assert db_session.get(ProjectRow, PROJECT_ID).doc == before_doc
     assert db_session.query(SnapshotRow).filter_by(project_id=PROJECT_ID).count() == before_snaps
+
+
+def test_preview_considered_runs_second_regenerate(
+    seeded_project, mock_llm
+):
+    mock_llm.set_response("regenerate_elements", _regen("beat-4-2", "scene-2"))
+    cid = _create().json()["id"]
+    resp = _preview(cid, ["beat-4-2", "scene-2"], craft_level="considered")
+    assert resp.status_code == 200
+    assert mock_llm.invocation_count("regenerate_elements") == 2
 
 
 def test_preview_rejects_extra_ids_from_llm_as_schema_invalid(

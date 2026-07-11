@@ -382,3 +382,36 @@ def test_validate_target_raises_for_bad_ids():
         candidates.validate_target(_doc(), "scene-999", None)
     with pytest.raises(candidates.BeatNotFound):
         candidates.validate_target(_doc(), "scene-3", "beat-nope")
+
+
+# ── craft levels (adoption A3) ──────────────────────────────────────────────────
+
+
+def test_fast_craft_level_emits_one_candidate():
+    mock = MockLlmClient()
+    events = _events(mock, craft_level="fast")
+    names = [n for n, _ in events]
+    assert names.count(candidates.CANDIDATE_START) == 1
+    assert names.count(candidates.CANDIDATE_DONE) == 1
+    assert names[-1] == candidates.DONE
+    assert mock.invocation_count("generate_beat_candidates") == 1
+
+
+def test_standard_craft_level_emits_three_candidates():
+    mock = MockLlmClient()
+    events = _events(mock, craft_level="standard")
+    names = [n for n, _ in events]
+    assert names.count(candidates.CANDIDATE_START) == 3
+    assert names.count(candidates.CANDIDATE_DONE) == 3
+    assert mock.invocation_count("generate_beat_candidates") == 3
+
+
+def test_considered_craft_level_runs_drafts_then_one_streamed_polish():
+    mock = MockLlmClient()
+    events = _events(mock, craft_level="considered")
+    names = [n for n, _ in events]
+    # Three sync drafts + one streamed polish card.
+    assert names.count(candidates.CANDIDATE_START) == 1
+    assert names.count(candidates.CANDIDATE_DONE) == 1
+    assert names[-1] == candidates.DONE
+    assert mock.invocation_count("generate_beat_candidates") == 4

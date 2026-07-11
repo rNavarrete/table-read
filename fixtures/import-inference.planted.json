@@ -1,0 +1,30 @@
+{
+  "description": "Adoption A2 golden import-inference fixture. Each planted fact is implied only — none appears verbatim in the Fountain.",
+  "source": "fixtures/import-inference.fountain",
+  "plantedImpliedFacts": [
+    {
+      "id": "planted-siblings",
+      "kind": "relationship",
+      "mustMatchAny": ["sibling", "brother", "sister", "same father", "their father", "share a father"]
+    },
+    {
+      "id": "planted-rem-lives-here",
+      "kind": "location",
+      "mustMatchAny": ["lives", "home", "stays", "bedroom", "this house", "the house"]
+    },
+    {
+      "id": "planted-rem-unaware-envelope",
+      "kind": "knowledge",
+      "mustMatchAny": ["does not know", "doesn't know", "unaware", "never seen", "envelope", "letter", "drawer"]
+    }
+  ],
+  "hallucinationGuard": {
+    "forbiddenWithoutBasis": [
+      "murder",
+      "casino",
+      "police",
+      "aldan",
+      "vegas"
+    ]
+  }
+}

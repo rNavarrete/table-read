@@ -191,11 +191,25 @@ def _scan_prompt(ctx: FixtureCtx) -> tuple[str, str]:
     )
 
 
+def _suggest_prompt(ctx: FixtureCtx) -> tuple[str, str]:
+    # Reuse the candidate scene context so §6 suggestions stay grounded.
+    return render.build_suggest_prompt(
+        ctx.doc,
+        series={"premise": ctx.doc.get("premise", ""), "theme": ""},
+        characters=ctx.characters,
+        episode={"premise": ""},
+        scene_plan={"n": 3, "whatHappens": "Confrontation"},
+        continuity_facts=[],
+        locked_beats=[],
+        previous_script="",
+        next_beat_plan=None,
+        surface="command_bar",
+        nonce=render.new_nonce(),
+    )
+
+
 # op name -> prompt builder. Every op here has a real render builder + call site
-# in the product code. `suggest_instructions` is intentionally absent: no prompt
-# builder exists for it yet (render.py's MVP scope excludes §6), so it has no
-# faithful real prompt to evaluate — flagged in the T6.1 report as a follow-up
-# that lands with its builder rather than evaluated against an invented prompt.
+# in the product code.
 SCHEMA_PROBES: dict[str, PromptBuilder] = {
     "generate_beat_candidates": _candidate_prompt,
     "tune_beat": _tune_prompt,
@@ -204,4 +218,5 @@ SCHEMA_PROBES: dict[str, PromptBuilder] = {
     "extract_ledger_facts": _extract_prompt,
     "segment_scene": _segment_prompt,
     "scan_consistency": _scan_prompt,
+    "suggest_instructions": _suggest_prompt,
 }
