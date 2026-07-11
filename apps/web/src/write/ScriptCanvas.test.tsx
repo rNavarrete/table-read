@@ -44,14 +44,56 @@ describe('ScriptCanvas', () => {
     expect(sheet?.className).toContain('shadow-raised')
   })
 
-  it('empty scene shows the ghost placeholder, not a beat list', () => {
+  it('empty scene shows a clear empty state, not a blank sheet', () => {
     render(
       <ScriptCanvas
         scene={scene({ beats: [] })}
         canvasHandlers={noopHandlers}
       />,
     )
-    expect(screen.getByText('Write, or press Next Beat')).not.toBeNull()
+    expect(screen.getByText('No beats in this scene yet.')).not.toBeNull()
+    expect(screen.getByTestId('script-scene-slug').textContent).toContain(
+      'THE LONG POUR',
+    )
+  })
+
+  it('planned beats with empty script show solid plan copy, not a blank row', () => {
+    render(
+      <ScriptCanvas
+        scene={scene({
+          location: "INT. RODNEY'S APARTMENT - EARLY MORNING",
+          time: 'EARLY MORNING',
+          whatHappens: 'Rodney finds an anonymous envelope.',
+          beats: [
+            {
+              id: 'beat-1',
+              index: 0,
+              locked: false,
+              scriptLocked: false,
+              whatHappens: 'Rodney executes an identical morning routine.',
+              audienceLearns: 'His control is brittle.',
+              audienceFeels: 'Unease.',
+              scriptText: '',
+            },
+          ],
+        })}
+        canvasHandlers={noopHandlers}
+      />,
+    )
+    expect(screen.getByTestId('script-scene-slug').textContent).toContain(
+      "INT. RODNEY'S APARTMENT",
+    )
+    expect(screen.getByTestId('script-scene-pitch').textContent).toContain(
+      'anonymous envelope',
+    )
+    expect(screen.getByTestId('beat-plan-beat-1').textContent).toContain(
+      'identical morning routine',
+    )
+    expect(screen.getByTestId('beat-plan-beat-1').textContent).toContain(
+      'Audience learns',
+    )
+    const textarea = screen.getByTestId('beat-beat-1') as HTMLTextAreaElement
+    expect(textarea.value).toBe('')
   })
 
   it('an unlocked beat is a live, editable textarea', async () => {

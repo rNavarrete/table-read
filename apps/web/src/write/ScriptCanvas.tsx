@@ -31,6 +31,19 @@ const HIGHLIGHT_CLASSES = [
   'outline-tr-coral',
 ] as const
 
+function sceneSlug(scene: Scene): string {
+  const location = scene.location.trim()
+  const time = scene.time.trim()
+  if (
+    location &&
+    time &&
+    !location.toUpperCase().includes(time.toUpperCase())
+  ) {
+    return `${location} — ${time}`
+  }
+  return location || time || 'Untitled scene'
+}
+
 /**
  * One beat row: gutter label (hover-visible) + the beat's script text.
  * Unlocked beats are a live `<textarea>` (rule: "Direct typing is allowed
@@ -38,6 +51,10 @@ const HIGHLIGHT_CLASSES = [
  * `scriptLocked`, either one) render the same script text read-only, with a
  * lock glyph in the gutter and a hint on focus ("caret placement inside
  * shows a brief hint").
+ *
+ * Planned-but-unwritten beats (empty `scriptText`, non-empty `whatHappens`)
+ * show the plan pitch as solid primary copy — not muted ghost text — so the
+ * page never looks blank after a scene-skeleton apply.
  *
  * Persistence scope note (T2.3): typing here updates only this component's
  * local state, driving the quiet-AI focus rule and the read-only/locked
@@ -58,6 +75,8 @@ function BeatRow({
   const locked = beat.locked || beat.scriptLocked
   const [text, setText] = useState(beat.scriptText)
   const rowRef = useRef<HTMLDivElement>(null)
+  const planPitch = beat.whatHappens.trim()
+  const showPlan = text.trim().length === 0 && planPitch.length > 0
 
   // Ledger source-span jump (UI spec §6): highlight 2s via DOM classes —
   // avoids setState-in-effect (react-hooks lint) while still timing out.
@@ -86,6 +105,7 @@ function BeatRow({
     <div
       ref={rowRef}
       className="group relative flex gap-4 border-t border-tr-border py-4 first:border-t-0"
+      data-testid={`beat-row-${beat.id}`}
     >
       <div
         className="w-6 shrink-0 pt-1 text-right text-12 text-tr-text-muted opacity-0 transition-opacity group-hover:opacity-100"
@@ -94,19 +114,53 @@ function BeatRow({
         {locked ? <LockGlyph /> : index + 1}
       </div>
       <div className="min-w-0 flex-1">
+        {showPlan ? (
+          <div data-testid={`beat-plan-${beat.id}`} className="mb-3">
+            <p className="text-12 font-medium uppercase tracking-wide text-tr-text-secondary">
+              Beat plan
+            </p>
+            <p className="mt-1 text-15 leading-6 text-tr-text-primary">
+              {planPitch}
+            </p>
+            {(beat.audienceLearns.trim() || beat.audienceFeels.trim()) && (
+              <p className="mt-2 text-13 leading-5 text-tr-text-secondary">
+                {beat.audienceLearns.trim()
+                  ? `Audience learns: ${beat.audienceLearns}`
+                  : null}
+                {beat.audienceLearns.trim() && beat.audienceFeels.trim()
+                  ? ' · '
+                  : null}
+                {beat.audienceFeels.trim()
+                  ? `Feels: ${beat.audienceFeels}`
+                  : null}
+              </p>
+            )}
+          </div>
+        ) : null}
         <textarea
           className={
             'peer w-full resize-none overflow-hidden whitespace-pre-wrap border-0 bg-transparent font-script text-12 leading-relaxed text-tr-text-primary outline-none' +
-            (locked ? ' cursor-default text-tr-text-secondary' : '')
+            (locked ? ' cursor-default text-tr-text-secondary' : '') +
+            (showPlan
+              ? ' min-h-[3rem] rounded-card border border-tr-border bg-tr-surface-clay px-3 py-2'
+              : '')
           }
           value={text}
           readOnly={locked}
           aria-readonly={locked}
+          aria-label={
+            showPlan ? `Script for beat ${index + 1}` : `Beat ${index + 1}`
+          }
           data-testid={`beat-${beat.id}`}
           ref={(el) => el && autosize(el)}
           onChange={onChange}
-          rows={1}
+          rows={showPlan ? 3 : 1}
         />
+        {showPlan && !locked ? (
+          <p className="mt-1 text-12 text-tr-text-secondary">
+            Type script here, or use Next Beat to draft dialogue for this scene.
+          </p>
+        ) : null}
         {locked && (
           <p className="pointer-events-none max-h-0 overflow-hidden text-13 text-tr-text-muted opacity-0 transition-all peer-focus:max-h-6 peer-focus:opacity-100 motion-reduce:transition-none">
             Locked — click the lock to edit
@@ -136,6 +190,9 @@ export function ScriptCanvas({
   canvasHandlers,
   highlightBeatId = null,
 }: ScriptCanvasProps) {
+  const slug = sceneSlug(scene)
+  const scenePitch = scene.whatHappens.trim()
+
   return (
     <section
       // max-w-script-col = --tr-script-col (600px, UI spec §3), minted per
@@ -144,10 +201,32 @@ export function ScriptCanvas({
       aria-label={`Script — ${scene.location}`}
       {...canvasHandlers}
     >
-      {scene.beats.length === 0 ? (
-        <p className="py-16 text-center font-script text-12 text-tr-text-muted">
-          Write, or press Next Beat
+      <header className="mb-6 border-b border-tr-border pb-4">
+        <p
+          data-testid="script-scene-slug"
+          className="font-script text-12 font-bold uppercase tracking-wide text-tr-text-primary"
+        >
+          {slug}
         </p>
+        {scenePitch ? (
+          <p
+            data-testid="script-scene-pitch"
+            className="mt-2 text-15 leading-6 text-tr-text-primary"
+          >
+            {scenePitch}
+          </p>
+        ) : null}
+      </header>
+
+      {scene.beats.length === 0 ? (
+        <div className="py-8 text-center">
+          <p className="text-15 text-tr-text-primary">
+            No beats in this scene yet.
+          </p>
+          <p className="mt-2 text-13 text-tr-text-secondary">
+            Press Next Beat to draft the first one, or type once a beat exists.
+          </p>
+        </div>
       ) : (
         scene.beats.map((beat, index) => (
           <BeatRow
