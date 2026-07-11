@@ -100,6 +100,18 @@ Replaces the hardcoded seeded entry point with a project dashboard, idea/import 
 **T7.7 E2E + authority docs + delete UI.** Dashboard overflow **Permanently delete** with typed-title confirmation (`DELETE /projects/{pid}`); Playwright e2e for the five design-spec §12 flows; authority-doc sync. — landed.
 *Known limitation surfaced by T7.7:* `LedgerFactRow.id` is a bare ordinal, not project-scoped, so a create-and-import into a DB that already holds `fact-01…` collides on the `ledger_facts.id` UNIQUE constraint (the import-success e2e empties the shared DB first and runs last to sidestep it). Tracked for a follow-up (project-scoped or globally-unique ledger fact ids).
 
+## Milestone 8 — Fabula adoption (P-MVP slices)
+
+See `docs/tableread-adoption-prd.md` for full A1–A10 requirements. Sequencing table there maps items onto earlier milestones; remaining P-MVP work lands here as explicit tasks.
+
+**T8.1 JSON export (A6-MVP).** `GET /projects/{pid}/export.json` returns the `PersistedState` envelope; Settings → **Export project JSON**; round-trip purge/re-seed restores project doc + ledger byte-identical. — landed.
+
+**T8.2 Undo timeline dropdown (A5).** — pending.
+
+**T8.3 Suggestion carousels (A4) + Write keyboard (A8).** — pending.
+
+**T8.4 Lock-repair prompt + import/subtext evals (A1, A2, A10).** — pending (prompt-changing; needs `make evals`).
+
 ## Sequencing & parallelism
 
 ```

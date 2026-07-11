@@ -188,6 +188,8 @@ export function AppShell({
       <SettingsPanel
         open={settingsOpen}
         onClose={() => setSettingsOpen(false)}
+        projectId={projectId}
+        projectTitle={projectTitle}
       />
       {toast && (
         <Toast tone="danger" onDismiss={() => setToast(null)}>

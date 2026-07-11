@@ -83,7 +83,7 @@ Both creation paths (`/projects/new/idea`, `/projects/new/import`) share `Wizard
 
 ## 3. App shell
 
-Top bar (52px, `--tr-shell-height`, `--tr-surface-sunken`): project title (Instrument Sans display font, 17px / 600) · mode switcher (clay segmented control: **Write · Plan · Review · Ledger**, active segment uses `--tr-coral-soft` + `--tr-accent-ink`) · undo · export · settings. Review segment shows an amber dot when a draft Change Set exists. Ledger segment shows amber count badge when the review queue is non-empty. Keyboard: `⌘1–4` switch modes. Settings opens a privacy panel stating writing is not used for training (prompt spec §8); do not claim ZDR in product copy.
+Top bar (52px, `--tr-shell-height`, `--tr-surface-sunken`): project title (Instrument Sans display font, 17px / 600) · mode switcher (clay segmented control: **Write · Plan · Review · Ledger**, active segment uses `--tr-coral-soft` + `--tr-accent-ink`) · undo · export · settings. Review segment shows an amber dot when a draft Change Set exists. Ledger segment shows amber count badge when the review queue is non-empty. Keyboard: `⌘1–4` switch modes. Settings opens a privacy panel stating writing is not used for training (prompt spec §8); do not claim ZDR in product copy. When a project is loaded, Settings also offers **Export project JSON** (`GET /projects/{pid}/export.json` — adoption A6), downloading the full persisted-state envelope (distinct from the top-bar Fountain export).
 
 ## 4. Write mode
 

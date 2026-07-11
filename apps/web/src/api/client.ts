@@ -139,6 +139,11 @@ export async function exportFountain(projectId: string): Promise<string> {
   return res.text()
 }
 
+/** `GET /projects/{pid}/export.json` — full persisted-state envelope (A6). */
+export async function exportProjectJson(projectId: string): Promise<object> {
+  return getJson<object>(`/projects/${projectId}/export.json`)
+}
+
 export function getProject(projectId: string): Promise<Project> {
   return getJson<Project>(`/projects/${projectId}`)
 }

@@ -31,4 +31,25 @@ describe('SettingsPanel', () => {
     )
     expect(container.firstChild).toBeNull()
   })
+
+  it('offers JSON export when a project is loaded', () => {
+    render(
+      <SettingsPanel
+        open
+        onClose={() => {}}
+        projectId="proj-x"
+        projectTitle="Demo"
+      />,
+    )
+    expect(
+      screen.getByRole('button', { name: 'Export project JSON' }),
+    ).not.toBeNull()
+  })
+
+  it('hides JSON export when no project is loaded', () => {
+    render(<SettingsPanel open onClose={() => {}} />)
+    expect(
+      screen.queryByRole('button', { name: 'Export project JSON' }),
+    ).toBeNull()
+  })
 })

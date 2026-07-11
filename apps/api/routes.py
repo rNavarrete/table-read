@@ -440,6 +440,20 @@ def export_fountain(pid: str, session: Session = Depends(get_session)) -> str:
     return to_fountain(project.doc)
 
 
+@router.get("/{pid}/export.json")
+def export_json(pid: str, session: Session = Depends(get_session)) -> dict:
+    """Full persisted-state envelope (adoption A6 / privacy §7.1). Same shape
+    as `docs/tableread-fixture.json` — project + ledger + snapshots + flags +
+    change sets + suggestion history."""
+    _get_project_or_404(session, pid)
+    try:
+        from storage.export_state import export_persisted_state
+
+        return export_persisted_state(session, pid)
+    except KeyError as exc:
+        raise ApiError(404, "NOT_FOUND", f"project {pid!r} not found") from exc
+
+
 @router.post("/{pid}/import")
 def import_script(
     pid: str,
