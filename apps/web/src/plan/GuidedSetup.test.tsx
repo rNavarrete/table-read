@@ -85,7 +85,16 @@ describe('GuidedSetup', () => {
       candidate('b'),
       candidate('c'),
     ])
-    render(<GuidedSetup projectId="proj-x" />)
+    render(
+      <GuidedSetup
+        projectId="proj-x"
+        premise="A bartender finds a wire transfer."
+        characters={[
+          { id: 'char-marta', name: 'Marta' },
+          { id: 'char-dan', name: 'Dan' },
+        ]}
+      />,
+    )
 
     await user.click(screen.getByText('Generate scene skeleton'))
 
@@ -94,6 +103,20 @@ describe('GuidedSetup', () => {
     })
     expect(generateMock).toHaveBeenCalledWith('proj-x')
     expect(screen.getAllByText(/Choose this/)).toHaveLength(3)
+    expect(screen.getAllByText('1 scene')).toHaveLength(3)
+    expect(screen.getAllByText('Marta confronts Dan.')).toHaveLength(3)
+    expect(screen.getByTestId('guided-setup-foundation').textContent).toContain(
+      'Marta',
+    )
+  })
+
+  it('skip for now dismisses without generating', async () => {
+    const user = userEvent.setup()
+    const onSkip = vi.fn()
+    render(<GuidedSetup projectId="proj-x" onSkip={onSkip} />)
+    await user.click(screen.getByText('Skip for now'))
+    expect(onSkip).toHaveBeenCalledOnce()
+    expect(generateMock).not.toHaveBeenCalled()
   })
 
   it('choosing a candidate creates a Change Set and navigates to Review, never writing directly', async () => {

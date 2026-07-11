@@ -1,5 +1,10 @@
-import type { ImpactedObject } from 'contract'
+import type { ImpactedObject, SceneAddition } from 'contract'
 import { Chip } from '../plan/Chip'
+import {
+  sceneCharacterNames,
+  sceneHeading,
+  scenePitch,
+} from '../plan/sceneSkeletonSummary'
 import { DiffPane } from './DiffPane'
 
 const OBJECT_GLYPH: Record<ImpactedObject['objectType'], string> = {
@@ -50,6 +55,10 @@ export interface ChangeSetRowProps {
   onToggleExpanded: (objectId: string) => void
   /** Continuity-flag chip → Ledger with focusFactId (UI spec §5). */
   onContinuityFlagClick?: (factId: string) => void
+  /** Full scene proposal for `applyMode: "add"` rows (skeleton Change Sets). */
+  sceneAddition?: SceneAddition | null
+  /** Resolve motivation characterIds → display names. */
+  characters?: ReadonlyArray<{ id: string; name: string }>
 }
 
 /**
@@ -57,6 +66,7 @@ export interface ChangeSetRowProps {
  * - regenerate + unlocked → checkbox
  * - locked → lock glyph, --tr-opacity-locked, no checkbox
  * - flag_only → sky info glyph, no checkbox
+ * - add (scene skeleton) → checkbox + human scene summary, not the proposal UUID
  */
 export function ChangeSetRow({
   row,
@@ -66,13 +76,24 @@ export function ChangeSetRow({
   onToggleSelected,
   onToggleExpanded,
   onContinuityFlagClick,
+  sceneAddition = null,
+  characters = [],
 }: ChangeSetRowProps) {
   const isLocked = row.locked
   const isFlagOnly = row.applyMode === 'flag_only'
+  const isAdd = row.applyMode === 'add'
   const canSelect = !isLocked && !isFlagOnly
   const confidenceHue = row.confidence === 'high' ? 'sage' : 'amber'
   const confidenceLabel = row.confidence === 'high' ? 'direct' : 'speculative'
   const afterSummary = row.after ?? 'Preview to generate'
+
+  const additionHeading = sceneAddition ? sceneHeading(sceneAddition) : null
+  const additionPitch = sceneAddition ? scenePitch(sceneAddition) : ''
+  const additionNames = sceneAddition
+    ? sceneCharacterNames(sceneAddition, characters)
+    : []
+  const titleLabel = isAdd ? (additionHeading ?? 'New scene') : row.objectId
+  const subtitle = isAdd ? additionPitch || row.reason : row.reason
 
   return (
     <div
@@ -94,7 +115,7 @@ export function ChangeSetRow({
           <input
             type="checkbox"
             checked={selected}
-            aria-label={`Select ${row.objectId}`}
+            aria-label={`Select ${titleLabel}`}
             onChange={() => onToggleSelected(row.objectId)}
             className="size-4 accent-tr-coral"
           />
@@ -119,13 +140,13 @@ export function ChangeSetRow({
           {OBJECT_GLYPH[row.objectType]}
         </span>
         <span className="font-ui text-13 font-medium text-tr-text-primary">
-          {row.objectId}
+          {titleLabel}
         </span>
         <span className="min-w-0 flex-1 truncate text-13 text-tr-text-secondary">
-          {row.reason}
+          {subtitle}
         </span>
 
-        {!expanded && (
+        {!expanded && !isAdd && (
           <div className="hidden min-w-0 flex-1 items-center gap-1.5 lg:flex">
             <span className="inline-flex min-w-0 items-center gap-1 rounded-chip bg-tr-surface-clay px-2 py-0.5 text-12 text-tr-text-secondary">
               <span className="uppercase tracking-wide text-tr-text-muted">
@@ -141,6 +162,12 @@ export function ChangeSetRow({
               <span className="truncate">{afterSummary}</span>
             </span>
           </div>
+        )}
+
+        {!expanded && isAdd && (
+          <span className="hidden rounded-chip bg-tr-coral-soft px-2 py-0.5 text-12 text-tr-accent-ink lg:inline-flex">
+            New scene
+          </span>
         )}
 
         <Chip hue={confidenceHue}>
@@ -179,7 +206,64 @@ export function ChangeSetRow({
         </button>
       </div>
 
-      {expanded && (
+      {expanded && isAdd && sceneAddition && (
+        <div className="border-t border-tr-border bg-tr-surface-page px-3 py-3 text-13 text-tr-text-secondary">
+          <p className="font-medium text-tr-text-primary">
+            {sceneHeading(sceneAddition)}
+          </p>
+          {additionPitch ? (
+            <p className="mt-1 leading-5">{additionPitch}</p>
+          ) : null}
+          {sceneAddition.socialSituation.trim() ? (
+            <p className="mt-2 text-12 text-tr-text-muted">
+              Situation: {sceneAddition.socialSituation}
+            </p>
+          ) : null}
+          {additionNames.length > 0 ? (
+            <p className="mt-1 text-12 text-tr-text-muted">
+              With {additionNames.join(', ')}
+              {sceneAddition.motivations.length > 0
+                ? ` — ${sceneAddition.motivations
+                    .map((m) => {
+                      const name =
+                        characters.find((c) => c.id === m.characterId)?.name ??
+                        m.characterId
+                      return `${name}: ${m.objective}`
+                    })
+                    .join('; ')}`
+                : ''}
+            </p>
+          ) : null}
+          {(sceneAddition.audienceLearns.trim() ||
+            sceneAddition.audienceFeels.trim()) && (
+            <p className="mt-1 text-12 text-tr-text-muted">
+              {sceneAddition.audienceLearns.trim()
+                ? `Audience learns: ${sceneAddition.audienceLearns}`
+                : null}
+              {sceneAddition.audienceLearns.trim() &&
+              sceneAddition.audienceFeels.trim()
+                ? ' · '
+                : null}
+              {sceneAddition.audienceFeels.trim()
+                ? `Feels: ${sceneAddition.audienceFeels}`
+                : null}
+            </p>
+          )}
+          {sceneAddition.beatPlanSeeds.some((b) => b.whatHappens.trim()) ? (
+            <ol className="mt-2 list-decimal space-y-0.5 pl-4 text-12">
+              {sceneAddition.beatPlanSeeds
+                .filter((b) => b.whatHappens.trim())
+                .map((beat, index) => (
+                  <li key={`${row.objectId}-beat-${index}`}>
+                    {beat.whatHappens}
+                  </li>
+                ))}
+            </ol>
+          ) : null}
+        </div>
+      )}
+
+      {expanded && !isAdd && (
         <div className="border-t border-tr-border bg-tr-surface-page px-3 py-3">
           <DiffPane
             before={row.before}

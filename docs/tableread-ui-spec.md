@@ -110,11 +110,12 @@ Layout: left Story Layers panel (232px, sunken) · center board (page surface, p
 
 ### 5a. Guided Plan setup
 
-Shown on Plan instead of the (otherwise empty) board while `setupState: "incomplete"` (no scene contains a beat yet — new-project-flow design spec §6/§9.4). Centered card: eyebrow "Guided Plan setup" · heading "Let's open your first episode." · one explicit, verb-labelled **Generate scene skeleton** button (never auto-triggered — CLAUDE.md rule 8) with a one-line description of what will be sent and what comes back, plus the trust note.
+Shown on Plan instead of the (otherwise empty) board while `setupState: "incomplete"` (no scene contains a beat yet — new-project-flow design spec §6/§9.4). Centered card: eyebrow "Guided Plan setup" · heading "Let's open your first episode." · a compact foundation strip (premise / characters / theme when present) · one explicit, verb-labelled **Generate scene skeleton** button (never auto-triggered — CLAUDE.md rule 8) with a one-line description of what will be sent and what comes back, plus **Skip for now** and the trust note.
 
 - **Generating:** button becomes "Generating…", disabled; no partial results render.
-- **Three candidates** render side by side (the product-wide convergent loop): each a raised card with a label, scene count chip, and its proposed scenes (location + whatHappens, plan text only — no scriptText) as a compact list, ending in a **Choose this** button.
-- **Choosing:** creates the `initial_scene_skeleton` Change Set and hands off to Review mode (§6) — the AI proposal never writes the plan directly. Review renders the proposed scenes as ordinary `applyMode: "add"` rows (checkbox, no lock/flag glyph unless the target episode is locked) with `before` empty and `after` the proposed scene's summary; **Preview selected** is hidden for this Change Set kind (the chosen candidate already is the preview).
+- **Three candidates** render side by side (the product-wide convergent loop): each a raised card with a label, scene-count chip (`1 scene` / `N scenes`), and its proposed scenes as a compact list — location (+ time when useful), what happens, who (motivation character names), audience learns/feels, and beat-plan seeds when present (plan text only — no scriptText). Each card ends in a **Choose this** button.
+- **Choosing:** creates the `initial_scene_skeleton` Change Set and hands off to Review mode (§6) — the AI proposal never writes the plan directly. Review uses the eyebrow **Review proposed scenes**, labels each add-row with the scene heading (not the raw `proposalId`), shows a **New scene** chip instead of Before→After, and expands into the full scene summary from `preview.sceneAdditions`. **Preview selected** is hidden for this Change Set kind (the chosen candidate already is the preview).
+- **Skip:** local dismiss of Guided setup so the writer can build by hand; no server write.
 - **Error:** inline danger text below the generator/candidates, local inputs preserved; the writer may retry or leave the panel to build manually.
 
 ## 6. Review mode

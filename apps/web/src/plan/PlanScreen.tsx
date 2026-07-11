@@ -47,6 +47,7 @@ export function PlanScreen() {
   const activeProjectId = projectId ?? ''
 
   const [project, setProject] = useState<Project | null>(null)
+  const [skippedGuidedSetup, setSkippedGuidedSetup] = useState(false)
   const [ledger, setLedger] = useState<LedgerFact[]>([])
   const [openFlags, setOpenFlags] = useState<ConsistencyFlag[]>([])
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -277,8 +278,13 @@ export function PlanScreen() {
 
   // Guided Plan setup (design spec §6/§9.4): shown while the project has no
   // usable scene skeleton (no season/episode yet, or an episode with no
-  // scene containing a beat) — before the (otherwise empty) board.
-  if (needsGuidedSetup(project)) {
+  // scene containing a beat) — before the (otherwise empty) board. Skip is
+  // local only: the writer can leave and build by hand without a server write.
+  if (needsGuidedSetup(project) && !skippedGuidedSetup) {
+    const characters = project.seriesBible.characters.map((c) => ({
+      id: c.id,
+      name: c.name,
+    }))
     return (
       <AppShell
         projectTitle={project.title}
@@ -286,7 +292,13 @@ export function PlanScreen() {
         ledgerCount={ledger.filter((f) => f.status === 'pending_review').length}
         projectId={projectId}
       >
-        <GuidedSetup projectId={activeProjectId} />
+        <GuidedSetup
+          projectId={activeProjectId}
+          premise={project.premise}
+          theme={project.seriesBible.existentialQuestion.text}
+          characters={characters}
+          onSkip={() => setSkippedGuidedSetup(true)}
+        />
       </AppShell>
     )
   }

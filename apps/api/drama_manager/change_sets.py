@@ -402,6 +402,23 @@ def _episode_is_locked(doc: dict) -> bool:
     return bool(episode is not None and episode.get("locked"))
 
 
+def _scene_addition_after(scene: dict) -> str:
+    """Human-readable AFTER chip for an add-row: prefer what happens, then
+    social situation / location. Never surface a bare model 'placeholder'."""
+    for key in ("whatHappens", "socialSituation", "location"):
+        value = (scene.get(key) or "").strip()
+        if value and value.casefold() != "placeholder":
+            return value
+    return "New scene"
+
+
+def _scene_addition_reason(scene: dict) -> str:
+    location = (scene.get("location") or "").strip()
+    if location and location.casefold() != "placeholder":
+        return f"New scene · {location}"
+    return "New scene from guided setup"
+
+
 def create_scene_skeleton_change_set(
     session,
     project: ProjectRow,
@@ -441,11 +458,11 @@ def create_scene_skeleton_change_set(
             "objectType": ImpactedObjectType.scene.value,
             "objectId": scene["proposalId"],
             "applyMode": ApplyMode.add.value,
-            "reason": "New scene proposed by the guided-setup scene skeleton.",
+            "reason": _scene_addition_reason(scene),
             "confidence": ConfidenceLevel.high.value,
             "locked": episode_locked,
             "before": "",
-            "after": scene["whatHappens"],
+            "after": _scene_addition_after(scene),
             "continuityFlags": [],
             "approved": False,
         }

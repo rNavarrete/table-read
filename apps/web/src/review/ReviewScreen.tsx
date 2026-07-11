@@ -413,6 +413,10 @@ export function ReviewScreen() {
         onDismissFlag={(id) => void handleDismissFlag(id)}
         onGoToScene={handleGoToScene}
         onContinuityFlagClick={handleContinuityFlag}
+        characters={project.seriesBible.characters.map((c) => ({
+          id: c.id,
+          name: c.name,
+        }))}
       />
       {toast && (
         <Toast tone="danger" onDismiss={() => setToast(null)}>

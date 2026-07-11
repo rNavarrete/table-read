@@ -174,4 +174,57 @@ describe('ChangeSetRow', () => {
     await user.click(screen.getByRole('checkbox'))
     expect(onToggleSelected).toHaveBeenCalledWith('beat-4-2')
   })
+
+  it('add rows show scene heading and New scene chip, not the proposal UUID', () => {
+    render(
+      <ChangeSetRow
+        row={row({
+          objectType: 'scene',
+          objectId: 'proposal-abc',
+          applyMode: 'add',
+          reason: 'New scene · INT. BAR',
+          before: '',
+          after: 'Marta confronts Dan.',
+        })}
+        selected
+        expanded={false}
+        previewing={false}
+        onToggleSelected={noop}
+        onToggleExpanded={noop}
+        sceneAddition={{
+          proposalId: 'proposal-abc',
+          act: 1,
+          storyline: 'A',
+          location: 'INT. BAR',
+          time: 'NIGHT',
+          socialSituation: 'After hours.',
+          whatHappens: 'Marta confronts Dan.',
+          audienceLearns: 'Dan lied.',
+          audienceFeels: 'Tension.',
+          motivations: [
+            {
+              characterId: 'char-marta',
+              objective: 'Get the truth',
+              stakes: 'The bar',
+              obstacle: 'Dan',
+            },
+          ],
+          beatPlanSeeds: [
+            {
+              whatHappens: 'She slides the printout.',
+              audienceLearns: '',
+              audienceFeels: '',
+            },
+          ],
+        }}
+        characters={[{ id: 'char-marta', name: 'Marta' }]}
+      />,
+    )
+
+    expect(screen.getByText('INT. BAR — NIGHT')).not.toBeNull()
+    expect(screen.getByText('Marta confronts Dan.')).not.toBeNull()
+    expect(screen.getByText('New scene')).not.toBeNull()
+    expect(screen.queryByText('proposal-abc')).toBeNull()
+    expect(screen.queryByText('Before')).toBeNull()
+  })
 })

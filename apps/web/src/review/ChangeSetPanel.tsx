@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import type { ChangeSet, ConsistencyFlag } from 'contract'
+import type { ChangeSet, ConsistencyFlag, SceneAddition } from 'contract'
 import { Chip } from '../plan/Chip'
 import { ChangeSetRow } from './ChangeSetRow'
 import { selectableIds } from './selectableIds'
@@ -22,6 +22,8 @@ export interface ChangeSetPanelProps {
   onDismissFlag?: (flagId: string) => void
   onGoToScene?: (sceneId: string) => void
   onContinuityFlagClick?: (factId: string) => void
+  /** Character names for scene-skeleton motivation labels. */
+  characters?: ReadonlyArray<{ id: string; name: string }>
 }
 
 /**
@@ -43,6 +45,7 @@ export function ChangeSetPanel({
   onDismissFlag,
   onGoToScene,
   onContinuityFlagClick,
+  characters = [],
 }: ChangeSetPanelProps) {
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
   const selectable = useMemo(() => selectableIds(changeSet), [changeSet])
@@ -50,7 +53,15 @@ export function ChangeSetPanel({
   const applied = changeSet.status === 'applied'
   // §9.4: a selected skeleton candidate already IS the preview — there is
   // no further model call to re-run, so Preview has nothing to do here.
-  const canPreview = changeSet.kind !== 'initial_scene_skeleton'
+  const isSkeleton = changeSet.kind === 'initial_scene_skeleton'
+  const canPreview = !isSkeleton
+  const additionsById = useMemo(() => {
+    const map = new Map<string, SceneAddition>()
+    for (const addition of changeSet.preview?.sceneAdditions ?? []) {
+      map.set(addition.proposalId, addition)
+    }
+    return map
+  }, [changeSet.preview?.sceneAdditions])
 
   function toggleExpanded(objectId: string) {
     setExpanded((prev) => {
@@ -148,11 +159,17 @@ export function ChangeSetPanel({
       <div className="flex flex-1 flex-col gap-4 p-6 pb-28">
         <header className="flex flex-col gap-2 rounded-card border border-tr-border bg-tr-surface-raised p-4 shadow-raised">
           <p className="text-12 uppercase tracking-wide text-tr-text-muted">
-            Review proposed impact
+            {isSkeleton ? 'Review proposed scenes' : 'Review proposed impact'}
           </p>
           <p className="font-display text-17 font-semibold text-tr-text-primary">
             &ldquo;{changeSet.instruction}&rdquo;
           </p>
+          {isSkeleton ? (
+            <p className="text-13 text-tr-text-secondary">
+              These scenes are not in your plan yet. Select what to keep, then
+              Apply — or Discard to return without writing.
+            </p>
+          ) : null}
           <div className="flex items-center gap-2">
             <Chip hue="neutral">{changeSet.targetObjectId}</Chip>
             <Chip hue={changeSet.status === 'previewing' ? 'sky' : 'amber'}>
@@ -172,6 +189,8 @@ export function ChangeSetPanel({
                 onToggleSelected={onToggleSelected}
                 onToggleExpanded={toggleExpanded}
                 onContinuityFlagClick={onContinuityFlagClick}
+                sceneAddition={additionsById.get(row.objectId) ?? null}
+                characters={characters}
               />
             </div>
           ))}
