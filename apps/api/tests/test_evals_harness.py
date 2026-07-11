@@ -60,7 +60,15 @@ def _report(results) -> SuiteReport:
         prompt_version="0.5.0",
         models={"writer": "claude-sonnet-5", "classifier": "claude-haiku-4-5"},
         dry_run=False,
-        runs=20,
+        runs={
+            "schemaValidity": 5,
+            "lockViolation": 20,
+            "continuityAdherence": 20,
+            "segmentationDeterminism": 5,
+            "lockRepairQuality": 5,
+            "importInference": 5,
+            "subtextFidelity": 5,
+        },
         results=results,
     )
 
@@ -151,7 +159,15 @@ def test_estimated_calls_render_in_report_header():
         prompt_version="0.5.0",
         models={"writer": "w", "classifier": "c"},
         dry_run=False,
-        runs=20,
+        runs={
+            "schemaValidity": 5,
+            "lockViolation": 20,
+            "continuityAdherence": 20,
+            "segmentationDeterminism": 5,
+            "lockRepairQuality": 5,
+            "importInference": 5,
+            "subtextFidelity": 5,
+        },
         results=[_result(score=1.0)],
         estimated_calls={"schemaValidity": 140, "totalNominal": 283},
     )

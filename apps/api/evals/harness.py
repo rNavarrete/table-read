@@ -81,9 +81,9 @@ class SuiteReport:
     prompt_version: str
     models: dict[str, str]
     dry_run: bool
-    runs: int
+    runs: dict[str, int]
     results: list[EvalResult]
-    # Nominal (retry-free) real-API call counts per family for this `runs`
+    # Nominal (retry-free) real-API call counts per family for this run map
     # (suite.nominal_call_estimate) — cost visibility in the artifact header.
     estimated_calls: dict = field(default_factory=dict)
     generated_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
@@ -116,7 +116,7 @@ class SuiteReport:
             f"- PROMPT_VERSION: `{self.prompt_version}`",
             f"- models: {', '.join(f'{r}=`{m}`' for r, m in sorted(self.models.items()))}",
             f"- mode: {mode}",
-            f"- runs/eval: {self.runs}",
+            f"- runs/eval: {', '.join(f'{k} {v}' for k, v in self.runs.items())}",
             f"- generated: {self.generated_at}",
             f"- suite exit code: **{self.exit_code}**",
         ]

@@ -23,7 +23,7 @@ from evals.checks import (
 from evals.graders import MockJudge
 from evals.harness import SuiteReport, assert_rule5_clean
 from evals.probes import load_fixture_ctx
-from evals.suite import run_suite
+from evals.suite import resolve_run_map, run_suite
 from llm.errors import SchemaInvalidLlmError
 from llm.mock import MockLlmClient
 from schemas import BeatCandidate, RegeneratedElements
@@ -71,7 +71,11 @@ def test_schema_validity_all_valid_passes():
     assert result.score == 1.0
     assert result.meets_gate and not result.blocks
     # All registered ops have real prompt builders (incl. suggest_instructions / A4).
-    assert result.detail["perOp"].keys() >= {"generate_beat_candidates", "segment_scene", "suggest_instructions"}
+    assert result.detail["perOp"].keys() >= {
+        "generate_beat_candidates",
+        "segment_scene",
+        "suggest_instructions",
+    }
     assert not any("suggest_instructions" in n and "uncovered" in n.lower() for n in result.notes)
 
 
@@ -136,7 +140,7 @@ def test_lock_violation_detected_write_exits_nonzero(session_factory, monkeypatc
     assert result.detail["violations"] == 2
     assert result.score < 1.0 and result.blocks
     report = SuiteReport(
-        prompt_version="x", models={}, dry_run=True, runs=2, results=[result]
+        prompt_version="x", models={}, dry_run=True, runs=resolve_run_map(2), results=[result]
     )
     assert report.exit_code == 1
 
@@ -208,7 +212,9 @@ def test_segmentation_deterministic_mock_full_agreement():
 
 
 def test_run_suite_dry_run_end_to_end_and_rule5_clean(session_factory, tmp_path):
-    report = run_suite(MockLlmClient(), MockJudge(), session_factory, runs=2, dry_run=True)
+    report = run_suite(
+        MockLlmClient(), MockJudge(), session_factory, runs=resolve_run_map(2), dry_run=True
+    )
     assert report.dry_run is True
     assert [r.name for r in report.results] == [
         "schema-validity",
@@ -232,23 +238,51 @@ def test_run_suite_dry_run_end_to_end_and_rule5_clean(session_factory, tmp_path)
 # ── cost visibility + CLI guards (review fixes 1 & 3) ──────────────────────────
 
 
-def test_nominal_call_estimate_matches_reviewer_numbers():
-    from evals.suite import nominal_call_estimate
+def test_default_run_map_tiers_hard_and_soft():
+    from evals.suite import HARD_RUNS, SOFT_RUNS, default_run_map
 
-    full = nominal_call_estimate(20)
-    assert full["schemaValidity"] == 160
+    m = default_run_map()
+    assert m["lockViolation"] == HARD_RUNS == 20
+    assert m["continuityAdherence"] == 20
+    assert m["schemaValidity"] == SOFT_RUNS == 5
+    assert m["segmentationDeterminism"] == 5
+    assert m["lockRepairQuality"] == 5
+    assert m["importInference"] == 5
+    assert m["subtextFidelity"] == 5
+
+
+def test_resolve_run_map_override_is_uniform():
+    from evals.suite import resolve_run_map
+
+    m = resolve_run_map(1)
+    assert set(m.values()) == {1}
+    assert len(m) == 7
+
+
+def test_nominal_call_estimate_tiered_defaults():
+    from evals.suite import default_run_map, nominal_call_estimate
+
+    full = nominal_call_estimate(default_run_map())
+    assert full["schemaValidity"] == 40  # 8 probes × 5
     assert full["lockViolation"] == 80
     assert full["continuityAdherence"] == 43
-    assert full["segmentationDeterminism"] == 20
-    assert full["lockRepairQuality"] == 20
-    assert full["importInference"] == 20
-    assert full["subtextFidelity"] == 20
-    assert full["totalNominal"] == 363
-    assert 18 <= nominal_call_estimate(1)["totalNominal"] <= 25
+    assert full["segmentationDeterminism"] == 5
+    assert full["lockRepairQuality"] == 5
+    assert full["importInference"] == 5
+    assert full["subtextFidelity"] == 5
+    assert full["totalNominal"] == 183
+
+
+def test_nominal_call_estimate_uniform_one():
+    from evals.suite import nominal_call_estimate, resolve_run_map
+
+    assert 18 <= nominal_call_estimate(resolve_run_map(1))["totalNominal"] <= 25
 
 
 def test_run_suite_report_carries_call_estimate(session_factory):
-    report = run_suite(MockLlmClient(), MockJudge(), session_factory, runs=2, dry_run=True)
+    report = run_suite(
+        MockLlmClient(), MockJudge(), session_factory, runs=resolve_run_map(2), dry_run=True
+    )
     assert report.estimated_calls["totalNominal"] > 0
     assert "estimatedApiCalls" in report.to_json()
 
@@ -312,7 +346,12 @@ def test_cli_calibrate_only_dry_run_passes(capsys):
 
 def test_run_suite_only_runs_single_eval(session_factory):
     report = run_suite(
-        MockLlmClient(), MockJudge(), session_factory, runs=1, dry_run=True, only="continuity"
+        MockLlmClient(),
+        MockJudge(),
+        session_factory,
+        runs=resolve_run_map(1),
+        dry_run=True,
+        only="continuity",
     )
     assert [r.name for r in report.results] == ["continuity-adherence"]
     # Estimate is scoped to just the selected family (truthful cost header).

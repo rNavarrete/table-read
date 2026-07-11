@@ -16,11 +16,6 @@ from evals.graders import Judge
 from evals.harness import SuiteReport
 from llm.protocol import LlmClient
 
-# test plan §3 pins 20 runs/operation for schema validity, the lock gate, and
-# continuity; segmentation determinism is unspecified there and reuses the same
-# count. Overridable via `--runs` for a cheaper smoke run.
-DEFAULT_RUNS = 20
-
 _MODELS_CONFIG = Path(__file__).resolve().parents[3] / "config" / "models.toml"
 
 # `--only` selector keys → (eval-family camelCase used by nominal_call_estimate).
@@ -36,6 +31,23 @@ EVAL_KEYS: dict[str, str] = {
     "subtext": "subtextFidelity",
 }
 
+HARD_RUNS = 20
+SOFT_RUNS = 5
+HARD_FAMILY_KEYS = frozenset({"lockViolation", "continuityAdherence"})
+
+
+def default_run_map() -> dict[str, int]:
+    return {
+        family: HARD_RUNS if family in HARD_FAMILY_KEYS else SOFT_RUNS
+        for family in EVAL_KEYS.values()
+    }
+
+
+def resolve_run_map(override: int | None) -> dict[str, int]:
+    if override is None:
+        return default_run_map()
+    return {family: override for family in EVAL_KEYS.values()}
+
 
 def load_model_roles() -> dict[str, str]:
     """Pinned model ids (config/models.toml) for the report header. Reads the
@@ -44,27 +56,26 @@ def load_model_roles() -> dict[str, str]:
         return tomllib.load(f)["models"]
 
 
-def nominal_call_estimate(runs: int) -> dict:
+def nominal_call_estimate(runs: dict[str, int]) -> dict:
     """Nominal (retry-free) real-API call counts per eval family — cost
     visibility for the report header and the Makefile target.
 
-    Per family: schema = one call per probe per run (8 × runs). lock = up to 3
-    product calls per regenerate attempt (preview's regenerate + apply's
+    Per family: schema = one call per probe per run (8 × schema runs). lock =
+    up to 3 product calls per regenerate attempt (preview's regenerate + apply's
     extract + scan; guard rejections stop after 1) plus 1 per candidate attempt
-    → ≤ 4 × runs. continuity = 3 grader calibration calls + (1 generate +
-    1 grade) × runs. segmentation = 1 × runs. Adoption soft evals: lock-repair
-    and subtext = 1 × runs each; import-inference = 1 × runs. Rule-9 retries can
-    add up to one extra call per product call (observed-worst budget ≈ 1.5×
-    total). At the default 20 runs: 363 nominal (schema 160, lock 80,
-    continuity 43, segmentation 20, lock-repair 20, import-inference 20,
-    subtext 20) — ≈360–380; `--runs 1` ≈ 18–25."""
-    schema = len(probes.SCHEMA_PROBES) * runs
-    lock = 4 * runs
-    continuity = 3 + 2 * runs
-    segmentation = runs
-    lock_repair = runs
-    import_inference = runs
-    subtext = runs
+    → ≤ 4 × lock runs. continuity = 3 grader calibration calls + (1 generate +
+    1 grade) × continuity runs. Segmentation and each adoption soft eval = 1 ×
+    that family's runs. Rule-9 retries can add up to one extra call per product
+    call (observed-worst budget ≈ 1.5× total). Tiered defaults: 183 nominal
+    (schema 40, lock 80, continuity 43, soft families 5 each); `--runs 1`
+    ≈ 18–25."""
+    schema = len(probes.SCHEMA_PROBES) * runs["schemaValidity"]
+    lock = 4 * runs["lockViolation"]
+    continuity = 3 + 2 * runs["continuityAdherence"]
+    segmentation = runs["segmentationDeterminism"]
+    lock_repair = runs["lockRepairQuality"]
+    import_inference = runs["importInference"]
+    subtext = runs["subtextFidelity"]
     return {
         "schemaValidity": schema,
         "lockViolation": lock,
@@ -90,7 +101,7 @@ def run_suite(
     judge: Judge,
     session_factory,
     *,
-    runs: int = DEFAULT_RUNS,
+    runs: dict[str, int],
     dry_run: bool,
     only: str | None = None,
     capture=None,
@@ -111,19 +122,29 @@ def run_suite(
 
     results = []
     if want("schema"):
-        results.append(checks.schema_validity_eval(client, ctx, runs=runs))
+        results.append(checks.schema_validity_eval(client, ctx, runs=runs[EVAL_KEYS["schema"]]))
     if want("lock"):
-        results.append(checks.lock_violation_eval(client, ctx, session_factory, runs=runs))
+        results.append(
+            checks.lock_violation_eval(client, ctx, session_factory, runs=runs[EVAL_KEYS["lock"]])
+        )
     if want("continuity"):
-        results.append(checks.continuity_eval(client, ctx, judge, runs=runs, capture=capture))
+        results.append(
+            checks.continuity_eval(
+                client, ctx, judge, runs=runs[EVAL_KEYS["continuity"]], capture=capture
+            )
+        )
     if want("segmentation"):
-        results.append(checks.segmentation_determinism_eval(client, ctx, runs=runs))
+        results.append(
+            checks.segmentation_determinism_eval(client, ctx, runs=runs[EVAL_KEYS["segmentation"]])
+        )
     if want("lock-repair"):
-        results.append(adoption.lock_repair_eval(client, ctx, runs=runs))
+        results.append(adoption.lock_repair_eval(client, ctx, runs=runs[EVAL_KEYS["lock-repair"]]))
     if want("import-inference"):
-        results.append(adoption.import_inference_eval(client, runs=runs))
+        results.append(
+            adoption.import_inference_eval(client, runs=runs[EVAL_KEYS["import-inference"]])
+        )
     if want("subtext"):
-        results.append(adoption.subtext_eval(client, ctx, runs=runs))
+        results.append(adoption.subtext_eval(client, ctx, runs=runs[EVAL_KEYS["subtext"]]))
 
     estimate = nominal_call_estimate(runs)
     if only is not None:

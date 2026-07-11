@@ -52,7 +52,7 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         "--runs",
         type=int,
         default=None,
-        help="Runs per eval (default 20, per test plan §3).",
+        help="Uniform runs per eval (default: tiered 20 hard / 5 soft).",
     )
     parser.add_argument(
         "--out",
@@ -115,10 +115,10 @@ def main(argv: list[str] | None = None) -> int:
     tmp = tempfile.mkdtemp(prefix="tableread-evals-")
     os.environ["DATABASE_URL"] = f"sqlite:///{tmp}/evals.db"
 
-    from evals.suite import DEFAULT_RUNS, run_suite
+    from evals.suite import resolve_run_map, run_suite
     from storage.db import Base, SessionLocal, engine, ensure_storage_schema
 
-    runs = args.runs if args.runs is not None else DEFAULT_RUNS
+    runs = resolve_run_map(args.runs)
 
     if args.dry_run:
         from evals.graders import MockJudge
@@ -177,8 +177,9 @@ def main(argv: list[str] | None = None) -> int:
         print(f"capture: {capture.count} failure artifact(s) → {capture.dir} "
               f"(git-ignored; do not commit or log)")
 
+    runs_display = ", ".join(f"{k} {v}" for k, v in report.runs.items())
     print(f"PROMPT_VERSION={report.prompt_version} models={report.models} "
-          f"mode={'dry-run' if report.dry_run else 'real'} runs/eval={report.runs}")
+          f"mode={'dry-run' if report.dry_run else 'real'} runs/eval={runs_display}")
     for r in report.results:
         gate = "-" if r.gate is None else f"{r.gate:.2f}"
         print(f"  [{r.status:5}] {r.name:26} {r.metric}: {r.score:.3f} (gate {gate})")

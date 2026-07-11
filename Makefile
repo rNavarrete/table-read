@@ -86,11 +86,11 @@ e2e: $(VENV_BIN)/activate $(NODE_MARKER)
 # artifact under apps/api/evals/reports/, and exits nonzero on any hard-gate
 # failure (lock-violation = 0, schema-validity, continuity). Gates every
 # PROMPT_VERSION / model-id change (hard rules 3 & 7). **Never run without being
-# asked; costs money.** Cost: the full 20-run suite makes ≈283 nominal API calls
-# (schema ~140, lock ~80, continuity ~43, segmentation ~20) — ≈280–300 nominal,
-# up to ~420 with rule-9 retries; a `--runs 1` smoke run is ≈15–20 calls. The
-# same estimate is printed in the report artifact header. `make evals-dry` runs
-# the same harness offline on MockLlmClient (a self-check, not a real eval).
+# asked; costs money.** Cost: the tiered default suite makes ≈183 nominal API
+# calls (schema 40, lock 80, continuity 43, soft families 5 each) — up to ~275
+# with rule-9 retries; a `--runs 1` smoke run is ≈18–25 calls. The same estimate
+# is printed in the report artifact header. `make evals-dry` runs the same
+# harness offline on MockLlmClient (a self-check, not a real eval).
 evals: $(VENV_BIN)/activate
 	cd $(API_DIR) && $(VENV_BIN)/python -m evals.run
 
