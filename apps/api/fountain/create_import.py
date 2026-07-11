@@ -36,7 +36,7 @@ from sqlalchemy.orm import Session
 from drama_manager import locks
 from fountain.parse import CoverageError
 from fountain.pipeline import analyze_import
-from llm.errors import SchemaInvalidLlmError
+from llm.errors import LlmTimeoutError, SchemaInvalidLlmError
 from llm.protocol import LlmClient
 from sse import format_sse
 from storage import snapshots
@@ -154,7 +154,7 @@ def create_and_import_events(
     except SchemaInvalidLlmError as exc:
         yield _failed_frame("SCHEMA_INVALID_LLM", str(exc))
         return
-    except anthropic.APIError:
+    except (anthropic.APIError, LlmTimeoutError):
         yield _failed_frame("LLM_UNAVAILABLE", "the language model is unavailable")
         return
     except snapshots.IdempotencyConflict as exc:

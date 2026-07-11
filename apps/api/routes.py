@@ -32,6 +32,8 @@ from drama_manager import (
     locks,
     scan,
     scene_skeleton,
+)
+from drama_manager import (
     suggest as suggest_mod,
 )
 from errors import ApiError
@@ -40,7 +42,7 @@ from fountain.export import to_fountain
 from fountain.parse import CoverageError
 from fountain.pipeline import run_import
 from llm.dependency import get_llm_client, get_llm_client_provider
-from llm.errors import SchemaInvalidLlmError
+from llm.errors import LlmTimeoutError, SchemaInvalidLlmError
 from llm.protocol import LlmClient
 from schemas import (
     BeatCandidate,
@@ -334,7 +336,7 @@ def patch_project(
             raise ApiError(409, "CONFLICT_STALE_HEAD", str(exc)) from exc
         except SchemaInvalidLlmError as exc:
             raise ApiError(502, "SCHEMA_INVALID_LLM", str(exc)) from exc
-        except anthropic.APIError as exc:
+        except (anthropic.APIError, LlmTimeoutError) as exc:
             raise ApiError(503, "LLM_UNAVAILABLE", "the language model is unavailable") from exc
 
     try:
@@ -494,7 +496,7 @@ def import_script(
         raise ApiError(400, "VALIDATION", str(exc)) from exc
     except SchemaInvalidLlmError as exc:
         raise ApiError(502, "SCHEMA_INVALID_LLM", str(exc)) from exc
-    except anthropic.APIError as exc:
+    except (anthropic.APIError, LlmTimeoutError) as exc:
         # errors.py: mapping SDK transport failures to LLM_UNAVAILABLE is the
         # route layer's job. Log the type only, never prompt/response content.
         raise ApiError(503, "LLM_UNAVAILABLE", "the language model is unavailable") from exc
@@ -631,7 +633,7 @@ def accept_beat(
         raise ApiError(409, "LOCKED_OBJECT", str(exc)) from exc
     except SchemaInvalidLlmError as exc:
         raise ApiError(502, "SCHEMA_INVALID_LLM", str(exc)) from exc
-    except anthropic.APIError as exc:
+    except (anthropic.APIError, LlmTimeoutError) as exc:
         raise ApiError(503, "LLM_UNAVAILABLE", "the language model is unavailable") from exc
 
 
@@ -673,7 +675,7 @@ def create_change_set(
         )
     except SchemaInvalidLlmError as exc:
         raise ApiError(502, "SCHEMA_INVALID_LLM", str(exc)) from exc
-    except anthropic.APIError as exc:
+    except (anthropic.APIError, LlmTimeoutError) as exc:
         raise ApiError(503, "LLM_UNAVAILABLE", "the language model is unavailable") from exc
 
 
@@ -708,7 +710,7 @@ def generate_scene_skeleton_candidates(
         return scene_skeleton.generate_candidates(project.doc, llm)
     except SchemaInvalidLlmError as exc:
         raise ApiError(502, "SCHEMA_INVALID_LLM", str(exc)) from exc
-    except anthropic.APIError as exc:
+    except (anthropic.APIError, LlmTimeoutError) as exc:
         raise ApiError(503, "LLM_UNAVAILABLE", "the language model is unavailable") from exc
 
 
@@ -772,7 +774,7 @@ def preview_change_set(
         raise ApiError(409, exc.code, str(exc)) from exc
     except SchemaInvalidLlmError as exc:
         raise ApiError(502, "SCHEMA_INVALID_LLM", str(exc)) from exc
-    except anthropic.APIError as exc:
+    except (anthropic.APIError, LlmTimeoutError) as exc:
         raise ApiError(503, "LLM_UNAVAILABLE", "the language model is unavailable") from exc
 
 
@@ -806,7 +808,7 @@ def apply_change_set(
         raise ApiError(409, "LOCKED_OBJECT", str(exc)) from exc
     except SchemaInvalidLlmError as exc:
         raise ApiError(502, "SCHEMA_INVALID_LLM", str(exc)) from exc
-    except anthropic.APIError as exc:
+    except (anthropic.APIError, LlmTimeoutError) as exc:
         raise ApiError(503, "LLM_UNAVAILABLE", "the language model is unavailable") from exc
 
 
@@ -919,7 +921,7 @@ def suggest_instructions(
         raise ApiError(404, "NOT_FOUND", f"beat {exc.args[0]!r} not found") from exc
     except SchemaInvalidLlmError as exc:
         raise ApiError(502, "SCHEMA_INVALID_LLM", str(exc)) from exc
-    except anthropic.APIError as exc:
+    except (anthropic.APIError, LlmTimeoutError) as exc:
         raise ApiError(503, "LLM_UNAVAILABLE", "the language model is unavailable") from exc
     return {"suggestions": suggestions}
 

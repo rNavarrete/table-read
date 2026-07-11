@@ -30,7 +30,7 @@ from pydantic import ValidationError
 
 from drama_manager import ledger_filter, locks, render
 from drama_manager.ledger_filter import RelevanceContext
-from llm.errors import SchemaInvalidLlmError
+from llm.errors import LlmTimeoutError, SchemaInvalidLlmError
 from llm.protocol import LlmClient
 from schemas import BeatCandidate
 
@@ -550,7 +550,7 @@ def _stream_attempt(stream_fn: StreamFn, system: str, user: str) -> Iterator[Eve
             if prefix is not None and len(prefix) > len(emitted):
                 yield (DELTA, {"text": prefix[len(emitted):]})
                 emitted = prefix
-    except anthropic.APIError:
+    except (anthropic.APIError, LlmTimeoutError):
         return ("unavailable", None)
 
     try:

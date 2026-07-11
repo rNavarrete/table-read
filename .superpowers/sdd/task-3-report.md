@@ -102,3 +102,17 @@ test files are in the 722-passed full-suite run.
 - Covering tests after fix:
   `cd "/Users/rolandonavarrete/Documents/tableread/.worktrees/evals-harness" && apps/api/.venv/bin/pytest apps/api/tests/test_llm_timeout.py apps/api/tests/test_evals_checks.py`
   → 32 passed in 1.14s.
+
+## Important Review Finding Fix — Product Timeout Mapping — 2026-07-11
+
+- Mapped `LlmTimeoutError` to `LLM_UNAVAILABLE` at product route/SSE translation
+  sites that already handled `anthropic.APIError`: `apps/api/routes.py`,
+  `apps/api/fountain/create_import.py`, and `apps/api/drama_manager/candidates.py`.
+- Added regression coverage in `apps/api/tests/test_import.py`:
+  `test_llm_timeout_maps_to_llm_unavailable`.
+- Red check before fix:
+  `cd "/Users/rolandonavarrete/Documents/tableread/.worktrees/evals-harness/apps/api" && .venv/bin/python -m pytest tests/test_import.py::test_llm_timeout_maps_to_llm_unavailable`
+  → failed with uncaught `llm.errors.LlmTimeoutError`.
+- Covering tests after fix:
+  `cd "/Users/rolandonavarrete/Documents/tableread/.worktrees/evals-harness/apps/api" && .venv/bin/python -m pytest tests/test_import.py tests/test_import_create.py tests/test_candidates_route.py tests/test_tune.py tests/test_patch_structural.py tests/test_change_sets_create.py tests/test_change_sets_preview_apply.py tests/test_suggest.py`
+  → 81 passed in 1.33s.

@@ -14,7 +14,7 @@ from fastapi.testclient import TestClient
 
 from fountain.parse import split_into_scenes
 from llm.dependency import get_llm_client
-from llm.errors import SchemaInvalidLlmError
+from llm.errors import LlmTimeoutError, SchemaInvalidLlmError
 from llm.mock import MockLlmClient
 from main import app
 from schemas import ConsistencyScan, LedgerExtraction, SegmentedScene
@@ -368,6 +368,21 @@ class _RaisingLlm(MockLlmClient):
 def test_transport_error_maps_to_llm_unavailable(unlocked_project):
     exc = anthropic.APIConnectionError(request=httpx.Request("POST", "https://api.anthropic.com"))
     app.dependency_overrides[get_llm_client] = lambda: _RaisingLlm(exc)
+    try:
+        resp = client.post(
+            f"/api/v1/projects/{PROJECT_ID}/import",
+            json={"format": "fountain", "content": "INT. BAR\nx"},
+        )
+    finally:
+        app.dependency_overrides.pop(get_llm_client, None)
+    assert resp.status_code == 503
+    assert resp.json()["error"]["code"] == "LLM_UNAVAILABLE"
+
+
+def test_llm_timeout_maps_to_llm_unavailable(unlocked_project):
+    app.dependency_overrides[get_llm_client] = lambda: _RaisingLlm(
+        LlmTimeoutError("segment_scene")
+    )
     try:
         resp = client.post(
             f"/api/v1/projects/{PROJECT_ID}/import",
