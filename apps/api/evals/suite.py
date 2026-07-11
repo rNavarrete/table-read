@@ -14,6 +14,7 @@ from drama_manager import render
 from evals import adoption, checks, probes
 from evals.graders import Judge
 from evals.harness import SuiteReport
+from evals.progress import ProgressFn
 from llm.protocol import LlmClient
 
 _MODELS_CONFIG = Path(__file__).resolve().parents[3] / "config" / "models.toml"
@@ -105,6 +106,7 @@ def run_suite(
     dry_run: bool,
     only: str | None = None,
     capture=None,
+    on_progress: ProgressFn | None = None,
 ) -> SuiteReport:
     """`session_factory` is a zero-arg callable returning a fresh DB `Session`
     (the lock-violation eval seeds + mutates an isolated project per attempt).
@@ -120,31 +122,73 @@ def run_suite(
     def want(key: str) -> bool:
         return only is None or only == key
 
+    def emit_start(key: str) -> None:
+        if on_progress is not None:
+            on_progress(family=key, runs=runs[EVAL_KEYS[key]], status="start")
+
+    def emit_done(key: str, result) -> None:
+        if on_progress is not None:
+            on_progress(family=key, status="done", score=result.score, gate=result.gate)
+
     results = []
     if want("schema"):
-        results.append(checks.schema_validity_eval(client, ctx, runs=runs[EVAL_KEYS["schema"]]))
+        emit_start("schema")
+        result = checks.schema_validity_eval(
+            client, ctx, runs=runs[EVAL_KEYS["schema"]], on_progress=on_progress
+        )
+        results.append(result)
+        emit_done("schema", result)
     if want("lock"):
-        results.append(
-            checks.lock_violation_eval(client, ctx, session_factory, runs=runs[EVAL_KEYS["lock"]])
+        emit_start("lock")
+        result = checks.lock_violation_eval(
+            client,
+            ctx,
+            session_factory,
+            runs=runs[EVAL_KEYS["lock"]],
+            on_progress=on_progress,
         )
+        results.append(result)
+        emit_done("lock", result)
     if want("continuity"):
-        results.append(
-            checks.continuity_eval(
-                client, ctx, judge, runs=runs[EVAL_KEYS["continuity"]], capture=capture
-            )
+        emit_start("continuity")
+        result = checks.continuity_eval(
+            client,
+            ctx,
+            judge,
+            runs=runs[EVAL_KEYS["continuity"]],
+            capture=capture,
+            on_progress=on_progress,
         )
+        results.append(result)
+        emit_done("continuity", result)
     if want("segmentation"):
-        results.append(
-            checks.segmentation_determinism_eval(client, ctx, runs=runs[EVAL_KEYS["segmentation"]])
+        emit_start("segmentation")
+        result = checks.segmentation_determinism_eval(
+            client, ctx, runs=runs[EVAL_KEYS["segmentation"]], on_progress=on_progress
         )
+        results.append(result)
+        emit_done("segmentation", result)
     if want("lock-repair"):
-        results.append(adoption.lock_repair_eval(client, ctx, runs=runs[EVAL_KEYS["lock-repair"]]))
-    if want("import-inference"):
-        results.append(
-            adoption.import_inference_eval(client, runs=runs[EVAL_KEYS["import-inference"]])
+        emit_start("lock-repair")
+        result = adoption.lock_repair_eval(
+            client, ctx, runs=runs[EVAL_KEYS["lock-repair"]], on_progress=on_progress
         )
+        results.append(result)
+        emit_done("lock-repair", result)
+    if want("import-inference"):
+        emit_start("import-inference")
+        result = adoption.import_inference_eval(
+            client, runs=runs[EVAL_KEYS["import-inference"]], on_progress=on_progress
+        )
+        results.append(result)
+        emit_done("import-inference", result)
     if want("subtext"):
-        results.append(adoption.subtext_eval(client, ctx, runs=runs[EVAL_KEYS["subtext"]]))
+        emit_start("subtext")
+        result = adoption.subtext_eval(
+            client, ctx, runs=runs[EVAL_KEYS["subtext"]], on_progress=on_progress
+        )
+        results.append(result)
+        emit_done("subtext", result)
 
     estimate = nominal_call_estimate(runs)
     if only is not None:

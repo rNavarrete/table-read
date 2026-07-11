@@ -92,7 +92,7 @@ e2e: $(VENV_BIN)/activate $(NODE_MARKER)
 # is printed in the report artifact header. `make evals-dry` runs the same
 # harness offline on MockLlmClient (a self-check, not a real eval).
 evals: $(VENV_BIN)/activate
-	cd $(API_DIR) && $(VENV_BIN)/python -m evals.run
+	cd $(API_DIR) && PYTHONUNBUFFERED=1 $(VENV_BIN)/python -m evals.run
 
 evals-dry: $(VENV_BIN)/activate
-	cd $(API_DIR) && $(VENV_BIN)/python -m evals.run --dry-run
+	cd $(API_DIR) && PYTHONUNBUFFERED=1 $(VENV_BIN)/python -m evals.run --dry-run

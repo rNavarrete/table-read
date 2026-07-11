@@ -115,10 +115,12 @@ def main(argv: list[str] | None = None) -> int:
     tmp = tempfile.mkdtemp(prefix="tableread-evals-")
     os.environ["DATABASE_URL"] = f"sqlite:///{tmp}/evals.db"
 
+    from evals.progress import make_stdout_progress
     from evals.suite import resolve_run_map, run_suite
     from storage.db import Base, SessionLocal, engine, ensure_storage_schema
 
     runs = resolve_run_map(args.runs)
+    on_progress = make_stdout_progress()
 
     if args.dry_run:
         from evals.graders import MockJudge
@@ -170,6 +172,7 @@ def main(argv: list[str] | None = None) -> int:
         dry_run=args.dry_run,
         only=args.only,
         capture=capture,
+        on_progress=on_progress,
     )
 
     json_path, md_path = report.write(args.out)

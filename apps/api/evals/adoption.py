@@ -11,11 +11,13 @@ Hard rule 5: ids/counts/scores only — never script text in logs.
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 
 from drama_manager import candidates, render
 from evals.harness import EvalResult
 from evals.probes import FixtureCtx
+from evals.progress import ProgressFn
 from llm.errors import SchemaInvalidLlmError
 from llm.protocol import LlmClient
 from schemas import BeatCandidate, LedgerExtraction
@@ -63,7 +65,9 @@ def _matches_any(text: str, needles: list[str]) -> bool:
     return any(n.lower() in low for n in needles)
 
 
-def lock_repair_eval(client: LlmClient, ctx: FixtureCtx, *, runs: int) -> EvalResult:
+def lock_repair_eval(
+    client: LlmClient, ctx: FixtureCtx, *, runs: int, on_progress: ProgressFn | None = None
+) -> EvalResult:
     """A1: conflicting instruction vs locked cash beat — zero lock edits + reframe.
 
     Path: generate a scene-4 candidate under a chips-not-cash instruction.
@@ -71,7 +75,8 @@ def lock_repair_eval(client: LlmClient, ctx: FixtureCtx, *, runs: int) -> EvalRe
     and never contains a demand to rewrite locked lines as empty.
     """
     passed = 0
-    for _ in range(runs):
+    for i in range(runs):
+        t0 = time.monotonic()
         try:
             system, user = candidates.build_candidate_bundle(
                 ctx.doc,
@@ -91,14 +96,23 @@ def lock_repair_eval(client: LlmClient, ctx: FixtureCtx, *, runs: int) -> EvalRe
                 prompt_version=render.PROMPT_VERSION,
             )
         except SchemaInvalidLlmError:
-            continue
-        script = (candidate.script_text or "").lower()
-        reframed = any(m in script for m in _REFRAME_MARKERS)
-        reported = len(candidate.continuity_conflicts) > 0
-        # Mock default candidate won't reframe; count prompt-rule presence +
-        # non-empty script as a dry-run path pass when neither signal fires.
-        if reframed or reported or "quiet reveal" in (candidate.label or "").lower():
-            passed += 1
+            pass
+        else:
+            script = (candidate.script_text or "").lower()
+            reframed = any(m in script for m in _REFRAME_MARKERS)
+            reported = len(candidate.continuity_conflicts) > 0
+            # Mock default candidate won't reframe; count prompt-rule presence +
+            # non-empty script as a dry-run path pass when neither signal fires.
+            if reframed or reported or "quiet reveal" in (candidate.label or "").lower():
+                passed += 1
+        finally:
+            if on_progress is not None:
+                on_progress(
+                    family="lock-repair",
+                    run=i + 1,
+                    runs=runs,
+                    elapsed=time.monotonic() - t0,
+                )
 
     rate = passed / runs if runs else 0.0
     return EvalResult(
@@ -112,7 +126,9 @@ def lock_repair_eval(client: LlmClient, ctx: FixtureCtx, *, runs: int) -> EvalRe
     )
 
 
-def import_inference_eval(client: LlmClient, *, runs: int) -> EvalResult:
+def import_inference_eval(
+    client: LlmClient, *, runs: int, on_progress: ProgressFn | None = None
+) -> EvalResult:
     """A2: extract on golden Fountain — recall planted implied facts; no freeloaders."""
     planted = _planted_spec()
     source = _FOUNTAIN.read_text()
@@ -168,7 +184,9 @@ def import_inference_eval(client: LlmClient, *, runs: int) -> EvalResult:
                             "confidence": 0.7,
                         },
                         {
-                            "fact": "Rem does not know about the envelope Jules keeps in the drawer",
+                            "fact": (
+                                "Rem does not know about the envelope Jules keeps in the drawer"
+                            ),
                             "factType": "knowledge",
                             "sourceSpan": {
                                 "episodeId": "ep-import-1",
@@ -217,7 +235,7 @@ def import_inference_eval(client: LlmClient, *, runs: int) -> EvalResult:
 
     recalls: list[float] = []
     halluc_hits = 0
-    for _ in range(runs):
+    for i in range(runs):
         system, user = render.build_extract_prompt(
             project,
             episode_id="ep-import-1",
@@ -226,6 +244,7 @@ def import_inference_eval(client: LlmClient, *, runs: int) -> EvalResult:
             characters=characters,
             nonce=render.new_nonce(),
         )
+        t0 = time.monotonic()
         try:
             result: LedgerExtraction = client.extract_ledger_facts(
                 system=system,
@@ -234,6 +253,13 @@ def import_inference_eval(client: LlmClient, *, runs: int) -> EvalResult:
             )
         except SchemaInvalidLlmError:
             recalls.append(0.0)
+            if on_progress is not None:
+                on_progress(
+                    family="import-inference",
+                    run=i + 1,
+                    runs=runs,
+                    elapsed=time.monotonic() - t0,
+                )
             continue
 
         facts_text = " ".join(f.fact for f in result.new_facts)
@@ -250,6 +276,13 @@ def import_inference_eval(client: LlmClient, *, runs: int) -> EvalResult:
         # the planted needles do (Mock often invents Long Pour facts — soft).
         if _matches_any(facts_text, forbidden) and found == 0:
             halluc_hits += 1
+        if on_progress is not None:
+            on_progress(
+                family="import-inference",
+                run=i + 1,
+                runs=runs,
+                elapsed=time.monotonic() - t0,
+            )
 
     mean_recall = sum(recalls) / len(recalls) if recalls else 0.0
     score = mean_recall * (0.0 if halluc_hits == runs else 1.0)
@@ -273,10 +306,13 @@ def import_inference_eval(client: LlmClient, *, runs: int) -> EvalResult:
     )
 
 
-def subtext_eval(client: LlmClient, ctx: FixtureCtx, *, runs: int) -> EvalResult:
+def subtext_eval(
+    client: LlmClient, ctx: FixtureCtx, *, runs: int, on_progress: ProgressFn | None = None
+) -> EvalResult:
     """A10: scene-1 candidates must not narrate Dan's hiding outright."""
     passed = 0
-    for _ in range(runs):
+    for i in range(runs):
+        t0 = time.monotonic()
         try:
             system, user = candidates.build_candidate_bundle(
                 ctx.doc,
@@ -295,11 +331,19 @@ def subtext_eval(client: LlmClient, ctx: FixtureCtx, *, runs: int) -> EvalResult
                 prompt_version=render.PROMPT_VERSION,
             )
         except SchemaInvalidLlmError:
-            continue
-        low = (candidate.script_text or "").lower()
-        if any(tok in low for tok in _SUBTEXT_FORBIDDEN):
-            continue
-        passed += 1
+            pass
+        else:
+            low = (candidate.script_text or "").lower()
+            if not any(tok in low for tok in _SUBTEXT_FORBIDDEN):
+                passed += 1
+        finally:
+            if on_progress is not None:
+                on_progress(
+                    family="subtext",
+                    run=i + 1,
+                    runs=runs,
+                    elapsed=time.monotonic() - t0,
+                )
 
     rate = passed / runs if runs else 0.0
     return EvalResult(

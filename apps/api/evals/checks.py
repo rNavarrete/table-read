@@ -29,6 +29,7 @@ text. The only script text touched is compared in memory (never logged).
 from __future__ import annotations
 
 import collections
+import time
 from datetime import UTC, datetime
 
 from drama_manager import candidates, change_sets, locks, render
@@ -36,6 +37,7 @@ from evals import probes
 from evals.graders import CONTINUITY_FACT_IDS, GRADER_VERSION, Judge, calibrate
 from evals.harness import EvalResult
 from evals.probes import FixtureCtx
+from evals.progress import ProgressFn
 from llm.errors import SchemaInvalidLlmError
 from llm.ops import OP_REGISTRY
 from llm.protocol import LlmClient
@@ -76,12 +78,15 @@ _CONTINUITY_SCENE = "scene-3"
 # ── schema validity ─────────────────────────────────────────────────────────────
 
 
-def schema_validity_eval(client: LlmClient, ctx: FixtureCtx, *, runs: int) -> EvalResult:
+def schema_validity_eval(
+    client: LlmClient, ctx: FixtureCtx, *, runs: int, on_progress: ProgressFn | None = None
+) -> EvalResult:
     per_op: dict[str, dict] = {}
     for op_name, build in probes.SCHEMA_PROBES.items():
         valid = 0
-        for _ in range(runs):
+        for i in range(runs):
             system, user = build(ctx)
+            t0 = time.monotonic()
             try:
                 getattr(client, op_name)(
                     system=system, user_message=user, prompt_version=render.PROMPT_VERSION
@@ -89,6 +94,15 @@ def schema_validity_eval(client: LlmClient, ctx: FixtureCtx, *, runs: int) -> Ev
                 valid += 1
             except SchemaInvalidLlmError:
                 pass
+            finally:
+                if on_progress is not None:
+                    on_progress(
+                        family="schema",
+                        run=i + 1,
+                        runs=runs,
+                        probe=op_name,
+                        elapsed=time.monotonic() - t0,
+                    )
         per_op[op_name] = {"valid": valid, "total": runs, "rate": round(valid / runs, 4)}
 
     rates = [v["rate"] for v in per_op.values()]
@@ -261,25 +275,51 @@ def _run_candidate_attempt(client: LlmClient, ctx: FixtureCtx) -> str:
 
 
 def lock_violation_eval(
-    client: LlmClient, ctx: FixtureCtx, session_factory, *, runs: int
+    client: LlmClient,
+    ctx: FixtureCtx,
+    session_factory,
+    *,
+    runs: int,
+    on_progress: ProgressFn | None = None,
 ) -> EvalResult:
     original = _locked_original_scripttext()
     attempts = 0
     violations = 0
     guard_rejections = 0
+    total_attempts = runs * 2
 
     for _ in range(runs):
         attempts += 1
-        final = _run_regenerate_attempt(client, session_factory)
-        if final is None:
-            guard_rejections += 1
-        elif final != original:
-            violations += 1
+        t0 = time.monotonic()
+        try:
+            final = _run_regenerate_attempt(client, session_factory)
+            if final is None:
+                guard_rejections += 1
+            elif final != original:
+                violations += 1
+        finally:
+            if on_progress is not None:
+                on_progress(
+                    family="lock",
+                    run=attempts,
+                    runs=total_attempts,
+                    elapsed=time.monotonic() - t0,
+                )
 
     for _ in range(runs):
         attempts += 1
-        if _run_candidate_attempt(client, ctx) != original:
-            violations += 1
+        t0 = time.monotonic()
+        try:
+            if _run_candidate_attempt(client, ctx) != original:
+                violations += 1
+        finally:
+            if on_progress is not None:
+                on_progress(
+                    family="lock",
+                    run=attempts,
+                    runs=total_attempts,
+                    elapsed=time.monotonic() - t0,
+                )
 
     score = (attempts - violations) / attempts if attempts else 0.0
     return EvalResult(
@@ -315,7 +355,13 @@ def _continuity_facts(ctx: FixtureCtx) -> list[dict]:
 
 
 def continuity_eval(
-    client: LlmClient, ctx: FixtureCtx, judge: Judge, *, runs: int, capture=None
+    client: LlmClient,
+    ctx: FixtureCtx,
+    judge: Judge,
+    *,
+    runs: int,
+    capture=None,
+    on_progress: ProgressFn | None = None,
 ) -> EvalResult:
     """`capture`, when provided (a `capture.CaptureSink`), writes a per-failure
     review artifact for every graded miss — an explicitly-opt-in, git-ignored
@@ -336,6 +382,7 @@ def continuity_eval(
     passed = 0
     schema_failures = 0
     for i in range(runs):
+        t0 = time.monotonic()
         system, user = candidates.build_candidate_bundle(
             ctx.doc,
             ctx.ledger,
@@ -351,6 +398,13 @@ def continuity_eval(
             )
         except SchemaInvalidLlmError:
             schema_failures += 1
+            if on_progress is not None:
+                on_progress(
+                    family="continuity",
+                    run=i + 1,
+                    runs=runs,
+                    elapsed=time.monotonic() - t0,
+                )
             continue
         verdict = judge.grade(script_text=candidate.script_text, facts=facts)
         if verdict.passes:
@@ -358,6 +412,13 @@ def continuity_eval(
         elif capture is not None:
             capture.record_continuity_failure(
                 index=i + 1, script_text=candidate.script_text, verdict=verdict, facts=facts
+            )
+        if on_progress is not None:
+            on_progress(
+                family="continuity",
+                run=i + 1,
+                runs=runs,
+                elapsed=time.monotonic() - t0,
             )
 
     score = passed / runs if runs else 0.0
@@ -392,20 +453,37 @@ def modal_agreement(boundary_sets: list[frozenset]) -> tuple[float, int, int]:
     return modal_count / len(boundary_sets), modal_count, len(counter)
 
 
-def segmentation_determinism_eval(client: LlmClient, ctx: FixtureCtx, *, runs: int) -> EvalResult:
+def segmentation_determinism_eval(
+    client: LlmClient, ctx: FixtureCtx, *, runs: int, on_progress: ProgressFn | None = None
+) -> EvalResult:
     lines = probes.scene_source_lines(ctx.scene(probes._SEGMENT_SCENE))
     boundary_sets: list[frozenset] = []
     schema_failures = 0
-    for _ in range(runs):
+    for i in range(runs):
         system, user = render.build_segment_prompt(ctx.doc, lines, render.new_nonce())
+        t0 = time.monotonic()
         try:
             segmented = client.segment_scene(
                 system=system, user_message=user, prompt_version=render.PROMPT_VERSION
             )
         except SchemaInvalidLlmError:
             schema_failures += 1
+            if on_progress is not None:
+                on_progress(
+                    family="segmentation",
+                    run=i + 1,
+                    runs=runs,
+                    elapsed=time.monotonic() - t0,
+                )
             continue
         boundary_sets.append(frozenset((b.start_line, b.end_line) for b in segmented.beats))
+        if on_progress is not None:
+            on_progress(
+                family="segmentation",
+                run=i + 1,
+                runs=runs,
+                elapsed=time.monotonic() - t0,
+            )
 
     agreement, modal_count, distinct = modal_agreement(boundary_sets)
     return EvalResult(
