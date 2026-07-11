@@ -412,7 +412,8 @@
         ]
       }
     ],
-    "headSnapshotId": "snap-root"
+    "headSnapshotId": "snap-root",
+    "defaultCraftLevel": "standard"
   },
   "ledger": [
     {
@@ -1033,7 +1034,8 @@
             ]
           }
         ],
-        "headSnapshotId": "snap-root"
+        "headSnapshotId": "snap-root",
+    "defaultCraftLevel": "standard"
       },
       "ledger": [
         {

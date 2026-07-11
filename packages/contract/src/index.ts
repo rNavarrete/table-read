@@ -190,6 +190,9 @@ export const LedgerFact = z.object({
 })
 export type LedgerFact = z.infer<typeof LedgerFact>
 
+export const CraftLevel = z.enum(['fast', 'standard', 'considered'])
+export type CraftLevel = z.infer<typeof CraftLevel>
+
 export const Project = z.object({
   id: Id,
   title: z.string(),
@@ -199,6 +202,8 @@ export const Project = z.object({
   seriesBible: SeriesBible,
   seasons: z.array(Season),
   headSnapshotId: Id.nullable(),
+  /** Adoption A3 — per-project default for Write/Review craft picker. */
+  defaultCraftLevel: CraftLevel.default('standard'),
 })
 export type Project = z.infer<typeof Project>
 // Ledger, snapshots, suggestionHistory live in separate stores (design doc §5).
@@ -249,6 +254,20 @@ export const ProjectImportCreateRequest = z.object({
 export type ProjectImportCreateRequest = z.input<
   typeof ProjectImportCreateRequest
 >
+
+/** One restorable ancestor for the undo timeline (adoption A5). */
+export const SnapshotSummary = z.object({
+  id: Id,
+  instruction: z.string(),
+  ts: z.string(),
+})
+export type SnapshotSummary = z.infer<typeof SnapshotSummary>
+
+/** `POST /projects/{pid}/restore` — jump head to an ancestor snapshot. */
+export const ProjectRestoreRequest = z.object({
+  snapshotId: Id,
+})
+export type ProjectRestoreRequest = z.infer<typeof ProjectRestoreRequest>
 
 // ─────────────────────────────────────────────────────────────────────────
 // §2. Generation / Review types
@@ -546,6 +565,16 @@ export const InstructionSuggestions = z.object({
   suggestions: z.array(z.string()).length(3),
 })
 export type InstructionSuggestions = z.infer<typeof InstructionSuggestions>
+
+/** `POST /projects/{pid}/suggest` (adoption A4). */
+export const SuggestRequest = z.object({
+  context: z.enum(['scene', 'beat']),
+  targetId: Id,
+  surface: z.enum(['command_bar', 'scene_premise', 'tune']),
+  /** Optional unsaved script text from the canvas (A4: current story state). */
+  draftScript: z.string().nullable().default(null),
+})
+export type SuggestRequest = z.infer<typeof SuggestRequest>
 
 // §7 parse_script stage 2
 export const SegmentedScene = z.object({

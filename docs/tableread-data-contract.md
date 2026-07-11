@@ -108,6 +108,8 @@ export const Project = z.object({
   seriesBible: SeriesBible,
   seasons: z.array(Season),
   headSnapshotId: Id.nullable(),
+  /** Adoption A3 — per-project default for Write/Review craft pickers. */
+  defaultCraftLevel: z.enum(["fast", "standard", "considered"]).default("standard"),
 });
 // Ledger, snapshots, suggestionHistory live in separate stores (design doc §5).
 
@@ -403,6 +405,7 @@ Defined transactions:
 
 - **Mutation:** in one transaction — write new snapshot row (`parent_id` = current head; `doc`, `ledger`, `flags` = new state), set `projects.doc` + rewrite `ledger_facts` + `consistency_flags` tables to the new state, set `head_snapshot_id` = new snapshot id.
 - **Undo:** in one transaction — read parent snapshot of current head, restore `projects.doc`, `ledger_facts`, and `consistency_flags` byte-identical from it, set `head_snapshot_id` = parent id. No new snapshot row; a subsequent mutation forks the tree (its `parent_id` is the restored snapshot).
+- **Restore to ancestor** (adoption A5): same transaction as undo, but the target may be any *proper* ancestor of the current head (walk `parent_id` toward root). Non-ancestor / current head / missing → 409 `VALIDATION`. No new snapshot row; later mutations fork from the restored head. Snapshot `instruction` must be non-empty on every write (`EmptyInstruction` if blank/whitespace).
 - Undo at root → 409 `VALIDATION` ("nothing to undo").
 
 ## 4. API contract (FastAPI, `/api/v1`)
@@ -414,6 +417,8 @@ Defined transactions:
 - `GET /projects/{pid}` → `Project`
 - `PATCH /projects/{pid}` — JSON-patch body for direct writer edits (no regeneration); creates snapshot. Patches touching **structural plan fields** (scene/episode `whatHappens`, `premise`, storyline summaries) additionally trigger `scan_consistency` and return `{project, consistencyFlags}` — the "Save field only" path skips Review, never the flagging promise. Patches into locked ranges → 409 `LOCKED_OBJECT`.
 - `POST /projects/{pid}/undo` → `Project` (moves head to parent snapshot)
+- `GET /projects/{pid}/snapshots` → `SnapshotSummary[]` (adoption A5) — up to 20 proper ancestors of the current head, nearest parent first. Each entry is `{id, instruction, ts}` for the undo-timeline dropdown. Does not include the current head.
+- `POST /projects/{pid}/restore` `{snapshotId}` → `Project` (adoption A5) — restore doc+ledger+flags from that ancestor; same CAS/`If-Match` rules as undo. Non-ancestor or current head → 409 `VALIDATION`.
 - `POST /projects/{pid}/import` `{format: "fountain"|"text", content}` → `{project, newFacts, consistencyFlags}` — full import transaction:
   1. Deterministic scene split + LLM beat segmentation (prompt spec §7); `VALIDATION` reject on coverage failure, nothing persisted.
   2. Run `extract_ledger_facts` over every imported scene; **all import-derived facts are created `pending_review` regardless of confidence** (nobody has vouched for inferences over a whole script — the writer batch-reviews them in the Ledger queue).
@@ -426,7 +431,7 @@ Defined transactions:
 
 **Generation (Write mode)**
 
-- `POST /projects/{pid}/scenes/{sid}/candidates` `{afterBeatId?, instruction?}` → **SSE stream**: events `candidate_start {index}`, `delta {text}` (provisional display only), `candidate_done {BeatCandidate}` (validated — card becomes actionable) or `candidate_failed {error}`, ×3, then `done`. Clients must not enable Accept/Tune before `candidate_done`.
+- `POST /projects/{pid}/scenes/{sid}/candidates` `{afterBeatId?, instruction?, craftLevel?}` → **SSE stream**: events `candidate_start {index}`, `delta {text}` (provisional display only), `candidate_done {BeatCandidate}` (validated — card becomes actionable) or `candidate_failed {error}`, then `done`. `craftLevel` (adoption A3): `fast` → 1 candidate; `standard` (default, or project `defaultCraftLevel`) → 3; `considered` → 3 sync diversity samples + 1 streamed polish (no new LLM op). Clients must not enable Accept/Tune before `candidate_done`.
 - `POST /projects/{pid}/scenes/{sid}/candidates/tune` `{candidate: BeatCandidate, instruction}` → SSE, one candidate
 - `POST /projects/{pid}/scenes/{sid}/beats` `{candidate: BeatCandidate, afterBeatId?}` — accept: inserts beat, snapshots, triggers ledger extraction + consistency scan → `{project, newFacts, contradictions, consistencyFlags}`. `newFacts` are policy-processed `LedgerFact`s (§5 policy applied server-side); each `contradictions[]` entry additionally carries `proposalId` — the id of the supersede-proposal fact the server created.
 
@@ -441,7 +446,7 @@ Defined transactions:
 - `POST /projects/{pid}/change-sets` `{targetObjectId, instruction}` → `ChangeSet` (runs classify_blast_radius; annotates locks server-side)
 - `GET /projects/{pid}/change-sets?status=` → `ChangeSet[]` — list persisted Change Sets for the project (optional status filter; comma-separated values allowed, e.g. `draft,previewing` for the Review open picker). sessionStorage is cache only.
 - `GET /change-sets/{cid}` → `ChangeSet` — fetch one persisted Change Set by id.
-- `POST /change-sets/{cid}/preview` `{approvedObjectIds: []}` → `ChangeSet` — runs `regenerate_elements`, stores the result as the typed `preview` payload (`beatUpdates`/`sceneUpdates` with `basedOnSnapshotId` = current head), and renders `after` display snippets from it; does NOT mutate the project
+- `POST /change-sets/{cid}/preview` `{approvedObjectIds: [], craftLevel?}` → `ChangeSet` — runs `regenerate_elements`, stores the result as the typed `preview` payload (`beatUpdates`/`sceneUpdates` with `basedOnSnapshotId` = current head), and renders `after` display snippets from it; does NOT mutate the project. `craftLevel: "considered"` runs a second polish regenerate (adoption A3); `fast`/`standard` are a single pass.
 - `POST /change-sets/{cid}/apply` `{approvedObjectIds: []}` → `{project, changeSet, consistencyFlags}` — **applies the stored `preview` payload verbatim** (never reruns the model, never parses snippets), filtered to approved ids; snapshots, re-extracts ledger, runs `scan_consistency` over untouched scenes. 409s: any locked or `flag_only` id in the list; `preview` is null; `preview.basedOnSnapshotId` ≠ current head (`PREVIEW_STALE` — re-preview required); any approved regenerate id that is **not** present in the stored preview's `beatUpdates`/`sceneUpdates` (`VALIDATION` — apply ids must be a subset of the previewed set)
 - `POST /change-sets/{cid}/discard` / `POST /change-sets/{cid}/flag`
 - `GET /projects/{pid}/consistency-flags?status=open` → `ConsistencyFlag[]` · `POST /consistency-flags/{fid}/dismiss`
@@ -466,11 +471,11 @@ Defined transactions:
 
 **Misc**
 
-- `POST /projects/{pid}/suggest` `{context: "scene"|"beat", targetId}` → `{suggestions: string[3]}`
+- `POST /projects/{pid}/suggest` `{context: "scene"|"beat", targetId, surface: "command_bar"|"scene_premise"|"tune", draftScript?}` → `{suggestions: string[3]}` (adoption A4) — contextual instruction chips; click inserts only, never auto-executes. Context bundle includes scene plan + latest accepted beat script (+ optional unsaved `draftScript`). Dedup against `suggestion_history`.
 
 **Error shape (all endpoints):** `{error: {code, message, details?}}`. Codes: `LOCKED_OBJECT`, `SCHEMA_INVALID_LLM` (after retry), `NOT_FOUND`, `VALIDATION`, `LLM_UNAVAILABLE`, `PREVIEW_STALE`, `CONFLICT_STALE_PROPOSAL`, `CONFLICT_STALE_HEAD`, `IDEMPOTENCY_CONFLICT`.
 
-**Optimistic concurrency:** every project-mutating write (PATCH, accept, ledger confirm/reject/edit/batch, flag dismiss, import, undo, Change Set apply) goes through an atomic compare-and-swap on `projects.head_snapshot_id` (`UPDATE … WHERE head_snapshot_id = :expected`). Clients SHOULD send `If-Match: <headSnapshotId>` on those mutations; when present and stale, the server returns 409 `CONFLICT_STALE_HEAD` and persists nothing. When omitted, the server still CAS-guards against the head observed at read time so two concurrent writers that both loaded H cannot both commit children of H. Change Set apply additionally rejects when `preview.basedOnSnapshotId` ≠ current head (`PREVIEW_STALE` — re-preview required) before the CAS.
+**Optimistic concurrency:** every project-mutating write (PATCH, accept, ledger confirm/reject/edit/batch, flag dismiss, import, undo, restore, Change Set apply) goes through an atomic compare-and-swap on `projects.head_snapshot_id` (`UPDATE … WHERE head_snapshot_id = :expected`). Clients SHOULD send `If-Match: <headSnapshotId>` on those mutations; when present and stale, the server returns 409 `CONFLICT_STALE_HEAD` and persists nothing. When omitted, the server still CAS-guards against the head observed at read time so two concurrent writers that both loaded H cannot both commit children of H. Change Set apply additionally rejects when `preview.basedOnSnapshotId` ≠ current head (`PREVIEW_STALE` — re-preview required) before the CAS.
 
 ## 5. Pydantic mirror rules
 

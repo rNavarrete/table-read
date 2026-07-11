@@ -98,7 +98,7 @@ Replaces the hardcoded seeded entry point with a project dashboard, idea/import 
 **T7.6 Guided Plan setup + scene-skeleton Change Set (prompt-changing).** Three-candidate `InitialSceneSkeleton`; select → `initial_scene_skeleton` Change Set → Review; lock-violation test precedes feature tests; bumps `PROMPT_VERSION`. **Requires `make evals` sign-off before merge** (not yet run).
 
 **T7.7 E2E + authority docs + delete UI.** Dashboard overflow **Permanently delete** with typed-title confirmation (`DELETE /projects/{pid}`); Playwright e2e for the five design-spec §12 flows; authority-doc sync. — landed.
-*Known limitation surfaced by T7.7:* `LedgerFactRow.id` is a bare ordinal, not project-scoped, so a create-and-import into a DB that already holds `fact-01…` collides on the `ledger_facts.id` UNIQUE constraint (the import-success e2e empties the shared DB first and runs last to sidestep it). Tracked for a follow-up (project-scoped or globally-unique ledger fact ids).
+*Follow-up (landed with adoption):* ledger/flag ids are now globally unique `fact-<hex>` / `flag-<hex>` mints (`IdMinter`), so create-and-import no longer collides with the seed's `fact-01…08`.
 
 ## Milestone 8 — Fabula adoption (P-MVP slices)
 
@@ -106,11 +106,15 @@ See `docs/tableread-adoption-prd.md` for full A1–A10 requirements. Sequencing 
 
 **T8.1 JSON export (A6-MVP).** `GET /projects/{pid}/export.json` returns the `PersistedState` envelope; Settings → **Export project JSON**; round-trip purge/re-seed restores project doc + ledger byte-identical. — landed.
 
-**T8.2 Undo timeline dropdown (A5).** — pending.
+**T8.2 Undo timeline dropdown (A5).** `GET /projects/{pid}/snapshots` + `POST /projects/{pid}/restore`; Undo ▾ lists ~20 ancestors (instruction + relative time); restore is ancestor-of-head only; empty instruction rejected. — landed.
 
-**T8.3 Suggestion carousels (A4) + Write keyboard (A8).** — pending.
+**T8.3 Suggestion carousels (A4) + Write keyboard (A8).** `POST /suggest` + chips on command bar / Tune / scene what-happens; Write shortcuts Q/W/Tab/Enter/Esc/1–3 (disabled while canvas focused). Prompt `build_suggest_prompt` bumps `PROMPT_VERSION` to 0.8.0 — **needs `make evals` sign-off**. — landed (evals pending).
 
-**T8.4 Lock-repair prompt + import/subtext evals (A1, A2, A10).** — pending (prompt-changing; needs `make evals`).
+**T8.4 Lock-repair prompt + import/subtext evals (A1, A2, A10).** Shared-system HARD RULES for lock-aware narrative repair + subtext fidelity (`PROMPT_VERSION` 0.9.0); `fixtures/import-inference.fountain` + planted JSON; soft evals `lock-repair` / `import-inference` / `subtext` wired into `make evals`. — landed (**needs `make evals` sign-off**).
+
+**T8.5 Craft-level picker (A3 / P-v2).** `Project.defaultCraftLevel`; `craftLevel` on candidate SSE + Change Set preview; Fast (1) / Standard (3) / Considered (drafts + polish, no new LLM ops); Write dock + Review preview + Settings picker. — landed.
+
+**T8.6 Workflow-recipe onboarding (A9 / P-v2).** `recipes.json` + `?tour=` overlay highlighting real controls; dashboard recipe picker + first-run; e2e walks each recipe on the seeded fixture. — landed.
 
 ## Sequencing & parallelism
 

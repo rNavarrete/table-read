@@ -27,6 +27,8 @@ const SCHEMA_NAMES = [
   'ProjectFoundationInput',
   'ProjectCreateRequest',
   'ProjectImportCreateRequest',
+  'SnapshotSummary',
+  'ProjectRestoreRequest',
   // §2
   'BeatCandidate',
   'ImpactedObject',
@@ -45,6 +47,7 @@ const SCHEMA_NAMES = [
   'ExtractedFact',
   'LedgerExtraction',
   'InstructionSuggestions',
+  'SuggestRequest',
   'SegmentedScene',
   'ConsistencyScan',
   'InitialSceneSkeleton',
