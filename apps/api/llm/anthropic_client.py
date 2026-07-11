@@ -24,12 +24,14 @@ import hashlib
 import json
 import logging
 from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FuturesTimeoutError
 from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, ValidationError
 
-from llm.errors import SchemaInvalidLlmError
+from llm.errors import LlmTimeoutError, SchemaInvalidLlmError
 from llm.ops import OP_REGISTRY, LlmOp
 from schemas import (
     BeatCandidate,
@@ -47,7 +49,32 @@ _TOOL_SCHEMAS_DIR = _REPO_ROOT / "config" / "tool_schemas"
 
 DEFAULT_MAX_TOKENS = 4096
 
+# Wall-clock ceiling on a single `messages.create` call (task 3). Guards
+# against a hung request stalling an eval run indefinitely; deliberately
+# separate from rule-9's retry-once, which only fires on a *completed*
+# schema-invalid response, never on a timeout (see `LlmTimeoutError`).
+DEFAULT_LLM_CALL_TIMEOUT_SECONDS = 120
+
 _logger = logging.getLogger("llm.anthropic_client")
+
+
+def _create_with_timeout(sdk_client: Any, timeout: float, op: str, **kwargs: Any) -> Any:
+    """Run `sdk_client.messages.create(**kwargs)` on a worker thread and wait
+    at most `timeout` seconds. On timeout, best-effort cancel (a no-op once
+    the SDK call has actually started -- the underlying HTTP request has no
+    cooperative cancellation hook here) and raise `LlmTimeoutError(op)`. Does
+    not wait for the executor to shut down: a genuinely hung call must not
+    also hang the caller during teardown."""
+    executor = ThreadPoolExecutor(max_workers=1)
+    future = executor.submit(sdk_client.messages.create, **kwargs)
+    try:
+        result = future.result(timeout=timeout)
+    except FuturesTimeoutError:
+        future.cancel()
+        executor.shutdown(wait=False)
+        raise LlmTimeoutError(op) from None
+    executor.shutdown(wait=False)
+    return result
 
 
 class _RecoverableLlmError(Exception):
@@ -102,10 +129,12 @@ class AnthropicClient:
         sdk_client: Any,
         models: dict[str, str],
         default_max_tokens: int = DEFAULT_MAX_TOKENS,
+        call_timeout_seconds: float = DEFAULT_LLM_CALL_TIMEOUT_SECONDS,
     ) -> None:
         self._sdk = sdk_client
         self._models = models
         self._max_tokens = default_max_tokens
+        self._call_timeout_seconds = call_timeout_seconds
         self._tool_cache: dict[str, dict[str, Any]] = {}
 
     def _tool_for(self, op: LlmOp) -> dict[str, Any]:
@@ -171,7 +200,7 @@ class AnthropicClient:
         if op.role == "classifier":
             kwargs["temperature"] = 0
 
-        response = self._sdk.messages.create(**kwargs)
+        response = _create_with_timeout(self._sdk, self._call_timeout_seconds, op.name, **kwargs)
         try:
             result = _validate_tool_response(response, op)
         except _RecoverableLlmError as first_error:
@@ -244,7 +273,9 @@ class AnthropicClient:
                 }
             )
         retry_kwargs = {**kwargs, "messages": retry_messages}
-        response2 = self._sdk.messages.create(**retry_kwargs)
+        response2 = _create_with_timeout(
+            self._sdk, self._call_timeout_seconds, op.name, **retry_kwargs
+        )
         try:
             result = _validate_tool_response(response2, op)
         except _RecoverableLlmError:
@@ -328,7 +359,10 @@ class AnthropicClient:
         # `_find_tool_use` already takes the first matching block.
         active_tool_index: int | None = None
         ignored_extra_tool_blocks = 0
-        stream = self._sdk.messages.create(**kwargs)
+        # Only the call that opens the stream is timed: once events start
+        # arriving, iterating them is a caller-visible incremental process,
+        # not a single blocking `create()` this helper wraps.
+        stream = _create_with_timeout(self._sdk, self._call_timeout_seconds, op.name, **kwargs)
         try:
             for event in stream:
                 etype = getattr(event, "type", None)

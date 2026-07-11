@@ -11,6 +11,19 @@ until T2.1 (the first LLM-backed endpoint)."""
 from __future__ import annotations
 
 
+class LlmTimeoutError(Exception):
+    """Raised when `messages.create` exceeds its wall-clock timeout (task 3's
+    per-call default of 120s). Deliberately NOT a `SchemaInvalidLlmError`
+    subclass: a hang is a transport-level failure, not a schema-invalid tool
+    response, so it must never trigger the rule-9 retry-once path -- callers
+    that raced a create() against the timeout raise this immediately and skip
+    straight to surfacing the failure."""
+
+    def __init__(self, op: str) -> None:
+        self.op = op
+        super().__init__(f"{op}: LLM call timed out")
+
+
 class SchemaInvalidLlmError(Exception):
     """Raised when a tool-forced LLM call fails schema validation twice in a
     row (CLAUDE.md hard rule 9: exactly one retry with the error appended,

@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 from drama_manager import render
+from llm.anthropic_client import DEFAULT_LLM_CALL_TIMEOUT_SECONDS, _create_with_timeout
 
 # 0.2.0: scope knowledge-facts correctly. A fact of the form "<character> does
 # not know <X>" is violated only when the script shows that character actually
@@ -118,10 +119,17 @@ class ContinuityJudge:
     through the §8b `source_data` escaping choke point, same as product prompts,
     so adversarial candidate text can't hijack the grader."""
 
-    def __init__(self, sdk_client: Any, model: str, max_tokens: int = 1024) -> None:
+    def __init__(
+        self,
+        sdk_client: Any,
+        model: str,
+        max_tokens: int = 1024,
+        call_timeout_seconds: float = DEFAULT_LLM_CALL_TIMEOUT_SECONDS,
+    ) -> None:
         self._sdk = sdk_client
         self._model = model
         self._max_tokens = max_tokens
+        self._call_timeout_seconds = call_timeout_seconds
 
     def grade(self, *, script_text: str, facts: list[dict]) -> ContinuityVerdict:
         nonce = render.new_nonce()
@@ -165,7 +173,10 @@ class ContinuityJudge:
             "input_schema": _GRADER_TOOL_SCHEMA,
             "strict": True,
         }
-        response = self._sdk.messages.create(
+        response = _create_with_timeout(
+            self._sdk,
+            self._call_timeout_seconds,
+            "continuity_judge",
             model=self._model,
             max_tokens=self._max_tokens,
             temperature=0,

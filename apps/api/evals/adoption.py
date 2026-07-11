@@ -18,7 +18,7 @@ from drama_manager import candidates, render
 from evals.harness import EvalResult
 from evals.probes import FixtureCtx
 from evals.progress import ProgressFn
-from llm.errors import SchemaInvalidLlmError
+from llm.errors import LlmTimeoutError, SchemaInvalidLlmError
 from llm.protocol import LlmClient
 from schemas import BeatCandidate, LedgerExtraction
 
@@ -95,7 +95,7 @@ def lock_repair_eval(
                 user_message=user,
                 prompt_version=render.PROMPT_VERSION,
             )
-        except SchemaInvalidLlmError:
+        except (SchemaInvalidLlmError, LlmTimeoutError):
             pass
         else:
             script = (candidate.script_text or "").lower()
@@ -251,7 +251,7 @@ def import_inference_eval(
                 user_message=user,
                 prompt_version=render.PROMPT_VERSION,
             )
-        except SchemaInvalidLlmError:
+        except (SchemaInvalidLlmError, LlmTimeoutError):
             recalls.append(0.0)
             if on_progress is not None:
                 on_progress(
@@ -330,7 +330,7 @@ def subtext_eval(
                 user_message=user,
                 prompt_version=render.PROMPT_VERSION,
             )
-        except SchemaInvalidLlmError:
+        except (SchemaInvalidLlmError, LlmTimeoutError):
             pass
         else:
             low = (candidate.script_text or "").lower()

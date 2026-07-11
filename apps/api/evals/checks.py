@@ -38,7 +38,7 @@ from evals.graders import CONTINUITY_FACT_IDS, GRADER_VERSION, Judge, calibrate
 from evals.harness import EvalResult
 from evals.probes import FixtureCtx
 from evals.progress import ProgressFn
-from llm.errors import SchemaInvalidLlmError
+from llm.errors import LlmTimeoutError, SchemaInvalidLlmError
 from llm.ops import OP_REGISTRY
 from llm.protocol import LlmClient
 from schemas import BeatCandidate, ChangeSet
@@ -92,7 +92,7 @@ def schema_validity_eval(
                     system=system, user_message=user, prompt_version=render.PROMPT_VERSION
                 )
                 valid += 1
-            except SchemaInvalidLlmError:
+            except (SchemaInvalidLlmError, LlmTimeoutError):
                 pass
             finally:
                 if on_progress is not None:
@@ -213,9 +213,12 @@ def _run_regenerate_attempt(client: LlmClient, session_factory) -> str | None:
             change_sets.apply_change_set(
                 session, change_set["id"], approved_object_ids=approved, llm=client
             )
-        except SchemaInvalidLlmError:
+        except (SchemaInvalidLlmError, LlmTimeoutError):
             session.rollback()
-            return None  # guard rejected an unrequested/locked id (rule 9 surface)
+            # Both a guard rejection and a hung call are protected/inconclusive
+            # outcomes here, not violations -- neither ever wrote to the locked
+            # object, so there is nothing to diff against the fixture original.
+            return None
         except ApplyRejected as exc:
             session.rollback()
             if exc.code == "LOCKED_OBJECT":
@@ -396,7 +399,7 @@ def continuity_eval(
             candidate = client.generate_beat_candidates(
                 system=system, user_message=user, prompt_version=render.PROMPT_VERSION
             )
-        except SchemaInvalidLlmError:
+        except (SchemaInvalidLlmError, LlmTimeoutError):
             schema_failures += 1
             if on_progress is not None:
                 on_progress(
@@ -406,7 +409,21 @@ def continuity_eval(
                     elapsed=time.monotonic() - t0,
                 )
             continue
-        verdict = judge.grade(script_text=candidate.script_text, facts=facts)
+        try:
+            verdict = judge.grade(script_text=candidate.script_text, facts=facts)
+        except LlmTimeoutError:
+            # A hung judge call never fabricates a verdict (rule 9's "no
+            # fabricated fallback" applies here too) -- counts this run as
+            # unscored, same bucket as a client-side schema failure.
+            schema_failures += 1
+            if on_progress is not None:
+                on_progress(
+                    family="continuity",
+                    run=i + 1,
+                    runs=runs,
+                    elapsed=time.monotonic() - t0,
+                )
+            continue
         if verdict.passes:
             passed += 1
         elif capture is not None:
@@ -466,7 +483,7 @@ def segmentation_determinism_eval(
             segmented = client.segment_scene(
                 system=system, user_message=user, prompt_version=render.PROMPT_VERSION
             )
-        except SchemaInvalidLlmError:
+        except (SchemaInvalidLlmError, LlmTimeoutError):
             schema_failures += 1
             if on_progress is not None:
                 on_progress(
