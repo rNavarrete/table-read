@@ -108,7 +108,7 @@ def main(argv: list[str] | None = None) -> int:
     os.environ["DATABASE_URL"] = f"sqlite:///{tmp}/evals.db"
 
     from evals.suite import DEFAULT_RUNS, run_suite
-    from storage.db import Base, SessionLocal, engine
+    from storage.db import Base, SessionLocal, engine, ensure_storage_schema
 
     runs = args.runs if args.runs is not None else DEFAULT_RUNS
 
@@ -153,6 +153,7 @@ def main(argv: list[str] | None = None) -> int:
         capture = CaptureSink(args.capture)
 
     Base.metadata.create_all(bind=engine)
+    ensure_storage_schema()
     report = run_suite(
         client,
         judge,

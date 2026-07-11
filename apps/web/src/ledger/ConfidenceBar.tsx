@@ -1,14 +1,17 @@
 /**
- * `ConfidenceBar` — §7 inventory. 2px bar: sage ≥0.8 / amber below
- * (UI spec §6). Color alone is never the only signal — callers also show
- * a numeric/text label when meaning matters; here the bar is decorative
- * beside the provenance/status chips.
+ * `ConfidenceBar` — §7 inventory. Quiet Tool's Ledger bar uses sage fill on
+ * cool paper; superseded facts can mute the fill while retaining the meter.
  */
-export function ConfidenceBar({ confidence }: { confidence: number }) {
-  const high = confidence >= 0.8
+export function ConfidenceBar({
+  confidence,
+  muted = false,
+}: {
+  confidence: number
+  muted?: boolean
+}) {
   return (
     <div
-      className="h-0.5 w-full overflow-hidden rounded-chip bg-tr-surface-clay"
+      className="h-0.5 w-full overflow-hidden rounded-chip bg-tr-surface-sunken"
       role="meter"
       aria-valuemin={0}
       aria-valuemax={1}
@@ -19,8 +22,9 @@ export function ConfidenceBar({ confidence }: { confidence: number }) {
       <div
         className={
           'h-full transition-[width] duration-standard ease-standard motion-reduce:transition-none ' +
-          (high ? 'bg-tr-sage' : 'bg-tr-amber')
+          (muted ? 'bg-tr-text-muted' : 'bg-tr-sage')
         }
+        data-testid="confidence-bar-fill"
         style={{ width: `${Math.round(confidence * 100)}%` }}
       />
     </div>

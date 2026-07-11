@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { BeatCandidate, Project } from 'contract'
 import { getLedger, getProject } from '../api/client'
+import { requireProjectId } from '../projects/projectRouting'
+import { loadResume, saveResume } from '../projects/resumeContext'
 import { AppShell } from '../shell/AppShell'
 import { Toast } from '../shell/Toast'
 import { llmUnavailableMessage } from '../shell/toastCopy'
@@ -12,14 +14,6 @@ import { useCandidateSession } from './useCandidateSession'
 import { useQuietAi } from './useQuietAi'
 import { allScenes, findScene } from './projectTree'
 
-// No project/scene picker exists yet (Plan mode's board, which owns scene
-// selection, is T3.1 — build plan). Until then, Write mode reads both ids
-// from the URL: `?project=<id>` (default: the seeded fixture, "The Long
-// Pour") and `?scene=<id>` (default: the project's first scene) — enough
-// for the T2.3 e2e to target fixture scene-3 or scene-1 directly, without
-// building UI this task doesn't own.
-const DEFAULT_PROJECT_ID = 'proj-longpour'
-
 function useUrlParam(name: string): string | null {
   return useMemo(
     () => new URLSearchParams(window.location.search).get(name),
@@ -28,15 +22,17 @@ function useUrlParam(name: string): string | null {
 }
 
 export function WriteScreen() {
-  const projectId = useUrlParam('project') ?? DEFAULT_PROJECT_ID
+  const projectId = requireProjectId()
   const requestedSceneId = useUrlParam('scene')
   const highlightBeatId = useUrlParam('highlightBeat')
+  const activeProjectId = projectId ?? ''
 
   const [project, setProject] = useState<Project | null>(null)
   const [ledgerCount, setLedgerCount] = useState(0)
   const [loadError, setLoadError] = useState<string | null>(null)
 
   useEffect(() => {
+    if (!projectId) return
     // `project`/`loadError` already start at their reset values (null) from
     // `useState` — no synchronous reset is needed here (there's also no UI
     // yet that changes `projectId` mid-session; the effect fires once, on
@@ -62,14 +58,33 @@ export function WriteScreen() {
     }
   }, [projectId])
 
-  const scene = project
-    ? ((requestedSceneId ? findScene(project, requestedSceneId) : null) ??
-      allScenes(project)[0])
-    : null
+  const scene =
+    projectId && project
+      ? (() => {
+          const scenes = allScenes(project)
+          const resume = loadResume(
+            projectId,
+            scenes.map((s) => s.id),
+          )
+          const sceneId = requestedSceneId ?? resume.sceneId
+          return (sceneId ? findScene(project, sceneId) : null) ?? scenes[0]
+        })()
+      : null
+
+  useEffect(() => {
+    if (projectId && scene) {
+      saveResume(projectId, { mode: 'Write', sceneId: scene.id })
+    }
+  }, [projectId, scene])
 
   const { quiet, canvasHandlers } = useQuietAi()
-  const candidateSession = useCandidateSession(projectId, scene?.id ?? '')
-  const accept = useAcceptBeat(projectId, scene?.id ?? '', project, setProject)
+  const candidateSession = useCandidateSession(activeProjectId, scene?.id ?? '')
+  const accept = useAcceptBeat(
+    activeProjectId,
+    scene?.id ?? '',
+    project,
+    setProject,
+  )
 
   function lastBeatId(): string | null {
     if (!scene || scene.beats.length === 0) return null
@@ -119,6 +134,8 @@ export function WriteScreen() {
       </AppShell>
     )
   }
+
+  if (!projectId) return null
 
   if (!project || !scene) {
     return (

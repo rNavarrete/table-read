@@ -25,15 +25,18 @@ import secrets
 from typing import Any
 
 # Prompt spec §8 / hard rule 7: every template carries a PROMPT_VERSION (semver);
-# it is logged with each call and bumped on any template change. Bumped to 0.6.0
-# in T6.1: added the candidate-template continuity constraint (_CONTINUITY_
+# it is logged with each call and bumped on any template change. Bumped to
+# 0.7.0 for Task 6 (new-project-flow design spec §6/§9.4): added
+# `build_scene_skeleton_prompt` for the guided-setup `generate_scene_skeleton`
+# op — a new prompt-changing surface requiring `make evals` sign-off before
+# merge (CLAUDE.md rule 7; not run in this task per the task brief). History:
+# 0.6.0 added the candidate-template continuity constraint (_CONTINUITY_
 # CONSTRAINT) — an explicit knownBy/dramatic-irony framing over the
 # continuity_facts block, to stop candidates telegraphing knowledge a fact
-# withholds (the T6.1 continuity-adherence failures). A prompt change requires
-# `make evals` sign-off before merge (CLAUDE.md rule 7). History: 0.5.0 added the
+# withholds (the T6.1 continuity-adherence failures); 0.5.0 added the
 # `regenerate_elements` builder; 0.4.0 added classify_blast_radius; 0.3.0 added
 # tune_beat; 0.2.0 added the candidate builder and the §0 shared system prompt.
-PROMPT_VERSION = "0.6.0"
+PROMPT_VERSION = "0.7.0"
 
 
 def new_nonce() -> str:
@@ -311,6 +314,42 @@ def build_regenerate_prompt(
         + f"\nREGENERATE: {regenerate_ids}"
         + f"\nAPPROVED EDIT: {instruction}"
         + "\nRegenerate only the listed elements; do not invent extra ids."
+    )
+    return build_system_prompt(project, nonce), user
+
+
+def build_scene_skeleton_prompt(
+    project: dict,
+    *,
+    series: dict,
+    characters: list[dict],
+    stories_to_avoid: list[str],
+    existing_scenes: list[dict],
+    avoid: list[dict],
+    nonce: str,
+) -> tuple[str, str]:
+    """`generate_scene_skeleton` (§9.4): guided-setup convergent loop. One
+    diverse skeleton candidate per call — `avoid` carries prior candidates'
+    labels/one-line summaries this round (diversity), same mechanic as §1's
+    beat-candidate loop (drama_manager/candidates.py). Source content is
+    wrapped (§8b); AVOID sits outside the tags like WRITER INSTRUCTION does
+    for §1, since it is server-derived, not writer/import data."""
+    avoid_lines = "; ".join(
+        f"{a.get('label', '')} — {a.get('summary', '')}" for a in avoid
+    )
+    user = (
+        source_data("series", series, nonce)
+        + "\n"
+        + source_data("characters", characters, nonce)
+        + "\n"
+        + source_data("stories_to_avoid", stories_to_avoid, nonce)
+        + "\n"
+        + source_data("existing_scenes", existing_scenes, nonce)
+        + f"\nAVOID (prior candidates this round): {avoid_lines}"
+        + "\nPropose an ordered set of new scenes (with beat-plan seeds) that "
+        "opens this series' first episode. Reference only the character ids "
+        "given above in motivations. Do not invent ids and do not write "
+        "script text — plan fields only."
     )
     return build_system_prompt(project, nonce), user
 

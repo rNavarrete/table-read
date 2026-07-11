@@ -15,7 +15,7 @@ import { expect, test } from '@playwright/test'
 test('fact-06 pending_review is in the queue; edit → writer_authored + active', async ({
   page,
 }) => {
-  await page.goto('/ledger')
+  await page.goto('/ledger?project=proj-longpour')
 
   const queue = page.getByTestId('review-queue')
   await expect(queue).toBeVisible()
@@ -52,7 +52,7 @@ test('fact-06 pending_review is in the queue; edit → writer_authored + active'
 test('Ledger tab is enabled from Write mode and navigates to /ledger', async ({
   page,
 }) => {
-  await page.goto('/')
+  await page.goto('/?project=proj-longpour')
   const ledger = page.getByRole('tab', { name: /Ledger/ })
   await expect(ledger).toBeEnabled()
   await ledger.click()

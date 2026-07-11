@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import type { ChangeSet, ConsistencyFlag } from 'contract'
+import type { ChangeSet, ConsistencyFlag, SceneAddition } from 'contract'
 import { Chip } from '../plan/Chip'
 import { ChangeSetRow } from './ChangeSetRow'
 import { selectableIds } from './selectableIds'
@@ -22,6 +22,8 @@ export interface ChangeSetPanelProps {
   onDismissFlag?: (flagId: string) => void
   onGoToScene?: (sceneId: string) => void
   onContinuityFlagClick?: (factId: string) => void
+  /** Character names for scene-skeleton motivation labels. */
+  characters?: ReadonlyArray<{ id: string; name: string }>
 }
 
 /**
@@ -43,11 +45,23 @@ export function ChangeSetPanel({
   onDismissFlag,
   onGoToScene,
   onContinuityFlagClick,
+  characters = [],
 }: ChangeSetPanelProps) {
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
   const selectable = useMemo(() => selectableIds(changeSet), [changeSet])
   const selectedCount = selectable.filter((id) => selectedIds.has(id)).length
   const applied = changeSet.status === 'applied'
+  // §9.4: a selected skeleton candidate already IS the preview — there is
+  // no further model call to re-run, so Preview has nothing to do here.
+  const isSkeleton = changeSet.kind === 'initial_scene_skeleton'
+  const canPreview = !isSkeleton
+  const additionsById = useMemo(() => {
+    const map = new Map<string, SceneAddition>()
+    for (const addition of changeSet.preview?.sceneAdditions ?? []) {
+      map.set(addition.proposalId, addition)
+    }
+    return map
+  }, [changeSet.preview?.sceneAdditions])
 
   function toggleExpanded(objectId: string) {
     setExpanded((prev) => {
@@ -142,11 +156,20 @@ export function ChangeSetPanel({
       data-testid="change-set-panel"
       className="flex min-h-[calc(100vh-3.5rem)] flex-col"
     >
-      <div className="flex flex-1 flex-col gap-4 p-6 pb-24">
-        <header className="flex flex-col gap-2">
-          <p className="font-display text-22 text-tr-text-primary">
+      <div className="flex flex-1 flex-col gap-4 p-6 pb-28">
+        <header className="flex flex-col gap-2 rounded-card border border-tr-border bg-tr-surface-raised p-4 shadow-raised">
+          <p className="text-12 uppercase tracking-wide text-tr-text-muted">
+            {isSkeleton ? 'Review proposed scenes' : 'Review proposed impact'}
+          </p>
+          <p className="font-display text-17 font-semibold text-tr-text-primary">
             &ldquo;{changeSet.instruction}&rdquo;
           </p>
+          {isSkeleton ? (
+            <p className="text-13 text-tr-text-secondary">
+              These scenes are not in your plan yet. Select what to keep, then
+              Apply — or Discard to return without writing.
+            </p>
+          ) : null}
           <div className="flex items-center gap-2">
             <Chip hue="neutral">{changeSet.targetObjectId}</Chip>
             <Chip hue={changeSet.status === 'previewing' ? 'sky' : 'amber'}>
@@ -166,6 +189,8 @@ export function ChangeSetPanel({
                 onToggleSelected={onToggleSelected}
                 onToggleExpanded={toggleExpanded}
                 onContinuityFlagClick={onContinuityFlagClick}
+                sceneAddition={additionsById.get(row.objectId) ?? null}
+                characters={characters}
               />
             </div>
           ))}
@@ -173,27 +198,29 @@ export function ChangeSetPanel({
       </div>
 
       <footer
-        className="sticky bottom-0 flex items-center gap-4 border-t border-tr-border bg-tr-surface-sunken px-6 py-3"
+        className="sticky bottom-0 flex flex-wrap items-center gap-3 border-t border-tr-border bg-tr-surface-sunken px-6 py-3 shadow-raised"
         data-testid="change-set-footer"
       >
         <span className="text-13 text-tr-text-secondary">
           {selectedCount} of {selectable.length} selected
         </span>
-        <button
-          type="button"
-          disabled={previewing || applying || selectedCount === 0}
-          onClick={onPreview}
-          className="rounded-card border border-tr-coral bg-transparent px-3 py-1 text-13 text-tr-coral disabled:opacity-50"
-        >
-          {previewing ? 'Previewing…' : 'Preview selected'}
-        </button>
+        {canPreview && (
+          <button
+            type="button"
+            disabled={previewing || applying || selectedCount === 0}
+            onClick={onPreview}
+            className="rounded-card border border-tr-coral bg-transparent px-3 py-1.5 text-13 font-medium text-tr-coral transition hover:bg-tr-coral-soft disabled:opacity-50"
+          >
+            {previewing ? 'Previewing…' : 'Preview selected'}
+          </button>
+        )}
         <button
           type="button"
           disabled={
             !hasPreview || previewing || applying || selectedCount === 0
           }
           onClick={onApply}
-          className="rounded-card bg-tr-coral px-3 py-1 text-13 text-tr-surface-raised disabled:opacity-50"
+          className="rounded-card bg-tr-coral px-3 py-1.5 text-13 font-medium text-tr-surface-raised transition hover:bg-tr-coral-hover disabled:opacity-50"
         >
           {applying ? 'Applying…' : 'Apply selected'}
         </button>
@@ -221,6 +248,9 @@ export function ChangeSetPanel({
         >
           Create branch
         </button>
+        <p className="basis-full text-12 text-tr-text-muted">
+          Nothing changes until you confirm.
+        </p>
       </footer>
     </div>
   )

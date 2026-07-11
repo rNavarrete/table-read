@@ -2,9 +2,12 @@ import type {
   BeatCandidate,
   ChangeSet,
   ConsistencyFlag,
+  InitialSceneSkeletonCandidate,
   LedgerExtraction,
   LedgerFact,
   Project,
+  ProjectCreateRequest,
+  ProjectSummary,
 } from 'contract'
 import { toApiError } from './errors'
 
@@ -20,6 +23,7 @@ async function getJson<T>(path: string): Promise<T> {
 }
 
 type IfMatchOpts = { expectedHeadSnapshotId?: string | null }
+type IdempotencyOpts = { idempotencyKey?: string }
 
 function ifMatchHeaders(
   opts?: IfMatchOpts,
@@ -28,16 +32,24 @@ function ifMatchHeaders(
   return { 'If-Match': opts.expectedHeadSnapshotId }
 }
 
+function idempotencyHeaders(
+  opts?: IdempotencyOpts,
+): Record<string, string> | undefined {
+  if (!opts?.idempotencyKey) return undefined
+  return { 'Idempotency-Key': opts.idempotencyKey }
+}
+
 async function postJson<T>(
   path: string,
   body: unknown,
-  opts?: IfMatchOpts,
+  opts?: IfMatchOpts & IdempotencyOpts,
 ): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       ...ifMatchHeaders(opts),
+      ...idempotencyHeaders(opts),
     },
     body: JSON.stringify(body),
   })
@@ -129,6 +141,36 @@ export async function exportFountain(projectId: string): Promise<string> {
 
 export function getProject(projectId: string): Promise<Project> {
   return getJson<Project>(`/projects/${projectId}`)
+}
+
+export function listProjects(): Promise<ProjectSummary[]> {
+  return getJson<ProjectSummary[]>('/projects')
+}
+
+/** `DELETE /projects/{pid}` (data contract §4) — the canonical full purge:
+ * clears every project-scoped row across all six DB tables plus embeddings.
+ * Resolves on 204; a non-2xx surfaces as an `ApiError` so the dashboard can
+ * leave the row visible and report the failure (design spec §11). */
+export async function deleteProject(projectId: string): Promise<void> {
+  const res = await fetch(`${BASE}/projects/${projectId}`, { method: 'DELETE' })
+  if (!res.ok) throw await toApiError(res)
+}
+
+export function createProject(
+  body: ProjectCreateRequest,
+  opts: { idempotencyKey: string },
+): Promise<Project> {
+  return postJson<Project>('/projects', body, {
+    idempotencyKey: opts.idempotencyKey,
+  })
+}
+
+/** Endpoint URL for the atomic create-and-import SSE stream (data contract
+ * §9.3: `POST /projects/import`). Streamed responses don't fit the
+ * postJson helper above — write/api/sse.ts's `streamSse` POSTs here
+ * directly, the same way write/sse.ts does for candidate generation. */
+export function importCreateUrl(): string {
+  return `${BASE}/projects/import`
 }
 
 export function getLedger(
@@ -328,4 +370,30 @@ export function discardChangeSet(changeSetId: string): Promise<ChangeSet> {
  * the project untouched). */
 export function flagChangeSet(changeSetId: string): Promise<ChangeSet> {
   return postJson<ChangeSet>(`/change-sets/${changeSetId}/flag`, {})
+}
+
+/** `POST /projects/{pid}/scene-skeleton/candidates` (design spec §6/§9.4) —
+ * the explicit "Generate scene skeleton" gesture: runs the three-candidate
+ * convergent loop. Read-only; nothing is persisted. */
+export function generateSceneSkeletonCandidates(
+  projectId: string,
+): Promise<InitialSceneSkeletonCandidate[]> {
+  return postJson<InitialSceneSkeletonCandidate[]>(
+    `/projects/${projectId}/scene-skeleton/candidates`,
+    {},
+  )
+}
+
+/** `POST /projects/{pid}/scene-skeleton/change-sets` — selecting a
+ * generated candidate creates an `initial_scene_skeleton` ChangeSet already
+ * `previewing` and sends the writer to Review (never writes the plan
+ * directly). `candidate` is echoed back verbatim from generation. */
+export function createSceneSkeletonChangeSet(
+  projectId: string,
+  candidate: InitialSceneSkeletonCandidate,
+): Promise<ChangeSet> {
+  return postJson<ChangeSet>(
+    `/projects/${projectId}/scene-skeleton/change-sets`,
+    candidate,
+  )
 }

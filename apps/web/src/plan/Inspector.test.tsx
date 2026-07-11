@@ -248,6 +248,30 @@ describe('Inspector', () => {
     expect(onToggleSceneLock).toHaveBeenCalledWith('scene-1', true)
   })
 
+  it('locked lock toggles render as accent pill switches without changing semantics', () => {
+    const ep = episode({ scenes: [scene({ locked: true })] })
+    render(
+      <Inspector
+        project={project(ep)}
+        episode={ep}
+        ledger={[]}
+        selection={{ type: 'scene', sceneId: 'scene-1' }}
+        pending={false}
+        onToggleSceneLock={noop}
+        onToggleBeatScriptLock={noop}
+        onSaveSceneField={noop}
+        onSaveBeatField={noop}
+        onSaveProjectField={noop}
+        onSaveEpisodeField={noop}
+      />,
+    )
+    const toggle = screen.getByRole('switch')
+    expect(toggle.getAttribute('aria-checked')).toBe('true')
+    expect(toggle.className).toContain('rounded-chip')
+    expect(toggle.className).toContain('bg-tr-coral')
+    expect(toggle.className).toContain('text-tr-surface-raised')
+  })
+
   it('editing whatHappens (structural) shows the "Structural change" footer bar; Save field only calls back with field + draft', async () => {
     const user = userEvent.setup()
     const ep = episode()

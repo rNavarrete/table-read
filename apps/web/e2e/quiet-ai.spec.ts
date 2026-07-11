@@ -7,7 +7,7 @@ import { expect, test } from '@playwright/test'
 test('AI controls go invisible and the dock dims while a script textarea is focused', async ({
   page,
 }) => {
-  await page.goto('/?scene=scene-3')
+  await page.goto('/?project=proj-longpour&scene=scene-3')
 
   const nextBeat = page.getByRole('button', { name: 'Next Beat' })
   const commandBar = page.getByPlaceholder('Tell the scene where to go…')

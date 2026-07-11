@@ -81,6 +81,25 @@ Ordered milestones, agent-sized tasks, acceptance criteria. Reference docs: desi
 - Change Set GET endpoints (ruling 3) — landed in remediation/api; UI may drop DESIGN-GAP(T4.3) sessionStorage comments once wired.
 - DESIGN-GAP(T5.1) edit→active: closed via data-contract §4 note (this remediation).
 
+## Milestone 7 — New-project flow (Story Launcher)
+
+Replaces the hardcoded seeded entry point with a project dashboard, idea/import wizards, and project-scoped resume. Full design in `docs/superpowers/specs/2026-07-10-new-project-flow-design.md`; plan in `docs/superpowers/plans/2026-07-10-new-project-flow.md`. Slices, in order:
+
+**T7.1 Contract + `GET /projects` + dashboard shell.** `ProjectSummary` (Zod↔Pydantic↔data-contract §9.1); `GET /projects` sorted by `updatedAt` desc; Story Launcher dashboard (loading/empty/populated/search-empty/error states). — landed.
+
+**T7.2 Routing cleanup + resume context.** `/projects` is home; mode screens require `?project=` and redirect home otherwise (no seeded fallback); browser-local `tr.resume.v1.<pid>` with stale-scene fallback (design spec §9.5). — landed.
+
+**T7.3 Wizard shell + format presets + drafts.** Shared `WizardShell`, `FORMAT_PRESETS`, versioned browser-local drafts. — landed.
+
+**T7.4 Idea path + foundation-aware create.** `CharacterSeed`/`ProjectFoundationInput`/`ProjectCreateRequest`; atomic root snapshot with optional foundation; `Idempotency-Key` create semantics. No LLM on create. — landed.
+
+**T7.5 Import path + atomic create-and-import + SSE.** `ProjectImportCreateRequest`/`ProjectImportProgressEvent`/`ProjectImportResult`; one root snapshot; named SSE stages; failure creates nothing. — landed.
+
+**T7.6 Guided Plan setup + scene-skeleton Change Set (prompt-changing).** Three-candidate `InitialSceneSkeleton`; select → `initial_scene_skeleton` Change Set → Review; lock-violation test precedes feature tests; bumps `PROMPT_VERSION`. **Requires `make evals` sign-off before merge** (not yet run).
+
+**T7.7 E2E + authority docs + delete UI.** Dashboard overflow **Permanently delete** with typed-title confirmation (`DELETE /projects/{pid}`); Playwright e2e for the five design-spec §12 flows; authority-doc sync. — landed.
+*Known limitation surfaced by T7.7:* `LedgerFactRow.id` is a bare ordinal, not project-scoped, so a create-and-import into a DB that already holds `fact-01…` collides on the `ledger_facts.id` UNIQUE constraint (the import-success e2e empties the shared DB first and runs last to sidestep it). Tracked for a follow-up (project-scoped or globally-unique ledger fact ids).
+
 ## Sequencing & parallelism
 
 ```

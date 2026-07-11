@@ -6,12 +6,16 @@ import {
   getLedger,
   getProject,
 } from '../api/client'
+import { requireProjectId } from '../projects/projectRouting'
+import { loadResume, saveResume } from '../projects/resumeContext'
 import { navigateToReview, stashChangeSet } from '../review/changeSetSession'
 import { AppShell } from '../shell/AppShell'
 import { Toast } from '../shell/Toast'
 import { lockedObjectMessage, staleHeadMessage } from '../shell/toastCopy'
 import { Board } from './Board'
+import { GuidedSetup } from './GuidedSetup'
 import { Inspector } from './Inspector'
+import { needsGuidedSetup } from './needsGuidedSetup'
 import type { PlanSelection } from './SceneCard'
 import { StoryLayersPanel } from './StoryLayersPanel'
 import { sceneIdsWithOpenFlags } from './flaggedScenes'
@@ -28,11 +32,7 @@ import {
   withSceneField,
 } from './planTree'
 import { useProjectPatch } from './useProjectPatch'
-
-// Same URL-param convention as write/WriteScreen.tsx (no router yet, no
-// project picker built anywhere in the app): `?project=<id>`, defaulting to
-// the seeded fixture.
-const DEFAULT_PROJECT_ID = 'proj-longpour'
+import { allScenes, findScene } from '../write/projectTree'
 
 function useUrlParam(name: string): string | null {
   return useMemo(
@@ -42,21 +42,24 @@ function useUrlParam(name: string): string | null {
 }
 
 export function PlanScreen() {
-  const projectId = useUrlParam('project') ?? DEFAULT_PROJECT_ID
+  const projectId = requireProjectId()
   const focusSceneId = useUrlParam('scene')
+  const activeProjectId = projectId ?? ''
 
   const [project, setProject] = useState<Project | null>(null)
+  const [skippedGuidedSetup, setSkippedGuidedSetup] = useState(false)
   const [ledger, setLedger] = useState<LedgerFact[]>([])
   const [openFlags, setOpenFlags] = useState<ConsistencyFlag[]>([])
   const [loadError, setLoadError] = useState<string | null>(null)
-  const [selection, setSelection] = useState<PlanSelection>(
-    focusSceneId ? { type: 'scene', sceneId: focusSceneId } : null,
+  const [selection, setSelection] = useState<PlanSelection | undefined>(
+    focusSceneId ? { type: 'scene', sceneId: focusSceneId } : undefined,
   )
   const [collapsedActs, setCollapsedActs] = useState<Set<number>>(new Set())
   const [openingReview, setOpeningReview] = useState(false)
   const [reviewError, setReviewError] = useState<string | null>(null)
 
   useEffect(() => {
+    if (!projectId) return
     let cancelled = false
     Promise.all([
       getProject(projectId),
@@ -79,6 +82,23 @@ export function PlanScreen() {
       cancelled = true
     }
   }, [projectId])
+
+  const effectiveSelection = useMemo<PlanSelection>(() => {
+    if (selection !== undefined) return selection
+    if (!projectId || !project) return null
+    const scenes = allScenes(project)
+    const sceneIds = scenes.map((s) => s.id)
+    const sceneId = focusSceneId ?? loadResume(projectId, sceneIds).sceneId
+    const validScene = sceneId ? findScene(project, sceneId) : null
+    const fallbackSceneId = validScene?.id ?? scenes[0]?.id
+    return fallbackSceneId ? { type: 'scene', sceneId: fallbackSceneId } : null
+  }, [focusSceneId, project, projectId, selection])
+
+  useEffect(() => {
+    if (!projectId || !project) return
+    const sceneId = effectiveSelection?.sceneId
+    saveResume(projectId, { mode: 'Plan', sceneId })
+  }, [effectiveSelection, project, projectId])
 
   // Deep-link from Review "Go to scene" / consistency flags: scroll + brief
   // highlight once the board mounts (selection already seeded from ?scene=).
@@ -105,7 +125,12 @@ export function PlanScreen() {
     })
   }, [])
 
-  const patcher = useProjectPatch(projectId, project, setProject, mergeNewFlags)
+  const patcher = useProjectPatch(
+    activeProjectId,
+    project,
+    setProject,
+    mergeNewFlags,
+  )
 
   const flaggedSceneIds = useMemo(
     () =>
@@ -207,12 +232,12 @@ export function PlanScreen() {
     setOpeningReview(true)
     setReviewError(null)
     try {
-      const changeSet = await createChangeSet(projectId, {
+      const changeSet = await createChangeSet(activeProjectId, {
         targetObjectId,
         instruction,
       })
       stashChangeSet(changeSet)
-      navigateToReview(projectId, changeSet.id)
+      navigateToReview(activeProjectId, changeSet.id)
     } catch (err: unknown) {
       setReviewError(
         err instanceof Error ? err.message : 'failed to open Review',
@@ -236,6 +261,8 @@ export function PlanScreen() {
     )
   }
 
+  if (!projectId) return null
+
   if (!project) {
     return (
       <AppShell
@@ -245,6 +272,33 @@ export function PlanScreen() {
         projectId={projectId}
       >
         <p className="p-8 text-15 text-tr-text-secondary">Loading…</p>
+      </AppShell>
+    )
+  }
+
+  // Guided Plan setup (design spec §6/§9.4): shown while the project has no
+  // usable scene skeleton (no season/episode yet, or an episode with no
+  // scene containing a beat) — before the (otherwise empty) board. Skip is
+  // local only: the writer can leave and build by hand without a server write.
+  if (needsGuidedSetup(project) && !skippedGuidedSetup) {
+    const characters = project.seriesBible.characters.map((c) => ({
+      id: c.id,
+      name: c.name,
+    }))
+    return (
+      <AppShell
+        projectTitle={project.title}
+        activeMode="Plan"
+        ledgerCount={ledger.filter((f) => f.status === 'pending_review').length}
+        projectId={projectId}
+      >
+        <GuidedSetup
+          projectId={activeProjectId}
+          premise={project.premise}
+          theme={project.seriesBible.existentialQuestion.text}
+          characters={characters}
+          onSkip={() => setSkippedGuidedSetup(true)}
+        />
       </AppShell>
     )
   }
@@ -291,7 +345,7 @@ export function PlanScreen() {
         <StoryLayersPanel
           project={project}
           episode={episode}
-          selection={selection}
+          selection={effectiveSelection}
           collapsedActs={collapsedActs}
           onSelectNothing={() => setSelection(null)}
           onSelectScene={(sceneId) => setSelection({ type: 'scene', sceneId })}
@@ -300,7 +354,7 @@ export function PlanScreen() {
         <Board
           project={project}
           episode={episode}
-          selection={selection}
+          selection={effectiveSelection}
           collapsedActs={collapsedActs}
           pending={patcher.pending}
           flaggedSceneIds={flaggedSceneIds}
@@ -314,7 +368,7 @@ export function PlanScreen() {
           project={project}
           episode={episode}
           ledger={ledger}
-          selection={selection}
+          selection={effectiveSelection}
           pending={patcher.pending}
           openingReview={openingReview}
           onToggleSceneLock={handleToggleSceneLock}

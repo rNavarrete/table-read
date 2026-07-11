@@ -31,6 +31,19 @@ function scene(overrides: Partial<Scene> = {}): Scene {
 }
 
 describe('ScriptCanvas', () => {
+  it('uses the Quiet Tool raised script sheet chrome', () => {
+    const { container } = render(
+      <ScriptCanvas
+        scene={scene({ beats: [] })}
+        canvasHandlers={noopHandlers}
+      />,
+    )
+    const sheet = container.querySelector('section')
+    expect(sheet?.className).toContain('max-w-script-col')
+    expect(sheet?.className).toContain('bg-tr-surface-raised')
+    expect(sheet?.className).toContain('shadow-raised')
+  })
+
   it('empty scene shows the ghost placeholder, not a beat list', () => {
     render(
       <ScriptCanvas

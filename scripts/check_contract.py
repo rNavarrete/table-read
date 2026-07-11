@@ -62,12 +62,21 @@ SCHEMA_NAMES = [
     "SourceSpan",
     "LedgerFact",
     "Project",
+    "ProjectSummary",
+    "CharacterSeed",
+    "ProjectFoundationInput",
+    "ProjectCreateRequest",
+    "ProjectImportCreateRequest",
     # §2
     "BeatCandidate",
     "ImpactedObject",
     "ConsistencyFlag",
+    "ProjectImportResult",
+    "ProjectImportProgressEvent",
     "BeatUpdate",
     "SceneUpdate",
+    "SceneAddition",
+    "InitialSceneSkeletonCandidate",
     "ChangeSetPreview",
     "ChangeSet",
     # §2a
@@ -78,11 +87,22 @@ SCHEMA_NAMES = [
     "InstructionSuggestions",
     "SegmentedScene",
     "ConsistencyScan",
+    "InitialSceneSkeleton",
 ]
 
 # JSON Schema keys that are cosmetic/library-specific noise, not part of the
-# validated contract shape.
-_IGNORED_KEYS = {"title", "$schema", "description", "$id", "additionalProperties"}
+# validated contract shape. "discriminator" is Pydantic's OpenAPI-style
+# annotation for `Field(discriminator=...)` unions (data contract §9.3
+# ProjectImportProgressEvent) — Zod's `z.discriminatedUnion` JSON Schema has
+# no equivalent key, only the plain `oneOf` both sides already agree on.
+_IGNORED_KEYS = {
+    "title",
+    "$schema",
+    "description",
+    "$id",
+    "additionalProperties",
+    "discriminator",
+}
 # Zod's ".int()" without an explicit .max() emits this JS-safe-integer bound;
 # Python ints have no such bound so Pydantic never emits it.
 _JS_SAFE_INTEGER_MAX = 9007199254740991

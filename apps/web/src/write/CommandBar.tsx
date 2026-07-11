@@ -61,7 +61,7 @@ export function CommandBar({ onSubmit, disabled, hidden }: CommandBarProps) {
     <form
       onSubmit={handleSubmit}
       className={
-        'fixed inset-x-0 bottom-6 mx-auto flex h-14 w-full max-w-script-col items-center gap-3 rounded-card border border-tr-border bg-tr-surface-sunken px-4 shadow-raised' +
+        'fixed inset-x-0 bottom-6 mx-auto flex h-14 w-full max-w-script-col items-center gap-3 rounded-chip border border-tr-border bg-tr-surface-raised px-4 shadow-raised' +
         (hidden ? ' invisible' : '')
       }
       data-testid="command-bar"
@@ -79,7 +79,7 @@ export function CommandBar({ onSubmit, disabled, hidden }: CommandBarProps) {
       <button
         type="submit"
         disabled={disabled || !instruction.trim()}
-        className="rounded-card bg-tr-coral px-4 py-1.5 text-13 text-tr-surface-raised transition-colors hover:bg-tr-coral-hover disabled:opacity-50 motion-reduce:transition-none"
+        className="rounded-chip bg-tr-coral px-4 py-1.5 text-13 text-tr-surface-raised transition-colors hover:bg-tr-coral-hover disabled:opacity-50 motion-reduce:transition-none"
       >
         Generate
       </button>

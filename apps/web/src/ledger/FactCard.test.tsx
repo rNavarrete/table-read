@@ -80,6 +80,21 @@ describe('FactCard', () => {
     )
   })
 
+  it('uses Quiet Tool fact-card chrome and confidence colors', () => {
+    const fact = makeFact()
+    render(<FactCard fact={fact} allFacts={[fact]} project={project} />)
+
+    expect(screen.getByTestId('fact-card-fact-06').className).toMatch(
+      /border-tr-border/,
+    )
+    expect(screen.getByTestId('confidence-bar').className).toMatch(
+      /bg-tr-surface-sunken/,
+    )
+    expect(screen.getByTestId('confidence-bar-fill').className).toMatch(
+      /bg-tr-sage/,
+    )
+  })
+
   it('queue actions fire Accept / Reject / Edit save', async () => {
     const user = userEvent.setup()
     const onAccept = vi.fn()

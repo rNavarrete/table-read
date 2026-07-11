@@ -35,6 +35,7 @@ from schemas import (
     BeatCandidate,
     BlastRadius,
     ConsistencyScan,
+    InitialSceneSkeleton,
     InstructionSuggestions,
     LedgerExtraction,
     RegeneratedElements,
@@ -449,6 +450,16 @@ class AnthropicClient:
     ) -> ConsistencyScan:
         return self._call(
             "scan_consistency",
+            system=system,
+            user_message=user_message,
+            prompt_version=prompt_version,
+        )
+
+    def generate_scene_skeleton(
+        self, *, system: str, user_message: str, prompt_version: str
+    ) -> InitialSceneSkeleton:
+        return self._call(
+            "generate_scene_skeleton",
             system=system,
             user_message=user_message,
             prompt_version=prompt_version,

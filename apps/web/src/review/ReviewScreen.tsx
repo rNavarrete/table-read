@@ -13,6 +13,8 @@ import {
   undoProject,
 } from '../api/client'
 import { ApiError } from '../api/errors'
+import { requireProjectId } from '../projects/projectRouting'
+import { loadResume, saveResume } from '../projects/resumeContext'
 import { AppShell } from '../shell/AppShell'
 import { ChangeSetPanel } from './ChangeSetPanel'
 import {
@@ -24,8 +26,6 @@ import { selectableIds } from './selectableIds'
 import { pendingReviewCount } from './pendingReviewCount'
 import { Toast } from '../shell/Toast'
 import { lockedObjectMessage } from '../shell/toastCopy'
-
-const DEFAULT_PROJECT_ID = 'proj-longpour'
 
 function useUrlParam(name: string): string | null {
   return useMemo(
@@ -48,8 +48,9 @@ function openChangeSet(projectId: string, changeSetId: string) {
  * lists draft Change Sets for the project (mode-switcher entry path).
  */
 export function ReviewScreen() {
-  const projectId = useUrlParam('project') ?? DEFAULT_PROJECT_ID
+  const projectId = requireProjectId()
   const changeSetId = useUrlParam('changeSet')
+  const activeProjectId = projectId ?? ''
 
   const [project, setProject] = useState<Project | null>(null)
   const [ledgerCount, setLedgerCount] = useState(0)
@@ -66,6 +67,7 @@ export function ReviewScreen() {
   const [changeSetReady, setChangeSetReady] = useState(false)
 
   useEffect(() => {
+    if (!projectId) return
     let cancelled = false
     Promise.all([getProject(projectId), getLedger(projectId)])
       .then(([loadedProject, ledger]) => {
@@ -84,9 +86,16 @@ export function ReviewScreen() {
     }
   }, [projectId])
 
+  useEffect(() => {
+    if (!projectId) return
+    const resume = loadResume(projectId)
+    saveResume(projectId, { ...resume, mode: 'Review' })
+  }, [projectId])
+
   // Mode-switcher entry: no ?changeSet= → list drafts (UI spec §5).
   // With ?changeSet= → GET (sessionStorage warm cache on failure).
   useEffect(() => {
+    if (!projectId) return
     let cancelled = false
 
     async function loadDraftList() {
@@ -246,7 +255,7 @@ export function ReviewScreen() {
 
   async function handleUndoAll() {
     try {
-      await undoProject(projectId, {
+      await undoProject(activeProjectId, {
         expectedHeadSnapshotId: project?.headSnapshotId,
       })
       // Full reload so Plan/Write pick up the restored head and this screen
@@ -272,6 +281,7 @@ export function ReviewScreen() {
     const url = new URL(window.location.href)
     url.pathname = '/plan'
     url.searchParams.delete('changeSet')
+    url.searchParams.set('project', activeProjectId)
     url.searchParams.set('scene', sceneId)
     window.location.assign(url.toString())
   }
@@ -279,10 +289,12 @@ export function ReviewScreen() {
   function handleContinuityFlag(factId: string) {
     const url = new URL(window.location.href)
     url.pathname = '/ledger'
-    url.searchParams.set('project', projectId)
+    url.searchParams.set('project', activeProjectId)
     url.searchParams.set('fact', factId)
     window.location.assign(url.toString())
   }
+
+  if (!projectId) return null
 
   // Draft picker (no ?changeSet= and not auto-redirecting a single draft).
   if (!changeSetId && changeSetReady && drafts !== null) {
@@ -297,9 +309,14 @@ export function ReviewScreen() {
           className="flex flex-col gap-4 p-6"
           data-testid="draft-change-sets"
         >
-          <h2 className="font-display text-17 text-tr-text-primary">
-            Open Change Sets
-          </h2>
+          <div className="flex flex-col gap-1">
+            <p className="text-12 uppercase tracking-wide text-tr-text-muted">
+              Review mode
+            </p>
+            <h2 className="font-display text-17 font-semibold text-tr-text-primary">
+              Open Change Sets
+            </h2>
+          </div>
           {drafts.length === 0 ? (
             <p className="text-15 text-tr-text-secondary">
               No open Change Sets. Open Review from a structural edit in Plan.
@@ -311,9 +328,9 @@ export function ReviewScreen() {
                   <button
                     type="button"
                     onClick={() => openChangeSet(projectId, cs.id)}
-                    className="w-full rounded-card border border-tr-border bg-tr-surface-raised px-4 py-3 text-left hover:border-tr-coral"
+                    className="w-full rounded-card border border-tr-border bg-tr-surface-raised px-4 py-3 text-left shadow-raised transition hover:border-tr-coral hover:shadow-lift"
                   >
-                    <p className="font-display text-15 text-tr-text-primary">
+                    <p className="font-display text-15 font-medium text-tr-text-primary">
                       &ldquo;{cs.instruction}&rdquo;
                     </p>
                     <p className="mt-1 text-13 text-tr-text-muted">
@@ -396,6 +413,10 @@ export function ReviewScreen() {
         onDismissFlag={(id) => void handleDismissFlag(id)}
         onGoToScene={handleGoToScene}
         onContinuityFlagClick={handleContinuityFlag}
+        characters={project.seriesBible.characters.map((c) => ({
+          id: c.id,
+          name: c.name,
+        }))}
       />
       {toast && (
         <Toast tone="danger" onDismiss={() => setToast(null)}>

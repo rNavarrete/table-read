@@ -45,7 +45,7 @@ export function ModeSwitcher({
             className={
               'flex items-center gap-1.5 rounded-card px-3 py-1 text-13 transition-colors motion-reduce:transition-none' +
               (isActive
-                ? ' bg-tr-coral-soft text-tr-text-primary'
+                ? ' bg-tr-coral-soft text-tr-accent-ink'
                 : disabled
                   ? ' cursor-not-allowed text-tr-text-muted'
                   : ' text-tr-text-secondary hover:bg-tr-surface-raised')

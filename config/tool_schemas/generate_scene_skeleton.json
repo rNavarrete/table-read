@@ -1,0 +1,104 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "label": {
+      "type": "string"
+    },
+    "scenes": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "act": {
+            "type": "integer"
+          },
+          "audienceFeels": {
+            "type": "string"
+          },
+          "audienceLearns": {
+            "type": "string"
+          },
+          "beatPlanSeeds": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "audienceFeels": {
+                  "type": "string"
+                },
+                "audienceLearns": {
+                  "type": "string"
+                },
+                "whatHappens": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "whatHappens",
+                "audienceLearns",
+                "audienceFeels"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "location": {
+            "type": "string"
+          },
+          "motivations": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "characterId": {
+                  "type": "string"
+                },
+                "objective": {
+                  "type": "string"
+                },
+                "obstacle": {
+                  "type": "string"
+                },
+                "stakes": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "characterId",
+                "objective",
+                "stakes",
+                "obstacle"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "socialSituation": {
+            "type": "string"
+          },
+          "time": {
+            "type": "string"
+          },
+          "whatHappens": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "act",
+          "location",
+          "time",
+          "socialSituation",
+          "whatHappens",
+          "audienceLearns",
+          "audienceFeels",
+          "motivations",
+          "beatPlanSeeds"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "label",
+    "scenes"
+  ],
+  "type": "object"
+}

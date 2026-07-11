@@ -110,6 +110,45 @@ export const Project = z.object({
   headSnapshotId: Id.nullable(),
 });
 // Ledger, snapshots, suggestionHistory live in separate stores (design doc §5).
+
+export const ProjectSummary = z.object({
+  id: Id,
+  title: z.string(),
+  format: ShowFormat,
+  updatedAt: z.string().datetime(),
+  pendingReviewCount: z.number().int().min(0),
+  setupState: z.enum(["incomplete", "ready"]),
+});
+
+export const CharacterSeed = z.object({
+  name: z.string().min(1),
+  traits: z.string().nullable().default(null),
+});
+
+export const ProjectFoundationInput = z.object({
+  existentialQuestion: z.string().nullable().default(null),
+  storiesToAvoid: z.array(z.string()).nullable().default(null),
+  characters: z.array(CharacterSeed).nullable().default(null),
+});
+
+export const ProjectCreateRequest = z.object({
+  title: z.string(),
+  format: ShowFormat,
+  premise: z.string(),
+  foundation: ProjectFoundationInput.nullable().default(null),
+});
+
+// §9.3 atomic create-and-import: project basics (no `foundation`) plus the
+// script source. `premise` is optional (the import wizard has no premise step).
+export const ProjectImportCreateRequest = z.object({
+  title: z.string(),
+  format: ShowFormat,
+  premise: z.string().nullable().default(null),
+  source: z.object({
+    format: z.enum(["fountain", "text"]),
+    content: z.string(),
+  }),
+});
 ```
 
 ## 2. Generation / Review types
@@ -125,7 +164,11 @@ export const BeatCandidate = z.object({
 export const ImpactedObject = z.object({
   objectType: z.enum(["scene", "beat", "character", "ledgerFact"]),
   objectId: Id,
-  applyMode: z.enum(["regenerate", "flag_only"]), // server-annotated: scene/beat → regenerate; character/ledgerFact → flag_only (MVP has no machine-edit path for them)
+  // server-annotated: scene/beat → regenerate; character/ledgerFact →
+  // flag_only (MVP has no machine-edit path for them); `add` is the §9.4
+  // initial_scene_skeleton variant, where objectId is a proposalId, not a
+  // final scene id.
+  applyMode: z.enum(["regenerate", "flag_only", "add"]),
   reason: z.string(),
   confidence: z.enum(["high", "speculative"]),
   locked: z.boolean(),          // server-annotated; locked rows render disabled
@@ -146,6 +189,35 @@ export const ConsistencyFlag = z.object({
   sourceChange: Id,             // the ChangeSet or accepted-beat snapshot that triggered the scan
 });
 
+// §9.3 atomic create-and-import result — same shape as the existing
+// `POST /projects/{pid}/import` response, returned as the SSE stream's
+// terminal `complete` payload.
+export const ProjectImportResult = z.object({
+  project: Project,
+  newFacts: z.array(LedgerFact),
+  consistencyFlags: z.array(ConsistencyFlag),
+});
+
+// Named import progress stages (§7 step 4), in emission order.
+export const ProjectImportStageName = z.enum([
+  "parsing_scenes", "segmenting_beats", "extracting_facts",
+  "checking_consistency", "saving",
+]);
+
+// §9.3 SSE progress: any number of `stage` events (order above), then
+// exactly one terminal `complete` or `failed`. `error` matches the
+// canonical `{code, message, details?}` envelope.
+export const ProjectImportProgressEvent = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("stage"), name: ProjectImportStageName }),
+  z.object({ type: z.literal("complete"), result: ProjectImportResult }),
+  z.object({
+    type: z.literal("failed"),
+    error: z.object({
+      code: z.string(), message: z.string(), details: z.unknown().nullable().default(null),
+    }),
+  }),
+]);
+
 // Exact, typed preview content — what apply actually writes. `ImpactedObject.after`
 // is only the rendered display snippet; this is the source of truth.
 export const BeatUpdate = z.object({
@@ -163,17 +235,53 @@ export const SceneUpdate = z.object({
   }), // null = field unchanged
 });
 
+// §9.4 initial scene skeleton — guided-setup scene-addition Change Set. MVP
+// defers storyline inference, so every addition carries storyline "A"
+// (Scene's own default). `proposalId` is the server-assigned selection
+// handle — never the final scene id — minted once generation validates the
+// model's scene list (§2a InitialSceneSkeleton below).
+export const SceneAddition = z.object({
+  proposalId: Id,
+  act: z.number().int().min(0),
+  storyline: z.enum(["A"]).default("A"),
+  location: z.string(), time: z.string(), socialSituation: z.string(),
+  whatHappens: z.string(), audienceLearns: z.string(), audienceFeels: z.string(),
+  motivations: z.array(Motivation), // characterId references existing Characters
+  beatPlanSeeds: z.array(z.object({
+    whatHappens: z.string(), audienceLearns: z.string(), audienceFeels: z.string(),
+  })), // ordered; apply mints beat ids/scriptText: "" server-side
+});
+
+// One generated skeleton option: the writer compares three of these side by
+// side, then selects one to create a Change Set.
+export const InitialSceneSkeletonCandidate = z.object({
+  candidateId: Id,
+  basedOnSnapshotId: Id, // the headSnapshotId this candidate was generated against
+  label: z.string().max(40),
+  scenes: z.array(SceneAddition), // ordered
+});
+
 export const ChangeSetPreview = z.object({
   beatUpdates: z.array(BeatUpdate),
   sceneUpdates: z.array(SceneUpdate),
   continuityConflicts: z.array(z.object({ factId: Id, objectId: Id, explanation: z.string() })),
   basedOnSnapshotId: Id,              // head at preview time; apply 409s (PREVIEW_STALE) if head moved
   generatedAt: z.string().datetime(),
+  // §9.4 initial_scene_skeleton variant: the chosen candidate's scene
+  // additions, verbatim. Null for the ordinary "edit" ChangeSet kind.
+  sceneAdditions: z.array(SceneAddition).nullable().default(null),
 });
+
+// "edit" — the classify_blast_radius / regenerate_elements flow above.
+// "initial_scene_skeleton" — guided-setup scene additions (§9.4): selecting
+// a candidate creates the Change Set already `previewing` (the candidate
+// IS the preview; no further model call).
+export const ChangeSetKind = z.enum(["edit", "initial_scene_skeleton"]);
 
 export const ChangeSet = z.object({
   id: Id, projectId: Id,
-  instruction: z.string(),            // the edit that triggered it
+  kind: ChangeSetKind.default("edit"),
+  instruction: z.string(),            // the edit that triggered it (or a generated label for initial_scene_skeleton)
   targetObjectId: Id,
   impacted: z.array(ImpactedObject),
   preview: ChangeSetPreview.nullable(), // null until POST /preview succeeds
@@ -205,6 +313,24 @@ export const RegeneratedElements = z.object({
   beats: z.array(BeatUpdate),
   scenes: z.array(SceneUpdate),
   continuityConflicts: z.array(z.object({ factId: Id, objectId: Id, explanation: z.string() })),
+});
+
+// §9.4 generate_scene_skeleton — the guided-setup convergent loop calls this
+// 3x (drama_manager/scene_skeleton.py). The model emits no ids and no
+// scriptText; the server assigns each scene a proposalId and stamps
+// storyline "A" after validation, producing a SceneAddition (§2 above) per
+// scene.
+export const InitialSceneSkeleton = z.object({
+  label: z.string().max(40),
+  scenes: z.array(z.object({
+    act: z.number().int().min(0),
+    location: z.string(), time: z.string(), socialSituation: z.string(),
+    whatHappens: z.string(), audienceLearns: z.string(), audienceFeels: z.string(),
+    motivations: z.array(Motivation),
+    beatPlanSeeds: z.array(z.object({
+      whatHappens: z.string(), audienceLearns: z.string(), audienceFeels: z.string(),
+    })),
+  })),
 });
 
 // §5 extract_ledger_facts — model span has lines only; char offsets are computed server-side.
@@ -283,7 +409,8 @@ Defined transactions:
 
 **Projects**
 
-- `POST /projects` `{title, format, premise}` → `Project` — in one transaction: creates the project (minimal bible scaffolded) **and its root snapshot** (`parent_id: null`, `doc` = initial state, `ledger` = `[]`, `flags` = `[]`), setting `headSnapshotId` to it. `headSnapshotId` is therefore never null after creation — previews, undo, and forks always have an anchor. (Undo at root still 409s: the root has no parent.)
+- `GET /projects` -> `ProjectSummary[]` sorted by `updatedAt` descending. `pendingReviewCount` counts Ledger facts with `status: "pending_review"`. `setupState` is `"ready"` iff the project has at least one scene containing at least one beat; otherwise `"incomplete"`. Summaries must not include full writer text fields such as `premise` or `seasons`.
+- `POST /projects` `ProjectCreateRequest` with required `Idempotency-Key` header → `Project` — in one transaction: creates the project (minimal bible scaffolded, plus optional writer-supplied foundation) **and its root snapshot** (`parent_id: null`, `doc` = initial state, `ledger` = `[]`, `flags` = `[]`), setting `headSnapshotId` to it. `headSnapshotId` is therefore never null after creation — previews, undo, and forks always have an anchor. Character seeds contain no IDs; the server assigns `char-*`, sets `locked: false`, maps supplied `traits` or `""`, and initializes `embodiment`, `presentation`, `hiding`, and `seriesArc` to `""`. Project creation performs no LLM call. Same idempotency key + same canonical request hash replays the 201 response; same key + different hash returns 409 `IDEMPOTENCY_CONFLICT`; failed transactions persist no key.
 - `GET /projects/{pid}` → `Project`
 - `PATCH /projects/{pid}` — JSON-patch body for direct writer edits (no regeneration); creates snapshot. Patches touching **structural plan fields** (scene/episode `whatHappens`, `premise`, storyline summaries) additionally trigger `scan_consistency` and return `{project, consistencyFlags}` — the "Save field only" path skips Review, never the flagging promise. Patches into locked ranges → 409 `LOCKED_OBJECT`.
 - `POST /projects/{pid}/undo` → `Project` (moves head to parent snapshot)
@@ -292,6 +419,7 @@ Defined transactions:
   2. Run `extract_ledger_facts` over every imported scene; **all import-derived facts are created `pending_review` regardless of confidence** (nobody has vouched for inferences over a whole script — the writer batch-reviews them in the Ledger queue).
   3. Run `scan_consistency` across the imported episode (initial sweep — imports can carry internal contradictions).
   4. One snapshot committing doc + ledger + flags together; partial failure rolls back all of it.
+- `POST /projects/import` `ProjectImportCreateRequest` with required `Idempotency-Key` header → **SSE** (§9.3 atomic create-and-import — the import-wizard analogue of `POST /projects` above): reuses the same parse/import pipeline as `POST /projects/{pid}/import`, but creates the project **and** its imported state in one DB transaction — every LLM/parsing stage that can fail runs before that single write, never an empty root followed by an import child. Events: `stage {type: "stage", name}` for each named stage in order (`parsing_scenes`, `segmenting_beats`, `extracting_facts`, `checking_consistency`, `saving`), then exactly one terminal `complete {type: "complete", result: ProjectImportResult}` or `failed {type: "failed", error}`. `ProjectImportResult` is `{project, newFacts, consistencyFlags}` — the same shape `POST /projects/{pid}/import` returns. Idempotency mirrors `POST /projects`: a hash conflict is rejected with a plain 409 `IDEMPOTENCY_CONFLICT` JSON response *before* the stream opens (never a mid-stream surprise); a same-key/same-hash replay opens a stream whose only frame is the terminal `complete` with the original result; a failed transaction leaves no key, so a retry with the same key runs normally.
 - `GET /projects/{pid}/export.fountain` → `text/plain`
 - `DELETE /projects/{pid}` — purges every project-scoped row across **all six DB tables plus embeddings**: `projects`, `snapshots`, `ledger_facts`, `change_sets` (including stored previews — they contain generated script text and instructions), `consistency_flags`, `suggestion_history`, and the embedding blobs stored with suggestion history (privacy §7.1). One transaction; the purge test asserts zero remaining rows per table. ("All six DB tables plus embeddings" is the canonical phrasing — build plan and test plan use it verbatim.)
 
@@ -300,6 +428,12 @@ Defined transactions:
 - `POST /projects/{pid}/scenes/{sid}/candidates` `{afterBeatId?, instruction?}` → **SSE stream**: events `candidate_start {index}`, `delta {text}` (provisional display only), `candidate_done {BeatCandidate}` (validated — card becomes actionable) or `candidate_failed {error}`, ×3, then `done`. Clients must not enable Accept/Tune before `candidate_done`.
 - `POST /projects/{pid}/scenes/{sid}/candidates/tune` `{candidate: BeatCandidate, instruction}` → SSE, one candidate
 - `POST /projects/{pid}/scenes/{sid}/beats` `{candidate: BeatCandidate, afterBeatId?}` — accept: inserts beat, snapshots, triggers ledger extraction + consistency scan → `{project, newFacts, contradictions, consistencyFlags}`. `newFacts` are policy-processed `LedgerFact`s (§5 policy applied server-side); each `contradictions[]` entry additionally carries `proposalId` — the id of the supersede-proposal fact the server created.
+
+**Guided Plan setup (new-project-flow design spec §6/§9.4)**
+
+- `POST /projects/{pid}/scene-skeleton/candidates` → `InitialSceneSkeletonCandidate[]` (exactly 3) — the explicit "Generate scene skeleton" gesture; runs the three-candidate convergent loop (`generate_scene_skeleton`, §9.4). Read-only: nothing is persisted.
+- `POST /projects/{pid}/scene-skeleton/change-sets` `InitialSceneSkeletonCandidate` (the exact candidate the writer compared, echoed back verbatim) → `ChangeSet` with `kind: "initial_scene_skeleton"`, already `status: "previewing"` — selecting a candidate creates the Change Set and sends the writer to Review; it never writes the plan directly. `impacted[].objectId` is each scene's `proposalId`, `applyMode: "add"`. 409 `PREVIEW_STALE` if `basedOnSnapshotId` no longer matches the project head; 409 `VALIDATION` if a motivation references an unknown `characterId`.
+- Apply/discard/flag reuse the existing `POST /change-sets/{cid}/apply|discard|flag` below. For this Change Set kind, `approvedObjectIds` are proposal ids; apply mints the final `scene-*`/`beat-*` ids for the approved subset (in the candidate's original order), inserts them into the project's single episode (scaffolding `season-1`/`ep-1` if the project has none yet), and writes exactly one snapshot — no `regenerate_elements`/extraction/scan calls (there is no existing content to regenerate and no script text yet to extract facts from). Routes through the same lock guard as every other apply path: a locked episode → 409 `LOCKED_OBJECT`, zero mutation. `POST /change-sets/{cid}/preview` 409s `VALIDATION` for this kind (the selected candidate already *is* the preview).
 
 **Review mode**
 
@@ -333,7 +467,7 @@ Defined transactions:
 
 - `POST /projects/{pid}/suggest` `{context: "scene"|"beat", targetId}` → `{suggestions: string[3]}`
 
-**Error shape (all endpoints):** `{error: {code, message, details?}}`. Codes: `LOCKED_OBJECT`, `SCHEMA_INVALID_LLM` (after retry), `NOT_FOUND`, `VALIDATION`, `LLM_UNAVAILABLE`, `PREVIEW_STALE`, `CONFLICT_STALE_PROPOSAL`, `CONFLICT_STALE_HEAD`.
+**Error shape (all endpoints):** `{error: {code, message, details?}}`. Codes: `LOCKED_OBJECT`, `SCHEMA_INVALID_LLM` (after retry), `NOT_FOUND`, `VALIDATION`, `LLM_UNAVAILABLE`, `PREVIEW_STALE`, `CONFLICT_STALE_PROPOSAL`, `CONFLICT_STALE_HEAD`, `IDEMPOTENCY_CONFLICT`.
 
 **Optimistic concurrency:** every project-mutating write (PATCH, accept, ledger confirm/reject/edit/batch, flag dismiss, import, undo, Change Set apply) goes through an atomic compare-and-swap on `projects.head_snapshot_id` (`UPDATE … WHERE head_snapshot_id = :expected`). Clients SHOULD send `If-Match: <headSnapshotId>` on those mutations; when present and stale, the server returns 409 `CONFLICT_STALE_HEAD` and persists nothing. When omitted, the server still CAS-guards against the head observed at read time so two concurrent writers that both loaded H cannot both commit children of H. Change Set apply additionally rejects when `preview.basedOnSnapshotId` ≠ current head (`PREVIEW_STALE` — re-preview required) before the CAS.
 

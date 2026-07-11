@@ -25,6 +25,7 @@ function themeKeyFor(name: string): string {
   if (name === '--tr-script-col') return '--container-script-col'
   // Tailwind v4's --spacing-* namespace backs w-*/h-*/p-*/m-*/gap-* etc. for
   // named values (verified empirically — see tokens.css's comment).
+  if (name === '--tr-shell-height') return '--spacing-shell-height'
   if (name.startsWith('--tr-panel-') || name.startsWith('--tr-card-'))
     return name.replace('--tr-', '--spacing-')
   // Tailwind v4's --outline-width-* namespace backs outline-<name>.

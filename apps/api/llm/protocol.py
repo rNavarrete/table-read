@@ -17,6 +17,7 @@ from schemas import (
     BeatCandidate,
     BlastRadius,
     ConsistencyScan,
+    InitialSceneSkeleton,
     InstructionSuggestions,
     LedgerExtraction,
     RegeneratedElements,
@@ -77,3 +78,7 @@ class LlmClient(Protocol):
     def scan_consistency(
         self, *, system: str, user_message: str, prompt_version: str
     ) -> ConsistencyScan: ...
+
+    def generate_scene_skeleton(
+        self, *, system: str, user_message: str, prompt_version: str
+    ) -> InitialSceneSkeleton: ...

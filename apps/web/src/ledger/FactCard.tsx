@@ -99,7 +99,7 @@ export function FactCard({
   return (
     <Card
       variant="raised"
-      className="flex flex-col gap-2"
+      className="flex flex-col gap-2 border border-tr-border"
       data-testid={`fact-card-${fact.id}`}
     >
       {editing ? (
@@ -196,7 +196,7 @@ export function FactCard({
               ))
             )}
           </div>
-          <ConfidenceBar confidence={fact.confidence} />
+          <ConfidenceBar confidence={fact.confidence} muted={superseded} />
           <div className="flex flex-wrap items-center gap-1.5">
             <Chip hue={provenanceHue(fact.provenance)}>
               {provenanceLabel(fact.provenance)}

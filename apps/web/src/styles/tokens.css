@@ -1,5 +1,6 @@
 /*
  * Design tokens — Table Read UI spec §1 (docs/tableread-ui-spec.md).
+ * Quiet Tool: cool paper neutrals, slate-blue accent, Instrument Sans.
  * Light theme only (MVP). Names and values are verbatim from the spec —
  * exempted from Prettier (see .prettierignore) so that fidelity holds byte
  * for byte, including hex casing and quote style.
@@ -9,37 +10,37 @@
  * block below wires them into Tailwind without duplicating any value.
  */
 :root {
-  /* Surfaces — warm ivory & clay */
-  --tr-surface-page:    #FAF6EF; /* app background, Write mode page area */
-  --tr-surface-raised:  #FFFDF8; /* cards, script canvas sheet */
-  --tr-surface-sunken:  #F1EAE0; /* panels, rails, command bar */
-  --tr-surface-clay:    #E8DCCB; /* frames on Plan canvas, hover fills */
-  --tr-border:          #DDD2C2;
-  --tr-border-strong:   #C4B6A1;
+  /* Surfaces — cool paper */
+  --tr-surface-page:    #F6F6F3; /* app background, Write mode page area */
+  --tr-surface-raised:  #FFFFFF; /* cards, script canvas sheet */
+  --tr-surface-sunken:  #F0F0EC; /* panels, rails, command bar */
+  --tr-surface-clay:    #EBEBE6; /* frames on Plan canvas, hover fills */
+  --tr-border:          #E8E8E2;
+  --tr-border-strong:   #D9D9D2;
 
   /* Text — charcoal, never pure black */
-  --tr-text-primary:    #2B2724;
-  --tr-text-secondary:  #6B615A;
-  --tr-text-muted:      #988D83;
+  --tr-text-primary:    #26272B;
+  --tr-text-secondary:  #84857D;
+  --tr-text-muted:      #9a9b92;
 
-  /* Primary action — muted coral */
-  --tr-coral:           #E0704F;
-  --tr-coral-hover:     #C95E3F;
-  --tr-coral-soft:      #F7DED4; /* selected/active tints */
+  /* Primary action — slate-blue (--tr-coral* names retained) */
+  --tr-coral:           #5B79A6;
+  --tr-coral-hover:     #4A6690;
+  --tr-coral-soft:      #DEE5EE; /* selected/active tints */
 
   /* Status hues */
-  --tr-sage:            #7E9B76; /* confirmed, high-confidence, success */
-  --tr-sage-soft:       #E4ECE0;
-  --tr-sky:             #6E93B8; /* informational, links, setup/payoff connectors */
-  --tr-sky-soft:        #E1EAF2;
-  --tr-amber:           #C9913B; /* needs review, speculative, pending */
-  --tr-amber-soft:      #F5E8D2;
+  --tr-sage:            #7D9678; /* confirmed, high-confidence, success */
+  --tr-sage-soft:       #E7EEE4;
+  --tr-sky:             #41608A; /* informational, links, setup/payoff connectors */
+  --tr-sky-soft:        #E4EBF2;
+  --tr-amber:           #8A6120; /* needs review, speculative, pending */
+  --tr-amber-soft:      #FBF4E6;
   --tr-danger:          #B0503C; /* destructive, errors only — not for AI content */
 
   /* Type */
-  --tr-font-ui:      "Inter", system-ui, sans-serif;
+  --tr-font-ui:      "Instrument Sans", system-ui, sans-serif;
   --tr-font-script:  "Courier Prime", "Courier New", monospace; /* teleplay */
-  --tr-font-display: "Fraunces", Georgia, serif; /* headings, mode titles */
+  --tr-font-display: "Instrument Sans", system-ui, sans-serif; /* headings, mode titles */
 
   /*
    * §1's comment-only scales, tokenized per controller ruling on T0.4:
@@ -54,46 +55,42 @@
   --tr-font-size-22: 22px;
   --tr-font-size-28: 28px;
 
-  /* Radius: cards 10px, chips 999px, canvas frames 14px. */
-  --tr-radius-card:  10px;
+  /* Radius: cards 12px, chips 999px, canvas frames 12px. */
+  --tr-radius-card:  12px;
   --tr-radius-chip:  999px;
-  --tr-radius-frame: 14px;
+  --tr-radius-frame: 12px;
 
-  /* Shadow: raised standard, lift on drag. */
-  --tr-shadow-raised: 0 1px 3px rgb(43 39 36 / 0.08);
-  --tr-shadow-lift:   0 8px 24px rgb(43 39 36 / 0.14);
+  /* Shadow: soft ambient at rest, lift on hover/drag. */
+  --tr-shadow-raised: 0 1px 2px rgb(38 39 43 / 0.04);
+  --tr-shadow-lift:   0 4px 16px rgb(38 39 43 / 0.08);
 
   /* Motion: 160ms ease-out standard; streaming text has no animation. */
   --tr-motion-duration-standard: 160ms;
   --tr-motion-ease-standard:     ease-out;
 
-  /* Layout: script column / command bar max-width — §3's literal 720px,
-     tokenized per controller ruling on T2.3 review. */
-  --tr-script-col: 720px;
+  /* Layout: Write mode (§3) script column / candidate dock. */
+  --tr-script-col: 600px;
+  --tr-panel-candidate-dock: 332px;
 
-  /* Layout: Plan mode board (§4) panel/card widths — 240px/300px/260px have
-     no named token in the spec text, only inline parentheticals ("(240px,
-     sunken)", "(300px, raised)", "(raised, 10px radius, 260px)"). Minted per
-     controller ruling on T3.1 (obligation 1): follow the T2.3 script-col
-     precedent for spec-stated pixel values lacking a token name. */
-  --tr-panel-story-layers: 240px;
-  --tr-panel-inspector: 300px;
-  --tr-card-scene: 260px;
+  /* Layout: Plan mode board (§4) panel/card widths. */
+  --tr-panel-story-layers: 232px;
+  --tr-panel-inspector: 296px;
+  --tr-card-scene: 214px;
 
-  /* Layout: Ledger mode filter rail (§6) — 200px, same mint precedent as
-     Plan's panel widths (spec parenthetical, no named token). */
-  --tr-panel-ledger-filters: 200px;
+  /* Layout: Ledger mode filter rail (§6). */
+  --tr-panel-ledger-filters: 198px;
 
-  /* Outline: §4's "Selected = 2px coral outline" — width has no token either
-     (color is already --tr-coral). Minted per the same ruling. */
+  /* Outline: §4's "Selected = 2px accent outline" — width only (color is --tr-coral). */
   --tr-outline-selected: 2px;
 
-  /* Opacity: §5 locked Change Set rows at 55% — value from the spec text,
-     name minted (no --tr-* opacity tokens in §1). Quiet-AI dock 40% stays
-     as a separate affordance (opacity-40) until a second token is needed. */
+  /* Opacity: §5 locked Change Set rows at 55%. */
   --tr-opacity-locked: 0.55;
 
-  /* Spacing: no --tr-* tokens — Tailwind's default 4px-base spacing scale
+  /* Quiet Tool: selected-pill ink on soft accent fill; app shell top bar height. */
+  --tr-accent-ink: #33445E;
+  --tr-shell-height: 52px;
+
+  /* Spacing: no other --tr-* spacing tokens — Tailwind's default 4px-base scale
      already matches spec §1 (4/8/12/16/24/32/48/64), per controller ruling. */
 }
 
@@ -122,6 +119,8 @@
   --color-tr-amber-soft:     var(--tr-amber-soft);
   --color-tr-danger:         var(--tr-danger);
 
+  --color-tr-accent-ink: var(--tr-accent-ink);
+
   --font-ui:      var(--tr-font-ui);
   --font-script:  var(--tr-font-script);
   --font-display: var(--tr-font-display);
@@ -147,13 +146,15 @@
   /* max-w-script-col (Tailwind v4 --container-* namespace backs max-w-*). */
   --container-script-col: var(--tr-script-col);
 
-  /* w-panel-story-layers / w-panel-inspector / w-card-scene. Tailwind v4's
-     --spacing-* namespace backs w-, h-, p-, m-, gap- (etc.) utilities for
-     named values, verified empirically — see the T3.1 task report. */
+  /* w-panel-story-layers / w-panel-inspector / w-card-scene / h-shell-height.
+     Tailwind v4's --spacing-* namespace backs w-, h-, p-, m-, gap- (etc.)
+     utilities for named values, verified empirically — see the T3.1 task report. */
   --spacing-panel-story-layers: var(--tr-panel-story-layers);
+  --spacing-panel-candidate-dock: var(--tr-panel-candidate-dock);
   --spacing-panel-inspector: var(--tr-panel-inspector);
   --spacing-panel-ledger-filters: var(--tr-panel-ledger-filters);
   --spacing-card-scene: var(--tr-card-scene);
+  --spacing-shell-height: var(--tr-shell-height);
 
   /* outline-selected (Tailwind v4's --outline-width-* namespace backs
      outline-<name> for outline-width; outline-style defaults to solid via

@@ -203,6 +203,53 @@ export const Project = z.object({
 export type Project = z.infer<typeof Project>
 // Ledger, snapshots, suggestionHistory live in separate stores (design doc §5).
 
+export const ProjectSummary = z.object({
+  id: Id,
+  title: z.string(),
+  format: ShowFormat,
+  updatedAt: z.string().datetime(),
+  pendingReviewCount: z.number().int().min(0),
+  setupState: z.enum(['incomplete', 'ready']),
+})
+export type ProjectSummary = z.infer<typeof ProjectSummary>
+
+export const CharacterSeed = z.object({
+  name: z.string().min(1),
+  traits: z.string().nullable().default(null),
+})
+export type CharacterSeed = z.input<typeof CharacterSeed>
+
+export const ProjectFoundationInput = z.object({
+  existentialQuestion: z.string().nullable().default(null),
+  storiesToAvoid: z.array(z.string()).nullable().default(null),
+  characters: z.array(CharacterSeed).nullable().default(null),
+})
+export type ProjectFoundationInput = z.input<typeof ProjectFoundationInput>
+
+export const ProjectCreateRequest = z.object({
+  title: z.string(),
+  format: ShowFormat,
+  premise: z.string(),
+  foundation: ProjectFoundationInput.nullable().default(null),
+})
+export type ProjectCreateRequest = z.input<typeof ProjectCreateRequest>
+
+// §9.3 atomic create-and-import: project basics (no `foundation` — the
+// import path has no idea-path story-foundation step) plus the script
+// source. `premise` is optional (the import wizard has no premise step).
+export const ProjectImportCreateRequest = z.object({
+  title: z.string(),
+  format: ShowFormat,
+  premise: z.string().nullable().default(null),
+  source: z.object({
+    format: z.enum(['fountain', 'text']),
+    content: z.string(),
+  }),
+})
+export type ProjectImportCreateRequest = z.input<
+  typeof ProjectImportCreateRequest
+>
+
 // ─────────────────────────────────────────────────────────────────────────
 // §2. Generation / Review types
 // ─────────────────────────────────────────────────────────────────────────
@@ -224,7 +271,11 @@ export type BeatCandidate = z.infer<typeof BeatCandidate>
 export const ImpactedObject = z.object({
   objectType: z.enum(['scene', 'beat', 'character', 'ledgerFact']),
   objectId: Id,
-  applyMode: z.enum(['regenerate', 'flag_only']), // server-annotated: scene/beat → regenerate; character/ledgerFact → flag_only (MVP has no machine-edit path for them)
+  // server-annotated: scene/beat → regenerate; character/ledgerFact →
+  // flag_only (MVP has no machine-edit path for them); `add` is the §9.4
+  // initial_scene_skeleton variant, where `objectId` is a proposalId, not a
+  // final scene id.
+  applyMode: z.enum(['regenerate', 'flag_only', 'add']),
   reason: z.string(),
   confidence: z.enum(['high', 'speculative']),
   locked: z.boolean(), // server-annotated; locked rows render disabled
@@ -246,6 +297,47 @@ export const ConsistencyFlag = z.object({
   sourceChange: Id, // the ChangeSet or accepted-beat snapshot that triggered the scan
 })
 export type ConsistencyFlag = z.infer<typeof ConsistencyFlag>
+
+// §9.3 atomic create-and-import result — same shape as the existing
+// `POST /projects/{pid}/import` response (data contract §4), returned as the
+// SSE stream's terminal `complete` payload.
+export const ProjectImportResult = z.object({
+  project: Project,
+  newFacts: z.array(LedgerFact),
+  consistencyFlags: z.array(ConsistencyFlag),
+})
+export type ProjectImportResult = z.infer<typeof ProjectImportResult>
+
+// §7 named import progress stages (design doc §7 step 4), in emission order.
+export const ProjectImportStageName = z.enum([
+  'parsing_scenes',
+  'segmenting_beats',
+  'extracting_facts',
+  'checking_consistency',
+  'saving',
+])
+export type ProjectImportStageName = z.infer<typeof ProjectImportStageName>
+
+// §9.3 SSE progress: a `stage` event per named stage (any number, in the
+// order above), then exactly one terminal `complete` or `failed`. `error`
+// matches the canonical `{code, message, details?}` envelope (data contract
+// §4) so the wizard's failure UI reuses the same error rendering as every
+// other endpoint.
+export const ProjectImportProgressEvent = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('stage'), name: ProjectImportStageName }),
+  z.object({ type: z.literal('complete'), result: ProjectImportResult }),
+  z.object({
+    type: z.literal('failed'),
+    error: z.object({
+      code: z.string(),
+      message: z.string(),
+      details: z.unknown().nullable().default(null),
+    }),
+  }),
+])
+export type ProjectImportProgressEvent = z.infer<
+  typeof ProjectImportProgressEvent
+>
 
 // Exact, typed preview content — what apply actually writes. `ImpactedObject.after`
 // is only the rendered display snippet; this is the source of truth.
@@ -275,6 +367,45 @@ export const SceneUpdate = z.object({
 })
 export type SceneUpdate = z.infer<typeof SceneUpdate>
 
+// §9.4 initial scene skeleton — guided-setup scene-addition Change Set
+// (new-project-flow design spec §6/§9.4). MVP defers storyline inference, so
+// every addition carries `storyline: 'A'` (`Scene`'s own default) rather than
+// a model-set field. `proposalId` is the server-assigned selection handle —
+// never the final scene id — minted once generation validates the model's
+// scene list (§2a `InitialSceneSkeleton` below); the model never sets ids.
+export const SceneAddition = z.object({
+  proposalId: Id,
+  act: z.number().int().min(0),
+  storyline: z.enum(['A']).default('A'),
+  location: z.string(),
+  time: z.string(),
+  socialSituation: z.string(),
+  whatHappens: z.string(),
+  audienceLearns: z.string(),
+  audienceFeels: z.string(),
+  motivations: z.array(Motivation), // characterId references existing Characters
+  beatPlanSeeds: z.array(
+    z.object({
+      whatHappens: z.string(),
+      audienceLearns: z.string(),
+      audienceFeels: z.string(),
+    }),
+  ), // ordered; apply mints beat ids/scriptText: "" server-side
+})
+export type SceneAddition = z.infer<typeof SceneAddition>
+
+// One generated skeleton option (data contract §9.4): the writer compares
+// three of these side by side, then selects one to create a Change Set.
+export const InitialSceneSkeletonCandidate = z.object({
+  candidateId: Id,
+  basedOnSnapshotId: Id, // the headSnapshotId this candidate was generated against
+  label: z.string().max(40),
+  scenes: z.array(SceneAddition), // ordered
+})
+export type InitialSceneSkeletonCandidate = z.infer<
+  typeof InitialSceneSkeletonCandidate
+>
+
 export const ChangeSetPreview = z.object({
   beatUpdates: z.array(BeatUpdate),
   sceneUpdates: z.array(SceneUpdate),
@@ -283,13 +414,25 @@ export const ChangeSetPreview = z.object({
   ),
   basedOnSnapshotId: Id, // head at preview time; apply 409s (PREVIEW_STALE) if head moved
   generatedAt: z.string().datetime(),
+  // §9.4 initial_scene_skeleton variant: the chosen candidate's scene
+  // additions, verbatim. Null for the ordinary "edit" ChangeSet kind.
+  sceneAdditions: z.array(SceneAddition).nullable().default(null),
 })
 export type ChangeSetPreview = z.infer<typeof ChangeSetPreview>
+
+// `edit` — the classify_blast_radius / regenerate_elements flow above.
+// `initial_scene_skeleton` — guided-setup scene additions (§9.4): selecting a
+// candidate creates the Change Set already `previewing` (the candidate IS
+// the preview; no further model call), and `impacted[].objectId` is each
+// scene's `proposalId`.
+export const ChangeSetKind = z.enum(['edit', 'initial_scene_skeleton'])
+export type ChangeSetKind = z.infer<typeof ChangeSetKind>
 
 export const ChangeSet = z.object({
   id: Id,
   projectId: Id,
-  instruction: z.string(), // the edit that triggered it
+  kind: ChangeSetKind.default('edit'),
+  instruction: z.string(), // the edit that triggered it (or a generated label for initial_scene_skeleton)
   targetObjectId: Id,
   impacted: z.array(ImpactedObject),
   preview: ChangeSetPreview.nullable(), // null until POST /preview succeeds
@@ -332,6 +475,35 @@ export const RegeneratedElements = z.object({
   ),
 })
 export type RegeneratedElements = z.infer<typeof RegeneratedElements>
+
+// §9.4 generate_scene_skeleton — the guided-setup convergent loop calls this
+// 3× (drama_manager/scene_skeleton.py). The model emits no ids and no
+// `scriptText` (hard rule: "no scriptText in skeleton"); the server assigns
+// each scene a `proposalId` and stamps `storyline: 'A'` after validation,
+// producing a `SceneAddition` (§2 above) per scene.
+export const InitialSceneSkeleton = z.object({
+  label: z.string().max(40),
+  scenes: z.array(
+    z.object({
+      act: z.number().int().min(0),
+      location: z.string(),
+      time: z.string(),
+      socialSituation: z.string(),
+      whatHappens: z.string(),
+      audienceLearns: z.string(),
+      audienceFeels: z.string(),
+      motivations: z.array(Motivation),
+      beatPlanSeeds: z.array(
+        z.object({
+          whatHappens: z.string(),
+          audienceLearns: z.string(),
+          audienceFeels: z.string(),
+        }),
+      ),
+    }),
+  ),
+})
+export type InitialSceneSkeleton = z.infer<typeof InitialSceneSkeleton>
 
 // §5 extract_ledger_facts — model span has lines only; char offsets are computed server-side.
 export const ExtractedFact = z.object({

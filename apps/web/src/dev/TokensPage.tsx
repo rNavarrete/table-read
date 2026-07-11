@@ -61,13 +61,22 @@ const TOKEN_GROUPS: TokenGroup[] = [
     ],
   },
   {
-    title: 'Primary action (coral)',
+    title: 'Primary action (slate accent)',
     tokens: [
-      { cssVar: '--tr-coral', kind: 'color' },
+      {
+        cssVar: '--tr-coral',
+        description: 'primary actions / accent',
+        kind: 'color',
+      },
       { cssVar: '--tr-coral-hover', kind: 'color' },
       {
         cssVar: '--tr-coral-soft',
         description: 'selected/active tints',
+        kind: 'color',
+      },
+      {
+        cssVar: '--tr-accent-ink',
+        description: 'text on soft accent fill (selected pills)',
         kind: 'color',
       },
     ],
@@ -170,6 +179,11 @@ const TOKEN_GROUPS: TokenGroup[] = [
         kind: 'width',
       },
       {
+        cssVar: '--tr-panel-candidate-dock',
+        description: 'Write mode candidate dock width (UI spec §3)',
+        kind: 'width',
+      },
+      {
         cssVar: '--tr-panel-story-layers',
         description: 'Plan mode Story Layers panel width (UI spec §4)',
         kind: 'width',
@@ -187,6 +201,11 @@ const TOKEN_GROUPS: TokenGroup[] = [
       {
         cssVar: '--tr-card-scene',
         description: 'Plan mode scene card width (UI spec §4)',
+        kind: 'width',
+      },
+      {
+        cssVar: '--tr-shell-height',
+        description: 'app shell top bar height (UI spec §2)',
         kind: 'width',
       },
     ],

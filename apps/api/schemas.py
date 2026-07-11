@@ -20,9 +20,9 @@ index.ts's module header and the task report for why.
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Annotated
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, RootModel, StringConstraints
 from pydantic.alias_generators import to_camel
 
 # "scene-1", "beat-1-2", "fact-04", "char-marta"
@@ -231,6 +231,55 @@ class Project(_Base):
 # Ledger, snapshots, suggestionHistory live in separate stores (design doc §5).
 
 
+class SetupState(StrEnum):
+    incomplete = "incomplete"
+    ready = "ready"
+
+
+class ProjectSummary(_Base):
+    id: Id
+    title: str
+    format: ShowFormat
+    updated_at: str
+    pending_review_count: int = Field(ge=0)
+    setup_state: SetupState
+
+
+class CharacterSeed(_Base):
+    name: str = Field(min_length=1)
+    traits: str | None = None
+
+
+class ProjectFoundationInput(_Base):
+    existential_question: str | None = None
+    stories_to_avoid: list[str] | None = None
+    characters: list[CharacterSeed] | None = None
+
+
+class ProjectCreateRequest(_Base):
+    title: str
+    format: ShowFormat
+    premise: str
+    foundation: ProjectFoundationInput | None = None
+
+
+class ProjectImportSourceFormat(StrEnum):
+    fountain = "fountain"
+    text = "text"
+
+
+class ProjectImportSource(_Base):
+    format: ProjectImportSourceFormat
+    content: str
+
+
+class ProjectImportCreateRequest(_Base):
+    title: str
+    format: ShowFormat
+    premise: str | None = None
+    source: ProjectImportSource
+
+
 # ─────────────────────────────────────────────────────────────────────────
 # §2. Generation / Review types
 # ─────────────────────────────────────────────────────────────────────────
@@ -264,6 +313,9 @@ class ImpactedObjectType(StrEnum):
 class ApplyMode(StrEnum):
     regenerate = "regenerate"
     flag_only = "flag_only"
+    # §9.4 initial_scene_skeleton variant: objectId is a proposalId, not a
+    # final scene id (new-project-flow design spec §9.4).
+    add = "add"
 
 
 class ConfidenceLevel(StrEnum):
@@ -313,6 +365,60 @@ class ConsistencyFlag(_Base):
     source_change: Id  # the ChangeSet or accepted-beat snapshot that triggered the scan
 
 
+class ProjectImportResult(_Base):
+    project: Project
+    new_facts: list[LedgerFact]
+    consistency_flags: list[ConsistencyFlag]
+
+
+class ImportProgressStageName(StrEnum):
+    parsing_scenes = "parsing_scenes"
+    segmenting_beats = "segmenting_beats"
+    extracting_facts = "extracting_facts"
+    checking_consistency = "checking_consistency"
+    saving = "saving"
+
+
+class ImportProgressStageEvent(_Base):
+    type: Literal["stage"]
+    name: ImportProgressStageName
+
+
+class ImportProgressCompleteEvent(_Base):
+    type: Literal["complete"]
+    result: ProjectImportResult
+
+
+class ImportProgressErrorBody(_Base):
+    code: str
+    message: str
+    details: object | None = None
+
+
+class ImportProgressFailedEvent(_Base):
+    type: Literal["failed"]
+    error: ImportProgressErrorBody
+
+
+class ProjectImportProgressEvent(
+    RootModel[
+        Annotated[
+            ImportProgressStageEvent
+            | ImportProgressCompleteEvent
+            | ImportProgressFailedEvent,
+            Field(discriminator="type"),
+        ]
+    ]
+):
+    """Mirrors the Zod discriminated union of the same name (data contract
+    §9.3). A `RootModel` so `model_json_schema()` exists for the CI schema
+    diff (scripts/check_contract.py) even though this type has no object
+    fields of its own — routes build the SSE payload as plain dicts (like
+    every other SSE event in this codebase; see drama_manager/candidates.py),
+    so this model exists for the contract diff and any caller that wants to
+    validate an event, not as a construction path."""
+
+
 # Exact, typed preview content — what apply actually writes. `ImpactedObject.after`
 # is only the rendered display snippet; this is the source of truth.
 class BeatUpdate(_Base):
@@ -341,12 +447,51 @@ class ChangeSetContinuityConflict(_Base):
     explanation: str
 
 
+# §9.4 initial scene skeleton — guided-setup scene-addition Change Set
+# (new-project-flow design spec §6/§9.4). MVP defers storyline inference, so
+# every addition carries storyline "A" (Scene's own default) rather than a
+# model-set field. `proposal_id` is the server-assigned selection handle —
+# never the final scene id — minted once generation validates the model's
+# scene list (InitialSceneSkeleton below); the model never sets ids.
+class SceneAdditionStoryline(StrEnum):
+    """MVP: storyline inference is deferred (design spec §9.4) — every scene
+    addition is tagged 'A', a narrower enum than `StorylineId` (A/B/C)."""
+
+    a = "A"
+
+
+class SceneAddition(_Base):
+    proposal_id: Id
+    act: int = Field(ge=0)
+    storyline: SceneAdditionStoryline = SceneAdditionStoryline.a
+    location: str
+    time: str
+    social_situation: str
+    what_happens: str
+    audience_learns: str
+    audience_feels: str
+    motivations: list[Motivation]  # characterId references existing Characters
+    beat_plan_seeds: list[BeatPlan]  # ordered; apply mints beat ids/scriptText: "" server-side
+
+
+# One generated skeleton option (data contract §9.4): the writer compares
+# three of these side by side, then selects one to create a Change Set.
+class InitialSceneSkeletonCandidate(_Base):
+    candidate_id: Id
+    based_on_snapshot_id: Id  # the headSnapshotId this candidate was generated against
+    label: str = Field(max_length=40)
+    scenes: list[SceneAddition]  # ordered
+
+
 class ChangeSetPreview(_Base):
     beat_updates: list[BeatUpdate]
     scene_updates: list[SceneUpdate]
     continuity_conflicts: list[ChangeSetContinuityConflict]
     based_on_snapshot_id: Id  # head at preview time; apply 409s (PREVIEW_STALE) if head moved
     generated_at: str
+    # §9.4 initial_scene_skeleton variant: the chosen candidate's scene
+    # additions, verbatim. Null for the ordinary "edit" ChangeSet kind.
+    scene_additions: list[SceneAddition] | None = None
 
 
 class ChangeSetStatus(StrEnum):
@@ -357,10 +502,16 @@ class ChangeSetStatus(StrEnum):
     flagged = "flagged"
 
 
+class ChangeSetKind(StrEnum):
+    edit = "edit"
+    initial_scene_skeleton = "initial_scene_skeleton"
+
+
 class ChangeSet(_Base):
     id: Id
     project_id: Id
-    instruction: str  # the edit that triggered it
+    kind: ChangeSetKind = ChangeSetKind.edit
+    instruction: str  # the edit that triggered it (or a generated label for initial_scene_skeleton)
     target_object_id: Id
     impacted: list[ImpactedObject]
     preview: ChangeSetPreview | None  # null until POST /preview succeeds
@@ -398,6 +549,28 @@ class RegeneratedElements(_Base):
     beats: list[BeatUpdate]
     scenes: list[SceneUpdate]
     continuity_conflicts: list[ChangeSetContinuityConflict]
+
+
+# §9.4 generate_scene_skeleton — the guided-setup convergent loop calls this
+# 3x (drama_manager/scene_skeleton.py). The model emits no ids and no
+# `scriptText` (hard rule: "no scriptText in skeleton"); the server assigns
+# each scene a proposalId and stamps storyline "A" after validation,
+# producing a SceneAddition (§2 above) per scene.
+class InitialSceneSkeletonScene(_Base):
+    act: int = Field(ge=0)
+    location: str
+    time: str
+    social_situation: str
+    what_happens: str
+    audience_learns: str
+    audience_feels: str
+    motivations: list[Motivation]
+    beat_plan_seeds: list[BeatPlan]
+
+
+class InitialSceneSkeleton(_Base):
+    label: str = Field(max_length=40)
+    scenes: list[InitialSceneSkeletonScene]
 
 
 class ExtractedFactSourceSpan(_Base):

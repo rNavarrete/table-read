@@ -47,12 +47,28 @@ export function LockToggle({
       disabled={disabled}
       onClick={() => onChange(!locked)}
       className={
-        'flex items-center gap-2 rounded-card border border-tr-border px-3 py-1.5 text-13 transition-colors motion-reduce:transition-none disabled:opacity-50' +
+        'inline-flex items-center gap-2 rounded-chip border px-3 py-1.5 text-13 transition-colors motion-reduce:transition-none disabled:opacity-50' +
         (locked
-          ? ' bg-tr-coral-soft text-tr-text-primary'
-          : ' bg-tr-surface-raised text-tr-text-secondary')
+          ? ' border-tr-coral bg-tr-coral text-tr-surface-raised'
+          : ' border-tr-border-strong bg-tr-surface-raised text-tr-text-secondary hover:bg-tr-surface-clay')
       }
     >
+      <span
+        className={
+          'inline-flex h-5 w-9 items-center rounded-chip border p-0.5 transition-colors motion-reduce:transition-none' +
+          (locked
+            ? ' justify-end border-tr-surface-raised bg-tr-coral-hover'
+            : ' justify-start border-tr-border bg-tr-surface-sunken')
+        }
+        aria-hidden="true"
+      >
+        <span
+          className={
+            'h-3.5 w-3.5 rounded-chip shadow-raised' +
+            (locked ? ' bg-tr-surface-raised' : ' bg-tr-text-muted')
+          }
+        />
+      </span>
       <LockGlyph locked={locked} />
       {label}: {locked ? 'Locked' : 'Unlocked'}
     </button>

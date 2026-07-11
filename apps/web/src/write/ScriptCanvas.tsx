@@ -85,7 +85,7 @@ function BeatRow({
   return (
     <div
       ref={rowRef}
-      className="group relative flex gap-4 border-t border-tr-border py-6 first:border-t-0"
+      className="group relative flex gap-4 border-t border-tr-border py-4 first:border-t-0"
     >
       <div
         className="w-6 shrink-0 pt-1 text-right text-12 text-tr-text-muted opacity-0 transition-opacity group-hover:opacity-100"
@@ -138,9 +138,9 @@ export function ScriptCanvas({
 }: ScriptCanvasProps) {
   return (
     <section
-      // max-w-script-col = --tr-script-col (720px, UI spec §3), minted per
+      // max-w-script-col = --tr-script-col (600px, UI spec §3), minted per
       // controller ruling on T2.3 review.
-      className="max-w-script-col flex-1 rounded-card bg-tr-surface-raised px-8 py-6 shadow-raised"
+      className="max-w-script-col flex-1 rounded-card bg-tr-surface-raised px-8 py-8 shadow-raised"
       aria-label={`Script — ${scene.location}`}
       {...canvasHandlers}
     >

@@ -413,7 +413,11 @@ def test_import_invalid_format_400(seeded_project, mock_llm):
 
 
 def test_import_scaffolds_fresh_project(db_session, mock_llm):
-    created = client.post("/api/v1/projects", json=NEW_PROJECT_BODY).json()
+    created = client.post(
+        "/api/v1/projects",
+        json=NEW_PROJECT_BODY,
+        headers={"Idempotency-Key": "00000000-0000-4000-8000-000000000021"},
+    ).json()
     pid = created["id"]
     assert created["seasons"] == []  # nothing to import into yet
 

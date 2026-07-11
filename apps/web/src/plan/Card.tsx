@@ -15,9 +15,8 @@ export interface CardProps extends HTMLAttributes<HTMLDivElement> {
 
 /**
  * `Card` — §7's component inventory: raised/sunken surface variants shared
- * by scene cards (raised) and nested beat cards (sunken). `selected` renders
- * the UI spec §4 "2px coral outline" via the minted `--tr-outline-selected`
- * token (Tailwind's `outline-selected` utility — see tokens.css).
+ * by scene cards (raised) and nested beat cards (sunken). `selected` uses
+ * the Quiet Tool soft accent fill documented for Plan selection states.
  */
 export function Card({
   variant,
@@ -29,8 +28,10 @@ export function Card({
   return (
     <div
       className={
-        `rounded-card p-3 ${VARIANT_CLASSES[variant]}` +
-        (selected ? ' outline outline-selected outline-tr-coral' : '') +
+        'rounded-card p-3 ' +
+        (selected
+          ? `bg-tr-coral-soft text-tr-accent-ink${variant === 'raised' ? ' shadow-raised' : ''}`
+          : VARIANT_CLASSES[variant]) +
         (className ? ` ${className}` : '')
       }
       {...rest}

@@ -26,12 +26,18 @@ export interface FilterRailProps {
 }
 
 /**
- * Left filter rail (UI spec §6: 200px — status, character, fact type).
+ * Left filter rail (UI spec §6: 198px — status, character, fact type).
  */
 export function FilterRail({ project, filters, onChange }: FilterRailProps) {
+  const optionClass = (active: boolean) =>
+    'flex cursor-pointer items-center gap-2 rounded-chip px-3 py-1 text-13 transition-colors focus-within:outline focus-within:outline-selected focus-within:outline-tr-coral ' +
+    (active
+      ? 'bg-tr-coral-soft text-tr-accent-ink'
+      : 'text-tr-text-primary hover:bg-tr-surface-clay')
+
   return (
     <aside
-      className="w-panel-ledger-filters shrink-0 bg-tr-surface-sunken p-4"
+      className="w-panel-ledger-filters shrink-0 border-r border-tr-border bg-tr-surface-sunken p-4"
       aria-label="Ledger filters"
       data-testid="ledger-filter-rail"
     >
@@ -43,9 +49,10 @@ export function FilterRail({ project, filters, onChange }: FilterRailProps) {
           {STATUSES.map((status) => (
             <label
               key={status}
-              className="flex cursor-pointer items-center gap-2 text-13 text-tr-text-primary"
+              className={optionClass(filters.status === status)}
             >
               <input
+                className="sr-only"
                 type="radio"
                 name="ledger-status"
                 checked={filters.status === status}
@@ -62,8 +69,9 @@ export function FilterRail({ project, filters, onChange }: FilterRailProps) {
           Character
         </legend>
         <div className="flex flex-col gap-1">
-          <label className="flex cursor-pointer items-center gap-2 text-13 text-tr-text-primary">
+          <label className={optionClass(filters.characterId === null)}>
             <input
+              className="sr-only"
               type="radio"
               name="ledger-character"
               checked={filters.characterId === null}
@@ -74,9 +82,10 @@ export function FilterRail({ project, filters, onChange }: FilterRailProps) {
           {project.seriesBible.characters.map((c) => (
             <label
               key={c.id}
-              className="flex cursor-pointer items-center gap-2 text-13 text-tr-text-primary"
+              className={optionClass(filters.characterId === c.id)}
             >
               <input
+                className="sr-only"
                 type="radio"
                 name="ledger-character"
                 checked={filters.characterId === c.id}
@@ -96,9 +105,10 @@ export function FilterRail({ project, filters, onChange }: FilterRailProps) {
           {FACT_TYPES.map((factType) => (
             <label
               key={factType}
-              className="flex cursor-pointer items-center gap-2 text-13 text-tr-text-primary"
+              className={optionClass(filters.factType === factType)}
             >
               <input
+                className="sr-only"
                 type="radio"
                 name="ledger-fact-type"
                 checked={filters.factType === factType}

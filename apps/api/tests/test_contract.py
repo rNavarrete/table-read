@@ -7,7 +7,7 @@ Must validate the real committed fixture file (docs/tableread-fixture.json,
 import json
 from pathlib import Path
 
-from schemas import PersistedState
+from schemas import PersistedState, ProjectSummary
 
 FIXTURE_PATH = Path(__file__).resolve().parents[3] / "docs" / "tableread-fixture.json"
 
@@ -21,3 +21,23 @@ def test_fixture_validates_against_pydantic_contract():
     # Raises pydantic.ValidationError on failure; pytest reports it as a
     # legible test failure with the full error list.
     PersistedState.model_validate(fixture)
+
+
+def test_project_summary_contract_accepts_dashboard_shape():
+    ProjectSummary.model_validate(
+        {
+            "id": "proj-longpour",
+            "title": "The Long Pour",
+            "format": {
+                "genre": "drama",
+                "runtimeMinutes": 60,
+                "actCount": 4,
+                "coldOpen": True,
+                "tag": False,
+                "serialization": 0.8,
+            },
+            "updatedAt": "2026-07-10T19:00:00Z",
+            "pendingReviewCount": 1,
+            "setupState": "ready",
+        }
+    )

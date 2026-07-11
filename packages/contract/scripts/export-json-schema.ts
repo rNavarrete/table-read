@@ -22,12 +22,21 @@ const SCHEMA_NAMES = [
   'SourceSpan',
   'LedgerFact',
   'Project',
+  'ProjectSummary',
+  'CharacterSeed',
+  'ProjectFoundationInput',
+  'ProjectCreateRequest',
+  'ProjectImportCreateRequest',
   // §2
   'BeatCandidate',
   'ImpactedObject',
   'ConsistencyFlag',
+  'ProjectImportResult',
+  'ProjectImportProgressEvent',
   'BeatUpdate',
   'SceneUpdate',
+  'SceneAddition',
+  'InitialSceneSkeletonCandidate',
   'ChangeSetPreview',
   'ChangeSet',
   // §2a
@@ -38,6 +47,7 @@ const SCHEMA_NAMES = [
   'InstructionSuggestions',
   'SegmentedScene',
   'ConsistencyScan',
+  'InitialSceneSkeleton',
 ] as const
 
 const { z } = await import('zod')

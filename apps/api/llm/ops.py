@@ -33,6 +33,7 @@ from schemas import (
     BeatCandidate,
     BlastRadius,
     ConsistencyScan,
+    InitialSceneSkeleton,
     InstructionSuggestions,
     LedgerExtraction,
     RegeneratedElements,
@@ -123,6 +124,19 @@ _OPS: tuple[LlmOp, ...] = (
         "classifier",
         "Scan untouched scenes and beats for contradictions or tensions introduced "
         "by a recent change.",
+    ),
+    # §9.4 guided-setup scene skeleton (new-project-flow design spec §6/§9.4):
+    # writer-role, one diverse candidate per call, driven 3x by
+    # drama_manager/scene_skeleton.py's convergent loop (mirrors the §1 beat
+    # candidate diversity mechanic). Never sets ids or scriptText.
+    LlmOp(
+        "generate_scene_skeleton",
+        "InitialSceneSkeleton",
+        InitialSceneSkeleton,
+        "writer",
+        "Propose an ordered set of new scenes (with beat-plan seeds) that "
+        "opens a season's first episode, given the project's premise, "
+        "format, and story foundation.",
     ),
 )
 

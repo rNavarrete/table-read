@@ -13,6 +13,10 @@ and flags never outlive the content that established them).
 
   - `create_project` — project + root snapshot (`parent_id: null`, empty
     ledger/flags), one transaction. `headSnapshotId` is never null after.
+  - `create_project_with_state` — the atomic create-and-import variant (§9.3,
+    T5): project + root snapshot in one transaction, with the root snapshot's
+    ledger/flags already populated from the caller's completed analysis
+    (never an empty root followed by an import child).
   - `mutate(pid, instruction, fn)` — run `fn` over the current state, write
     one snapshot of the *new* state, bump head + `updated_at`, and rewrite
     the live `ledger_facts` / `consistency_flags` tables to match — all in a
@@ -74,7 +78,14 @@ class MutationState:
 Mutator = Callable[[MutationState], MutationState]
 
 
-def create_project(session: Session, doc: dict, instruction: str) -> ProjectRow:
+def create_project(
+    session: Session,
+    doc: dict,
+    instruction: str,
+    *,
+    creation_idempotency_key: str | None = None,
+    creation_request_hash: str | None = None,
+) -> ProjectRow:
     """Create a project and its root snapshot atomically (data contract §4).
 
     Server-assigns the project id and root snapshot id, stamps them into the
@@ -88,7 +99,13 @@ def create_project(session: Session, doc: dict, instruction: str) -> ProjectRow:
     doc["headSnapshotId"] = snapshot_id
 
     try:
-        project = ProjectRow(id=project_id, doc=doc, head_snapshot_id=snapshot_id)
+        project = ProjectRow(
+            id=project_id,
+            doc=doc,
+            head_snapshot_id=snapshot_id,
+            creation_idempotency_key=creation_idempotency_key,
+            creation_request_hash=creation_request_hash,
+        )
         session.add(project)
         session.add(
             SnapshotRow(
@@ -107,6 +124,110 @@ def create_project(session: Session, doc: dict, instruction: str) -> ProjectRow:
         session.rollback()
         raise
     return project
+
+
+class IdempotencyConflict(Exception):
+    """Same `creation_idempotency_key`, different canonical request hash
+    (data contract §9.3). The route layer maps this to 409
+    `IDEMPOTENCY_CONFLICT`; the SSE create-and-import path (fountain/
+    create_import.py) maps it to a terminal `failed` event instead."""
+
+
+def resolve_creation_idempotency(
+    session: Session, idempotency_key: str, request_hash: str
+) -> ProjectRow | None:
+    """Look up a project already created under `idempotency_key` (shared by
+    both project-creation transactions: routes.py's plain create and
+    fountain/create_import.py's atomic create-and-import). Returns the
+    existing row when the key **and** hash match (replay); returns `None`
+    when the key is unused (caller should create); raises
+    `IdempotencyConflict` when the key is reused with a different hash."""
+    existing = (
+        session.query(ProjectRow)
+        .filter_by(creation_idempotency_key=idempotency_key)
+        .one_or_none()
+    )
+    if existing is None:
+        return None
+    if existing.creation_request_hash == request_hash:
+        return existing
+    raise IdempotencyConflict(
+        "Idempotency-Key was already used for a different project request"
+    )
+
+
+def mint_project_id() -> str:
+    """Server-assigned project id, minted before any DB write (data contract
+    §9.3): the create-and-import path mints this up front so its analysis
+    stage can complete — and any ids it needs to reference — before the
+    single atomic write in `create_project_with_state`."""
+    return _mint_id("proj")
+
+
+def mint_snapshot_id() -> str:
+    """Server-assigned root-snapshot id, minted before any DB write — see
+    `mint_project_id`. Callers stamp this into e.g. `ConsistencyFlag.
+    sourceChange` for facts/flags that reference "the snapshot this write
+    will produce", the same way `mutate`'s `MutationState.snapshot_id` does
+    for ordinary mutations."""
+    return _mint_id("snap")
+
+
+def create_project_with_state(
+    session: Session,
+    project_id: str,
+    snapshot_id: str,
+    doc: dict,
+    ledger: list[dict],
+    flags: list[dict],
+    instruction: str,
+    *,
+    creation_idempotency_key: str | None = None,
+    creation_request_hash: str | None = None,
+) -> SnapshotRow:
+    """Atomic create-and-import write (data contract §9.3): create the
+    project row and its **one** root snapshot (`parent_id: null`) already
+    carrying the imported `doc`/`ledger`/`flags` — never an empty root
+    followed by an import child. `project_id`/`snapshot_id` are minted by the
+    caller (`mint_project_id`/`mint_snapshot_id`) *before* this call, so the
+    caller's LLM/parsing analysis (fountain/create_import.py, which must
+    complete before any DB write) can stamp them into the doc/flags it
+    builds. Same one-transaction-rolls-back-whole and idempotency-column
+    behavior as `create_project` above; a `sqlalchemy.exc.IntegrityError`
+    here means a concurrent writer already claimed `creation_idempotency_key`
+    (caller resolves via `resolve_creation_idempotency`, exactly like
+    `create_project`'s callers do)."""
+    doc = copy.deepcopy(doc)
+    doc["id"] = project_id
+    doc["headSnapshotId"] = snapshot_id
+
+    try:
+        project = ProjectRow(
+            id=project_id,
+            doc=doc,
+            head_snapshot_id=snapshot_id,
+            creation_idempotency_key=creation_idempotency_key,
+            creation_request_hash=creation_request_hash,
+        )
+        session.add(project)
+        snapshot = SnapshotRow(
+            id=snapshot_id,
+            project_id=project_id,
+            parent_id=None,
+            instruction=instruction,
+            doc=copy.deepcopy(doc),
+            ledger=ledger,
+            flags=flags,
+            ts=_utcnow_iso(),
+        )
+        session.add(snapshot)
+        _rewrite_ledger(session, project_id, ledger)
+        _rewrite_flags(session, project_id, flags)
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    return snapshot
 
 
 class StaleHead(Exception):

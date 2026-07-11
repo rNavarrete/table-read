@@ -50,7 +50,7 @@ function useModeShortcuts() {
 }
 
 /**
- * The app shell (UI spec §2): a 56px top bar (project title, mode switcher,
+ * The app shell (UI spec §2): a 52px top bar (project title, mode switcher,
  * undo/export/settings) over the mode content. Settings opens the privacy
  * panel (T6.3). Undo / Export call the real API when `projectId` is set.
  */
@@ -121,10 +121,19 @@ export function AppShell({
 
   return (
     <div className="min-h-screen bg-tr-surface-page">
-      <header className="flex h-14 items-center gap-6 bg-tr-surface-sunken px-6">
-        <h1 className="font-display text-17 text-tr-text-primary">
-          {projectTitle}
-        </h1>
+      <header className="flex h-shell-height items-center gap-6 bg-tr-surface-sunken px-6">
+        {projectId ? (
+          <a
+            href="/projects"
+            className="font-display text-17 font-semibold text-tr-text-primary"
+          >
+            {projectTitle}
+          </a>
+        ) : (
+          <h1 className="font-display text-17 font-semibold text-tr-text-primary">
+            {projectTitle}
+          </h1>
+        )}
         <ModeSwitcher
           active={activeMode}
           ledgerCount={ledgerCount}

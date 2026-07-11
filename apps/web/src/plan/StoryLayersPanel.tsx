@@ -124,7 +124,7 @@ export function StoryLayersPanel({
                           'w-full truncate rounded-card px-2 py-0.5 text-left text-13 hover:bg-tr-surface-clay' +
                           (selection?.type === 'scene' &&
                           selection.sceneId === scene.id
-                            ? ' bg-tr-coral-soft text-tr-text-primary'
+                            ? ' bg-tr-coral-soft text-tr-accent-ink'
                             : ' text-tr-text-secondary')
                         }
                       >

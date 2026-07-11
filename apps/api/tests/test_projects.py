@@ -5,8 +5,13 @@ T1.1 scope: POST /projects, PATCH /projects/{pid}, real undo (non-root
 restore), DELETE purge.
 """
 
-from fastapi.testclient import TestClient
+from datetime import UTC, datetime, timedelta
 
+from fastapi.testclient import TestClient
+from sqlalchemy.exc import IntegrityError
+
+import routes
+from llm.dependency import get_llm_client
 from main import app
 from storage.models import (
     ChangeSetRow,
@@ -20,6 +25,16 @@ from storage.models import (
 client = TestClient(app)
 
 PROJECT_ID = "proj-longpour"
+MINIMAL_SERIES_BIBLE = {
+    "existentialQuestion": {"text": "", "locked": False},
+    "worldRules": [],
+    "storiesToAvoid": [],
+    "characters": [],
+    "relationships": [],
+    "audienceGoals": [],
+    "narratorGoals": [],
+    "worldQA": [],
+}
 
 NEW_PROJECT_BODY = {
     "title": "Test Show",
@@ -33,6 +48,68 @@ NEW_PROJECT_BODY = {
     },
     "premise": "A test premise.",
 }
+NEW_PROJECT_HEADERS = {"Idempotency-Key": "00000000-0000-4000-8000-000000000001"}
+
+
+def _clear_project_tables(db_session):
+    for model in (
+        SnapshotRow,
+        LedgerFactRow,
+        ChangeSetRow,
+        ConsistencyFlagRow,
+        SuggestionHistoryRow,
+        ProjectRow,
+    ):
+        db_session.query(model).delete()
+    db_session.commit()
+
+
+def _parse_rfc3339_z(value: str) -> datetime:
+    assert value.endswith("Z")
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+def test_list_projects_empty_db_returns_empty_array(db_session):
+    _clear_project_tables(db_session)
+
+    response = client.get("/api/v1/projects")
+
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+def test_list_projects_returns_seeded_summary_without_full_doc(seeded_project):
+    response = client.get("/api/v1/projects")
+
+    assert response.status_code == 200
+    summaries = response.json()
+    long_pour = next(item for item in summaries if item["id"] == PROJECT_ID)
+    assert long_pour["title"] == "The Long Pour"
+    assert long_pour["format"]["genre"] == "drama"
+    assert long_pour["setupState"] == "ready"
+    assert long_pour["pendingReviewCount"] == 1
+    assert _parse_rfc3339_z(long_pour["updatedAt"]).tzinfo == UTC
+    assert "premise" not in long_pour
+    assert "seasons" not in long_pour
+
+
+def test_list_projects_sorts_by_updated_at_desc(db_session, seeded_project):
+    created = client.post(
+        "/api/v1/projects",
+        json=NEW_PROJECT_BODY,
+        headers=NEW_PROJECT_HEADERS,
+    ).json()
+    db_session.get(ProjectRow, PROJECT_ID).updated_at = datetime(2026, 7, 10, 12, 0, 0)
+    db_session.get(ProjectRow, created["id"]).updated_at = datetime(
+        2026, 7, 10, 12, 0, 0
+    ) + timedelta(minutes=5)
+    db_session.commit()
+
+    response = client.get("/api/v1/projects")
+
+    assert response.status_code == 200
+    assert [item["id"] for item in response.json()[:2]] == [created["id"], PROJECT_ID]
+    assert response.json()[0]["setupState"] == "incomplete"
 
 
 def test_get_project_returns_seeded_fixture(seeded_project):
@@ -109,7 +186,11 @@ def test_undo_missing_project_returns_404():
 
 
 def test_create_project_returns_project_with_root_snapshot(db_session):
-    response = client.post("/api/v1/projects", json=NEW_PROJECT_BODY)
+    response = client.post(
+        "/api/v1/projects",
+        json=NEW_PROJECT_BODY,
+        headers=NEW_PROJECT_HEADERS,
+    )
 
     assert response.status_code == 201
     project = response.json()
@@ -131,10 +212,211 @@ def test_create_project_returns_project_with_root_snapshot(db_session):
     assert root.flags == []
 
 
+def test_create_project_foundation_assigns_character_ids_and_snapshots(db_session):
+    body = {
+        **NEW_PROJECT_BODY,
+        "foundation": {
+            "existentialQuestion": "Can loyalty survive ambition?",
+            "storiesToAvoid": ["Secret twin reveal"],
+            "characters": [
+                {"name": "Marta", "traits": "guarded, precise"},
+                {"name": "Dane"},
+            ],
+        },
+    }
+
+    response = client.post(
+        "/api/v1/projects",
+        json=body,
+        headers={"Idempotency-Key": "00000000-0000-4000-8000-000000000002"},
+    )
+
+    assert response.status_code == 201
+    project = response.json()
+    bible = project["seriesBible"]
+    assert bible["existentialQuestion"] == {
+        "text": "Can loyalty survive ambition?",
+        "locked": False,
+    }
+    assert bible["storiesToAvoid"] == ["Secret twin reveal"]
+    assert [character["name"] for character in bible["characters"]] == ["Marta", "Dane"]
+    assert [character["traits"] for character in bible["characters"]] == [
+        "guarded, precise",
+        "",
+    ]
+    for character in bible["characters"]:
+        assert character["id"].startswith("char-")
+        assert character["locked"] is False
+        assert character["embodiment"] == ""
+        assert character["presentation"] == ""
+        assert character["hiding"] == ""
+        assert character["seriesArc"] == ""
+
+    root = db_session.get(SnapshotRow, project["headSnapshotId"])
+    assert root.doc["seriesBible"] == bible
+
+
+def test_create_project_does_not_resolve_llm_dependency(db_session):
+    def fail_if_called():
+        raise AssertionError("create project must not touch LLM")
+
+    app.dependency_overrides[get_llm_client] = fail_if_called
+    try:
+        response = client.post(
+            "/api/v1/projects",
+            json=NEW_PROJECT_BODY,
+            headers={"Idempotency-Key": "00000000-0000-4000-8000-000000000003"},
+        )
+    finally:
+        app.dependency_overrides.pop(get_llm_client, None)
+
+    assert response.status_code == 201
+
+
+def test_create_project_idempotency_replays_same_request(db_session):
+    _clear_project_tables(db_session)
+    headers = {"Idempotency-Key": "00000000-0000-4000-8000-000000000004"}
+
+    first = client.post("/api/v1/projects", json=NEW_PROJECT_BODY, headers=headers)
+    second = client.post("/api/v1/projects", json=NEW_PROJECT_BODY, headers=headers)
+
+    assert first.status_code == 201
+    assert second.status_code == 201
+    assert second.json() == first.json()
+    assert db_session.query(ProjectRow).count() == 1
+    assert db_session.query(SnapshotRow).count() == 1
+
+
+def test_create_project_idempotency_conflicts_on_different_request(db_session):
+    _clear_project_tables(db_session)
+    headers = {"Idempotency-Key": "00000000-0000-4000-8000-000000000005"}
+    first = client.post("/api/v1/projects", json=NEW_PROJECT_BODY, headers=headers)
+    changed_body = {**NEW_PROJECT_BODY, "title": "Different Show"}
+
+    conflict = client.post("/api/v1/projects", json=changed_body, headers=headers)
+
+    assert first.status_code == 201
+    assert conflict.status_code == 409
+    assert conflict.json()["error"]["code"] == "IDEMPOTENCY_CONFLICT"
+    assert db_session.query(ProjectRow).count() == 1
+
+
+def test_create_project_idempotency_replays_after_unique_race(db_session, monkeypatch):
+    _clear_project_tables(db_session)
+    headers = {"Idempotency-Key": "00000000-0000-4000-8000-000000000006"}
+    raced_doc = {
+        "id": "proj-raced",
+        "title": "Test Show",
+        "format": NEW_PROJECT_BODY["format"],
+        "enabledComponents": ["continuity_ledger"],
+        "premise": "A test premise.",
+        "seriesBible": MINIMAL_SERIES_BIBLE,
+        "seasons": [],
+        "headSnapshotId": "snap-raced",
+    }
+
+    def race_then_integrity_error(
+        session,
+        doc,
+        instruction,
+        *,
+        creation_idempotency_key=None,
+        creation_request_hash=None,
+    ):
+        session.add(
+            ProjectRow(
+                id=raced_doc["id"],
+                doc=raced_doc,
+                head_snapshot_id=raced_doc["headSnapshotId"],
+                creation_idempotency_key=creation_idempotency_key,
+                creation_request_hash=creation_request_hash,
+            )
+        )
+        session.add(
+            SnapshotRow(
+                id=raced_doc["headSnapshotId"],
+                project_id=raced_doc["id"],
+                parent_id=None,
+                instruction=instruction,
+                doc=raced_doc,
+                ledger=[],
+                flags=[],
+                ts="2026-07-10T00:00:00Z",
+            )
+        )
+        session.commit()
+        raise IntegrityError("unique race", params=None, orig=Exception("unique"))
+
+    monkeypatch.setattr(routes.snapshots, "create_project", race_then_integrity_error)
+
+    response = client.post("/api/v1/projects", json=NEW_PROJECT_BODY, headers=headers)
+
+    assert response.status_code == 201
+    assert response.json() == raced_doc
+    assert db_session.query(ProjectRow).count() == 1
+    assert db_session.query(SnapshotRow).count() == 1
+
+
+def test_create_project_idempotency_conflicts_after_unique_race(db_session, monkeypatch):
+    _clear_project_tables(db_session)
+    headers = {"Idempotency-Key": "00000000-0000-4000-8000-000000000007"}
+    raced_doc = {
+        "id": "proj-raced-conflict",
+        "title": "Different Show",
+        "format": NEW_PROJECT_BODY["format"],
+        "enabledComponents": ["continuity_ledger"],
+        "premise": "A different premise.",
+        "seriesBible": MINIMAL_SERIES_BIBLE,
+        "seasons": [],
+        "headSnapshotId": "snap-raced-conflict",
+    }
+
+    def race_then_integrity_error(
+        session,
+        doc,
+        instruction,
+        *,
+        creation_idempotency_key=None,
+        creation_request_hash=None,
+    ):
+        session.add(
+            ProjectRow(
+                id=raced_doc["id"],
+                doc=raced_doc,
+                head_snapshot_id=raced_doc["headSnapshotId"],
+                creation_idempotency_key=creation_idempotency_key,
+                creation_request_hash="different-request-hash",
+            )
+        )
+        session.add(
+            SnapshotRow(
+                id=raced_doc["headSnapshotId"],
+                project_id=raced_doc["id"],
+                parent_id=None,
+                instruction=instruction,
+                doc=raced_doc,
+                ledger=[],
+                flags=[],
+                ts="2026-07-10T00:00:00Z",
+            )
+        )
+        session.commit()
+        raise IntegrityError("unique race", params=None, orig=Exception("unique"))
+
+    monkeypatch.setattr(routes.snapshots, "create_project", race_then_integrity_error)
+
+    response = client.post("/api/v1/projects", json=NEW_PROJECT_BODY, headers=headers)
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "IDEMPOTENCY_CONFLICT"
+    assert db_session.query(ProjectRow).count() == 1
+    assert db_session.query(SnapshotRow).count() == 1
+
+
 def test_create_project_missing_field_returns_envelope_422(db_session):
     body = dict(NEW_PROJECT_BODY)
     del body["premise"]
-    response = client.post("/api/v1/projects", json=body)
+    response = client.post("/api/v1/projects", json=body, headers=NEW_PROJECT_HEADERS)
 
     assert response.status_code == 422
     # request-validation errors still speak the contract envelope (§4)
@@ -142,7 +424,11 @@ def test_create_project_missing_field_returns_envelope_422(db_session):
 
 
 def test_created_project_undo_at_root_returns_409(db_session):
-    project = client.post("/api/v1/projects", json=NEW_PROJECT_BODY).json()
+    project = client.post(
+        "/api/v1/projects",
+        json=NEW_PROJECT_BODY,
+        headers=NEW_PROJECT_HEADERS,
+    ).json()
     response = client.post(f"/api/v1/projects/{project['id']}/undo")
     assert response.status_code == 409
     assert response.json()["error"]["code"] == "VALIDATION"
@@ -240,7 +526,11 @@ def test_patch_missing_project_returns_404():
 
 
 def test_delete_purges_project(db_session):
-    project = client.post("/api/v1/projects", json=NEW_PROJECT_BODY).json()
+    project = client.post(
+        "/api/v1/projects",
+        json=NEW_PROJECT_BODY,
+        headers=NEW_PROJECT_HEADERS,
+    ).json()
     pid = project["id"]
 
     response = client.delete(f"/api/v1/projects/{pid}")

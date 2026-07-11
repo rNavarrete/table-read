@@ -11,7 +11,7 @@ import { sseBody } from './sse-fixtures'
 test('a dropped connection before any candidate arrives shows the dock-level error card; the canvas stays untouched', async ({
   page,
 }) => {
-  await page.goto('/?scene=scene-2')
+  await page.goto('/?project=proj-longpour&scene=scene-2')
   await expect(page.getByTestId('beat-beat-2-1')).toBeVisible() // scene loaded before snapshotting count
   const beatCountBefore = await page.locator('[data-testid^="beat-"]').count()
 
@@ -28,7 +28,7 @@ test('a dropped connection before any candidate arrives shows the dock-level err
 test('one candidate_failed leaves the other two cards actionable — never a partial actionable card for the failed one', async ({
   page,
 }) => {
-  await page.goto('/?scene=scene-5')
+  await page.goto('/?project=proj-longpour&scene=scene-5')
 
   await page.route('**/scenes/scene-5/candidates', (route) =>
     route.fulfill({
@@ -102,7 +102,7 @@ test('one candidate_failed leaves the other two cards actionable — never a par
 test('a 503 on accept rolls back: the card shows the error, the script canvas ends up unchanged', async ({
   page,
 }) => {
-  await page.goto('/?scene=scene-4')
+  await page.goto('/?project=proj-longpour&scene=scene-4')
   await expect(page.getByTestId('beat-beat-4-1')).toBeVisible() // scene loaded before snapshotting count
   const beatCountBefore = await page.locator('[data-testid^="beat-"]').count()
 
@@ -140,7 +140,7 @@ test('a 503 on accept rolls back: the card shows the error, the script canvas en
 test('empty scene (scene-6): ghost text on the canvas, single Next Beat button in the dock', async ({
   page,
 }) => {
-  await page.goto('/?scene=scene-6')
+  await page.goto('/?project=proj-longpour&scene=scene-6')
   await expect(page.getByText('Write, or press Next Beat')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Next Beat' })).toBeVisible()
 })
@@ -151,7 +151,7 @@ test('mid-stream SSE disconnect: card-0 Accept stays; Retry for the failed in-fl
   // scene-5 is also used by the candidate_failed test above; this route
   // replaces the whole body with a partial stream (no terminal `done`), so
   // the two tests stay independent as long as they don't share a worker.
-  await page.goto('/?scene=scene-5')
+  await page.goto('/?project=proj-longpour&scene=scene-5')
   await expect(page.getByTestId('beat-beat-5-1')).toBeVisible()
   const beatCountBefore = await page.locator('[data-testid^="beat-"]').count()
 
