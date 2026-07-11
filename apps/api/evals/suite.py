@@ -12,8 +12,9 @@ from pathlib import Path
 
 from drama_manager import render
 from evals import adoption, checks, probes
+from evals.checkpoint import write_checkpoint
 from evals.graders import Judge
-from evals.harness import SuiteReport
+from evals.harness import EvalResult, SuiteReport
 from evals.progress import ProgressFn
 from llm.protocol import LlmClient
 
@@ -35,6 +36,20 @@ EVAL_KEYS: dict[str, str] = {
 HARD_RUNS = 20
 SOFT_RUNS = 5
 HARD_FAMILY_KEYS = frozenset({"lockViolation", "continuityAdherence"})
+
+# `--only`/checkpoint short key → the `EvalResult.name` that family produces.
+# Used by `run_suite`'s resume path to map a checkpoint's family-skip set
+# (which stores `EvalResult.name`, the report-facing identity) back onto the
+# short keys the family-dispatch loop is keyed on.
+FAMILY_RESULT_NAME: dict[str, str] = {
+    "schema": "schema-validity",
+    "lock": "lock-violation",
+    "continuity": "continuity-adherence",
+    "segmentation": "segmentation-determinism",
+    "lock-repair": "lock-repair-quality",
+    "import-inference": "import-inference",
+    "subtext": "subtext-fidelity",
+}
 
 
 def default_run_map() -> dict[str, int]:
@@ -107,6 +122,9 @@ def run_suite(
     only: str | None = None,
     capture=None,
     on_progress: ProgressFn | None = None,
+    checkpoint_path: Path | None = None,
+    skip_families: set[str] | None = None,
+    prior_results: list[EvalResult] | None = None,
 ) -> SuiteReport:
     """`session_factory` is a zero-arg callable returning a fresh DB `Session`
     (the lock-violation eval seeds + mutates an isolated project per attempt).
@@ -114,13 +132,22 @@ def run_suite(
     `only` (an `EVAL_KEYS` short name, e.g. "continuity") runs a single eval
     family — a diagnosis/spot-check affordance so the operator can iterate on one
     metric without paying for the full suite. `capture` (a `capture.CaptureSink`)
-    is threaded into `continuity_eval` for per-failure human-review artifacts."""
+    is threaded into `continuity_eval` for per-failure human-review artifacts.
+
+    `checkpoint_path`/`skip_families`/`prior_results` are the v1.1 resume
+    affordance (`--resume` in run.py): `skip_families` holds the
+    `EvalResult.name`s a prior checkpoint already scored — those families are
+    not recomputed, the matching entry from `prior_results` is reused verbatim
+    instead. When `checkpoint_path` is set, the checkpoint is rewritten (full
+    overwrite) immediately after every *freshly computed* family, in suite
+    order — a family that's skipped was already in the checkpoint that
+    produced it, and a family that raises leaves the checkpoint exactly where
+    the last completed family left it (nothing partial is ever written)."""
     if only is not None and only not in EVAL_KEYS:
         raise ValueError(f"unknown --only eval {only!r}; choose from {sorted(EVAL_KEYS)}")
     ctx = probes.load_fixture_ctx()
-
-    def want(key: str) -> bool:
-        return only is None or only == key
+    skip_families = skip_families or set()
+    prior_by_name = {r.name: r for r in (prior_results or [])}
 
     def emit_start(key: str) -> None:
         if on_progress is not None:
@@ -130,65 +157,81 @@ def run_suite(
         if on_progress is not None:
             on_progress(family=key, status="done", score=result.score, gate=result.gate)
 
-    results = []
-    if want("schema"):
-        emit_start("schema")
-        result = checks.schema_validity_eval(
-            client, ctx, runs=runs[EVAL_KEYS["schema"]], on_progress=on_progress
-        )
+    results: list[EvalResult] = []
+
+    def run_family(key: str, compute) -> None:
+        if only is not None and only != key:
+            return
+        name = FAMILY_RESULT_NAME[key]
+        if name in skip_families:
+            results.append(prior_by_name[name])
+            return
+        emit_start(key)
+        result = compute()
         results.append(result)
-        emit_done("schema", result)
-    if want("lock"):
-        emit_start("lock")
-        result = checks.lock_violation_eval(
+        emit_done(key, result)
+        if checkpoint_path is not None:
+            write_checkpoint(
+                checkpoint_path,
+                prompt_version=render.PROMPT_VERSION,
+                models=load_model_roles(),
+                dry_run=dry_run,
+                runs=runs,
+                results=results,
+                estimated_calls=nominal_call_estimate(runs),
+            )
+
+    run_family(
+        "schema",
+        lambda: checks.schema_validity_eval(
+            client, ctx, runs=runs[EVAL_KEYS["schema"]], on_progress=on_progress
+        ),
+    )
+    run_family(
+        "lock",
+        lambda: checks.lock_violation_eval(
             client,
             ctx,
             session_factory,
             runs=runs[EVAL_KEYS["lock"]],
             on_progress=on_progress,
-        )
-        results.append(result)
-        emit_done("lock", result)
-    if want("continuity"):
-        emit_start("continuity")
-        result = checks.continuity_eval(
+        ),
+    )
+    run_family(
+        "continuity",
+        lambda: checks.continuity_eval(
             client,
             ctx,
             judge,
             runs=runs[EVAL_KEYS["continuity"]],
             capture=capture,
             on_progress=on_progress,
-        )
-        results.append(result)
-        emit_done("continuity", result)
-    if want("segmentation"):
-        emit_start("segmentation")
-        result = checks.segmentation_determinism_eval(
+        ),
+    )
+    run_family(
+        "segmentation",
+        lambda: checks.segmentation_determinism_eval(
             client, ctx, runs=runs[EVAL_KEYS["segmentation"]], on_progress=on_progress
-        )
-        results.append(result)
-        emit_done("segmentation", result)
-    if want("lock-repair"):
-        emit_start("lock-repair")
-        result = adoption.lock_repair_eval(
+        ),
+    )
+    run_family(
+        "lock-repair",
+        lambda: adoption.lock_repair_eval(
             client, ctx, runs=runs[EVAL_KEYS["lock-repair"]], on_progress=on_progress
-        )
-        results.append(result)
-        emit_done("lock-repair", result)
-    if want("import-inference"):
-        emit_start("import-inference")
-        result = adoption.import_inference_eval(
+        ),
+    )
+    run_family(
+        "import-inference",
+        lambda: adoption.import_inference_eval(
             client, runs=runs[EVAL_KEYS["import-inference"]], on_progress=on_progress
-        )
-        results.append(result)
-        emit_done("import-inference", result)
-    if want("subtext"):
-        emit_start("subtext")
-        result = adoption.subtext_eval(
+        ),
+    )
+    run_family(
+        "subtext",
+        lambda: adoption.subtext_eval(
             client, ctx, runs=runs[EVAL_KEYS["subtext"]], on_progress=on_progress
-        )
-        results.append(result)
-        emit_done("subtext", result)
+        ),
+    )
 
     estimate = nominal_call_estimate(runs)
     if only is not None:

@@ -19,6 +19,7 @@ import argparse
 import os
 import sys
 import tempfile
+from datetime import UTC, datetime
 from pathlib import Path
 
 _DEFAULT_OUT = Path(__file__).resolve().parent / "reports"
@@ -85,6 +86,14 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         "cases and report per-case pass/fail (ids/booleans only), then exit. Cheap "
         "gate verification without paying for a full continuity run.",
     )
+    parser.add_argument(
+        "--resume",
+        type=str,
+        default=None,
+        help="Resume from a prior checkpoint JSON (v1.1): families already "
+        "recorded there are skipped, not recomputed. Refuses to resume if "
+        "PROMPT_VERSION, model pins, --dry-run, or the run map differ.",
+    )
     args = parser.parse_args(argv)
     if args.runs is not None and args.runs < 1:
         parser.error(f"--runs must be >= 1 (got {args.runs}); scores divide by the run count")
@@ -115,8 +124,15 @@ def main(argv: list[str] | None = None) -> int:
     tmp = tempfile.mkdtemp(prefix="tableread-evals-")
     os.environ["DATABASE_URL"] = f"sqlite:///{tmp}/evals.db"
 
+    from drama_manager.render import PROMPT_VERSION
+    from evals.checkpoint import (
+        assert_checkpoint_matches,
+        checkpoint_path,
+        eval_result_from_dict,
+        load_checkpoint,
+    )
     from evals.progress import make_stdout_progress
-    from evals.suite import resolve_run_map, run_suite
+    from evals.suite import load_model_roles, resolve_run_map, run_suite
     from storage.db import Base, SessionLocal, engine, ensure_storage_schema
 
     runs = resolve_run_map(args.runs)
@@ -157,6 +173,27 @@ def main(argv: list[str] | None = None) -> int:
         print(f"calibrated={'true' if ok else 'false'}")
         return 0 if ok else 1
 
+    prior_results = []
+    skip_families: set[str] = set()
+    if args.resume:
+        cp = load_checkpoint(Path(args.resume))
+        assert_checkpoint_matches(
+            cp,
+            prompt_version=PROMPT_VERSION,
+            models=load_model_roles(),
+            dry_run=args.dry_run,
+            runs=runs,
+        )
+        prior_results = [eval_result_from_dict(r) for r in cp["results"]]
+        skip_families = {r.name for r in prior_results}
+
+    # A fresh checkpoint path under --out for *this* run, even when resuming
+    # (the prior checkpoint is only ever read, never appended to) — printed
+    # up front so an operator can --resume this run if it's interrupted.
+    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S")
+    this_checkpoint = checkpoint_path(Path(args.out), stamp)
+    print(f"checkpoint: {this_checkpoint} (pass to --resume if this run is interrupted)")
+
     capture = None
     if args.capture is not None:
         from evals.capture import CaptureSink
@@ -174,6 +211,9 @@ def main(argv: list[str] | None = None) -> int:
         only=args.only,
         capture=capture,
         on_progress=on_progress,
+        checkpoint_path=this_checkpoint,
+        skip_families=skip_families,
+        prior_results=prior_results,
     )
 
     json_path, md_path = report.write(args.out)
