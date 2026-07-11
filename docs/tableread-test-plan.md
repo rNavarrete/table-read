@@ -50,6 +50,8 @@ Three layers: conventional tests (deterministic, mock LLM), contract checks, and
 
 Runner: `make evals` — temperature 0 except diversity suite; results logged per PROMPT_VERSION; regressions bisect by version.
 
+Harness defaults (see `docs/superpowers/specs/2026-07-11-evals-harness-design.md`): hard families (lock, continuity) run **20** times; schema validity and soft families (segmentation, lock-repair, import-inference, subtext) run **5**. `--runs N` overrides all. Gates in the table below are unchanged; the "×20" method text remains the statistical target for hard gates / historical method, not a claim that every soft family always executes 20 under default `make evals`.
+
 | Eval | Method | Gate |
 |---|---|---|
 | Schema validity | 20 runs/operation on fixture inputs; % valid after ≤1 retry | ≥ 98% |

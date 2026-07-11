@@ -1,7 +1,7 @@
 # Evals harness redesign — design spec
 
 **Date:** 2026-07-11  
-**Status:** draft for review  
+**Status:** approved  
 **Authority after merge:** this spec updates harness behavior in `apps/api/evals/` and the cost/run notes in `Makefile` + `docs/tableread-test-plan.md` §3. Gate thresholds, soft vs hard classification, and which families exist are unchanged unless a later task adds missing test-plan evals.
 
 ## 1. Goal
