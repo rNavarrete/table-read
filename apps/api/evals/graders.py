@@ -23,6 +23,7 @@ from typing import Any, Protocol
 
 from drama_manager import render
 from llm.anthropic_client import DEFAULT_LLM_CALL_TIMEOUT_SECONDS, _create_with_timeout
+from llm.errors import LlmTimeoutError
 
 # 0.2.0: scope knowledge-facts correctly. A fact of the form "<character> does
 # not know <X>" is violated only when the script shows that character actually
@@ -103,7 +104,7 @@ def calibrate(judge: Judge, facts: list[dict]) -> bool:
     for script_text, expected in CALIBRATION_CASES:
         try:
             verdict = judge.grade(script_text=script_text, facts=facts)
-        except GraderError:
+        except (GraderError, LlmTimeoutError):
             return False
         if verdict.passes != expected:
             return False

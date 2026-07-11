@@ -138,6 +138,7 @@ def main(argv: list[str] | None = None) -> int:
             GraderError,
         )
         from evals.probes import load_fixture_ctx
+        from llm.errors import LlmTimeoutError
 
         ledger = load_fixture_ctx().ledger
         facts = [f for f in ledger if f.get("id") in CONTINUITY_FACT_IDS]
@@ -147,7 +148,7 @@ def main(argv: list[str] | None = None) -> int:
         for i, (_text, expected) in enumerate(CALIBRATION_CASES, start=1):
             try:
                 actual = judge.grade(script_text=_text, facts=facts).passes
-            except GraderError:
+            except (GraderError, LlmTimeoutError):
                 actual = None
             match = actual == expected
             ok = ok and match

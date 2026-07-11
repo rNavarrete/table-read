@@ -131,3 +131,13 @@ def test_schema_validity_eval_counts_timeout_as_invalid_not_valid():
     assert result.score == 0.0
     for op_detail in result.detail["perOp"].values():
         assert op_detail["valid"] == 0
+
+
+def test_grader_calibration_timeout_fails_closed_without_fabricating_verdict():
+    from evals.graders import calibrate
+
+    class _TimeoutJudge:
+        def grade(self, *, script_text: str, facts: list[dict]):
+            raise LlmTimeoutError("continuity_judge")
+
+    assert calibrate(_TimeoutJudge(), facts=[]) is False
