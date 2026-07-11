@@ -137,11 +137,11 @@ test('a 503 on accept rolls back: the card shows the error, the script canvas en
   )
 })
 
-test('empty scene (scene-6): ghost text on the canvas, single Next Beat button in the dock', async ({
+test('empty scene (scene-6): clear empty copy on the canvas, single Next Beat button in the dock', async ({
   page,
 }) => {
   await page.goto('/?project=proj-longpour&scene=scene-6')
-  await expect(page.getByText('Write, or press Next Beat')).toBeVisible()
+  await expect(page.getByText('No beats in this scene yet.')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Next Beat' })).toBeVisible()
 })
 
