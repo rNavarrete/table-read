@@ -145,3 +145,48 @@ def test_unknown_character_id_in_motivation_raises_schema_invalid(caplog):
     joined = " ".join(r.message for r in caplog.records)
     assert "char-nope" in joined
     assert "Marta confronts Dan" not in joined
+
+
+def test_placeholder_scene_raises_schema_invalid():
+    mock = MockLlmClient()
+    junk = InitialSceneSkeleton(
+        label="placeholder",
+        scenes=[
+            {
+                "act": 1,
+                "location": "placeholder",
+                "time": "DAY",
+                "socialSituation": "",
+                "whatHappens": "placeholder",
+                "audienceLearns": "",
+                "audienceFeels": "",
+                "motivations": [],
+                "beatPlanSeeds": [],
+            }
+        ],
+    )
+    mock.set_response("generate_scene_skeleton", junk)
+    with pytest.raises(SchemaInvalidLlmError):
+        scene_skeleton.generate_candidates(_doc(), mock, count=1)
+
+
+def test_scene_without_motivations_is_unusable():
+    scene = {
+        "location": "INT. BAR - NIGHT",
+        "whatHappens": "Something happens.",
+        "motivations": [],
+    }
+    assert scene_skeleton.scene_proposal_is_usable(scene) is False
+    assert scene_skeleton.scene_proposal_is_usable(
+        {
+            **scene,
+            "motivations": [
+                {
+                    "characterId": "char-marta",
+                    "objective": "x",
+                    "stakes": "y",
+                    "obstacle": "z",
+                }
+            ],
+        }
+    )

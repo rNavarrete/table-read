@@ -92,7 +92,14 @@ def _candidate(head_snapshot_id: str, *, character_id: str = "char-marta") -> di
                 "whatHappens": "Dan tries to buy time from Reyes.",
                 "audienceLearns": "Reyes is owed the money.",
                 "audienceFeels": "Rising dread.",
-                "motivations": [],
+                "motivations": [
+                    {
+                        "characterId": character_id,
+                        "objective": "Delay Reyes without confessing.",
+                        "stakes": "His own safety.",
+                        "obstacle": "Reyes's patience is gone.",
+                    }
+                ],
                 "beatPlanSeeds": [
                     {
                         "whatHappens": "Dan offers a partial payment.",
@@ -167,6 +174,22 @@ def test_select_candidate_with_unknown_character_id_returns_409_validation(
 ):
     project_head = client.get(f"/api/v1/projects/{PROJECT_ID}").json()["headSnapshotId"]
     resp = _select(project_head, character_id="char-nope")
+    assert resp.status_code == 409
+    assert resp.json()["error"]["code"] == "VALIDATION"
+
+
+def test_select_candidate_with_placeholder_scene_returns_409_validation(
+    seeded_project, mock_llm
+):
+    head = client.get(f"/api/v1/projects/{PROJECT_ID}").json()["headSnapshotId"]
+    junk = _candidate(head)
+    junk["scenes"][0]["location"] = "placeholder"
+    junk["scenes"][0]["whatHappens"] = "placeholder"
+    junk["scenes"][0]["motivations"] = []
+    resp = client.post(
+        f"/api/v1/projects/{PROJECT_ID}/scene-skeleton/change-sets",
+        json=junk,
+    )
     assert resp.status_code == 409
     assert resp.json()["error"]["code"] == "VALIDATION"
 

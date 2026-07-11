@@ -12,7 +12,7 @@ import { ScriptCanvas } from './ScriptCanvas'
 import { useAcceptBeat } from './useAcceptBeat'
 import { useCandidateSession } from './useCandidateSession'
 import { useQuietAi } from './useQuietAi'
-import { allScenes, findScene } from './projectTree'
+import { allScenes, pickDefaultScene } from './projectTree'
 
 function useUrlParam(name: string): string | null {
   return useMemo(
@@ -66,8 +66,8 @@ export function WriteScreen() {
             projectId,
             scenes.map((s) => s.id),
           )
-          const sceneId = requestedSceneId ?? resume.sceneId
-          return (sceneId ? findScene(project, sceneId) : null) ?? scenes[0]
+          const preferredId = requestedSceneId ?? resume.sceneId
+          return pickDefaultScene(project, preferredId)
         })()
       : null
 

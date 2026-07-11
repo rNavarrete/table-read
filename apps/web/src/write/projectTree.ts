@@ -25,6 +25,46 @@ export function allScenes(project: Project): Scene[] {
   )
 }
 
+const THIN_TOKENS = new Set(['placeholder', 'n/a', 'tbd', 'todo', 'none'])
+
+function isThinField(value: string | undefined | null): boolean {
+  const text = (value ?? '').trim()
+  if (!text) return true
+  return THIN_TOKENS.has(text.toLowerCase())
+}
+
+/** True when a scene is empty/stub content that Write should not open on. */
+export function isUnusableScene(scene: Scene): boolean {
+  if (isThinField(scene.location) || isThinField(scene.whatHappens)) return true
+  return false
+}
+
+/**
+ * Prefer a requested/resume scene when it exists and is usable; otherwise the
+ * first scene with beats, else the first usable scene, else the first scene.
+ * Skips placeholder stubs so Next Beat isn't run on empty cast context.
+ */
+export function pickDefaultScene(
+  project: Project,
+  preferredSceneId?: string | null,
+): Scene | null {
+  const scenes = allScenes(project)
+  if (scenes.length === 0) return null
+
+  if (preferredSceneId) {
+    const preferred = findScene(project, preferredSceneId)
+    if (preferred && !isUnusableScene(preferred)) return preferred
+  }
+
+  const withBeats = scenes.find(
+    (scene) => !isUnusableScene(scene) && scene.beats.length > 0,
+  )
+  if (withBeats) return withBeats
+
+  const usable = scenes.find((scene) => !isUnusableScene(scene))
+  return usable ?? scenes[0] ?? null
+}
+
 /**
  * Returns a new `Project` with `sceneId`'s beats replaced by `beats` —
  * everything else structurally shared (only the arrays along the path to the

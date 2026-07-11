@@ -23,6 +23,51 @@ _logger = logging.getLogger("drama_manager.scene_skeleton")
 
 CANDIDATE_COUNT = 3
 
+# Model-filler strings we refuse to persist as real plan content. Matched
+# case-insensitively after trim; empty/whitespace also counts as thin.
+_THIN_TOKENS = frozenset({"placeholder", "n/a", "tbd", "todo", "none"})
+
+
+def is_thin_field(value: str | None) -> bool:
+    """True when a freeform plan field is empty or an obvious model stub."""
+    text = (value or "").strip()
+    if not text:
+        return True
+    return text.casefold() in _THIN_TOKENS
+
+
+def scene_proposal_is_usable(scene) -> bool:
+    """A skeleton scene is usable only when it has a real location, a real
+    what-happens pitch, and at least one motivation (so Write's Next Beat
+    has an in-scene cast). Accepts a Pydantic scene or a wire dict."""
+    if hasattr(scene, "model_dump"):
+        data = scene.model_dump(by_alias=True)
+    else:
+        data = scene
+    if is_thin_field(data.get("location")):
+        return False
+    if is_thin_field(data.get("whatHappens")):
+        return False
+    motivations = data.get("motivations") or []
+    if not motivations:
+        return False
+    return True
+
+
+def assert_scenes_usable(scenes: list) -> None:
+    """Raise `SchemaInvalidLlmError` when any scene is thin/unusable, or the
+    list is empty after the model returned. Triggers the one schema retry
+    (CLAUDE.md rule 9) rather than shipping junk into Plan/Write."""
+    if not scenes:
+        _logger.info("generate_scene_skeleton_empty_scenes")
+        raise SchemaInvalidLlmError("generate_scene_skeleton")
+    if any(not scene_proposal_is_usable(s) for s in scenes):
+        _logger.info(
+            "generate_scene_skeleton_thin_scenes rejected_count=%d",
+            sum(1 for s in scenes if not scene_proposal_is_usable(s)),
+        )
+        raise SchemaInvalidLlmError("generate_scene_skeleton")
+
 
 def _iter_characters(doc: dict):
     yield from doc.get("seriesBible", {}).get("characters", [])
@@ -132,7 +177,11 @@ def generate_candidates(
         raw = llm.generate_scene_skeleton(
             system=system, user_message=user, prompt_version=render.PROMPT_VERSION
         )
+        assert_scenes_usable(raw.scenes)
         _validate_character_ids(doc, raw.scenes)
+        if is_thin_field(raw.label):
+            _logger.info("generate_scene_skeleton_thin_label")
+            raise SchemaInvalidLlmError("generate_scene_skeleton")
         scene_additions = [_to_scene_addition(s) for s in raw.scenes]
         candidate = {
             "candidateId": _mint_candidate_id(),

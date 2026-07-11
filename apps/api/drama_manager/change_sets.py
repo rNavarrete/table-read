@@ -36,7 +36,7 @@ import logging
 import uuid
 from datetime import UTC, datetime
 
-from drama_manager import ledger_filter, ledger_policy, locks, render, scan
+from drama_manager import ledger_filter, ledger_policy, locks, render, scan, scene_skeleton
 from drama_manager.ledger_filter import RelevanceContext
 from llm.errors import SchemaInvalidLlmError
 from llm.protocol import LlmClient
@@ -434,6 +434,20 @@ def create_scene_skeleton_change_set(
     Raises `ApplyRejected` for a stale `basedOnSnapshotId` or an unknown
     `characterId` in a motivation (route -> 409)."""
     validated = InitialSceneSkeletonCandidate.model_validate(candidate)
+    if scene_skeleton.is_thin_field(validated.label):
+        raise ApplyRejected(
+            "VALIDATION",
+            "candidate label is empty or a placeholder stub",
+        )
+    if any(
+        not scene_skeleton.scene_proposal_is_usable(scene)
+        for scene in validated.scenes
+    ):
+        raise ApplyRejected(
+            "VALIDATION",
+            "candidate contains an empty or placeholder scene "
+            "(need real location, whatHappens, and at least one motivation)",
+        )
     if validated.based_on_snapshot_id != project.head_snapshot_id:
         raise ApplyRejected(
             "PREVIEW_STALE",
@@ -626,6 +640,11 @@ def _resolve_approved_scene_additions(
             raise ApplyRejected(
                 "LOCKED_OBJECT",
                 f"objectId {object_id!r} targets a locked episode",
+            )
+        if not scene_skeleton.scene_proposal_is_usable(scene):
+            raise ApplyRejected(
+                "VALIDATION",
+                f"objectId {object_id!r} is an empty or placeholder scene",
             )
         approved.append(scene)
 
