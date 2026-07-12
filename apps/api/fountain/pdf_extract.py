@@ -7,6 +7,7 @@ Tesseract or real PDF fixtures.
 
 from __future__ import annotations
 
+import concurrent.futures
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -161,16 +162,22 @@ def _extract_ocr_with_tesseract(*, clock: Clock) -> PdfPageExtractor:
         texts: list[str] = []
         try:
             for index in range(len(pdf)):
-                if clock() - start > OCR_TIMEOUT_SECONDS:
-                    raise PdfExtractError("UNAVAILABLE", "PDF OCR exceeded the 120s timeout")
+                _raise_if_ocr_timed_out(start, clock)
 
                 page = pdf[index]
+                executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+                future = executor.submit(_ocr_page, page, pytesseract)
                 try:
-                    image = page.render(scale=2).to_pil()
-                    texts.append(pytesseract.image_to_string(image, lang="eng") or "")
+                    remaining = OCR_TIMEOUT_SECONDS - (clock() - start)
+                    texts.append(future.result(timeout=remaining))
+                    _raise_if_ocr_timed_out(start, clock)
+                except concurrent.futures.TimeoutError as exc:
+                    future.cancel()
+                    raise PdfExtractError("UNAVAILABLE", "PDF OCR exceeded the 120s timeout") from exc
                 except TesseractNotFoundError as exc:
                     raise PdfExtractError("UNAVAILABLE", "Install/configure Tesseract for PDF OCR") from exc
                 finally:
+                    executor.shutdown(wait=False, cancel_futures=True)
                     page.close()
         finally:
             pdf.close()
@@ -178,3 +185,13 @@ def _extract_ocr_with_tesseract(*, clock: Clock) -> PdfPageExtractor:
         return texts
 
     return extract
+
+
+def _raise_if_ocr_timed_out(start: float, clock: Clock) -> None:
+    if clock() - start > OCR_TIMEOUT_SECONDS:
+        raise PdfExtractError("UNAVAILABLE", "PDF OCR exceeded the 120s timeout")
+
+
+def _ocr_page(page: object, pytesseract: object) -> str:
+    image = page.render(scale=2).to_pil()
+    return pytesseract.image_to_string(image, lang="eng") or ""
