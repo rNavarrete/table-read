@@ -125,7 +125,8 @@ def _build_real_clients():
 
     judge = ContinuityJudge(
         anthropic.Anthropic(api_key=api_key, timeout=DEFAULT_LLM_CALL_TIMEOUT_SECONDS),
-        models["classifier"],
+        models["writer"],
+        temperature=None,
     )
     return client, judge
 

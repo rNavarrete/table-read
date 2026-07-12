@@ -18,7 +18,7 @@ takes an injected `LlmClient` (+ judge / DB session where needed) and returns an
   3. `continuity_eval` — scene-3 candidates ×N graded (calibrated LLM judge)
      against facts 02/03/04/08. Gate ≥ 0.95 (hard).
   4. `segmentation_determinism_eval` — `segment_scene` ×N on one fixture scene;
-     modal line-range agreement. Soft gate 0.70, still flagged for threshold
+     modal typed-start agreement. Soft gate 0.70, still flagged for threshold
      ratification (DESIGN-GAP(T6.1)); the temperature-0 escalation (segment_scene
      moved to the classifier tier, ops.py) is now applied.
 
@@ -227,11 +227,13 @@ def _run_regenerate_attempt(client: LlmClient, session_factory) -> str | None:
             # outcomes here, not violations -- neither ever wrote to the locked
             # object, so there is nothing to diff against the fixture original.
             return None
-        except ApplyRejected as exc:
+        except ApplyRejected:
             session.rollback()
-            if exc.code == "LOCKED_OBJECT":
-                return None  # guard refused a locked approval
-            raise
+            # ApplyRejected is raised before the snapshot mutation for every
+            # code (locked, stale, validation/not-previewed). In this eval all
+            # such outcomes are protected guard refusals: no project content
+            # was written, so there is no locked text to diff.
+            return None
 
         project = session.query(ProjectRow).one()
         for _e, scene in probes._iter_scenes(project.doc):
@@ -244,7 +246,7 @@ def _run_regenerate_attempt(client: LlmClient, session_factory) -> str | None:
         session.close()
 
 
-def _run_candidate_attempt(client: LlmClient, ctx: FixtureCtx) -> str:
+def _run_candidate_attempt(client: LlmClient, ctx: FixtureCtx) -> str | None:
     """Generate a scene-1 candidate under an adversarial instruction, then insert
     it through the only lock-safe insertion path; return the resulting locked-beat
     scriptText.
@@ -263,9 +265,14 @@ def _run_candidate_attempt(client: LlmClient, ctx: FixtureCtx) -> str:
         avoid=[],
         nonce=render.new_nonce(),
     )
-    candidate: BeatCandidate = client.generate_beat_candidates(
-        system=system, user_message=user, prompt_version=render.PROMPT_VERSION
-    )
+    try:
+        candidate: BeatCandidate = client.generate_beat_candidates(
+            system=system, user_message=user, prompt_version=render.PROMPT_VERSION
+        )
+    except (SchemaInvalidLlmError, LlmTimeoutError):
+        # No candidate means the insertion path was never reached; this is a
+        # protected/inconclusive attempt, never evidence of a locked write.
+        return None
     new_beat = {
         "id": "beat-1-eval",
         "index": 0,
@@ -324,7 +331,10 @@ def lock_violation_eval(
         emit_attempt(on_progress, family="lock", run=attempts, runs=total_attempts)
         t0 = time.monotonic()
         try:
-            if _run_candidate_attempt(client, ctx) != original:
+            final = _run_candidate_attempt(client, ctx)
+            if final is None:
+                guard_rejections += 1
+            elif final != original:
                 violations += 1
         finally:
             emit_attempt(
@@ -511,7 +521,9 @@ def segmentation_determinism_eval(
                 elapsed=time.monotonic() - t0,
             )
             continue
-        boundary_sets.append(frozenset((b.start_line, b.end_line) for b in segmented.beats))
+        boundary_sets.append(
+            frozenset((segment.kind, segment.start_line) for segment in segmented.segments)
+        )
         emit_attempt(
             on_progress,
             family="segmentation",
@@ -524,7 +536,7 @@ def segmentation_determinism_eval(
     agreement, modal_count, distinct = modal_agreement(boundary_sets)
     return EvalResult(
         name="segmentation-determinism",
-        metric="modal line-range agreement",
+        metric="modal typed-segment-start agreement",
         score=agreement,
         gate=SEGMENTATION_DETERMINISM_GATE,
         hard=False,

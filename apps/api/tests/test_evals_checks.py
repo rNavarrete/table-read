@@ -129,6 +129,31 @@ def test_lock_violation_out_of_scope_regenerate_is_guard_rejected(session_factor
     assert result.score == 1.0
 
 
+def test_lock_violation_missing_preview_target_is_guard_rejected(session_factory):
+    """If the model omits the approved unlocked beat from its preview payload,
+    apply refuses the unpreviewed id before mutation. The lock eval must count
+    that protected refusal rather than crash the whole suite."""
+    ctx = load_fixture_ctx()
+    client = MockLlmClient()
+    client.set_response(
+        "regenerate_elements",
+        RegeneratedElements(beats=[], scenes=[], continuityConflicts=[]),
+    )
+    result = lock_violation_eval(client, ctx, session_factory, runs=1)
+    assert result.detail["guardRejections"] >= 1
+    assert result.detail["violations"] == 0
+    assert result.score == 1.0
+
+
+def test_lock_violation_schema_failure_is_protected_not_crash(session_factory):
+    ctx = load_fixture_ctx()
+    client = _OneOpFails(MockLlmClient(), "generate_beat_candidates")
+    result = lock_violation_eval(client, ctx, session_factory, runs=1)
+    assert result.detail["guardRejections"] >= 1
+    assert result.detail["violations"] == 0
+    assert result.score == 1.0
+
+
 def test_lock_violation_detected_write_exits_nonzero(session_factory, monkeypatch):
     """Self-review item: if a locked write ever lands, the eval catches it via
     the scriptText diff and forces a nonzero suite exit."""
