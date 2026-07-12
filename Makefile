@@ -5,6 +5,11 @@ CONTRACT_DIR := packages/contract
 VENV_BIN := $(CURDIR)/$(API_DIR)/.venv/bin
 NODE_MARKER := node_modules/.installed
 
+# PDF OCR bootstrap for local/dev machines: install system Tesseract with
+# English data before testing scanned PDFs (`brew install tesseract` on macOS;
+# `apt install tesseract-ocr tesseract-ocr-eng` on Debian/Ubuntu). PR-path
+# tests inject OCR engines and do not require Tesseract.
+
 # nvm installs node/npm outside the PATH Make inherited at startup. Resolve
 # nvm's default Node install from its alias file and export it. No-op
 # (falls through to the ambient PATH) if nvm isn't in use on this machine.

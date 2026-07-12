@@ -30,7 +30,7 @@ This is product behavior, not promotional copy.
 | Creation paths | **Start from an idea** and **Import a script** |
 | Wizard style | Short, stepwise wizard with Back/Cancel and locally preserved inputs |
 | Idea handoff | Guided Plan setup: premise → characters → theme → optional scene skeleton |
-| Import inputs | `.fountain` / `.txt` upload **and** paste |
+| Import inputs | `.fountain` / `.txt` / `.pdf` upload **and** paste |
 | Import handoff | Plan with scenes/beats; Ledger badge for pending imported facts |
 | AI behavior | Never starts on upload, paste, blur, navigation, or project creation |
 | Deletion | Permanent purge with typed-title confirmation; no Trash/archive fiction |
@@ -38,7 +38,7 @@ This is product behavior, not promotional copy.
 
 ## 3. Non-goals
 
-- PDF, FDX, RTF, Final Draft, or Word import
+- FDX, RTF, Final Draft, or Word import. PDF is the approved single-episode exception: extract to editable text first, then use the existing text analyze path.
 - Multiple episodes in one import
 - Series-bible document import or automatic bible reverse-engineering
 - Project folders, favorites, tags, cover art, templates marketplace, collaboration, or sharing
@@ -194,16 +194,20 @@ This operation changes prompts/tool schemas, so it requires `PROMPT_VERSION` bum
 
 Two tabs:
 
-- **Upload:** `.fountain` or `.txt`; show filename, size, and detected format.
+- **Upload:** `.fountain`, `.txt`, or `.pdf`; show filename, size, and detected format.
 - **Paste:** plain textarea preserving source exactly.
 
-The writer can replace the source before continuing. Unsupported extensions and empty files fail locally with clear guidance. File content is read in the browser; selecting a file does not upload or analyze it.
+The writer can replace the source before continuing. Unsupported extensions and empty files fail locally with clear guidance. Fountain/text content is read in the browser; selecting those files does not upload or analyze anything. Selecting a PDF uploads only to `POST /projects/import/extract-pdf`, which performs non-LLM server extraction and fills the next editable source step.
 
-### Step 2 — Confirm basics
+### Step 2 — Confirm source
+
+Show an editable textarea containing pasted text, locally read Fountain/text, or server-extracted PDF text. PDF results show the extraction method (`Text layer` or `OCR`), page count, and warning codes. The writer may edit freely before analysis; PDF always continues as `format: "text"`.
+
+### Step 3 — Confirm basics
 
 Pre-fill title from the filename when available. Confirm title and `ShowFormat` using the same presets/fields as the idea path.
 
-### Step 3 — Review source
+### Step 4 — Review source
 
 Show:
 
@@ -215,7 +219,7 @@ Show:
 
 The only trigger is **Create & analyze script**.
 
-### Step 4 — Analyze
+### Step 5 — Analyze
 
 Show truthful named stages:
 
@@ -236,7 +240,7 @@ The existing import invariants remain:
 - one atomic project/root import transaction;
 - no fallback structure after schema-validation failure.
 
-On success, open Plan with imported scenes/beats and show the Ledger pending-review badge. On failure, persist no project or partial rows; preserve browser-local wizard input and offer Retry/Edit source/Return to dashboard.
+On success, open Plan with imported scenes/beats and show the Ledger pending-review badge. On failure, persist no project or partial rows; preserve browser-local wizard input and offer Retry/Edit source/Return to dashboard. PDF extraction failures happen before this step and create no project rows.
 
 Import is the explicit exception to “review before AI-authored structural mutation”: the writer approves **Create & analyze script**, then deterministic/verbatim scene ownership plus model-proposed beat boundaries are saved atomically. The result remains reviewable and reversible in Plan/Undo; no model-generated script replaces source text; inferred facts still require Ledger review. This exception preserves the existing v1 import product contract rather than forcing a second full-script preview/apply copy.
 

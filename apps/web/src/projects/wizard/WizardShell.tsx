@@ -1,4 +1,9 @@
-import { type MouseEvent, type ReactNode, useState } from 'react'
+import {
+  type CSSProperties,
+  type MouseEvent,
+  type ReactNode,
+  useState,
+} from 'react'
 
 export const TRUST_NOTE =
   'Every AI step is explicit, reviewable, and begins only after you confirm the source material.'
@@ -103,7 +108,8 @@ export function WizardShell({
 
         <ol
           aria-label="Wizard steps"
-          className="grid gap-2 text-13 text-tr-text-secondary sm:grid-cols-4"
+          className="grid gap-2 text-13 text-tr-text-secondary sm:grid-cols-[repeat(var(--wizard-step-count),minmax(0,1fr))]"
+          style={{ '--wizard-step-count': steps.length } as CSSProperties}
         >
           {steps.map((step, index) => (
             <li

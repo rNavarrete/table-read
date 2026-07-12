@@ -1,7 +1,7 @@
 # PDF import (extract → confirm → analyze) — design spec
 
 **Date:** 2026-07-12  
-**Status:** draft for review  
+**Status:** approved
 **Authority after merge:** this spec updates product behavior in `docs/narrative-sidekick-design-doc.md` §4.8 (PDF brought forward from v2 for single-episode import), `docs/tableread-data-contract.md` (extract endpoint + types), `docs/tableread-ui-spec.md` (Import wizard), and `docs/tableread-test-plan.md`. Executable schemas remain authoritative in `packages/contract`. Existing create-and-import SSE (`POST /projects/import`) stays the analyze path; PDF never bypasses writer confirmation.
 
 ## 1. Goal

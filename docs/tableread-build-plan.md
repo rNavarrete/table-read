@@ -100,6 +100,9 @@ Replaces the hardcoded seeded entry point with a project dashboard, idea/import 
 **T7.7 E2E + authority docs + delete UI.** Dashboard overflow **Permanently delete** with typed-title confirmation (`DELETE /projects/{pid}`); Playwright e2e for the five design-spec §12 flows; authority-doc sync. — landed.
 *Follow-up (landed with adoption):* ledger/flag ids are now globally unique `fact-<hex>` / `flag-<hex>` mints (`IdMinter`), so create-and-import no longer collides with the seed's `fact-01…08`.
 
+**T7.8 PDF import MVP.** Add single-episode `.pdf` support to the Import wizard: contract types for `PdfExtractResult`, server-only pypdf text-layer extract with Tesseract OCR fallback, `POST /projects/import/extract-pdf`, editable Confirm source step, and existing create-and-import analyze with the confirmed text as `format: "text"`. — landed.
+*Accept:* text-layer PDF extracts without LLM calls; scanned PDF uses injected/mock OCR on the PR path and system Tesseract in dev; writer can edit extracted text before **Create & analyze script**; import still creates exactly one project/root snapshot only after the analyze trigger; docs include Tesseract bootstrap (`brew install tesseract`; Debian `tesseract-ocr tesseract-ocr-eng`).
+
 ## Milestone 8 — Fabula adoption (P-MVP slices)
 
 See `docs/tableread-adoption-prd.md` for full A1–A10 requirements. Sequencing table there maps items onto earlier milestones; remaining P-MVP work lands here as explicit tasks.

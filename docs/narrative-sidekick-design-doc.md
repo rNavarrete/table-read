@@ -193,7 +193,7 @@ Output format is fixed to **teleplay** (Fountain-style sluglines, ACTION, CHARAC
 
 ### 4.8 Script and bible import
 
-**v1:** Fountain and plain-text episode scripts only — single episode, parsed into scenes/beats. **v2:** FDX, PDF, multi-episode, and series-bible documents. Full pipeline (v2 target):
+**v1:** Fountain, plain-text, and PDF episode scripts — single episode, parsed into scenes/beats. PDF import first extracts editable plain text on the server with pypdf/Tesseract (no LLM/token spend), then requires the writer to confirm or edit that source before the existing Create & analyze path runs as `format: "text"`. **v2:** FDX, multi-episode, and series-bible documents. Full pipeline (v2 target):
 
 1. Parse each script into scenes (via sluglines/headings) and segment scenes into beats (LLM pass using the beat-boundary rules); assign scenes to storylines.
 2. Reverse-engineer the series bible and season plan: characters, relationships, theme, arcs, per-scene audience-learns/feels, motivations — and build the initial continuity ledger from everything imported.
@@ -201,7 +201,7 @@ Output format is fixed to **teleplay** (Fountain-style sluglines, ACTION, CHARAC
 
 This makes the tool useful for the dominant professional workflow — extending an existing show — not just filling blank pages.
 
-**Import is the one explicit exception to "review before any AI-authored structural change."** The writer's single trigger is **Create & analyze script**; once pressed, the v1 pipeline (deterministic verbatim scene split + model-proposed beat boundaries) persists the imported scenes/beats atomically as the project's one root snapshot. The trade is deliberate and bounded: no model-generated text ever replaces the source (coverage is server-validated and byte-identical), the imported structure remains fully reviewable and reversible afterward in Plan/Undo, and every imported fact still enters the Ledger as `pending_review`. This preserves the existing v1 import contract rather than forcing a second full-script preview/apply copy.
+**Import is the one explicit exception to "review before any AI-authored structural change."** The writer's single trigger is **Create & analyze script**; for PDF, that trigger is available only after the extract → confirm-source step. Once pressed, the v1 pipeline (deterministic verbatim scene split + model-proposed beat boundaries) persists the imported scenes/beats atomically as the project's one root snapshot. The trade is deliberate and bounded: no model-generated text ever replaces the source (coverage is server-validated and byte-identical), the imported structure remains fully reviewable and reversible afterward in Plan/Undo, and every imported fact still enters the Ledger as `pending_review`. This preserves the existing v1 import contract rather than forcing a second full-script preview/apply copy.
 
 ### 4.9 Inspiration affordances
 
@@ -370,7 +370,7 @@ API server (Python / FastAPI)
   ├─ Drama Manager service (operation orchestration, prompt assembly, blast-radius calc)
   ├─ Claude client (Anthropic SDK; structured outputs; streaming for script text)
   ├─ Embeddings service (dedup)
-  └─ Import pipeline (Fountain/FDX/PDF parsers + LLM beat segmentation)
+  └─ Import pipeline (Fountain/plain-text/PDF extract + LLM beat segmentation)
 
 Storage (PostgreSQL; SQLite for local/MVP)
   ├─ projects (current JSON doc)
@@ -402,14 +402,14 @@ All four modes ship, each in its simplest honest form:
 2. **Plan mode** — simplified canvas/board: one episode's scenes and beats as cards with locks and the right-side inspector; no infinite canvas, no connector lines yet
 3. **Review mode** — one scoped rewrite flow as a Change Set: "change this scene premise" → impacted beats with checkboxes and diffs → apply selected
 4. **Ledger mode** — single-episode continuity: fact cards with source spans, confidence, accept/edit/reject queue
-5. Single episode only (series bible minimal: premise, characters, theme); manual entry or Fountain/plain-text import only
+5. Single episode only (series bible minimal: premise, characters, theme); manual entry or Fountain/plain-text/PDF import only
 6. Fountain export; plain undo (snapshot data model in place, no timeline UI)
 
 Cut from MVP (designed above, built later): A/B/C storyline tagging, chained full plan creation with checkpoints, connector lines, dark theme.
 
 **Deferred beyond MVP:** real-time collaboration; comments and cursors; full multiplayer canvas; branch comparison UI; full season canvas.
 
-**v2 (the season):** full season canvas with episode frames and arc lanes; connector lines (setup/payoff, continuity, arcs); storyline tagging; chained plan creation; cross-episode continuity checks; FDX/PDF/bible import + structural analysis; candidate next-episode premises; dramaturg chat (suggestions as Change Sets); polish mode (critique-and-select); snapshot timeline + branch comparison; Change Set comments; dark theme.
+**v2 (the season):** full season canvas with episode frames and arc lanes; connector lines (setup/payoff, continuity, arcs); storyline tagging; chained plan creation; cross-episode continuity checks; FDX/bible/multi-episode import + structural analysis; candidate next-episode premises; dramaturg chat (suggestions as Change Sets); polish mode (critique-and-select); snapshot timeline + branch comparison; Change Set comments; dark theme.
 
 **v3:** collaboration (writers' rooms — multiplayer canvas, comments/cursors, multiple writers converging on one season plan); multi-season projects; education mode (component-hiding for teaching, per Fabula's instructor feedback); FDX round-trip. Only after episodic is proven: expand to other writing types (features, stage plays, novels) as new format templates + Drama Manager variants on the same core.
 
