@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { createProject } from './client'
+import { createProject, extractPdf } from './client'
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -68,5 +68,42 @@ describe('createProject', () => {
         }),
       }),
     )
+  })
+})
+
+describe('extractPdf', () => {
+  it('posts the PDF as multipart form data', async () => {
+    const fetchSpy = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            text: 'INT. BAR - NIGHT\nA scene.',
+            method: 'text_layer',
+            pageCount: 4,
+            warnings: [],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+    )
+    vi.stubGlobal('fetch', fetchSpy)
+    const file = new File(['%PDF-1.4'], 'pilot.pdf', {
+      type: 'application/pdf',
+    })
+
+    const result = await extractPdf(file)
+
+    expect(result).toEqual({
+      text: 'INT. BAR - NIGHT\nA scene.',
+      method: 'text_layer',
+      pageCount: 4,
+      warnings: [],
+    })
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
+    const [url, init] = fetchSpy.mock.calls[0]
+    expect(url).toBe('/api/v1/projects/import/extract-pdf')
+    expect(init).toMatchObject({ method: 'POST' })
+    expect(init?.headers).toBeUndefined()
+    expect(init?.body).toBeInstanceOf(FormData)
+    expect((init?.body as FormData).get('file')).toBe(file)
   })
 })

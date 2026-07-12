@@ -1,9 +1,10 @@
 import { type ChangeEvent, useRef, useState } from 'react'
 import type {
+  PdfExtractMethod,
   ProjectImportCreateRequest,
   ProjectImportStageName,
 } from 'contract'
-import { importCreateUrl } from '../../api/client'
+import { extractPdf, importCreateUrl } from '../../api/client'
 import { streamSse } from '../../api/sse'
 import {
   FORMAT_PRESET_LABELS,
@@ -16,7 +17,7 @@ import { clearDraft, loadDraft, saveDraft } from './wizardDraft'
 
 const IMPORT_PATH = '/projects/new/import'
 
-const ACCEPTED_EXTENSIONS = ['.fountain', '.txt']
+const ACCEPTED_EXTENSIONS = ['.fountain', '.txt', '.pdf']
 
 const STAGE_ORDER: ProjectImportStageName[] = [
   'parsing_scenes',
@@ -40,8 +41,15 @@ interface ImportDraft {
   source: string
   sourceFormat: 'fountain' | 'text'
   filename: string | null
+  pdfExtract: PdfExtractMetadata | null
   title: string
   presetId: FormatPresetId
+}
+
+interface PdfExtractMetadata {
+  method: PdfExtractMethod
+  pageCount: number
+  warnings: string[]
 }
 
 interface AnalyzeError {
@@ -74,6 +82,7 @@ function initialDraft(): ImportDraft {
     source: '',
     sourceFormat: 'fountain',
     filename: null,
+    pdfExtract: null,
     title: '',
     presetId: 'one-hour-drama',
   }
@@ -93,11 +102,15 @@ function presetSummary(presetId: FormatPresetId): string {
 }
 
 function titleFromFilename(filename: string): string {
-  return filename.replace(/\.(fountain|txt)$/i, '')
+  return filename.replace(/\.(fountain|txt|pdf)$/i, '')
 }
 
 function detectedFormat(filename: string): 'fountain' | 'text' {
   return filename.toLowerCase().endsWith('.fountain') ? 'fountain' : 'text'
+}
+
+function pdfMethodLabel(method: PdfExtractMethod): string {
+  return method === 'ocr' ? 'OCR' : 'Text layer'
 }
 
 function importCreateBody(draft: ImportDraft): ProjectImportCreateRequest {
@@ -114,6 +127,7 @@ export function ImportWizard() {
   )
   const [sourceTouched, setSourceTouched] = useState(false)
   const [sourceError, setSourceError] = useState<string | null>(null)
+  const [isExtractingPdf, setIsExtractingPdf] = useState(false)
   const [basicsTouched, setBasicsTouched] = useState(false)
   const [titleTouched, setTitleTouched] = useState(false)
   const [session, setSession] = useState<AnalyzeSession>(INITIAL_SESSION)
@@ -127,10 +141,42 @@ export function ImportWizard() {
     saveDraft(IMPORT_PATH, nextDraft)
   }
 
-  function handleFile(file: File) {
+  async function handleFile(file: File) {
     const lowerName = file.name.toLowerCase()
     if (!ACCEPTED_EXTENSIONS.some((ext) => lowerName.endsWith(ext))) {
-      setSourceError('Choose a .fountain or .txt file.')
+      setSourceError('Choose a .fountain, .txt, or .pdf file.')
+      return
+    }
+    if (lowerName.endsWith('.pdf')) {
+      setSourceError(null)
+      setIsExtractingPdf(true)
+      try {
+        const result = await extractPdf(file)
+        if (!result.text) {
+          setSourceError('That PDF produced no text. Choose another file.')
+          return
+        }
+        updateDraft({
+          ...draft,
+          source: result.text,
+          sourceFormat: 'text',
+          filename: file.name,
+          pdfExtract: {
+            method: result.method,
+            pageCount: result.pageCount,
+            warnings: result.warnings,
+          },
+          title: titleTouched ? draft.title : titleFromFilename(file.name),
+        })
+      } catch (caught) {
+        setSourceError(
+          caught instanceof Error
+            ? caught.message
+            : 'Could not extract that PDF. Try again.',
+        )
+      } finally {
+        setIsExtractingPdf(false)
+      }
       return
     }
     const reader = new FileReader()
@@ -146,6 +192,7 @@ export function ImportWizard() {
         source: content,
         sourceFormat: detectedFormat(file.name),
         filename: file.name,
+        pdfExtract: null,
         title: titleTouched ? draft.title : titleFromFilename(file.name),
       })
     }
@@ -156,12 +203,12 @@ export function ImportWizard() {
 
   function handleFileInputChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0]
-    if (file) handleFile(file)
+    if (file) void handleFile(file)
   }
 
   function validateSource(): boolean {
     setSourceTouched(true)
-    return Boolean(draft.source.trim()) && sourceError === null
+    return Boolean(draft.source.trim()) && sourceError === null && !isExtractingPdf
   }
 
   function validateBasics(): boolean {
@@ -288,15 +335,28 @@ export function ImportWizard() {
                     <input
                       ref={fileInputRef}
                       type="file"
-                      accept=".fountain,.txt"
+                      accept=".fountain,.txt,.pdf"
                       aria-invalid={sourceTouched && !draft.source.trim()}
                       onChange={handleFileInputChange}
                       className="mt-1 block w-full text-13 text-tr-text-primary"
                     />
                   </label>
                   {draft.filename && (
-                    <p className="text-13 text-tr-text-secondary">
-                      {draft.filename} · detected format: {draft.sourceFormat}
+                    <div className="flex flex-wrap items-center gap-2 text-13 text-tr-text-secondary">
+                      <span>
+                        {draft.filename} · detected format:{' '}
+                        {draft.sourceFormat}
+                      </span>
+                      {draft.pdfExtract && (
+                        <span className="rounded-chip border border-tr-border bg-tr-surface-sunken px-2 py-1 text-12 text-tr-text-muted">
+                          {pdfMethodLabel(draft.pdfExtract.method)}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                  {isExtractingPdf && (
+                    <p role="status" className="text-13 text-tr-text-secondary">
+                      Extracting PDF source...
                     </p>
                   )}
                 </div>
@@ -312,6 +372,7 @@ export function ImportWizard() {
                         source: event.target.value,
                         sourceFormat: 'text',
                         filename: null,
+                        pdfExtract: null,
                       })
                     }
                     className="mt-1 block min-h-40 w-full rounded-card border border-tr-border bg-tr-surface-page px-3 py-2 text-13 text-tr-text-primary outline-none focus:border-tr-sky"
@@ -319,6 +380,57 @@ export function ImportWizard() {
                 </label>
               )}
               {sourceError && <p className="text-tr-danger">{sourceError}</p>}
+              {sourceTouched && !draft.source.trim() && !sourceError && (
+                <p className="text-tr-danger">
+                  Add a script before continuing.
+                </p>
+              )}
+            </div>
+          ),
+        },
+        {
+          id: 'confirm-source',
+          label: 'Confirm source',
+          title: 'Confirm source',
+          validate: validateSource,
+          body: (
+            <div className="grid gap-3">
+              <div className="flex flex-wrap items-center gap-2 text-13 text-tr-text-secondary">
+                <span>
+                  {draft.filename
+                    ? `${draft.filename} (${draft.sourceFormat})`
+                    : `Pasted text (${draft.sourceFormat})`}
+                </span>
+                {draft.pdfExtract && (
+                  <>
+                    <span className="rounded-chip border border-tr-border bg-tr-surface-sunken px-2 py-1 text-12 text-tr-text-muted">
+                      {pdfMethodLabel(draft.pdfExtract.method)}
+                    </span>
+                    <span>{draft.pdfExtract.pageCount} page(s)</span>
+                  </>
+                )}
+              </div>
+              {draft.pdfExtract?.warnings.length ? (
+                <ul className="grid gap-1 text-13 text-tr-text-secondary">
+                  {draft.pdfExtract.warnings.map((warning) => (
+                    <li key={warning}>{warning}</li>
+                  ))}
+                </ul>
+              ) : null}
+              <label className="text-13 font-medium text-tr-text-primary">
+                Confirm source
+                <textarea
+                  value={draft.source}
+                  aria-invalid={sourceTouched && !draft.source.trim()}
+                  onChange={(event) =>
+                    updateDraft({
+                      ...draft,
+                      source: event.target.value,
+                    })
+                  }
+                  className="mt-1 block min-h-72 w-full rounded-card border border-tr-border bg-tr-surface-page px-3 py-2 text-13 text-tr-text-primary outline-none focus:border-tr-sky"
+                />
+              </label>
               {sourceTouched && !draft.source.trim() && !sourceError && (
                 <p className="text-tr-danger">
                   Add a script before continuing.

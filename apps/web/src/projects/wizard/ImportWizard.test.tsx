@@ -10,12 +10,19 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ImportWizard } from './ImportWizard'
 import { loadDraft } from './wizardDraft'
+import { extractPdf } from '../../api/client'
 import { streamSse } from '../../api/sse'
+
+vi.mock('../../api/client', () => ({
+  extractPdf: vi.fn(),
+  importCreateUrl: () => '/api/v1/projects/import',
+}))
 
 vi.mock('../../api/sse', () => ({
   streamSse: vi.fn(),
 }))
 
+const mockedExtractPdf = vi.mocked(extractPdf)
 const mockedStreamSse = vi.mocked(streamSse)
 
 const IMPORT_PATH = '/projects/new/import'
@@ -23,6 +30,7 @@ const IMPORT_PATH = '/projects/new/import'
 afterEach(() => {
   cleanup()
   localStorage.clear()
+  mockedExtractPdf.mockReset()
   mockedStreamSse.mockReset()
   vi.restoreAllMocks()
 })
@@ -66,6 +74,7 @@ async function fillSourceAndBasics(
   await user.upload(screen.getByLabelText('Script file'), file)
   await waitFor(() => expect(screen.getByText(/ferry.fountain/)).not.toBeNull())
   await user.click(screen.getByRole('button', { name: 'Continue' }))
+  await user.click(screen.getByRole('button', { name: 'Continue' }))
   const titleInput = screen.getByLabelText('Title') as HTMLInputElement
   await user.clear(titleInput)
   await user.type(titleInput, title)
@@ -97,26 +106,103 @@ describe('ImportWizard', () => {
     )
 
     await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
     expect((screen.getByLabelText('Title') as HTMLInputElement).value).toBe(
       'Harbor Lights',
     )
   })
 
+  it('extracts a PDF and fills an editable confirm-source textarea', async () => {
+    const user = userEvent.setup()
+    mockedExtractPdf.mockResolvedValue({
+      text: 'INT. GARAGE - DAY\nMarta studies the map.',
+      method: 'text_layer',
+      pageCount: 12,
+      warnings: [],
+    })
+    render(<ImportWizard />)
+    const file = new File(['%PDF-1.4'], 'Road Draft.pdf', {
+      type: 'application/pdf',
+    })
+
+    await user.upload(screen.getByLabelText('Script file'), file)
+
+    await waitFor(() => expect(mockedExtractPdf).toHaveBeenCalledWith(file))
+    expect(screen.getByText('Text layer')).not.toBeNull()
+    expect(screen.getByText(/Road Draft.pdf/)).not.toBeNull()
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    const textarea = screen.getByLabelText(
+      'Confirm source',
+    ) as HTMLTextAreaElement
+    expect(textarea.value).toBe('INT. GARAGE - DAY\nMarta studies the map.')
+    await user.clear(textarea)
+    await user.type(textarea, 'INT. GARAGE - NIGHT\nMarta changes the plan.')
+    expect(textarea.value).toBe('INT. GARAGE - NIGHT\nMarta changes the plan.')
+  })
+
+  it('sends edited PDF source as text when analyzing', async () => {
+    const user = userEvent.setup()
+    mockedExtractPdf.mockResolvedValue({
+      text: 'INT. GARAGE - DAY\nMarta studies the map.',
+      method: 'ocr',
+      pageCount: 12,
+      warnings: ['ocr_used'],
+    })
+    mockedStreamSse.mockImplementation(() =>
+      framesFrom([
+        {
+          event: 'failed',
+          data: { type: 'failed', error: { code: 'VALIDATION', message: 'x' } },
+        },
+      ]),
+    )
+    render(<ImportWizard />)
+    const file = new File(['%PDF-1.4'], 'Road Draft.pdf', {
+      type: 'application/pdf',
+    })
+
+    await user.upload(screen.getByLabelText('Script file'), file)
+    await waitFor(() => expect(screen.getByText('OCR')).not.toBeNull())
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    const source = screen.getByLabelText('Confirm source')
+    await user.clear(source)
+    await user.type(source, 'INT. GARAGE - NIGHT\nMarta changes the plan.')
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(
+      screen.getByRole('button', { name: 'Create & analyze script' }),
+    )
+
+    await waitFor(() => expect(mockedStreamSse).toHaveBeenCalledTimes(1))
+    const [, body] = mockedStreamSse.mock.calls[0]
+    expect(body).toMatchObject({
+      title: 'Road Draft',
+      source: {
+        format: 'text',
+        content: 'INT. GARAGE - NIGHT\nMarta changes the plan.',
+      },
+    })
+  })
+
   it('rejects an unsupported file extension locally with no AI call', async () => {
     render(<ImportWizard />)
-    const file = new File(['%PDF-1.4'], 'script.pdf', {
-      type: 'application/pdf',
+    const file = new File(['body'], 'script.docx', {
+      type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     })
     const input = screen.getByLabelText('Script file') as HTMLInputElement
     // `userEvent.upload` enforces the input's `accept` filter itself (so a
-    // real browser file dialog restricted to .fountain/.txt would never
-    // offer a .pdf); dispatch the change event directly to exercise this
+    // real browser file dialog restricted to supported extensions would never
+    // offer a .docx); dispatch the change event directly to exercise this
     // component's *own* extension guard against a file that slipped through
     // (e.g. "All Files" in the OS picker).
     Object.defineProperty(input, 'files', { value: [file] })
     fireEvent.change(input)
 
-    expect(screen.getByText('Choose a .fountain or .txt file.')).not.toBeNull()
+    expect(
+      screen.getByText('Choose a .fountain, .txt, or .pdf file.'),
+    ).not.toBeNull()
+    expect(mockedExtractPdf).not.toHaveBeenCalled()
     expect(mockedStreamSse).not.toHaveBeenCalled()
   })
 

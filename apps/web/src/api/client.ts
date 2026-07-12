@@ -6,6 +6,7 @@ import type {
   InitialSceneSkeletonCandidate,
   LedgerExtraction,
   LedgerFact,
+  PdfExtractResult,
   Project,
   ProjectCreateRequest,
   ProjectSummary,
@@ -208,6 +209,17 @@ export function createProject(
  * directly, the same way write/sse.ts does for candidate generation. */
 export function importCreateUrl(): string {
   return `${BASE}/projects/import`
+}
+
+export async function extractPdf(file: File): Promise<PdfExtractResult> {
+  const form = new FormData()
+  form.set('file', file)
+  const res = await fetch(`${BASE}/projects/import/extract-pdf`, {
+    method: 'POST',
+    body: form,
+  })
+  if (!res.ok) throw await toApiError(res)
+  return (await res.json()) as PdfExtractResult
 }
 
 export function getLedger(
