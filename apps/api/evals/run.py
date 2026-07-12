@@ -53,7 +53,14 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         "--runs",
         type=int,
         default=None,
-        help="Uniform runs per eval (default: tiered 20 hard / 5 soft).",
+        help="Uniform runs per eval (default: tiered hard 5 / soft 5).",
+    )
+    parser.add_argument(
+        "--full",
+        action="store_true",
+        help="Include soft/adoption families (segmentation, lock-repair, "
+        "import-inference, subtext). Default runs hard gates only: schema, "
+        "lock, continuity.",
     )
     parser.add_argument(
         "--out",
@@ -66,7 +73,7 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         type=str,
         default=None,
         choices=sorted(_ONLY_CHOICES),
-        help="Run a single eval family (diagnosis/spot-check); default runs all four.",
+        help="Run a single eval family (diagnosis/spot-check); default is core hard gates.",
     )
     parser.add_argument(
         "--capture",
@@ -97,6 +104,8 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     args = parser.parse_args(argv)
     if args.runs is not None and args.runs < 1:
         parser.error(f"--runs must be >= 1 (got {args.runs}); scores divide by the run count")
+    if args.full and args.only is not None:
+        parser.error("use either --full or --only, not both")
     return args
 
 
@@ -112,7 +121,12 @@ def _build_real_clients():
     api_key = os.environ["ANTHROPIC_API_KEY"]  # KeyError → fail fast (no key, no real eval)
     client = build_anthropic_client()
     models = load_model_roles()
-    judge = ContinuityJudge(anthropic.Anthropic(api_key=api_key), models["classifier"])
+    from llm.anthropic_client import DEFAULT_LLM_CALL_TIMEOUT_SECONDS
+
+    judge = ContinuityJudge(
+        anthropic.Anthropic(api_key=api_key, timeout=DEFAULT_LLM_CALL_TIMEOUT_SECONDS),
+        models["classifier"],
+    )
     return client, judge
 
 
@@ -132,11 +146,30 @@ def main(argv: list[str] | None = None) -> int:
         load_checkpoint,
     )
     from evals.progress import make_stdout_progress
-    from evals.suite import load_model_roles, resolve_run_map, run_suite
+    from evals.suite import (
+        filter_call_estimate,
+        filter_run_map,
+        load_model_roles,
+        nominal_call_estimate,
+        resolve_run_map,
+        run_suite,
+        selected_eval_keys,
+    )
     from storage.db import Base, SessionLocal, engine, ensure_storage_schema
 
     runs = resolve_run_map(args.runs)
     on_progress = make_stdout_progress()
+    keys = selected_eval_keys(full=args.full, only=args.only)
+    selected_runs = filter_run_map(runs, keys)
+
+    estimate = filter_call_estimate(nominal_call_estimate(runs), keys)
+    mode = "dry-run" if args.dry_run else "real"
+    runs_display = ", ".join(f"{k}={v}" for k, v in sorted(selected_runs.items()))
+    print(
+        f"evals starting mode={mode} families={{{','.join(keys)}}} "
+        f"totalNominal≈{estimate['totalNominal']} runs={{{runs_display}}}",
+        flush=True,
+    )
 
     if args.dry_run:
         from evals.graders import MockJudge
@@ -144,7 +177,9 @@ def main(argv: list[str] | None = None) -> int:
 
         client, judge = MockLlmClient(), MockJudge()
     else:
+        print("building Anthropic clients…", flush=True)
         client, judge = _build_real_clients()
+        print("clients ready", flush=True)
 
     if args.calibrate_only:
         from evals.graders import (
@@ -182,7 +217,7 @@ def main(argv: list[str] | None = None) -> int:
             prompt_version=PROMPT_VERSION,
             models=load_model_roles(),
             dry_run=args.dry_run,
-            runs=runs,
+            runs=selected_runs,
         )
         prior_results = [eval_result_from_dict(r) for r in cp["results"]]
         skip_families = {r.name for r in prior_results}
@@ -209,6 +244,7 @@ def main(argv: list[str] | None = None) -> int:
         runs=runs,
         dry_run=args.dry_run,
         only=args.only,
+        full=args.full,
         capture=capture,
         on_progress=on_progress,
         checkpoint_path=this_checkpoint,

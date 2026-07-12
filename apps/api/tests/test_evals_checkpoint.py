@@ -158,6 +158,7 @@ def test_resume_skips_completed_family(tmp_path, session_factory, monkeypatch):
         session_factory,
         runs=_RUNS,
         dry_run=True,
+        full=True,
         checkpoint_path=cp_path,
         skip_families={"schema-validity"},
         prior_results=prior,
@@ -184,6 +185,7 @@ def test_checkpoint_rewritten_after_each_family(tmp_path, session_factory):
         session_factory,
         runs=_RUNS,
         dry_run=True,
+        full=True,
         checkpoint_path=cp_path,
     )
     cp = load_checkpoint(cp_path)
@@ -210,6 +212,7 @@ def test_incomplete_family_never_written(tmp_path, session_factory, monkeypatch)
             session_factory,
             runs=_RUNS,
             dry_run=True,
+        full=True,
             checkpoint_path=cp_path,
         )
     cp = load_checkpoint(cp_path)
@@ -237,6 +240,7 @@ def test_resume_merges_prior_and_new_in_stable_suite_order(session_factory, monk
         session_factory,
         runs=_RUNS,
         dry_run=True,
+        full=True,
         skip_families={"schema-validity", "lock-violation"},
         prior_results=prior,
     )
@@ -302,6 +306,7 @@ def test_resume_complete_checkpoint_writes_fresh_checkpoint_without_reinvoking_f
         session_factory,
         runs=_RUNS,
         dry_run=True,
+        full=True,
         checkpoint_path=cp_path,
         skip_families={r.name for r in prior},
         prior_results=prior,
@@ -339,12 +344,13 @@ def test_cli_writes_fresh_checkpoint_and_prints_path(tmp_path, capsys):
     checkpoints = list(tmp_path.glob("checkpoint-*.json"))
     assert len(checkpoints) == 1
     cp = load_checkpoint(checkpoints[0])
-    assert len(cp["results"]) == 7
+    assert len(cp["results"]) == 3  # core hard gates only
 
 
 def test_cli_resume_skips_completed_family(tmp_path, monkeypatch):
     from drama_manager.render import PROMPT_VERSION
     from evals import run as run_module
+    from evals.suite import CORE_EVAL_KEYS, filter_run_map
 
     cp_path = tmp_path / "checkpoint-prior.json"
     write_checkpoint(
@@ -352,7 +358,7 @@ def test_cli_resume_skips_completed_family(tmp_path, monkeypatch):
         prompt_version=PROMPT_VERSION,
         models=load_model_roles(),
         dry_run=True,
-        runs=_RUNS,
+        runs=filter_run_map(_RUNS, CORE_EVAL_KEYS),
         results=[_result(name="schema-validity", score=1.0)],
         estimated_calls={},
     )
@@ -370,6 +376,7 @@ def test_cli_resume_skips_completed_family(tmp_path, monkeypatch):
 
 def test_cli_resume_refuses_prompt_version_mismatch(tmp_path):
     from evals import run as run_module
+    from evals.suite import CORE_EVAL_KEYS, filter_run_map
 
     cp_path = tmp_path / "checkpoint-stale.json"
     write_checkpoint(
@@ -377,7 +384,7 @@ def test_cli_resume_refuses_prompt_version_mismatch(tmp_path):
         prompt_version="not-the-real-prompt-version",
         models=load_model_roles(),
         dry_run=True,
-        runs=_RUNS,
+        runs=filter_run_map(_RUNS, CORE_EVAL_KEYS),
         results=[],
         estimated_calls={},
     )

@@ -220,10 +220,6 @@ def test_run_suite_dry_run_end_to_end_and_rule5_clean(session_factory, tmp_path)
         "schema-validity",
         "lock-violation",
         "continuity-adherence",
-        "segmentation-determinism",
-        "lock-repair-quality",
-        "import-inference",
-        "subtext-fidelity",
     ]
     assert report.exit_code == 0
     # Rule 5: the report must carry no fixture/writer text.
@@ -235,6 +231,26 @@ def test_run_suite_dry_run_end_to_end_and_rule5_clean(session_factory, tmp_path)
     assert PROMPT_VERSION in report.to_json()
 
 
+def test_run_suite_full_includes_soft_families(session_factory):
+    report = run_suite(
+        MockLlmClient(),
+        MockJudge(),
+        session_factory,
+        runs=resolve_run_map(1),
+        dry_run=True,
+        full=True,
+    )
+    assert [r.name for r in report.results] == [
+        "schema-validity",
+        "lock-violation",
+        "continuity-adherence",
+        "segmentation-determinism",
+        "lock-repair-quality",
+        "import-inference",
+        "subtext-fidelity",
+    ]
+
+
 # ── cost visibility + CLI guards (review fixes 1 & 3) ──────────────────────────
 
 
@@ -242,8 +258,8 @@ def test_default_run_map_tiers_hard_and_soft():
     from evals.suite import HARD_RUNS, SOFT_RUNS, default_run_map
 
     m = default_run_map()
-    assert m["lockViolation"] == HARD_RUNS == 20
-    assert m["continuityAdherence"] == 20
+    assert m["lockViolation"] == HARD_RUNS == 5
+    assert m["continuityAdherence"] == 5
     assert m["schemaValidity"] == SOFT_RUNS == 5
     assert m["segmentationDeterminism"] == 5
     assert m["lockRepairQuality"] == 5
@@ -259,24 +275,32 @@ def test_resolve_run_map_override_is_uniform():
     assert len(m) == 7
 
 
-def test_nominal_call_estimate_tiered_defaults():
-    from evals.suite import default_run_map, nominal_call_estimate
+def test_nominal_call_estimate_core_defaults():
+    from evals.suite import (
+        CORE_EVAL_KEYS,
+        default_run_map,
+        filter_call_estimate,
+        nominal_call_estimate,
+    )
 
-    full = nominal_call_estimate(default_run_map())
-    assert full["schemaValidity"] == 40  # 8 probes × 5
-    assert full["lockViolation"] == 80
-    assert full["continuityAdherence"] == 43
-    assert full["segmentationDeterminism"] == 5
-    assert full["lockRepairQuality"] == 5
-    assert full["importInference"] == 5
-    assert full["subtextFidelity"] == 5
-    assert full["totalNominal"] == 183
+    core = filter_call_estimate(nominal_call_estimate(default_run_map()), CORE_EVAL_KEYS)
+    assert core["schemaValidity"] == 40  # 8 probes × 5
+    assert core["lockViolation"] == 20
+    assert core["continuityAdherence"] == 13
+    assert core["totalNominal"] == 73
+    assert "subtextFidelity" not in core
 
 
 def test_nominal_call_estimate_uniform_one():
-    from evals.suite import nominal_call_estimate, resolve_run_map
+    from evals.suite import (
+        CORE_EVAL_KEYS,
+        filter_call_estimate,
+        nominal_call_estimate,
+        resolve_run_map,
+    )
 
-    assert 18 <= nominal_call_estimate(resolve_run_map(1))["totalNominal"] <= 25
+    core = filter_call_estimate(nominal_call_estimate(resolve_run_map(1)), CORE_EVAL_KEYS)
+    assert 11 <= core["totalNominal"] <= 17
 
 
 def test_run_suite_report_carries_call_estimate(session_factory):

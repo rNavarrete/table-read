@@ -37,7 +37,7 @@ from evals import probes
 from evals.graders import CONTINUITY_FACT_IDS, GRADER_VERSION, Judge, calibrate
 from evals.harness import EvalResult
 from evals.probes import FixtureCtx
-from evals.progress import ProgressFn
+from evals.progress import ProgressFn, emit_attempt
 from llm.errors import LlmTimeoutError, SchemaInvalidLlmError
 from llm.ops import OP_REGISTRY
 from llm.protocol import LlmClient
@@ -86,6 +86,13 @@ def schema_validity_eval(
         valid = 0
         for i in range(runs):
             system, user = build(ctx)
+            emit_attempt(
+                on_progress,
+                family="schema",
+                run=i + 1,
+                runs=runs,
+                probe=op_name,
+            )
             t0 = time.monotonic()
             try:
                 getattr(client, op_name)(
@@ -95,14 +102,15 @@ def schema_validity_eval(
             except (SchemaInvalidLlmError, LlmTimeoutError):
                 pass
             finally:
-                if on_progress is not None:
-                    on_progress(
-                        family="schema",
-                        run=i + 1,
-                        runs=runs,
-                        probe=op_name,
-                        elapsed=time.monotonic() - t0,
-                    )
+                emit_attempt(
+                    on_progress,
+                    family="schema",
+                    run=i + 1,
+                    runs=runs,
+                    probe=op_name,
+                    status="done",
+                    elapsed=time.monotonic() - t0,
+                )
         per_op[op_name] = {"valid": valid, "total": runs, "rate": round(valid / runs, 4)}
 
     rates = [v["rate"] for v in per_op.values()]
@@ -293,6 +301,7 @@ def lock_violation_eval(
 
     for _ in range(runs):
         attempts += 1
+        emit_attempt(on_progress, family="lock", run=attempts, runs=total_attempts)
         t0 = time.monotonic()
         try:
             final = _run_regenerate_attempt(client, session_factory)
@@ -301,28 +310,31 @@ def lock_violation_eval(
             elif final != original:
                 violations += 1
         finally:
-            if on_progress is not None:
-                on_progress(
-                    family="lock",
-                    run=attempts,
-                    runs=total_attempts,
-                    elapsed=time.monotonic() - t0,
-                )
+            emit_attempt(
+                on_progress,
+                family="lock",
+                run=attempts,
+                runs=total_attempts,
+                status="done",
+                elapsed=time.monotonic() - t0,
+            )
 
     for _ in range(runs):
         attempts += 1
+        emit_attempt(on_progress, family="lock", run=attempts, runs=total_attempts)
         t0 = time.monotonic()
         try:
             if _run_candidate_attempt(client, ctx) != original:
                 violations += 1
         finally:
-            if on_progress is not None:
-                on_progress(
-                    family="lock",
-                    run=attempts,
-                    runs=total_attempts,
-                    elapsed=time.monotonic() - t0,
-                )
+            emit_attempt(
+                on_progress,
+                family="lock",
+                run=attempts,
+                runs=total_attempts,
+                status="done",
+                elapsed=time.monotonic() - t0,
+            )
 
     score = (attempts - violations) / attempts if attempts else 0.0
     return EvalResult(
@@ -385,6 +397,7 @@ def continuity_eval(
     passed = 0
     schema_failures = 0
     for i in range(runs):
+        emit_attempt(on_progress, family="continuity", run=i + 1, runs=runs)
         t0 = time.monotonic()
         system, user = candidates.build_candidate_bundle(
             ctx.doc,
@@ -401,13 +414,14 @@ def continuity_eval(
             )
         except (SchemaInvalidLlmError, LlmTimeoutError):
             schema_failures += 1
-            if on_progress is not None:
-                on_progress(
-                    family="continuity",
-                    run=i + 1,
-                    runs=runs,
-                    elapsed=time.monotonic() - t0,
-                )
+            emit_attempt(
+                on_progress,
+                family="continuity",
+                run=i + 1,
+                runs=runs,
+                status="done",
+                elapsed=time.monotonic() - t0,
+            )
             continue
         try:
             verdict = judge.grade(script_text=candidate.script_text, facts=facts)
@@ -416,13 +430,14 @@ def continuity_eval(
             # fabricated fallback" applies here too) -- counts this run as
             # unscored, same bucket as a client-side schema failure.
             schema_failures += 1
-            if on_progress is not None:
-                on_progress(
-                    family="continuity",
-                    run=i + 1,
-                    runs=runs,
-                    elapsed=time.monotonic() - t0,
-                )
+            emit_attempt(
+                on_progress,
+                family="continuity",
+                run=i + 1,
+                runs=runs,
+                status="done",
+                elapsed=time.monotonic() - t0,
+            )
             continue
         if verdict.passes:
             passed += 1
@@ -430,13 +445,14 @@ def continuity_eval(
             capture.record_continuity_failure(
                 index=i + 1, script_text=candidate.script_text, verdict=verdict, facts=facts
             )
-        if on_progress is not None:
-            on_progress(
-                family="continuity",
-                run=i + 1,
-                runs=runs,
-                elapsed=time.monotonic() - t0,
-            )
+        emit_attempt(
+            on_progress,
+            family="continuity",
+            run=i + 1,
+            runs=runs,
+            status="done",
+            elapsed=time.monotonic() - t0,
+        )
 
     score = passed / runs if runs else 0.0
     return EvalResult(
@@ -478,6 +494,7 @@ def segmentation_determinism_eval(
     schema_failures = 0
     for i in range(runs):
         system, user = render.build_segment_prompt(ctx.doc, lines, render.new_nonce())
+        emit_attempt(on_progress, family="segmentation", run=i + 1, runs=runs)
         t0 = time.monotonic()
         try:
             segmented = client.segment_scene(
@@ -485,22 +502,24 @@ def segmentation_determinism_eval(
             )
         except (SchemaInvalidLlmError, LlmTimeoutError):
             schema_failures += 1
-            if on_progress is not None:
-                on_progress(
-                    family="segmentation",
-                    run=i + 1,
-                    runs=runs,
-                    elapsed=time.monotonic() - t0,
-                )
-            continue
-        boundary_sets.append(frozenset((b.start_line, b.end_line) for b in segmented.beats))
-        if on_progress is not None:
-            on_progress(
+            emit_attempt(
+                on_progress,
                 family="segmentation",
                 run=i + 1,
                 runs=runs,
+                status="done",
                 elapsed=time.monotonic() - t0,
             )
+            continue
+        boundary_sets.append(frozenset((b.start_line, b.end_line) for b in segmented.beats))
+        emit_attempt(
+            on_progress,
+            family="segmentation",
+            run=i + 1,
+            runs=runs,
+            status="done",
+            elapsed=time.monotonic() - t0,
+        )
 
     agreement, modal_count, distinct = modal_agreement(boundary_sets)
     return EvalResult(

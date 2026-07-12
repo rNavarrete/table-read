@@ -17,7 +17,7 @@ from pathlib import Path
 from drama_manager import candidates, render
 from evals.harness import EvalResult
 from evals.probes import FixtureCtx
-from evals.progress import ProgressFn
+from evals.progress import ProgressFn, emit_attempt
 from llm.errors import LlmTimeoutError, SchemaInvalidLlmError
 from llm.protocol import LlmClient
 from schemas import BeatCandidate, LedgerExtraction
@@ -76,6 +76,7 @@ def lock_repair_eval(
     """
     passed = 0
     for i in range(runs):
+        emit_attempt(on_progress, family="lock-repair", run=i + 1, runs=runs)
         t0 = time.monotonic()
         try:
             system, user = candidates.build_candidate_bundle(
@@ -106,13 +107,14 @@ def lock_repair_eval(
             if reframed or reported or "quiet reveal" in (candidate.label or "").lower():
                 passed += 1
         finally:
-            if on_progress is not None:
-                on_progress(
-                    family="lock-repair",
-                    run=i + 1,
-                    runs=runs,
-                    elapsed=time.monotonic() - t0,
-                )
+            emit_attempt(
+                on_progress,
+                family="lock-repair",
+                run=i + 1,
+                runs=runs,
+                status="done",
+                elapsed=time.monotonic() - t0,
+            )
 
     rate = passed / runs if runs else 0.0
     return EvalResult(
@@ -245,6 +247,7 @@ def import_inference_eval(
             nonce=render.new_nonce(),
         )
         t0 = time.monotonic()
+        emit_attempt(on_progress, family="import-inference", run=i + 1, runs=runs)
         try:
             result: LedgerExtraction = client.extract_ledger_facts(
                 system=system,
@@ -253,13 +256,14 @@ def import_inference_eval(
             )
         except (SchemaInvalidLlmError, LlmTimeoutError):
             recalls.append(0.0)
-            if on_progress is not None:
-                on_progress(
-                    family="import-inference",
-                    run=i + 1,
-                    runs=runs,
-                    elapsed=time.monotonic() - t0,
-                )
+            emit_attempt(
+                on_progress,
+                family="import-inference",
+                run=i + 1,
+                runs=runs,
+                status="done",
+                elapsed=time.monotonic() - t0,
+            )
             continue
 
         facts_text = " ".join(f.fact for f in result.new_facts)
@@ -276,13 +280,14 @@ def import_inference_eval(
         # the planted needles do (Mock often invents Long Pour facts — soft).
         if _matches_any(facts_text, forbidden) and found == 0:
             halluc_hits += 1
-        if on_progress is not None:
-            on_progress(
-                family="import-inference",
-                run=i + 1,
-                runs=runs,
-                elapsed=time.monotonic() - t0,
-            )
+        emit_attempt(
+            on_progress,
+            family="import-inference",
+            run=i + 1,
+            runs=runs,
+            status="done",
+            elapsed=time.monotonic() - t0,
+        )
 
     mean_recall = sum(recalls) / len(recalls) if recalls else 0.0
     score = mean_recall * (0.0 if halluc_hits == runs else 1.0)
@@ -312,6 +317,7 @@ def subtext_eval(
     """A10: scene-1 candidates must not narrate Dan's hiding outright."""
     passed = 0
     for i in range(runs):
+        emit_attempt(on_progress, family="subtext", run=i + 1, runs=runs)
         t0 = time.monotonic()
         try:
             system, user = candidates.build_candidate_bundle(
@@ -337,13 +343,14 @@ def subtext_eval(
             if not any(tok in low for tok in _SUBTEXT_FORBIDDEN):
                 passed += 1
         finally:
-            if on_progress is not None:
-                on_progress(
-                    family="subtext",
-                    run=i + 1,
-                    runs=runs,
-                    elapsed=time.monotonic() - t0,
-                )
+            emit_attempt(
+                on_progress,
+                family="subtext",
+                run=i + 1,
+                runs=runs,
+                status="done",
+                elapsed=time.monotonic() - t0,
+            )
 
     rate = passed / runs if runs else 0.0
     return EvalResult(

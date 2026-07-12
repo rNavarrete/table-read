@@ -41,5 +41,11 @@ def build_anthropic_client() -> AnthropicClient:
     Raises `KeyError` immediately if the API key is unset -- fail fast at
     startup, not on the first request."""
     api_key = os.environ["ANTHROPIC_API_KEY"]
-    sdk_client = anthropic.Anthropic(api_key=api_key)
+    # Match AnthropicClient's wall-clock ceiling so a hung HTTP request is
+    # cancelled by httpx as well as by the ThreadPoolExecutor wrapper.
+    from llm.anthropic_client import DEFAULT_LLM_CALL_TIMEOUT_SECONDS
+
+    sdk_client = anthropic.Anthropic(
+        api_key=api_key, timeout=DEFAULT_LLM_CALL_TIMEOUT_SECONDS
+    )
     return AnthropicClient(sdk_client=sdk_client, models=_load_model_roles())

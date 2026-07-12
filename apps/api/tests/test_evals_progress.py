@@ -28,3 +28,26 @@ def test_schema_eval_invokes_progress_per_probe_attempt():
     )
     probes_seen = [e.get("probe") for e in events if e.get("probe")]
     assert set(probes_seen) == set(probes.SCHEMA_PROBES)
+
+
+def test_schema_progress_emitted_before_llm_call_returns():
+    """Hang illusion fix: operators must see run=i/n *before* a slow call blocks."""
+    from evals import checks
+    from evals.probes import load_fixture_ctx
+    from llm.mock import MockLlmClient
+
+    order: list[str] = []
+
+    class OrderingClient(MockLlmClient):
+        def generate_beat_candidates(self, **kwargs):
+            order.append("call:generate_beat_candidates")
+            return super().generate_beat_candidates(**kwargs)
+
+    def on_progress(**kw):
+        if kw.get("probe") == "generate_beat_candidates" and kw.get("status") == "running":
+            order.append("progress:running")
+
+    checks.schema_validity_eval(
+        OrderingClient(), load_fixture_ctx(), runs=1, on_progress=on_progress
+    )
+    assert order.index("progress:running") < order.index("call:generate_beat_candidates")

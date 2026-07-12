@@ -33,9 +33,19 @@ EVAL_KEYS: dict[str, str] = {
     "subtext": "subtextFidelity",
 }
 
-HARD_RUNS = 20
+HARD_RUNS = 5
 SOFT_RUNS = 5
 HARD_FAMILY_KEYS = frozenset({"lockViolation", "continuityAdherence"})
+
+# Default `make evals` runs only these hard-gate families. Soft / adoption
+# families stay available via `--full` or `--only <family>`.
+CORE_EVAL_KEYS: tuple[str, ...] = ("schema", "lock", "continuity")
+SOFT_EVAL_KEYS: tuple[str, ...] = (
+    "segmentation",
+    "lock-repair",
+    "import-inference",
+    "subtext",
+)
 
 # `--only`/checkpoint short key → the `EvalResult.name` that family produces.
 # Used by `run_suite`'s resume path to map a checkpoint's family-skip set
@@ -82,9 +92,9 @@ def nominal_call_estimate(runs: dict[str, int]) -> dict:
     → ≤ 4 × lock runs. continuity = 3 grader calibration calls + (1 generate +
     1 grade) × continuity runs. Segmentation and each adoption soft eval = 1 ×
     that family's runs. Rule-9 retries can add up to one extra call per product
-    call (observed-worst budget ≈ 1.5× total). Tiered defaults: 183 nominal
-    (schema 40, lock 80, continuity 43, soft families 5 each); `--runs 1`
-    ≈ 18–25."""
+    call (observed-worst budget ≈ 1.5× total). Core defaults (schema/lock/
+    continuity only, hard N=5): ≈73 nominal; `--full` adds soft families
+    (≈+20); `--runs 1` core ≈11–15."""
     schema = len(probes.SCHEMA_PROBES) * runs["schemaValidity"]
     lock = 4 * runs["lockViolation"]
     continuity = 3 + 2 * runs["continuityAdherence"]
@@ -112,6 +122,26 @@ def nominal_call_estimate(runs: dict[str, int]) -> dict:
     }
 
 
+def selected_eval_keys(*, full: bool = False, only: str | None = None) -> tuple[str, ...]:
+    """Which short family keys a suite invocation will attempt."""
+    if only is not None:
+        return (only,)
+    if full:
+        return tuple(EVAL_KEYS)
+    return CORE_EVAL_KEYS
+
+
+def filter_run_map(runs: dict[str, int], keys: tuple[str, ...]) -> dict[str, int]:
+    return {EVAL_KEYS[k]: runs[EVAL_KEYS[k]] for k in keys}
+
+
+def filter_call_estimate(estimate: dict, keys: tuple[str, ...]) -> dict:
+    families = [EVAL_KEYS[k] for k in keys]
+    out = {f: estimate[f] for f in families}
+    out["totalNominal"] = sum(out.values())
+    return out
+
+
 def run_suite(
     client: LlmClient,
     judge: Judge,
@@ -120,6 +150,7 @@ def run_suite(
     runs: dict[str, int],
     dry_run: bool,
     only: str | None = None,
+    full: bool = False,
     capture=None,
     on_progress: ProgressFn | None = None,
     checkpoint_path: Path | None = None,
@@ -129,10 +160,9 @@ def run_suite(
     """`session_factory` is a zero-arg callable returning a fresh DB `Session`
     (the lock-violation eval seeds + mutates an isolated project per attempt).
 
-    `only` (an `EVAL_KEYS` short name, e.g. "continuity") runs a single eval
-    family — a diagnosis/spot-check affordance so the operator can iterate on one
-    metric without paying for the full suite. `capture` (a `capture.CaptureSink`)
-    is threaded into `continuity_eval` for per-failure human-review artifacts.
+    Default suite is **core hard gates only** (`schema`, `lock`, `continuity`).
+    Pass `full=True` to include soft/adoption families, or `only=<key>` for a
+    single family. See `CORE_EVAL_KEYS` / `SOFT_EVAL_KEYS`.
 
     `checkpoint_path`/`skip_families`/`prior_results` are the v1.1 resume
     affordance (`--resume` in run.py): `skip_families` holds the
@@ -146,6 +176,10 @@ def run_suite(
     written)."""
     if only is not None and only not in EVAL_KEYS:
         raise ValueError(f"unknown --only eval {only!r}; choose from {sorted(EVAL_KEYS)}")
+    if only is not None and full:
+        raise ValueError("pass only one of full=True or only=<family>")
+    keys = selected_eval_keys(full=full, only=only)
+    selected_runs = filter_run_map(runs, keys)
     ctx = probes.load_fixture_ctx()
     skip_families = skip_families or set()
     prior_by_name = {r.name: r for r in (prior_results or [])}
@@ -161,7 +195,7 @@ def run_suite(
     results: list[EvalResult] = []
 
     def run_family(key: str, compute) -> None:
-        if only is not None and only != key:
+        if key not in keys:
             return
         name = FAMILY_RESULT_NAME[key]
         if name in skip_families:
@@ -177,9 +211,9 @@ def run_suite(
                 prompt_version=render.PROMPT_VERSION,
                 models=load_model_roles(),
                 dry_run=dry_run,
-                runs=runs,
+                runs=selected_runs,
                 results=results,
-                estimated_calls=nominal_call_estimate(runs),
+                estimated_calls=filter_call_estimate(nominal_call_estimate(runs), keys),
             )
 
     run_family(
@@ -234,17 +268,14 @@ def run_suite(
         ),
     )
 
-    estimate = nominal_call_estimate(runs)
-    if only is not None:
-        family = EVAL_KEYS[only]
-        estimate = {family: estimate[family], "totalNominal": estimate[family]}
+    estimate = filter_call_estimate(nominal_call_estimate(runs), keys)
     if checkpoint_path is not None:
         write_checkpoint(
             checkpoint_path,
             prompt_version=render.PROMPT_VERSION,
             models=load_model_roles(),
             dry_run=dry_run,
-            runs=runs,
+            runs=selected_runs,
             results=results,
             estimated_calls=estimate,
         )
@@ -252,7 +283,7 @@ def run_suite(
         prompt_version=render.PROMPT_VERSION,
         models=load_model_roles(),
         dry_run=dry_run,
-        runs=runs,
+        runs=selected_runs,
         results=results,
         estimated_calls=estimate,
     )
