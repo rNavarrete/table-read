@@ -6,3 +6,4 @@ anthropic==0.116.0
 pypdf==6.14.2
 pypdfium2==5.11.0
 pytesseract==0.3.13
+python-multipart==0.0.32
