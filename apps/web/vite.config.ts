@@ -10,11 +10,6 @@ const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../.
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
-  resolve: {
-    alias: {
-      '@repo-config': path.join(rootDir, 'config'),
-    },
-  },
   server: {
     port: 5173,
     // Proxies the api (port 8000, per Makefile) under the same origin the

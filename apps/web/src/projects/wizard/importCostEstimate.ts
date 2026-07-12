@@ -1,4 +1,4 @@
-import pricing from '@repo-config/llm_pricing.json'
+import pricing from '../../../../../config/llm_pricing.json'
 
 export interface ImportCostEstimate {
   estimatedModelCalls: number
