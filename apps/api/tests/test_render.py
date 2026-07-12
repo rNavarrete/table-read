@@ -69,12 +69,27 @@ def test_system_prompt_includes_lock_repair_and_subtext_hard_rules():
     assert "hiding" in system and "subtext" in system
 
 
-def test_segment_prompt_wraps_scene_text_and_numbers_lines():
+def test_segment_prompt_wraps_scene_as_numbered_objects_and_requests_starts():
     system, user = render.build_segment_prompt(
-        {"title": "T", "format": {}}, ["INT. BAR", "Dan pours."], _NONCE
+        {"title": "T", "format": {}}, ["INT. BAR", "12: Dan pours."], _NONCE
     )
     assert f"<source_data_{_NONCE}" in user
-    assert "1: INT. BAR" in user  # line-numbered (escaped inside the JSON string)
+    assert '"lineNumber": 1, "text": "INT. BAR"' in user
+    assert '"lineNumber": 2, "text": "12: Dan pours."' in user
+    assert "typed segment starts" in user
+    assert "do not return end lines" in user
+
+
+def test_segment_retry_prompt_includes_only_structured_repair_diagnostics():
+    _system, user = render.build_segment_retry_prompt(
+        {"title": "T", "format": {}},
+        ["INT. BAR", "Dan pours."],
+        [{"code": "duplicate_start", "modelStart": 2}],
+        _NONCE,
+    )
+    assert 'kind="segmentation_repairs"' in user
+    assert '"code": "duplicate_start"' in user
+    assert "strictly increasing" in user
 
 
 @pytest.mark.parametrize("builder_args", [("imported_script", "x"), ("script", {"a": 1})])

@@ -1,7 +1,7 @@
 """Deterministic Fountain parsing — stage 1 of the two-stage import parse
 (docs/tableread-prompt-spec.md §7). **The LLM never controls text coverage**
-(§7 header): this module owns the scene split and the server-side line-range
-validation that guarantees 100% of the source is preserved.
+(§7 header): this module owns the scene split and turns untrusted model-proposed
+segment starts into a deterministic partition that preserves 100% of the source.
 
 Everything here is pure and deterministic (no LLM, no DB). The byte-identity
 guarantee (T1.3 acceptance) rests on one invariant: the source is a list of
@@ -18,7 +18,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from schemas import SegmentedScene, SegmentedSceneUnassigned
+from schemas import SegmentedScene, SegmentedSceneBeat, SegmentedSceneUnassigned
 
 # Fountain scene heading (slugline): a line beginning (after optional leading
 # whitespace) with a standard set/interior prefix. Case-insensitive per the
@@ -31,10 +31,12 @@ _SLUGLINE_RE = re.compile(
 
 
 class CoverageError(ValueError):
-    """Stage-2 segmentation failed the server-side coverage check (§7): the
-    beats + unassigned ranges have an overlap or an out-of-bounds range
-    (gaps are healed server-side as ``coverage_gap`` unassigned). The import
-    route maps this to the contract's `VALIDATION` error and persists nothing."""
+    """The deterministic source partition cannot be constructed at all.
+
+    Model-proposed segment starts never raise this error: they are normalized
+    into a complete partition and flagged. The import route still uses this
+    error for source-level failures such as empty import content.
+    """
 
 
 @dataclass(frozen=True)
@@ -49,16 +51,67 @@ class SceneSpan:
 
 @dataclass
 class ImportedBeat:
-    """A final beat after coverage validation + unassigned merge. ``script_text``
-    is sliced verbatim from the source (never model-authored). ``unassigned``
-    holds absolute source line ranges (1-based, inclusive) that were merged
-    into this beat and must be surfaced as review flags."""
+    """A final beat after segment-start normalization and unassigned merge."""
 
     what_happens: str
     audience_learns: str
     audience_feels: str
     script_text: str
     unassigned: list[tuple[int, int]] = field(default_factory=list)
+    review_issues: list[SegmentationIssue] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class SegmentationIssue:
+    """Stable, content-free provenance for a selected normalization repair.
+
+    Line ranges are source-wide and 1-based once attached to an ImportedBeat.
+    ``model_start`` remains scene-local because it may be outside the source.
+    """
+
+    code: str
+    start_line: int | None = None
+    end_line: int | None = None
+    model_start: int | None = None
+    discarded_beat_metadata: int = 0
+    boundary_displacement: int = 0
+
+
+@dataclass(frozen=True)
+class RepairScore:
+    """Lexicographic quality score; lower is better."""
+
+    discarded_beat_metadata: int
+    affected_lines: int
+    max_boundary_displacement: int
+    event_count: int
+
+    def ranking_key(self) -> tuple[int, int, int, int]:
+        return (
+            self.discarded_beat_metadata,
+            self.affected_lines,
+            self.max_boundary_displacement,
+            self.event_count,
+        )
+
+
+@dataclass(frozen=True)
+class NormalizedScene:
+    beats: list[ImportedBeat]
+    score: RepairScore
+    repair_ratio: float
+    empty_output: bool
+    duplicate_start: bool
+    diagnostics: list[dict]
+
+    @property
+    def should_retry(self) -> bool:
+        return (
+            self.empty_output
+            or self.duplicate_start
+            or self.score.discarded_beat_metadata > 0
+            or self.repair_ratio > 0.05
+        )
 
 
 def is_slugline(line: str) -> bool:
@@ -93,57 +146,187 @@ def split_into_scenes(source: str) -> list[SceneSpan]:
     return scenes
 
 
-def validate_and_slice(scene: SceneSpan, segmented: SegmentedScene) -> list[ImportedBeat]:
-    """Stage-2 server-side validation + slicing (§7). Verifies the model's beat
-    + unassigned line ranges are ordered and non-overlapping within 1..K
-    (gaps are healed as ``coverage_gap`` unassigned), then slices each beat's
-    ``scriptText`` verbatim from the source and merges every unassigned range
-    into the nearest beat so no line is ever dropped. Raises ``CoverageError``
-    on overlap, out-of-bounds, or empty coverage."""
+def normalize_and_slice(scene: SceneSpan, segmented: SegmentedScene) -> NormalizedScene:
+    """Normalize typed segment starts into a total, ordered partition of 1..K.
+
+    The model supplies only starts. The server sorts whole segment objects,
+    derives every end from the next start, converts duplicate starts to an
+    unassigned segment, discards out-of-bounds starts, and synthesizes an
+    unassigned prefix or whole-scene segment when needed. Every selected repair
+    is retained as a review issue; no schema-valid segmentation can drop or
+    duplicate source text.
+    """
     k = len(scene.lines)
+    raw = list(segmented.segments)
+    empty_output = not raw
+    pending_issues: list[SegmentationIssue] = []
 
-    # Gather every claimed range, tagged with whether it is a real beat.
-    Claim = tuple[int, int, bool, object]  # (start, end, is_beat, payload)
-    claims: list[Claim] = []
-    for beat in segmented.beats:
-        claims.append((beat.start_line, beat.end_line, True, beat))
-    for un in segmented.unassigned:
-        claims.append((un.start_line, un.end_line, False, un))
+    valid = [segment for segment in raw if segment.start_line <= k]
+    if [s.start_line for s in valid] != sorted(s.start_line for s in valid):
+        pending_issues.append(SegmentationIssue(code="unordered_segments"))
 
-    if not claims:
-        raise CoverageError(
-            f"segmentation covered no lines but the scene has {k} line(s)"
+    for segment in raw:
+        if segment.start_line > k:
+            discarded = int(isinstance(segment, SegmentedSceneBeat))
+            pending_issues.append(
+                SegmentationIssue(
+                    code="out_of_bounds_start",
+                    model_start=segment.start_line,
+                    discarded_beat_metadata=discarded,
+                    boundary_displacement=segment.start_line - k,
+                )
+            )
+
+    groups: dict[int, list[SegmentedSceneBeat | SegmentedSceneUnassigned]] = {}
+    for segment in valid:
+        groups.setdefault(segment.start_line, []).append(segment)
+
+    # (start, payload, review-code, discarded-beat-metadata)
+    canonical: list[
+        tuple[int, SegmentedSceneBeat | SegmentedSceneUnassigned, str | None, int]
+    ] = []
+    duplicate_start = False
+    for start in sorted(groups):
+        group = groups[start]
+        if len(group) == 1:
+            payload = group[0]
+            code = "model_unassigned" if isinstance(payload, SegmentedSceneUnassigned) else None
+            canonical.append((start, payload, code, 0))
+            continue
+        duplicate_start = True
+        discarded = sum(isinstance(item, SegmentedSceneBeat) for item in group)
+        canonical.append(
+            (
+                start,
+                SegmentedSceneUnassigned(
+                    kind="unassigned", start_line=start, reason="duplicate_start"
+                ),
+                "duplicate_start",
+                discarded,
+            )
         )
 
-    claims.sort(key=lambda c: (c[0], c[1]))
-
-    healed: list[Claim] = []
-    cursor = 1
-    for start, end, is_beat, payload in claims:
-        if start < 1 or end < start or end > k:
-            raise CoverageError(
-                f"range {start}-{end} is out of bounds for a {k}-line scene"
+    missing_initial_displacement = 0
+    if not canonical:
+        code = "empty_output" if empty_output else "no_valid_segments"
+        canonical.append(
+            (
+                1,
+                SegmentedSceneUnassigned(kind="unassigned", start_line=1, reason=code),
+                code,
+                0,
             )
-        if start < cursor:
-            raise CoverageError(f"overlap at line {start} (expected {cursor})")
-        if start > cursor:
-            gap = SegmentedSceneUnassigned(
-                start_line=cursor,
-                end_line=start - 1,
-                reason="coverage_gap",
-            )
-            healed.append((cursor, start - 1, False, gap))
-        healed.append((start, end, is_beat, payload))
-        cursor = end + 1
-    if cursor <= k:
-        gap = SegmentedSceneUnassigned(
-            start_line=cursor,
-            end_line=k,
-            reason="coverage_gap",
         )
-        healed.append((cursor, k, False, gap))
+    elif canonical[0][0] > 1:
+        first = canonical[0][0]
+        missing_initial_displacement = first - 1
+        canonical.insert(
+            0,
+            (
+                1,
+                SegmentedSceneUnassigned(
+                    kind="unassigned", start_line=1, reason="missing_initial_start"
+                ),
+                "missing_initial_start",
+                0,
+            ),
+        )
 
-    return _merge(scene, healed)
+    claims: list[_Claim] = []
+    for index, (start, payload, code, discarded) in enumerate(canonical):
+        end = canonical[index + 1][0] - 1 if index + 1 < len(canonical) else k
+        issues: list[SegmentationIssue] = []
+        if code is not None:
+            issues.append(
+                SegmentationIssue(
+                    code=code,
+                    start_line=start,
+                    end_line=end,
+                    model_start=start,
+                    discarded_beat_metadata=discarded,
+                    boundary_displacement=(
+                        missing_initial_displacement
+                        if code == "missing_initial_start"
+                        else 0
+                    ),
+                )
+            )
+        claims.append(
+            _Claim(
+                start=start,
+                end=end,
+                is_beat=isinstance(payload, SegmentedSceneBeat),
+                payload=payload,
+                issues=issues,
+            )
+        )
+
+    # Global repairs without an owned in-bounds range attach to a deterministic
+    # beat for review: ordering to the first claim, high OOB starts to the last.
+    for issue in pending_issues:
+        target = claims[-1] if issue.code == "out_of_bounds_start" else claims[0]
+        target.issues.append(issue)
+
+    repairs = [
+        issue
+        for claim in claims
+        for issue in claim.issues
+        if issue.code != "model_unassigned"
+    ]
+    affected_lines = _covered_line_count(
+        [(issue.start_line, issue.end_line) for issue in repairs]
+    )
+    score = RepairScore(
+        discarded_beat_metadata=sum(issue.discarded_beat_metadata for issue in repairs),
+        affected_lines=affected_lines,
+        max_boundary_displacement=max(
+            (issue.boundary_displacement for issue in repairs), default=0
+        ),
+        event_count=len(repairs),
+    )
+    diagnostics = [
+        {
+            "code": issue.code,
+            "startLine": issue.start_line,
+            "endLine": issue.end_line,
+            "modelStart": issue.model_start,
+            "discardedBeatMetadata": issue.discarded_beat_metadata,
+        }
+        for issue in repairs
+    ]
+    return NormalizedScene(
+        beats=_merge(scene, claims),
+        score=score,
+        repair_ratio=affected_lines / k,
+        empty_output=empty_output,
+        duplicate_start=duplicate_start,
+        diagnostics=diagnostics,
+    )
+
+
+def validate_and_slice(scene: SceneSpan, segmented: SegmentedScene) -> list[ImportedBeat]:
+    """Compatibility wrapper for the pure parser tests and non-retrying callers."""
+    return normalize_and_slice(scene, segmented).beats
+
+
+def _covered_line_count(ranges: list[tuple[int | None, int | None]]) -> int:
+    """Size of the union of valid inclusive ranges without allocating per line."""
+    concrete = sorted(
+        (start, end)
+        for start, end in ranges
+        if start is not None and end is not None
+    )
+    if not concrete:
+        return 0
+    total = 0
+    current_start, current_end = concrete[0]
+    for start, end in concrete[1:]:
+        if start <= current_end + 1:
+            current_end = max(current_end, end)
+        else:
+            total += current_end - current_start + 1
+            current_start, current_end = start, end
+    return total + current_end - current_start + 1
 
 
 def reconstruct(scenes_beats: list[list[ImportedBeat]]) -> str:
@@ -191,10 +374,20 @@ class _FinalBeat:
     audience_learns: str
     audience_feels: str
     unassigned: list[tuple[int, int]] = field(default_factory=list)  # 1-based scene ranges
+    review_issues: list[SegmentationIssue] = field(default_factory=list)
 
 
-def _merge(scene: SceneSpan, claims: list) -> list[ImportedBeat]:
-    """Turn validated, tiling claims into final beats: each model beat anchors
+@dataclass
+class _Claim:
+    start: int
+    end: int
+    is_beat: bool
+    payload: SegmentedSceneBeat | SegmentedSceneUnassigned
+    issues: list[SegmentationIssue] = field(default_factory=list)
+
+
+def _merge(scene: SceneSpan, claims: list[_Claim]) -> list[ImportedBeat]:
+    """Turn the derived partition into final beats: each model beat anchors
     a final beat; unassigned ranges attach to the nearest beat (the preceding
     one, or the following one if they lead the scene). A scene whose model
     output was entirely unassigned yields a single synthetic beat holding all
@@ -203,28 +396,33 @@ def _merge(scene: SceneSpan, claims: list) -> list[ImportedBeat]:
     unassigned run (or its ``start`` to swallow a leading one) keeps the final
     beats a gapless partition of 1..K, so reconstruction stays byte-identical."""
     finals: list[_FinalBeat] = []
-    pending_lead: list[tuple[int, int]] = []  # unassigned runs before the first beat
+    pending_lead: list[_Claim] = []  # unassigned runs before the first beat
 
-    for start, end, is_beat, payload in claims:
-        if is_beat:
+    for claim in claims:
+        if claim.is_beat:
             fb = _FinalBeat(
-                start=start,
-                end=end,
-                what_happens=payload.what_happens,
-                audience_learns=payload.audience_learns,
-                audience_feels=payload.audience_feels,
+                start=claim.start,
+                end=claim.end,
+                what_happens=claim.payload.what_happens,
+                audience_learns=claim.payload.audience_learns,
+                audience_feels=claim.payload.audience_feels,
+                review_issues=list(claim.issues),
             )
             if pending_lead:
-                fb.start = pending_lead[0][0]  # absorb leading unassigned runs
-                fb.unassigned.extend(pending_lead)
+                fb.start = pending_lead[0].start  # absorb leading unassigned runs
+                fb.unassigned.extend((item.start, item.end) for item in pending_lead)
+                fb.review_issues.extend(
+                    issue for item in pending_lead for issue in item.issues
+                )
                 pending_lead = []
             finals.append(fb)
         elif finals:
             current = finals[-1]  # extend the preceding beat to swallow this run
-            current.end = end
-            current.unassigned.append((start, end))
+            current.end = claim.end
+            current.unassigned.append((claim.start, claim.end))
+            current.review_issues.extend(claim.issues)
         else:
-            pending_lead.append((start, end))
+            pending_lead.append(claim)
 
     if not finals:
         # Entire scene was unassigned: synthesize one beat holding everything.
@@ -235,7 +433,8 @@ def _merge(scene: SceneSpan, claims: list) -> list[ImportedBeat]:
                 what_happens="",
                 audience_learns="",
                 audience_feels="",
-                unassigned=[(s, e) for s, e, _b, _p in claims],
+                unassigned=[(claim.start, claim.end) for claim in claims],
+                review_issues=[issue for claim in claims for issue in claim.issues],
             )
         )
 
@@ -247,6 +446,25 @@ def _merge(scene: SceneSpan, claims: list) -> list[ImportedBeat]:
             audience_feels=fb.audience_feels,
             script_text="\n".join(scene.lines[fb.start - 1 : fb.end]),
             unassigned=[(abs_start + s, abs_start + e) for s, e in fb.unassigned],
+            review_issues=[
+                SegmentationIssue(
+                    code=issue.code,
+                    start_line=(
+                        abs_start + issue.start_line
+                        if issue.start_line is not None
+                        else None
+                    ),
+                    end_line=(
+                        abs_start + issue.end_line
+                        if issue.end_line is not None
+                        else None
+                    ),
+                    model_start=issue.model_start,
+                    discarded_beat_metadata=issue.discarded_beat_metadata,
+                    boundary_displacement=issue.boundary_displacement,
+                )
+                for issue in fb.review_issues
+            ],
         )
         for fb in finals
     ]

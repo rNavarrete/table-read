@@ -4,7 +4,7 @@ and §9.3's atomic create-and-import — `fountain/create_import.py`).
 Two-stage parse (prompt spec §7) → ledger extraction over imported scenes
 (all facts `pending_review`, §4 step 2) → initial consistency scan (§4 step
 3) → **one** write committing doc + ledger + flags (§4 step 4). Everything
-that can fail — the LLM calls and the server-side coverage validation — runs
+that can fail — chiefly LLM calls and later analysis — runs
 inside `analyze_import`, entirely *before* either caller's single DB write
 (`run_import`'s `mutate()` below, or `create_import.py`'s
 `create_project_with_state`), so a failure persists nothing.
@@ -16,7 +16,8 @@ one stage at a time; `run_import` below, which has no such caller, drains it
 in one call via `run_to_completion`.
 
 The LLM never controls text coverage (§7): `scriptText` is sliced verbatim
-from the source by `parse.validate_and_slice`, never transcribed by the model.
+from the server-derived partition returned by `parse.normalize_and_slice`,
+never transcribed by the model.
 
 Logging is IDs + counts only — never script/plan/fact content (hard rule 5).
 """
@@ -33,9 +34,10 @@ from drama_manager.ledger_policy import IdMinter
 from fountain.parse import (
     CoverageError,
     ImportedBeat,
+    SegmentationIssue,
     locate_source_text,
+    normalize_and_slice,
     split_into_scenes,
-    validate_and_slice,
 )
 from llm.protocol import LlmClient
 from storage import snapshots
@@ -109,7 +111,7 @@ def analyze_import(
     locks.assert_import_target_writable(project_doc, existing_ledger)
 
     # ── Stage 1 + 2: deterministic split, then LLM segmentation + server-side
-    # coverage validation + verbatim slicing, per scene. ────────────────────
+    # typed-start normalization + verbatim slicing, per scene. ──────────────
     yield STAGE_PARSING_SCENES
     spans = split_into_scenes(content)
 
@@ -120,12 +122,38 @@ def analyze_import(
         segmented = llm.segment_scene(
             system=system, user_message=user, prompt_version=render.PROMPT_VERSION
         )
-        per_scene_beats.append(validate_and_slice(span, segmented))
+        first = normalize_and_slice(span, segmented)
+        selected = first
+        retried = False
+        if first.should_retry:
+            retried = True
+            retry_system, retry_user = render.build_segment_retry_prompt(
+                project_doc, span.lines, first.diagnostics, render.new_nonce()
+            )
+            retry_segmented = llm.segment_scene(
+                system=retry_system,
+                user_message=retry_user,
+                prompt_version=render.PROMPT_VERSION,
+            )
+            second = normalize_and_slice(span, retry_segmented)
+            if second.score.ranking_key() < first.score.ranking_key():
+                selected = second
+        _logger.info(
+            "import_segment scene_lines=%d retried=%s discarded_metadata=%d "
+            "affected_lines=%d repair_events=%d prompt_version=%s",
+            len(span.lines),
+            retried,
+            selected.score.discarded_beat_metadata,
+            selected.score.affected_lines,
+            selected.score.event_count,
+            render.PROMPT_VERSION,
+        )
+        per_scene_beats.append(selected.beats)
 
     # ── Assemble the episode doc with deterministic ids, carrying each beat's
     # unassigned ranges so they can be flagged. ──────────────────────────────
     scene_docs: list[dict] = []
-    unassigned_raw: list[tuple[str, tuple[int, int]]] = []
+    review_raw: list[tuple[str, SegmentationIssue]] = []
     for si, (span, beats) in enumerate(zip(spans, per_scene_beats, strict=True), start=1):
         beat_docs = []
         for bi, beat in enumerate(beats, start=1):
@@ -142,7 +170,7 @@ def analyze_import(
                     "scriptLocked": False,
                 }
             )
-            unassigned_raw.extend((beat_id, rng) for rng in beat.unassigned)
+            review_raw.extend((beat_id, issue) for issue in beat.review_issues)
         scene_docs.append(
             {
                 "id": f"scene-{si}",
@@ -213,17 +241,14 @@ def analyze_import(
                 "sourceChange": "",  # stamped with the snapshot id by the caller's write
             }
         )
-    for beat_id, (line_a, line_b) in unassigned_raw:
+    for beat_id, issue in review_raw:
         raw_flags.append(
             {
                 "id": flag_minter.mint(),
                 "objectType": "beat",
                 "objectId": beat_id,
                 "factId": None,
-                "explanation": (
-                    f"Imported source lines {line_a}-{line_b} could not be assigned to a "
-                    "beat during segmentation and were merged into this beat; review."
-                ),
+                "explanation": _segmentation_issue_explanation(issue),
                 "severity": "tension",
                 "status": "open",
                 "sourceChange": "",
@@ -231,6 +256,55 @@ def analyze_import(
         )
 
     return ImportAnalysis(new_doc=new_doc, new_facts=new_facts, raw_flags=raw_flags)
+
+
+def _segmentation_issue_explanation(issue: SegmentationIssue) -> str:
+    """Writer-facing repair provenance. Stable codes make every deterministic
+    normalization inspectable without logging or repeating source text."""
+    line_range = (
+        f"source lines {issue.start_line}-{issue.end_line}"
+        if issue.start_line is not None and issue.end_line is not None
+        else "the scene segmentation"
+    )
+    if issue.code == "model_unassigned":
+        return (
+            f"[model_unassigned] The model marked {line_range} as unassigned; "
+            "the server preserved them in this beat. Review the boundary."
+        )
+    if issue.code == "duplicate_start":
+        return (
+            f"[duplicate_start] The model returned conflicting segments at scene line "
+            f"{issue.model_start}; the server preserved {line_range} as unassigned and "
+            f"discarded {issue.discarded_beat_metadata} conflicting beat metadata "
+            "record(s). Review the boundary."
+        )
+    if issue.code == "missing_initial_start":
+        return (
+            f"[missing_initial_start] No segment began at scene line 1; the server "
+            f"preserved {line_range} as unassigned. Review the boundary."
+        )
+    if issue.code in {"empty_output", "no_valid_segments"}:
+        return (
+            f"[{issue.code}] The model returned no usable segment starts; the server "
+            f"preserved {line_range} as unassigned. Review this scene."
+        )
+    if issue.code == "out_of_bounds_start":
+        return (
+            f"[out_of_bounds_start] The model returned scene line {issue.model_start}, "
+            "which is outside this scene; the server discarded that segment"
+            + (
+                f" and {issue.discarded_beat_metadata} beat metadata record(s)"
+                if issue.discarded_beat_metadata
+                else ""
+            )
+            + ". Review the selected beat boundaries."
+        )
+    if issue.code == "unordered_segments":
+        return (
+            "[unordered_segments] The model returned segment starts out of source order; "
+            "the server reordered the attached segment objects. Review the boundaries."
+        )
+    return f"[{issue.code}] The server repaired {line_range}; review the boundary."
 
 
 def run_import(

@@ -1,5 +1,5 @@
 """Deterministic Fountain parse (apps/api/fountain/parse.py): stage-1 split,
-server-side coverage validation, byte-identity reconstruction, and §5 offset
+server-owned segment-start normalization, byte-identity reconstruction, and §5 offset
 location. Pure logic, no LLM/DB — the byte-identity heart of T1.3."""
 
 from __future__ import annotations
@@ -7,9 +7,9 @@ from __future__ import annotations
 import pytest
 
 from fountain.parse import (
-    CoverageError,
     ImportedBeat,
     locate_source_text,
+    normalize_and_slice,
     reconstruct,
     split_into_scenes,
     validate_and_slice,
@@ -17,22 +17,26 @@ from fountain.parse import (
 from schemas import SegmentedScene
 
 
-def _seg(beats: list[tuple], unassigned: list[tuple] | None = None) -> SegmentedScene:
+def _seg(
+    beats: list[tuple[int, str, str, str]],
+    unassigned: list[tuple[int, str]] | None = None,
+) -> SegmentedScene:
     return SegmentedScene.model_validate(
         {
-            "beats": [
+            "segments": [
                 {
+                    "kind": "beat",
                     "startLine": s,
-                    "endLine": e,
                     "whatHappens": wh,
                     "audienceLearns": al,
                     "audienceFeels": af,
                 }
-                for (s, e, wh, al, af) in beats
-            ],
-            "unassigned": [
-                {"startLine": s, "endLine": e, "reason": r} for (s, e, r) in (unassigned or [])
-            ],
+                for (s, wh, al, af) in beats
+            ]
+            + [
+                {"kind": "unassigned", "startLine": s, "reason": reason}
+                for (s, reason) in (unassigned or [])
+            ]
         }
     )
 
@@ -69,7 +73,7 @@ def test_split_recognizes_int_ext_variants():
         assert split_into_scenes(heading)[0].location == heading
 
 
-# ── stage 2: coverage validation ────────────────────────────────────────────
+# ── stage 2: typed-start normalization ─────────────────────────────────────
 
 
 def _scene(source: str):
@@ -78,43 +82,84 @@ def _scene(source: str):
 
 def test_valid_tiling_slices_beats_verbatim():
     scene = _scene("INT. BAR - NIGHT\nDan pours.\nMarta enters.")  # 3 lines
-    seg = _seg([(1, 2, "a", "b", "c"), (3, 3, "d", "e", "f")])
+    seg = _seg([(1, "a", "b", "c"), (3, "d", "e", "f")])
     beats = validate_and_slice(scene, seg)
     assert [b.script_text for b in beats] == ["INT. BAR - NIGHT\nDan pours.", "Marta enters."]
 
 
-def test_trailing_gap_healed_as_coverage_gap_unassigned():
+def test_last_segment_owns_through_scene_end_without_repair():
     scene = _scene("INT. BAR - NIGHT\nDan pours.\nMarta enters.")  # 3 lines
-    seg = _seg([(1, 2, "a", "b", "c")])  # line 3 uncovered
-    beats = validate_and_slice(scene, seg)
-    assert len(beats) == 1
-    assert beats[0].script_text == "INT. BAR - NIGHT\nDan pours.\nMarta enters."
-    assert beats[0].unassigned == [(3, 3)]
+    normalized = normalize_and_slice(scene, _seg([(1, "a", "b", "c")]))
+    assert normalized.beats[0].script_text == "INT. BAR - NIGHT\nDan pours.\nMarta enters."
+    assert normalized.beats[0].unassigned == []
+    assert normalized.score.event_count == 0
 
 
-def test_mid_scene_gap_healed():
+def test_segment_starts_make_mid_scene_gaps_unrepresentable():
     scene = _scene("INT. BAR - NIGHT\nDan pours.\nMarta enters.\nReyes waits.")  # 4
-    seg = _seg([(1, 1, "a", "b", "c"), (3, 4, "d", "e", "f")])  # line 2 gap
+    seg = _seg([(1, "a", "b", "c"), (3, "d", "e", "f")])
     beats = validate_and_slice(scene, seg)
     assert [b.script_text for b in beats] == [
         "INT. BAR - NIGHT\nDan pours.",
         "Marta enters.\nReyes waits.",
     ]
-    assert beats[0].unassigned == [(2, 2)]
+    assert beats[0].unassigned == []
 
 
-def test_overlap_rejected():
+def test_duplicate_starts_become_unassigned_and_discard_conflicting_metadata():
     scene = _scene("INT. BAR - NIGHT\nDan pours.\nMarta enters.")  # 3 lines
-    seg = _seg([(1, 2, "a", "b", "c"), (2, 3, "d", "e", "f")])  # line 2 twice
-    with pytest.raises(CoverageError, match="overlap"):
-        validate_and_slice(scene, seg)
+    normalized = normalize_and_slice(
+        scene,
+        _seg([(1, "a", "b", "c"), (2, "d", "e", "f"), (2, "g", "h", "i")]),
+    )
+    assert normalized.should_retry is True
+    assert normalized.score.discarded_beat_metadata == 2
+    assert normalized.beats[0].script_text == "INT. BAR - NIGHT\nDan pours.\nMarta enters."
+    assert normalized.beats[0].unassigned == [(2, 3)]
+    assert any(issue.code == "duplicate_start" for issue in normalized.beats[0].review_issues)
 
 
-def test_out_of_bounds_rejected():
+def test_out_of_bounds_start_is_discarded_and_flagged_without_losing_text():
     scene = _scene("INT. BAR - NIGHT\nDan pours.")  # 2 lines
-    seg = _seg([(1, 5, "a", "b", "c")])
-    with pytest.raises(CoverageError, match="out of bounds"):
-        validate_and_slice(scene, seg)
+    normalized = normalize_and_slice(
+        scene, _seg([(1, "a", "b", "c"), (5, "d", "e", "f")])
+    )
+    assert normalized.beats[0].script_text == "INT. BAR - NIGHT\nDan pours."
+    assert normalized.score.discarded_beat_metadata == 1
+    assert any(
+        issue.code == "out_of_bounds_start" for issue in normalized.beats[0].review_issues
+    )
+
+
+def test_unordered_segment_objects_are_sorted_with_metadata_attached():
+    scene = _scene("INT. BAR - NIGHT\nDan pours.\nMarta enters.")
+    normalized = normalize_and_slice(
+        scene, _seg([(3, "later", "l", "f"), (1, "earlier", "l", "f")])
+    )
+    assert [beat.what_happens for beat in normalized.beats] == ["earlier", "later"]
+    assert any(
+        issue.code == "unordered_segments"
+        for beat in normalized.beats
+        for issue in beat.review_issues
+    )
+
+
+def test_missing_initial_start_prepends_flagged_unassigned_prefix():
+    scene = _scene("INT. BAR - NIGHT\nDan pours.\nMarta enters.")
+    normalized = normalize_and_slice(scene, _seg([(3, "a", "b", "c")]))
+    assert normalized.beats[0].script_text == "INT. BAR - NIGHT\nDan pours.\nMarta enters."
+    assert normalized.beats[0].unassigned == [(1, 2)]
+    assert normalized.score.affected_lines == 2
+    assert normalized.repair_ratio == pytest.approx(2 / 3)
+
+
+def test_repair_ratio_retries_only_when_strictly_above_five_percent():
+    exactly_twenty_lines = _scene("\n".join(["INT. BAR - NIGHT", *["line"] * 19]))
+    over_five_percent = _scene("\n".join(["INT. BAR - NIGHT", *["line"] * 18]))
+    output = _seg([(2, "a", "b", "c")])
+    assert normalize_and_slice(exactly_twenty_lines, output).repair_ratio == pytest.approx(0.05)
+    assert normalize_and_slice(exactly_twenty_lines, output).should_retry is False
+    assert normalize_and_slice(over_five_percent, output).should_retry is True
 
 
 # ── unassigned merge (no text ever dropped) ─────────────────────────────────
@@ -122,7 +167,7 @@ def test_out_of_bounds_rejected():
 
 def test_trailing_unassigned_merges_into_preceding_beat_and_is_flagged():
     scene = _scene("INT. BAR - NIGHT\nDan pours.\nORPHAN LINE")  # 3 lines
-    seg = _seg([(1, 2, "a", "b", "c")], unassigned=[(3, 3, "leftover")])
+    seg = _seg([(1, "a", "b", "c")], unassigned=[(3, "leftover")])
     beats = validate_and_slice(scene, seg)
     assert len(beats) == 1
     assert beats[0].script_text == "INT. BAR - NIGHT\nDan pours.\nORPHAN LINE"
@@ -131,7 +176,7 @@ def test_trailing_unassigned_merges_into_preceding_beat_and_is_flagged():
 
 def test_leading_unassigned_merges_into_following_beat():
     scene = _scene("INT. BAR - NIGHT\nstray\nDan pours.")  # 3 lines
-    seg = _seg([(3, 3, "a", "b", "c")], unassigned=[(1, 2, "front")])
+    seg = _seg([(3, "a", "b", "c")], unassigned=[(1, "front")])
     beats = validate_and_slice(scene, seg)
     assert len(beats) == 1
     assert beats[0].script_text == "INT. BAR - NIGHT\nstray\nDan pours."
@@ -140,17 +185,20 @@ def test_leading_unassigned_merges_into_following_beat():
 
 def test_scene_entirely_unassigned_synthesizes_one_flagged_beat():
     scene = _scene("INT. BAR - NIGHT\nmystery block")  # 2 lines, no beats
-    seg = _seg([], unassigned=[(1, 2, "could not segment")])
+    seg = _seg([], unassigned=[(1, "could not segment")])
     beats = validate_and_slice(scene, seg)
     assert len(beats) == 1
     assert beats[0].script_text == "INT. BAR - NIGHT\nmystery block"
     assert beats[0].unassigned == [(1, 2)]
 
 
-def test_empty_segmentation_rejected():
+def test_empty_segmentation_synthesizes_flagged_unassigned_scene_and_requests_retry():
     scene = _scene("INT. BAR - NIGHT\nDan pours.")
-    with pytest.raises(CoverageError):
-        validate_and_slice(scene, _seg([]))
+    normalized = normalize_and_slice(scene, _seg([]))
+    assert normalized.should_retry is True
+    assert normalized.beats[0].script_text == "INT. BAR - NIGHT\nDan pours."
+    assert normalized.beats[0].unassigned == [(1, 2)]
+    assert normalized.beats[0].review_issues[0].code == "empty_output"
 
 
 # ── byte-identity reconstruction ────────────────────────────────────────────
@@ -171,9 +219,8 @@ def test_reconstruct_is_byte_identical(source):
     scenes = split_into_scenes(source)
     scenes_beats = []
     for scene in scenes:
-        k = len(scene.lines)
         # one beat covering the whole scene → tiles it exactly
-        seg = _seg([(1, k, "w", "l", "f")])
+        seg = _seg([(1, "w", "l", "f")])
         scenes_beats.append(validate_and_slice(scene, seg))
     assert reconstruct(scenes_beats) == source
 
@@ -183,8 +230,11 @@ def test_reconstruct_byte_identical_with_unassigned_buckets():
     scenes = split_into_scenes(source)
     s1, s2 = scenes
     # scene 1 (4 lines): beat 1-2, unassigned 3, beat 4(blank)
-    b1 = validate_and_slice(s1, _seg([(1, 2, "a", "b", "c"), (4, 4, "d", "e", "f")], [(3, 3, "x")]))
-    b2 = validate_and_slice(s2, _seg([(1, len(s2.lines), "g", "h", "i")]))
+    b1 = validate_and_slice(
+        s1,
+        _seg([(1, "a", "b", "c"), (4, "d", "e", "f")], [(3, "x")]),
+    )
+    b2 = validate_and_slice(s2, _seg([(1, "g", "h", "i")]))
     assert reconstruct([b1, b2]) == source
     # unassigned surfaced with absolute source line numbers (scene 1 starts at 0)
     assert any(b.unassigned == [(3, 3)] for b in b1)

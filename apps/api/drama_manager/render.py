@@ -36,12 +36,14 @@ from typing import Any
 # withholds (the T6.1 continuity-adherence failures); 0.5.0 added the
 # `regenerate_elements` builder; 0.4.0 added classify_blast_radius; 0.3.0 added
 # tune_beat; 0.2.0 added the candidate builder and the §0 shared system prompt.
-# 0.9.0 added lock-aware narrative repair + subtext-fidelity HARD RULES
+# 0.10.0 replaced import beat ranges with typed segment starts and structured
+# `{lineNumber, text}` source lines. 0.9.0 added lock-aware narrative repair +
+# subtext-fidelity HARD RULES
 # (adoption A1 / A10) on the shared system prompt — prompt-changing; needs
 # `make evals` sign-off. History: 0.8.0 suggest_instructions; 0.7.0 scene
 # skeleton; 0.6.0 continuity constraint; 0.5.0 regenerate; 0.4.0 blast radius;
 # 0.3.0 tune; 0.2.0 candidate + §0 system prompt.
-PROMPT_VERSION = "0.9.0"
+PROMPT_VERSION = "0.10.0"
 
 
 def new_nonce() -> str:
@@ -111,15 +113,42 @@ def build_system_prompt(project: dict, nonce: str) -> str:
 
 def build_segment_prompt(project: dict, scene_lines: list[str], nonce: str) -> tuple[str, str]:
     """`segment_scene` (§7 stage 2): one scene's line-numbered text; the model
-    returns beat boundaries as line ranges (the server owns coverage)."""
-    numbered = "\n".join(f"{i}: {line}" for i, line in enumerate(scene_lines, start=1))
+    returns typed segment starts; the server derives every end boundary."""
+    numbered = [
+        {"lineNumber": i, "text": line}
+        for i, line in enumerate(scene_lines, start=1)
+    ]
     user = (
         source_data("imported_script", numbered, nonce)
-        + "\nSegment this scene into beats as line ranges into the numbered text "
-        "above. Every line must be covered exactly once by a beat or an unassigned "
-        "range. Do not transcribe the text."
+        + f"\nSegment this {len(scene_lines)}-line scene using typed segment starts. "
+        "The first segment must start at line 1 and later startLine values must be "
+        "strictly increasing. A segment owns its start line through the line before "
+        "the next segment; the server derives end lines. Use kind=unassigned when "
+        "you cannot confidently assign a source run to a beat. Do not transcribe "
+        "the text and do not return end lines."
     )
     return build_system_prompt(project, nonce), user
+
+
+def build_segment_retry_prompt(
+    project: dict,
+    scene_lines: list[str],
+    diagnostics: list[dict],
+    nonce: str,
+) -> tuple[str, str]:
+    """One per-scene semantic retry after deterministic normalization found a
+    severe segment-start repair. Diagnostics contain codes/counts only, never
+    writer text; the imported source still passes through `source_data`."""
+    system, user = build_segment_prompt(project, scene_lines, nonce)
+    return (
+        system,
+        user
+        + "\nYour previous segment starts required these deterministic repairs:\n"
+        + source_data("segmentation_repairs", diagnostics, nonce)
+        + "\nReturn a corrected segmentation for the same source. Call the tool "
+        "with at least one segment, start the first at 1, keep starts strictly "
+        "increasing, and keep every start within the scene line count.",
+    )
 
 
 def build_extract_prompt(

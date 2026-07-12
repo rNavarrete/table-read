@@ -43,14 +43,15 @@ NEW_PROJECT_BODY = {
 def seg(beats: list[tuple], unassigned: list[tuple] | None = None) -> SegmentedScene:
     return SegmentedScene.model_validate(
         {
-            "beats": [
-                {"startLine": s, "endLine": e, "whatHappens": "w", "audienceLearns": "l",
+            "segments": [
+                {"kind": "beat", "startLine": s, "whatHappens": "w", "audienceLearns": "l",
                  "audienceFeels": "f"}
-                for s, e in beats
-            ],
-            "unassigned": [
-                {"startLine": s, "endLine": e, "reason": "orphan"} for s, e in (unassigned or [])
-            ],
+                for s, _end in beats
+            ]
+            + [
+                {"kind": "unassigned", "startLine": s, "reason": "orphan"}
+                for s, _end in (unassigned or [])
+            ]
         }
     )
 
@@ -136,6 +137,7 @@ def test_import_into_project_with_locked_content_is_rejected_zero_rows(
     assert db_session.get(ProjectRow, PROJECT_ID).doc == before_doc
     assert db_session.query(SnapshotRow).filter_by(project_id=PROJECT_ID).count() == before_snaps
     assert db_session.query(LedgerFactRow).filter_by(project_id=PROJECT_ID).count() == before_facts
+    assert mock_llm.invocation_count("segment_scene") == 0
 
 
 # ── round-trip: reproduces scene/beat count + response shape ──────────────────
@@ -239,7 +241,7 @@ def test_scan_flags_for_unknown_ids_are_dropped(unlocked_project, mock_llm):
     assert all(f["objectId"] != "scene-999" for f in body["consistencyFlags"])
 
 
-# ── overlapping ranges → VALIDATION, nothing persisted ───────────────────────
+# ── semantic segment repairs → scoped retry + flagged success ────────────────
 
 
 def _assert_unchanged(db_session, original_doc, original_head, original_snaps, original_facts):
@@ -252,36 +254,54 @@ def _assert_unchanged(db_session, original_doc, original_head, original_snaps, o
     assert facts == original_facts
 
 
-@pytest.mark.parametrize(
-    "bad_seg",
-    [
-        seg([(1, 2), (2, 3)]),  # overlap at line 2
-    ],
-    ids=["overlap"],
-)
-def test_bad_ranges_reject_with_validation_and_persist_nothing(
-    unlocked_project, db_session, mock_llm, bad_seg
+def test_duplicate_starts_retry_same_scene_then_persist_better_attempt_with_no_repair_flag(
+    unlocked_project, mock_llm
 ):
-    project = db_session.get(ProjectRow, PROJECT_ID)
-    original_doc = dict(project.doc)
-    original_head = project.head_snapshot_id
-    original_snaps = db_session.query(SnapshotRow).filter_by(project_id=PROJECT_ID).count()
-    original_facts = db_session.query(LedgerFactRow).filter_by(project_id=PROJECT_ID).count()
-
     src = "INT. BAR - NIGHT\nDan pours.\nMarta enters."  # 3 lines
-    mock_llm.set_responses("segment_scene", [bad_seg])
+    mock_llm.set_responses(
+        "segment_scene",
+        [seg([(1, 1), (2, 2), (2, 3)]), seg([(1, 1), (3, 3)])],
+    )
+    mock_llm.set_response("extract_ledger_facts", extraction())
+    mock_llm.set_response("scan_consistency", scan())
 
     resp = client.post(
         f"/api/v1/projects/{PROJECT_ID}/import", json={"format": "fountain", "content": src}
     )
-    assert resp.status_code == 400
-    assert resp.json()["error"]["code"] == "VALIDATION"
-    _assert_unchanged(db_session, original_doc, original_head, original_snaps, original_facts)
+    assert resp.status_code == 200
+    assert mock_llm.invocation_count("segment_scene") == 2
+    body = resp.json()
+    beats = body["project"]["seasons"][0]["episodes"][0]["scenes"][0]["beats"]
+    assert "\n".join(beat["scriptText"] for beat in beats) == src
+    assert not any("[duplicate_start]" in flag["explanation"] for flag in body["consistencyFlags"])
 
 
-def test_gapped_ranges_heal_persist_and_flag_review(unlocked_project, db_session, mock_llm):
-    src = "INT. BAR - NIGHT\nDan pours.\nMarta enters."  # 3 lines; line 2 is a gap
-    mock_llm.set_responses("segment_scene", [seg([(1, 1), (3, 3)])])
+def test_semantic_retry_keeps_first_attempt_when_retry_needs_more_repair(
+    unlocked_project, mock_llm
+):
+    src = "INT. BAR - NIGHT\nDan pours.\nMarta enters."
+    first = seg([(2, 3)])  # one affected line
+    worse_retry = SegmentedScene.model_validate({"segments": []})  # all three affected
+    mock_llm.set_responses("segment_scene", [first, worse_retry])
+    mock_llm.set_response("extract_ledger_facts", extraction())
+    mock_llm.set_response("scan_consistency", scan())
+
+    body = client.post(
+        f"/api/v1/projects/{PROJECT_ID}/import", json={"format": "fountain", "content": src}
+    ).json()
+
+    assert mock_llm.invocation_count("segment_scene") == 2
+    explanations = [flag["explanation"] for flag in body["consistencyFlags"]]
+    assert any("[missing_initial_start]" in explanation for explanation in explanations)
+    assert not any("[empty_output]" in explanation for explanation in explanations)
+
+
+def test_missing_initial_start_retries_then_persists_selected_repair_flag(
+    unlocked_project, db_session, mock_llm
+):
+    src = "INT. BAR - NIGHT\nDan pours.\nMarta enters."
+    repaired = seg([(2, 3)])
+    mock_llm.set_responses("segment_scene", [repaired, repaired])
     mock_llm.set_response("extract_ledger_facts", extraction())
     mock_llm.set_response("scan_consistency", scan())
 
@@ -294,7 +314,8 @@ def test_gapped_ranges_heal_persist_and_flag_review(unlocked_project, db_session
     scenes = body["project"]["seasons"][0]["episodes"][0]["scenes"]
     all_beats = [b for s in scenes for b in s["beats"]]
     assert "\n".join(b["scriptText"] for b in all_beats) == src
-    assert "Dan pours." in all_beats[0]["scriptText"]
+    assert "\n".join(b["scriptText"] for b in all_beats) == src
+    assert mock_llm.invocation_count("segment_scene") == 2
 
     review_flags = [
         f for f in body["consistencyFlags"]
@@ -303,7 +324,8 @@ def test_gapped_ranges_heal_persist_and_flag_review(unlocked_project, db_session
     assert len(review_flags) == 1
     assert review_flags[0]["objectId"] == all_beats[0]["id"]
     assert review_flags[0]["status"] == "open"
-    assert "lines 2-2" in review_flags[0]["explanation"]
+    assert "[missing_initial_start]" in review_flags[0]["explanation"]
+    assert "lines 1-1" in review_flags[0]["explanation"]
 
     db_session.expire_all()
     persisted = db_session.get(ProjectRow, PROJECT_ID)

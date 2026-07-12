@@ -67,14 +67,15 @@ def _headers(key: str = "00000000-0000-4000-8000-000000000101") -> dict:
 def seg(beats: list[tuple], unassigned: list[tuple] | None = None) -> SegmentedScene:
     return SegmentedScene.model_validate(
         {
-            "beats": [
-                {"startLine": s, "endLine": e, "whatHappens": "w", "audienceLearns": "l",
+            "segments": [
+                {"kind": "beat", "startLine": s, "whatHappens": "w", "audienceLearns": "l",
                  "audienceFeels": "f"}
-                for s, e in beats
-            ],
-            "unassigned": [
-                {"startLine": s, "endLine": e, "reason": "orphan"} for s, e in (unassigned or [])
-            ],
+                for s, _end in beats
+            ]
+            + [
+                {"kind": "unassigned", "startLine": s, "reason": "orphan"}
+                for s, _end in (unassigned or [])
+            ]
         }
     )
 
