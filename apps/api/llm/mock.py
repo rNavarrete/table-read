@@ -162,16 +162,15 @@ def _default_responses() -> dict[str, BaseModel]:
             ]
         ),
         "segment_scene": SegmentedScene(
-            beats=[
+            segments=[
                 {
+                    "kind": "beat",
                     "startLine": 1,
-                    "endLine": 6,
                     "whatHappens": "Marta confronts Dan with the transfer record.",
                     "audienceLearns": "Marta has proof of the transfer.",
                     "audienceFeels": "Tense anticipation.",
                 }
             ],
-            unassigned=[],
         ),
         # §9.4 guided-setup scene skeleton: one diverse scene-addition set,
         # motivations referencing the fixture's own characters so tests can

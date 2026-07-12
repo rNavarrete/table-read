@@ -651,23 +651,22 @@ class SuggestRequest(_Base):
 
 
 class SegmentedSceneBeat(_Base):
-    start_line: int = Field(ge=0)
-    end_line: int = Field(ge=0)
+    kind: Literal["beat"]
+    start_line: int = Field(ge=1)
     what_happens: str
     audience_learns: str
     audience_feels: str
 
 
 class SegmentedSceneUnassigned(_Base):
-    start_line: int = Field(ge=0)
-    end_line: int = Field(ge=0)
+    kind: Literal["unassigned"]
+    start_line: int = Field(ge=1)
     reason: str
 
 
 # §7 parse_script stage 2
 class SegmentedScene(_Base):
-    beats: list[SegmentedSceneBeat]
-    unassigned: list[SegmentedSceneUnassigned]
+    segments: list[SegmentedSceneBeat | SegmentedSceneUnassigned]
 
 
 class ConsistencyScanFlag(_Base):
@@ -747,4 +746,3 @@ class ChangeSetApprovedRequest(_Base):
 
     approved_object_ids: list[Id]
     craft_level: CraftLevel | None = None
-

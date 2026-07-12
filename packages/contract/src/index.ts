@@ -588,23 +588,22 @@ export const SuggestRequest = z.object({
 export type SuggestRequest = z.infer<typeof SuggestRequest>
 
 // §7 parse_script stage 2
+const SegmentedSceneBeat = z.object({
+  kind: z.literal('beat'),
+  startLine: z.number().int().min(1),
+  whatHappens: z.string(),
+  audienceLearns: z.string(),
+  audienceFeels: z.string(),
+})
+
+const SegmentedSceneUnassigned = z.object({
+  kind: z.literal('unassigned'),
+  startLine: z.number().int().min(1),
+  reason: z.string(),
+})
+
 export const SegmentedScene = z.object({
-  beats: z.array(
-    z.object({
-      startLine: z.number().int().min(0),
-      endLine: z.number().int().min(0),
-      whatHappens: z.string(),
-      audienceLearns: z.string(),
-      audienceFeels: z.string(),
-    }),
-  ),
-  unassigned: z.array(
-    z.object({
-      startLine: z.number().int().min(0),
-      endLine: z.number().int().min(0),
-      reason: z.string(),
-    }),
-  ),
+  segments: z.array(z.union([SegmentedSceneBeat, SegmentedSceneUnassigned])),
 })
 export type SegmentedScene = z.infer<typeof SegmentedScene>
 

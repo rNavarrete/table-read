@@ -114,8 +114,8 @@ _OPS: tuple[LlmOp, ...] = (
         "SegmentedScene",
         SegmentedScene,
         "classifier",
-        "Segment one scene's line-numbered source text into beat boundaries as "
-        "line ranges, with inferred beat-plan fields.",
+        "Segment one scene's numbered source objects into typed segment starts "
+        "with inferred beat-plan fields; the server derives end lines.",
     ),
     LlmOp(
         "scan_consistency",

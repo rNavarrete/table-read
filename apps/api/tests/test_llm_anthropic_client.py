@@ -562,7 +562,7 @@ def _fixture_valid_input_for(op_name: str) -> dict:
         "regenerate_elements": {"beats": [], "scenes": [], "continuityConflicts": []},
         "extract_ledger_facts": {"newFacts": [], "contradictions": []},
         "suggest_instructions": {"suggestions": ["a", "b", "c"]},
-        "segment_scene": {"beats": [], "unassigned": []},
+        "segment_scene": {"segments": []},
         "scan_consistency": {"flags": []},
         "generate_scene_skeleton": {"label": "x", "scenes": []},
     }[op_name]
