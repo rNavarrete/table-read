@@ -1,0 +1,14 @@
+{
+  "asOf": "2026-07",
+  "classifier": {
+    "modelIdNote": "claude-haiku-4-5 via config/models.toml classifier role",
+    "inputUsdPerMTok": 1.0,
+    "outputUsdPerMTok": 5.0
+  },
+  "importHeuristic": {
+    "charsPerToken": 4,
+    "systemOverheadTokensPerCall": 1500,
+    "avgOutputTokensPerCall": 400,
+    "highMultiplier": 1.75
+  }
+}

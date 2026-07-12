@@ -2,10 +2,19 @@ import { defineConfig } from 'vite'
 import { configDefaults } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 // https://vite.dev/config/
+const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
+
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  resolve: {
+    alias: {
+      '@repo-config': path.join(rootDir, 'config'),
+    },
+  },
   server: {
     port: 5173,
     // Proxies the api (port 8000, per Makefile) under the same origin the
@@ -17,6 +26,7 @@ export default defineConfig({
     proxy: {
       '/api': 'http://localhost:8000',
     },
+    fs: { allow: [rootDir] },
   },
   test: {
     // e2e/ holds Playwright specs (`npm run e2e`), which import `@playwright/
