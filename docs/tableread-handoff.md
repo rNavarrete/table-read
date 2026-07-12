@@ -9,7 +9,7 @@ Table Read is a structural co-writing tool for episodic TV writers, built on the
 ## 2. Current state
 
 - **Docs:** complete for MVP + Quiet Tool + new-project flow + Fabula adoption PRD (`tableread-adoption-prd.md`). Competitive analysis and this handoff live under `docs/`.
-- **Code:** on `main` — MVP milestones through Write/Plan/Review/Ledger, Quiet Tool chrome, Story Launcher / idea+import wizards, guided scene-skeleton Change Sets. Open follow-ups include multi-project ledger fact-id collision, `make evals` sign-off for `PROMPT_VERSION` 0.7.0, and adoption A-items (A1–A10).
+- **Code:** on `main` — MVP milestones through Write/Plan/Review/Ledger, Quiet Tool chrome, Story Launcher / idea+import wizards, guided scene-skeleton Change Sets. T7.10 typed segment-start import normalization is implemented locally at `PROMPT_VERSION` 0.10.0; real eval sign-off passed all hard gates (schema 1.00, locks 1.00, continuity 1.00 with `continuity-grader-0.4.0`). Other open follow-ups include multi-project ledger fact-id collision and adoption A-items (A1–A10).
 - The product was renamed Beatwright → **Table Read** mid-design; if any stray "beatwright"/"--bw-" string survives anywhere, it's a bug — fix to "tableread"/"--tr-".
 - The fixture (`tableread-fixture.json`, "The Long Pour") is a persisted-state envelope: project + ledger + root snapshot + empty flags/changeSets/suggestionHistory. It is referenced by name (fact-04, beat-1-2, scene-3…) throughout the prompt spec, build plan, and test plan — those IDs are load-bearing; don't regenerate the fixture casually.
 
@@ -34,7 +34,7 @@ Table Read is a structural co-writing tool for episodic TV writers, built on the
 | `<source_data_{nonce}>` wrapping + JSON/entity escaping via single renderer | Injection boundary must survive adversarial script text |
 | Materialized snapshots (doc + ledger + flags together); undo restores all three; root snapshot at project creation | Undo must restore a consistent world; deltas are a v2 optimization |
 | Ledger facts carry sourceSpan + verbatim sourceText + line/char offsets, `knownBy` + `audienceKnows`, provenance/confidence gating (`isPromptEligibleFact`, prompt spec §8), supersede-not-overwrite | One bad inferred fact poisons prompts; dramatic irony = knownBy/audienceKnows gap |
-| Import: two-stage parse (deterministic scene split, LLM beats as line ranges), 100% text coverage, ALL import facts `pending_review` | LLM never controls text coverage; nobody vouched for whole-script inferences |
+| Import: deterministic scene split + LLM typed segment starts; server derives/normalizes the total partition; 100% text coverage; ALL import facts `pending_review` | LLM never controls text coverage; nobody vouched for whole-script inferences |
 | Change Sets: server-annotated `applyMode` (scene/beat=regenerate, character/ledgerFact=flag_only), stored typed preview, apply = stored payload verbatim (zero LLM calls), `PREVIEW_STALE` guard | UI never offers approvals the backend can't execute; apply is deterministic |
 | Locks cascade to children; lock violations are a zero-tolerance eval gate | Fabula's scene lock didn't protect beat plans — reproduced failure |
 | `scan_consistency` after every apply, accepted beat, and structural PATCH ("Save field only" never skips flagging) | Contradictions flagged, never silently left behind |

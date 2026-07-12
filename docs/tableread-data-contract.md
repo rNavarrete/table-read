@@ -372,15 +372,16 @@ export const InstructionSuggestions = z.object({
 });
 
 // §7 parse_script stage 2
+const SegmentedSceneBeat = z.object({
+  kind: z.literal("beat"), startLine: z.number().int().min(1),
+  whatHappens: z.string(), audienceLearns: z.string(), audienceFeels: z.string(),
+});
+const SegmentedSceneUnassigned = z.object({
+  kind: z.literal("unassigned"), startLine: z.number().int().min(1),
+  reason: z.string(),
+});
 export const SegmentedScene = z.object({
-  beats: z.array(z.object({
-    startLine: z.number().int().min(0), endLine: z.number().int().min(0),
-    whatHappens: z.string(), audienceLearns: z.string(), audienceFeels: z.string(),
-  })),
-  unassigned: z.array(z.object({
-    startLine: z.number().int().min(0), endLine: z.number().int().min(0),
-    reason: z.string(),
-  })),
+  segments: z.array(z.union([SegmentedSceneBeat, SegmentedSceneUnassigned])),
 });
 
 // §8c scan_consistency
@@ -429,7 +430,7 @@ Defined transactions:
 - `GET /projects/{pid}/snapshots` → `SnapshotSummary[]` (adoption A5) — up to 20 proper ancestors of the current head, nearest parent first. Each entry is `{id, instruction, ts}` for the undo-timeline dropdown. Does not include the current head.
 - `POST /projects/{pid}/restore` `{snapshotId}` → `Project` (adoption A5) — restore doc+ledger+flags from that ancestor; same CAS/`If-Match` rules as undo. Non-ancestor or current head → 409 `VALIDATION`.
 - `POST /projects/{pid}/import` `{format: "fountain"|"text", content}` → `{project, newFacts, consistencyFlags}` — full import transaction:
-  1. Deterministic scene split + LLM beat segmentation (prompt spec §7); `VALIDATION` reject on coverage failure, nothing persisted.
+  1. Deterministic scene split + LLM typed segment-start proposal (prompt spec §7); the server derives a total line partition, optionally retries that scene once under the repair-quality gate, and persists a review flag for every repair in the selected attempt. Semantic start errors never drop/duplicate text or abort coverage.
   2. Run `extract_ledger_facts` over every imported scene; **all import-derived facts are created `pending_review` regardless of confidence** (nobody has vouched for inferences over a whole script — the writer batch-reviews them in the Ledger queue).
   3. Run `scan_consistency` across the imported episode (initial sweep — imports can carry internal contradictions).
   4. One snapshot committing doc + ledger + flags together; partial failure rolls back all of it.

@@ -24,7 +24,7 @@ Three layers: conventional tests (deterministic, mock LLM), contract checks, and
 - Save-field-only path: structural PATCH triggers `scan_consistency` and returns flags; non-structural PATCH (location, time) does not; PATCH into a locked range → 409 `LOCKED_OBJECT`; direct typing into a `scriptLocked` beat is rejected server-side, insertion before/after succeeds; reordering beats inside a locked scene → 409 `LOCKED_OBJECT` (sibling reindex in unlocked scenes still allowed).
 - Change Set reads: `GET /change-sets/{cid}` returns the persisted ChangeSet; `GET /projects/{pid}/change-sets?status=` lists/filters; missing id/project → 404.
 - Context bundle assembly (snapshot tests against fixture, scene-3 generation): fact inclusion driven by `isPromptEligibleFact` (prompt spec §8) — unit-test the predicate directly across the status × provenance × confidence × relevance matrix, then assert the fixture consequences: includes fact-02/03/04/08, excludes fact-06 (`pending_review`) and `rejected` facts; locked beat-1-2 scriptText present as constraint when regenerating scene-1; bundle ≤ 6k tokens; only in-scene characters' sheets included (scene-2 bundle has Dan only).
-- Fountain round-trip: export fixture → parse with fountain-js → scene/beat counts match; import beat line-ranges with overlaps → `VALIDATION` error; gaps heal as unassigned `coverage_gap` buckets; reconstructed import text byte-identical to source (unassigned buckets included).
+- Fountain round-trip: export fixture → parse with fountain-js → scene/beat counts match; typed segment starts derive a total partition; duplicate starts become flagged unassigned, OOB/empty/missing-first/unordered starts normalize deterministically, and reconstructed import text remains byte-identical. Severe first-attempt repairs retry only that scene once; the lexicographically better normalized attempt wins; selected repairs surface stable-code review flags.
 - JSON export round-trip (adoption A6): `GET /projects/{pid}/export.json` validates as `PersistedState`; purge → `seed_envelope(export)` → re-export restores project doc and ledger byte-identical.
 - Import lock interaction (lands with T3.2's lock guard): import-as-replace into a project containing locked scenes/beats or non-`pending_review` facts must route through the lock filter — locked content present → 409 `LOCKED_OBJECT` (or an explicit product-ratified unlock flow), zero mutations. Until then, undo is the only safety net for destructive import.
 - Ledger `sourceText` verification: non-empty `sourceText` not found verbatim within the reported line range of the source beat → fact demoted to `pending_review`; duplicate occurrences resolved by line range; server-computed `charStart`/`charEnd` slice reproduces `sourceText` exactly.
@@ -57,6 +57,7 @@ Harness defaults (see `docs/superpowers/specs/2026-07-11-evals-harness-design.md
 | Eval | Method | Gate |
 |---|---|---|
 | Schema validity | 20 runs/operation on fixture inputs; % valid after ≤1 retry | ≥ 98% |
+| Segmentation determinism | Same fixture scene and prompt at temperature 0; compare typed segment-start sets | ≥ 0.70 modal agreement; soft gate |
 | **Lock violation** | Regenerate scene-1 with beat-1-2 locked, 20 runs; diff locked scriptText | **0 violations — hard gate** |
 | Continuity adherence | Generate scene-3 candidates ×20; grader prompt checks output against facts 02/03/04/08 (e.g., Marta must not reveal she saw the transfer — fact-04) | ≥ 95%, failures reviewed |
 | Conflict reporting | Instruction forcing contradiction ("Dan admits he took the money") ×10; `continuityConflicts` must cite fact-04 | ≥ 90% |
@@ -73,7 +74,7 @@ Harness defaults (see `docs/superpowers/specs/2026-07-11-evals-harness-design.md
 | **Import inference** (adoption A2) | `fixtures/import-inference.fountain` extract ×10; recall of planted implied facts; zero basis-free hallucinations | recall ≥ 0.8; soft |
 | **Subtext fidelity** (adoption A10) | Generate scene-1 beats ×20 with fixture `hiding`; secret never narrated outright | ≥ 80%, soft, calibrated grader |
 
-**Grader discipline:** grader prompts live in the repo, versioned like product prompts; every grader has 3 hand-labeled calibration cases that must score correctly before its results count.
+**Grader discipline:** grader prompts live in the repo, versioned like product prompts; every grader has 3 hand-labeled calibration cases that must score correctly before its results count. The continuity grader uses the pinned writer tier for full-length subtext judgment; classifier-tier capture review produced unstable false positives despite passing calibration.
 
 ## 4. Release gate (from build plan M6)
 

@@ -221,21 +221,24 @@ Purpose: 3 diverse scene/beat instruction suggestions ("Inspire me" / empty-fiel
 Purpose: Fountain/plain-text import → scenes/beats (MVP: single episode). **Two-stage pipeline — the LLM never controls text coverage:**
 
 1. **Deterministic scene split (no LLM):** Fountain parser (or slugline regex for plain text) produces ordered scenes, each owning an exact line range of the source. 100% of source lines belong to exactly one scene (pre-slugline material → a "FRONT MATTER" bucket).
-2. **LLM beat segmentation, per scene** (`writer` role, temperature 0): input is one scene's line-numbered text inside `<source_data kind="imported_script">` tags; output is beat boundaries **as line ranges into the source**, plus inferred `whatHappens/audienceLearns/audienceFeels` per beat.
+2. **LLM beat segmentation, per scene** (`classifier` role, temperature 0): input is one scene as structured `{lineNumber, text}` objects inside `<source_data kind="imported_script">` tags; output is an ordered list of typed segment **starts**, with beat metadata attached to each `kind: "beat"` start. The model never returns end lines.
 
 **Output schema (`SegmentedScene`):**
 
 ```json
 {
-  "beats": [{
-    "startLine": 0, "endLine": 0,
+  "segments": [{
+    "kind": "beat", "startLine": 1,
     "whatHappens": "", "audienceLearns": "", "audienceFeels": ""
-  }],
-  "unassigned": [{ "startLine": 0, "endLine": 0, "reason": "" }]
+  }, {
+    "kind": "unassigned", "startLine": 8, "reason": ""
+  }]
 }
 ```
 
-Server rules: `scriptText` is **sliced from the source by line range, never transcribed by the model** — beats + `unassigned` must be ordered and non-overlapping within `1..K`; **gaps are filled server-side as `unassigned` with reason `coverage_gap` and flagged for review**; overlaps / out-of-bounds / empty coverage still `VALIDATION` reject. `unassigned` ranges (model or healed) attach to the nearest beat's scriptText so no source text is ever dropped — five missing percent could be the twist.
+Server rules: for starts `s₁…sₙ`, the server derives each end as `sᵢ₊₁−1` and the final end as `K`, then slices `scriptText` verbatim. Whole segment objects are sorted by `startLine`; missing line 1 gets a synthetic unassigned prefix; out-of-bounds starts are discarded; duplicate starts collapse to one unassigned segment; no usable starts yields one whole-scene unassigned segment. Every selected repair is flagged with a stable reason code, and unassigned runs attach to the nearest beat, so coverage is always exactly `1..K` and semantic start errors never abort import.
+
+**Quality-gated semantic retry:** normalize the first attempt, then retry that scene exactly once when the output is empty, any start is duplicated, any beat metadata is discarded, or `affectedLines / K > 0.05`. Normalize the retry too and select lexicographically by `(discardedBeatMetadata, affectedLines, maxBoundaryDisplacement, repairEventCount)`; the first attempt wins an exact tie. The retry prompt includes only concrete repair codes/counts plus the same inert source block. This is separate from rule 9's schema-invalid retry.
 
 ## 8. Cross-cutting conventions
 
@@ -274,7 +277,7 @@ Server rules: `scriptText` is **sliced from the source by line range, never tran
   }
   ```
 
-  Server semantic validation (beyond schema): ID existence, lock filters, line-range coverage, verbatim `sourceText` — schema conformance alone never implies acceptance.
+  Server semantic validation (beyond schema): ID existence, lock filters, segment-start normalization, verbatim `sourceText` — schema conformance alone never implies acceptance.
 - **Static schemas only:** strict tool schemas may be cached independently of prompts. Never embed writer material — project titles, character names, beat/scene IDs, story text — in schema enums, consts, defaults, regex patterns, or property names. Dynamic values (valid IDs, character lists) travel in the prompt as `<source_data>`; the server validates returned IDs against the project, not the schema.
 - **Injection boundary:** any writer- or import-originated freeform text entering a prompt — script, imported documents, plan fields, character sheets, continuity facts — is wrapped in `<source_data kind="...">` tags per the escaping rules in §8b; the system prompt's hard rule makes it non-executable. Only WRITER INSTRUCTION is rendered outside the wrapper.
 - **Retries:** schema-invalid output → one retry with the validation error appended; second failure → surface error to UI, never a silent fallback.

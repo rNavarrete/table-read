@@ -1,7 +1,7 @@
 # Import coverage resilience + pre-analyze cost estimate — design spec
 
 **Date:** 2026-07-12  
-**Status:** approved (conversation)  
+**Status:** partially superseded by T7.10 typed segment starts; cost-preview decisions remain active
 **Authority after merge:** updates `docs/tableread-prompt-spec.md` §7 server rules (gap handling), `docs/tableread-ui-spec.md` (Import Review / Analyze copy), `docs/tableread-test-plan.md`, and `docs/tableread-build-plan.md` with a tracking task. No Zod/Pydantic schema change required unless we add an optional import-complete usage field (deferred).
 
 ## 1. Goal

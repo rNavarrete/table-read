@@ -195,7 +195,7 @@ Output format is fixed to **teleplay** (Fountain-style sluglines, ACTION, CHARAC
 
 **v1:** Fountain, plain-text, and PDF episode scripts — single episode, parsed into scenes/beats. PDF import first extracts editable plain text on the server with pypdf/Tesseract (no LLM/token spend), then requires the writer to confirm or edit that source before the existing Create & analyze path runs as `format: "text"`. **v2:** FDX, multi-episode, and series-bible documents. Full pipeline (v2 target):
 
-1. Parse each script into scenes (via sluglines/headings) and segment scenes into beats (LLM pass using the beat-boundary rules); assign scenes to storylines.
+1. Parse each script into scenes (via sluglines/headings) and segment scenes into beats: the LLM proposes typed segment starts with metadata attached, while the server derives and normalizes the total source partition so no line can be dropped or duplicated; assign scenes to storylines.
 2. Reverse-engineer the series bible and season plan: characters, relationships, theme, arcs, per-scene audience-learns/feels, motivations — and build the initial continuity ledger from everything imported.
 3. Writer reviews/corrects the inferred plan, then can: get structural feedback, generate candidate next-episode premises, generate alternative continuations, or regenerate selected scenes.
 
@@ -370,7 +370,7 @@ API server (Python / FastAPI)
   ├─ Drama Manager service (operation orchestration, prompt assembly, blast-radius calc)
   ├─ Claude client (Anthropic SDK; structured outputs; streaming for script text)
   ├─ Embeddings service (dedup)
-  └─ Import pipeline (Fountain/plain-text/PDF extract + LLM beat segmentation)
+  └─ Import pipeline (Fountain/plain-text/PDF extract + LLM typed segment starts + server partition)
 
 Storage (PostgreSQL; SQLite for local/MVP)
   ├─ projects (current JSON doc)
