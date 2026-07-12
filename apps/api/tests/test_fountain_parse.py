@@ -83,11 +83,24 @@ def test_valid_tiling_slices_beats_verbatim():
     assert [b.script_text for b in beats] == ["INT. BAR - NIGHT\nDan pours.", "Marta enters."]
 
 
-def test_gap_rejected():
+def test_trailing_gap_healed_as_coverage_gap_unassigned():
     scene = _scene("INT. BAR - NIGHT\nDan pours.\nMarta enters.")  # 3 lines
-    seg = _seg([(1, 1, "a", "b", "c"), (3, 3, "d", "e", "f")])  # line 2 uncovered
-    with pytest.raises(CoverageError, match="gap"):
-        validate_and_slice(scene, seg)
+    seg = _seg([(1, 2, "a", "b", "c")])  # line 3 uncovered
+    beats = validate_and_slice(scene, seg)
+    assert len(beats) == 1
+    assert beats[0].script_text == "INT. BAR - NIGHT\nDan pours.\nMarta enters."
+    assert beats[0].unassigned == [(3, 3)]
+
+
+def test_mid_scene_gap_healed():
+    scene = _scene("INT. BAR - NIGHT\nDan pours.\nMarta enters.\nReyes waits.")  # 4
+    seg = _seg([(1, 1, "a", "b", "c"), (3, 4, "d", "e", "f")])  # line 2 gap
+    beats = validate_and_slice(scene, seg)
+    assert [b.script_text for b in beats] == [
+        "INT. BAR - NIGHT\nDan pours.",
+        "Marta enters.\nReyes waits.",
+    ]
+    assert beats[0].unassigned == [(2, 2)]
 
 
 def test_overlap_rejected():
@@ -101,13 +114,6 @@ def test_out_of_bounds_rejected():
     scene = _scene("INT. BAR - NIGHT\nDan pours.")  # 2 lines
     seg = _seg([(1, 5, "a", "b", "c")])
     with pytest.raises(CoverageError, match="out of bounds"):
-        validate_and_slice(scene, seg)
-
-
-def test_trailing_end_gap_rejected():
-    scene = _scene("INT. BAR - NIGHT\nDan pours.\nMarta enters.")  # 3 lines
-    seg = _seg([(1, 2, "a", "b", "c")])  # line 3 uncovered
-    with pytest.raises(CoverageError, match="gap"):
         validate_and_slice(scene, seg)
 
 

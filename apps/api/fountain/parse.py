@@ -18,7 +18,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from schemas import SegmentedScene
+from schemas import SegmentedScene, SegmentedSceneUnassigned
 
 # Fountain scene heading (slugline): a line beginning (after optional leading
 # whitespace) with a standard set/interior prefix. Case-insensitive per the
@@ -32,9 +32,9 @@ _SLUGLINE_RE = re.compile(
 
 class CoverageError(ValueError):
     """Stage-2 segmentation failed the server-side coverage check (§7): the
-    beats + unassigned ranges do not tile the scene's lines exactly (a gap,
-    an overlap, or an out-of-bounds range). The import route maps this to the
-    contract's `VALIDATION` error and persists nothing."""
+    beats + unassigned ranges have an overlap or an out-of-bounds range
+    (gaps are healed server-side as ``coverage_gap`` unassigned). The import
+    route maps this to the contract's `VALIDATION` error and persists nothing."""
 
 
 @dataclass(frozen=True)
@@ -95,10 +95,11 @@ def split_into_scenes(source: str) -> list[SceneSpan]:
 
 def validate_and_slice(scene: SceneSpan, segmented: SegmentedScene) -> list[ImportedBeat]:
     """Stage-2 server-side validation + slicing (§7). Verifies the model's beat
-    + unassigned line ranges tile the scene exactly (1..K, ordered, no gaps,
-    no overlaps), then slices each beat's ``scriptText`` verbatim from the
-    source and merges every unassigned range into the nearest beat so no line
-    is ever dropped. Raises ``CoverageError`` on any coverage failure."""
+    + unassigned line ranges are ordered and non-overlapping within 1..K
+    (gaps are healed as ``coverage_gap`` unassigned), then slices each beat's
+    ``scriptText`` verbatim from the source and merges every unassigned range
+    into the nearest beat so no line is ever dropped. Raises ``CoverageError``
+    on overlap, out-of-bounds, or empty coverage."""
     k = len(scene.lines)
 
     # Gather every claimed range, tagged with whether it is a real beat.
@@ -116,23 +117,33 @@ def validate_and_slice(scene: SceneSpan, segmented: SegmentedScene) -> list[Impo
 
     claims.sort(key=lambda c: (c[0], c[1]))
 
-    # Contiguity / bounds check: sorted ranges must start at 1, end at K, and
-    # each range must begin exactly one line after the previous one ended.
+    healed: list[Claim] = []
     cursor = 1
-    for start, end, _is_beat, _payload in claims:
+    for start, end, is_beat, payload in claims:
         if start < 1 or end < start or end > k:
             raise CoverageError(
                 f"range {start}-{end} is out of bounds for a {k}-line scene"
             )
-        if start != cursor:
-            if start > cursor:
-                raise CoverageError(f"gap: lines {cursor}-{start - 1} are uncovered")
+        if start < cursor:
             raise CoverageError(f"overlap at line {start} (expected {cursor})")
+        if start > cursor:
+            gap = SegmentedSceneUnassigned(
+                start_line=cursor,
+                end_line=start - 1,
+                reason="coverage_gap",
+            )
+            healed.append((cursor, start - 1, False, gap))
+        healed.append((start, end, is_beat, payload))
         cursor = end + 1
-    if cursor != k + 1:
-        raise CoverageError(f"gap: lines {cursor}-{k} are uncovered")
+    if cursor <= k:
+        gap = SegmentedSceneUnassigned(
+            start_line=cursor,
+            end_line=k,
+            reason="coverage_gap",
+        )
+        healed.append((cursor, k, False, gap))
 
-    return _merge(scene, claims)
+    return _merge(scene, healed)
 
 
 def reconstruct(scenes_beats: list[list[ImportedBeat]]) -> str:

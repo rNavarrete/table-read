@@ -235,7 +235,7 @@ Purpose: Fountain/plain-text import → scenes/beats (MVP: single episode). **Tw
 }
 ```
 
-Server rules: `scriptText` is **sliced from the source by line range, never transcribed by the model** — 100% of the scene's lines must be covered by beats + `unassigned` buckets, in order, non-overlapping (else `VALIDATION` reject); `unassigned` ranges are attached to the nearest beat's scriptText and flagged for writer review, so no source text is ever dropped — five missing percent could be the twist.
+Server rules: `scriptText` is **sliced from the source by line range, never transcribed by the model** — beats + `unassigned` must be ordered and non-overlapping within `1..K`; **gaps are filled server-side as `unassigned` with reason `coverage_gap` and flagged for review**; overlaps / out-of-bounds / empty coverage still `VALIDATION` reject. `unassigned` ranges (model or healed) attach to the nearest beat's scriptText so no source text is ever dropped — five missing percent could be the twist.
 
 ## 8. Cross-cutting conventions
 
