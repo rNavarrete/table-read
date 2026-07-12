@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from evals import checks
+from evals import adoption, checks
 from evals.checkpoint import (
     assert_checkpoint_matches,
     checkpoint_path,
@@ -37,6 +37,18 @@ def _result(**kw) -> EvalResult:
     base = dict(name="schema-validity", metric="rate", score=1.0, gate=0.98, hard=True)
     base.update(kw)
     return EvalResult(**base)
+
+
+def _complete_results() -> list[EvalResult]:
+    return [
+        _result(name="schema-validity"),
+        _result(name="lock-violation", gate=1.0),
+        _result(name="continuity-adherence"),
+        _result(name="segmentation-determinism", hard=False),
+        _result(name="lock-repair-quality", hard=False),
+        _result(name="import-inference", hard=False),
+        _result(name="subtext-fidelity", hard=False),
+    ]
 
 
 # ── checkpoint module: round-trip + pin mismatches ──────────────────────────
@@ -263,6 +275,45 @@ def test_resume_with_only_still_honors_skip(session_factory, monkeypatch):
     )
     assert [r.name for r in report.results] == ["schema-validity"]
     assert report.results[0].score == 0.7
+
+
+def test_resume_complete_checkpoint_writes_fresh_checkpoint_without_reinvoking_families(
+    tmp_path, session_factory, monkeypatch
+):
+    """A fully completed resume still writes this run's fresh checkpoint path
+    with the prior results, without recomputing any skipped family."""
+
+    def _fail_if_called(*_a, **_kw):
+        raise AssertionError("completed checkpoint resume must not recompute eval families")
+
+    monkeypatch.setattr(checks, "schema_validity_eval", _fail_if_called)
+    monkeypatch.setattr(checks, "lock_violation_eval", _fail_if_called)
+    monkeypatch.setattr(checks, "continuity_eval", _fail_if_called)
+    monkeypatch.setattr(checks, "segmentation_determinism_eval", _fail_if_called)
+    monkeypatch.setattr(adoption, "lock_repair_eval", _fail_if_called)
+    monkeypatch.setattr(adoption, "import_inference_eval", _fail_if_called)
+    monkeypatch.setattr(adoption, "subtext_eval", _fail_if_called)
+
+    prior = _complete_results()
+    cp_path = tmp_path / "checkpoint-fresh.json"
+    report = run_suite(
+        MockLlmClient(),
+        MockJudge(),
+        session_factory,
+        runs=_RUNS,
+        dry_run=True,
+        checkpoint_path=cp_path,
+        skip_families={r.name for r in prior},
+        prior_results=prior,
+    )
+
+    assert cp_path.is_file()
+    cp = load_checkpoint(cp_path)
+    assert [r["name"] for r in cp["results"]] == [r.name for r in prior]
+    assert [r.name for r in report.results] == [r.name for r in prior]
+    assert cp["dryRun"] is True
+    assert cp["runs"] == _RUNS
+    assert cp["estimatedCalls"]["totalNominal"] > 0
 
 
 # ── CLI wiring ───────────────────────────────────────────────────────────────

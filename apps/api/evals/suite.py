@@ -139,10 +139,11 @@ def run_suite(
     `EvalResult.name`s a prior checkpoint already scored — those families are
     not recomputed, the matching entry from `prior_results` is reused verbatim
     instead. When `checkpoint_path` is set, the checkpoint is rewritten (full
-    overwrite) immediately after every *freshly computed* family, in suite
-    order — a family that's skipped was already in the checkpoint that
-    produced it, and a family that raises leaves the checkpoint exactly where
-    the last completed family left it (nothing partial is ever written)."""
+    overwrite) immediately after every *freshly computed* family, then once
+    more at normal suite completion so an all-skipped resume still creates this
+    run's fresh checkpoint path. A family that raises leaves the checkpoint
+    exactly where the last completed family left it (nothing partial is ever
+    written)."""
     if only is not None and only not in EVAL_KEYS:
         raise ValueError(f"unknown --only eval {only!r}; choose from {sorted(EVAL_KEYS)}")
     ctx = probes.load_fixture_ctx()
@@ -237,6 +238,16 @@ def run_suite(
     if only is not None:
         family = EVAL_KEYS[only]
         estimate = {family: estimate[family], "totalNominal": estimate[family]}
+    if checkpoint_path is not None:
+        write_checkpoint(
+            checkpoint_path,
+            prompt_version=render.PROMPT_VERSION,
+            models=load_model_roles(),
+            dry_run=dry_run,
+            runs=runs,
+            results=results,
+            estimated_calls=estimate,
+        )
     return SuiteReport(
         prompt_version=render.PROMPT_VERSION,
         models=load_model_roles(),
