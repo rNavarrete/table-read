@@ -3,8 +3,10 @@ from __future__ import annotations
 import sys
 import time
 import types
+from io import BytesIO
 
 import pytest
+from pypdf import PdfWriter
 
 import fountain.pdf_extract as pdf_extract
 from fountain.pdf_extract import (
@@ -13,6 +15,18 @@ from fountain.pdf_extract import (
     extract_pdf,
     text_layer_usable,
 )
+
+
+def _encrypted_pdf_bytes(*, user_password: str) -> bytes:
+    writer = PdfWriter()
+    writer.add_blank_page(width=72, height=72)
+    plain = BytesIO()
+    writer.write(plain)
+    locked = PdfWriter(clone_from=BytesIO(plain.getvalue()))
+    locked.encrypt(user_password=user_password, owner_password="owner")
+    out = BytesIO()
+    locked.write(out)
+    return out.getvalue()
 
 
 def test_text_layer_usable_enough_chars():
@@ -58,6 +72,23 @@ def test_extract_rejects_oversize():
             ocr_engine=lambda d: [],
         )
     assert ei.value.code == "VALIDATION"
+
+
+def test_text_layer_unlocks_empty_user_password_pdf():
+    # Owner-restricted exports often keep is_encrypted True after decrypt("").
+    pages = pdf_extract._extract_text_layer_with_pypdf(
+        _encrypted_pdf_bytes(user_password="")
+    )
+    assert len(pages) == 1
+
+
+def test_text_layer_rejects_password_required_pdf():
+    with pytest.raises(PdfExtractError) as ei:
+        pdf_extract._extract_text_layer_with_pypdf(
+            _encrypted_pdf_bytes(user_password="secret")
+        )
+    assert ei.value.code == "VALIDATION"
+    assert "Encrypted" in ei.value.message
 
 
 def test_extract_rejects_max_pdf_pages_plus_one():

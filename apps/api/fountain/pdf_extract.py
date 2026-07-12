@@ -132,11 +132,14 @@ def _extract_text_layer_with_pypdf(data: bytes) -> list[str]:
 
     reader = PdfReader(BytesIO(data))
     if reader.is_encrypted:
+        # pypdf keeps is_encrypted True after a successful unlock (common for
+        # owner-restricted / empty-user-password exports). Trust decrypt()'s
+        # return: 0 = failed, non-zero = unlocked.
         try:
-            reader.decrypt("")
+            unlocked = reader.decrypt("")
         except Exception as exc:
             raise PdfExtractError("VALIDATION", "Encrypted PDF could not be read") from exc
-        if reader.is_encrypted:
+        if unlocked == 0:
             raise PdfExtractError("VALIDATION", "Encrypted PDF could not be read")
 
     _validate_page_count(len(reader.pages))
