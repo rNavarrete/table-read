@@ -239,7 +239,7 @@ def test_scan_flags_for_unknown_ids_are_dropped(unlocked_project, mock_llm):
     assert all(f["objectId"] != "scene-999" for f in body["consistencyFlags"])
 
 
-# ── overlapping / gapped ranges → VALIDATION, nothing persisted ──────────────
+# ── overlapping ranges → VALIDATION, nothing persisted ───────────────────────
 
 
 def _assert_unchanged(db_session, original_doc, original_head, original_snaps, original_facts):
@@ -256,9 +256,8 @@ def _assert_unchanged(db_session, original_doc, original_head, original_snaps, o
     "bad_seg",
     [
         seg([(1, 2), (2, 3)]),  # overlap at line 2
-        seg([(1, 1), (3, 3)]),  # gap at line 2
     ],
-    ids=["overlap", "gap"],
+    ids=["overlap"],
 )
 def test_bad_ranges_reject_with_validation_and_persist_nothing(
     unlocked_project, db_session, mock_llm, bad_seg
@@ -278,6 +277,43 @@ def test_bad_ranges_reject_with_validation_and_persist_nothing(
     assert resp.status_code == 400
     assert resp.json()["error"]["code"] == "VALIDATION"
     _assert_unchanged(db_session, original_doc, original_head, original_snaps, original_facts)
+
+
+def test_gapped_ranges_heal_persist_and_flag_review(unlocked_project, db_session, mock_llm):
+    src = "INT. BAR - NIGHT\nDan pours.\nMarta enters."  # 3 lines; line 2 is a gap
+    mock_llm.set_responses("segment_scene", [seg([(1, 1), (3, 3)])])
+    mock_llm.set_response("extract_ledger_facts", extraction())
+    mock_llm.set_response("scan_consistency", scan())
+
+    resp = client.post(
+        f"/api/v1/projects/{PROJECT_ID}/import", json={"format": "fountain", "content": src}
+    )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    scenes = body["project"]["seasons"][0]["episodes"][0]["scenes"]
+    all_beats = [b for s in scenes for b in s["beats"]]
+    assert "\n".join(b["scriptText"] for b in all_beats) == src
+    assert "Dan pours." in all_beats[0]["scriptText"]
+
+    review_flags = [
+        f for f in body["consistencyFlags"]
+        if f["objectType"] == "beat" and f["severity"] == "tension"
+    ]
+    assert len(review_flags) == 1
+    assert review_flags[0]["objectId"] == all_beats[0]["id"]
+    assert review_flags[0]["status"] == "open"
+    assert "lines 2-2" in review_flags[0]["explanation"]
+
+    db_session.expire_all()
+    persisted = db_session.get(ProjectRow, PROJECT_ID)
+    persisted_beats = [
+        b
+        for s in persisted.doc["seasons"][0]["episodes"][0]["scenes"]
+        for b in s["beats"]
+    ]
+    assert "\n".join(b["scriptText"] for b in persisted_beats) == src
+    assert persisted.head_snapshot_id == body["project"]["headSnapshotId"]
 
 
 def test_empty_content_rejected(seeded_project, mock_llm):
