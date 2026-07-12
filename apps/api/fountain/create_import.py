@@ -35,7 +35,7 @@ from sqlalchemy.orm import Session
 
 from drama_manager import locks
 from fountain.parse import CoverageError
-from fountain.pipeline import analyze_import
+from fountain.pipeline import ImportStageProgress, ImportStageStarted, analyze_import
 from llm.errors import LlmTimeoutError, SchemaInvalidLlmError
 from llm.protocol import LlmClient
 from sse import format_sse
@@ -48,6 +48,13 @@ _logger = logging.getLogger("fountain.create_import")
 
 def _stage_frame(name: str) -> str:
     return format_sse("stage", {"type": "stage", "name": name})
+
+
+def _progress_frame(stage: str, done: int, total: int) -> str:
+    return format_sse(
+        "progress",
+        {"type": "progress", "stage": stage, "done": done, "total": total},
+    )
 
 
 def _failed_frame(code: str, message: str) -> str:
@@ -101,8 +108,13 @@ def create_and_import_events(
         analysis_gen = analyze_import(doc, [], content, llm)
         try:
             while True:
-                stage = next(analysis_gen)
-                yield _stage_frame(stage)
+                event = next(analysis_gen)
+                if isinstance(event, ImportStageStarted):
+                    yield _stage_frame(event.name)
+                elif isinstance(event, ImportStageProgress):
+                    yield _progress_frame(event.stage, event.done, event.total)
+                else:
+                    raise TypeError(f"unknown import progress event: {type(event).__name__}")
         except StopIteration as stop:
             analysis = stop.value
 

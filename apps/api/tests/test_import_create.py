@@ -18,6 +18,7 @@ Two test styles, matching test_import.py's own split:
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 
 import anthropic
 import httpx
@@ -30,7 +31,12 @@ from llm.dependency import get_llm_client
 from llm.errors import SchemaInvalidLlmError
 from llm.mock import MockLlmClient
 from main import app
-from schemas import ConsistencyScan, LedgerExtraction, SegmentedScene
+from schemas import (
+    ConsistencyScan,
+    LedgerExtraction,
+    ProjectImportProgressEvent,
+    SegmentedScene,
+)
 from storage import snapshots
 from storage.models import ConsistencyFlagRow, LedgerFactRow, ProjectRow, SnapshotRow
 
@@ -123,6 +129,12 @@ def _parse_sse(text: str) -> list[tuple[str, dict]]:
     return events
 
 
+def _parse_frame(text: str) -> tuple[str, dict]:
+    events = _parse_sse(text)
+    assert len(events) == 1
+    return events[0]
+
+
 def _table_counts(db_session) -> dict:
     """Snapshot of row counts across every table a project touches. Fault-
     injection assertions compare *before vs. after*, never an absolute count
@@ -146,6 +158,68 @@ def mock_llm():
 
 
 client = TestClient(app)
+
+
+# ── contract: progress item variant + SSE adapter frame ─────────────────────
+
+
+def test_progress_event_contract_accepts_progress_variant():
+    event = ProjectImportProgressEvent.model_validate(
+        {"type": "progress", "stage": "segmenting_beats", "done": 2, "total": 3}
+    )
+
+    assert event.root.done == 2
+    assert event.root.total == 3
+
+
+def test_progress_frame_formats_sse_event():
+    assert _parse_frame(create_import._progress_frame("segmenting_beats", 2, 3)) == (
+        "progress",
+        {"type": "progress", "stage": "segmenting_beats", "done": 2, "total": 3},
+    )
+
+
+def test_create_and_import_events_adapts_internal_progress_events(monkeypatch, mock_llm):
+    def fake_analyze_import(*args, **kwargs):
+        yield pipeline.ImportStageStarted("parsing_scenes")
+        yield pipeline.ImportStageProgress("segmenting_beats", 2, 3)
+        return pipeline.ImportAnalysis(new_doc={"id": "proj-progress"}, new_facts=[], raw_flags=[])
+
+    monkeypatch.setattr(create_import, "analyze_import", fake_analyze_import)
+    monkeypatch.setattr(
+        snapshots,
+        "create_project_with_state",
+        lambda *args, **kwargs: SimpleNamespace(
+            project_id="proj-progress",
+            id="snap-progress",
+            doc={"id": "proj-progress"},
+            ledger=[],
+            flags=[],
+        ),
+    )
+
+    events = _parse_sse(
+        "".join(
+            create_import.create_and_import_events(
+                None,
+                title="Progress Show",
+                format_dict=BASICS["format"],
+                premise="",
+                source_format="fountain",
+                content="INT. BAR\nx",
+                llm=mock_llm,
+                creation_idempotency_key="progress-key",
+                creation_request_hash="progress-hash",
+            )
+        )
+    )
+
+    assert events[:2] == [
+        ("stage", {"type": "stage", "name": "parsing_scenes"}),
+        ("progress", {"type": "progress", "stage": "segmenting_beats", "done": 2, "total": 3}),
+    ]
+    assert events[-2][0] == "stage"
+    assert events[-1][0] == "complete"
 
 
 # ── success: one project, one root snapshot, imported doc/ledger/flags ──────

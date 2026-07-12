@@ -46,13 +46,29 @@ from storage.models import LedgerFactRow, ProjectRow
 _logger = logging.getLogger("fountain.pipeline")
 
 # Stage names in emission order (data contract §9.3 / packages/contract
-# `ProjectImportStageName`). `analyze_import` yields exactly these, in order,
-# once each; "saving" is not among them — it belongs to the caller's own
-# single DB write, which happens *after* analysis completes.
+# `ProjectImportStageName`). `analyze_import` yields `ImportStageStarted`
+# for exactly these, in order, once each; "saving" is not among them — it
+# belongs to the caller's own single DB write, which happens *after* analysis
+# completes.
 STAGE_PARSING_SCENES = "parsing_scenes"
 STAGE_SEGMENTING_BEATS = "segmenting_beats"
 STAGE_EXTRACTING_FACTS = "extracting_facts"
 STAGE_CHECKING_CONSISTENCY = "checking_consistency"
+
+
+@dataclass(frozen=True)
+class ImportStageStarted:
+    name: str
+
+
+@dataclass(frozen=True)
+class ImportStageProgress:
+    stage: str
+    done: int
+    total: int
+
+
+ImportPipelineEvent = ImportStageStarted | ImportStageProgress
 
 
 @dataclass
@@ -68,9 +84,9 @@ class ImportAnalysis:
     raw_flags: list[dict]
 
 
-def run_to_completion[T](gen: Generator[str, None, T]) -> T:
+def run_to_completion[T](gen: Generator[ImportPipelineEvent, None, T]) -> T:
     """Drive an `analyze_import`-shaped generator to completion, discarding
-    the stage names it yields, and return its final value. For callers (like
+    the progress events it yields, and return its final value. For callers (like
     `run_import` below) that don't need per-stage progress."""
     try:
         while True:
@@ -84,10 +100,10 @@ def analyze_import(
     existing_ledger: list[dict],
     content: str,
     llm: LlmClient,
-) -> Generator[str, None, ImportAnalysis]:
+) -> Generator[ImportPipelineEvent, None, ImportAnalysis]:
     """Run every LLM/parsing stage of an import with **no DB access and no
-    mutation**, yielding the data-contract §9.3 stage name as each begins and
-    returning the assembled `ImportAnalysis` once complete. Shared analysis
+    mutation**, yielding internal pipeline progress events and returning the
+    assembled `ImportAnalysis` once complete. Shared analysis
     core for `run_import` (import into an existing project) and
     `fountain/create_import.py` (atomic create-and-import, T5) — the single
     place either caller's DB write can safely follow, because nothing here
@@ -112,10 +128,10 @@ def analyze_import(
 
     # ── Stage 1 + 2: deterministic split, then LLM segmentation + server-side
     # typed-start normalization + verbatim slicing, per scene. ──────────────
-    yield STAGE_PARSING_SCENES
+    yield ImportStageStarted(STAGE_PARSING_SCENES)
     spans = split_into_scenes(content)
 
-    yield STAGE_SEGMENTING_BEATS
+    yield ImportStageStarted(STAGE_SEGMENTING_BEATS)
     per_scene_beats: list[list[ImportedBeat]] = []
     for span in spans:
         system, user = render.build_segment_prompt(project_doc, span.lines, render.new_nonce())
@@ -197,7 +213,7 @@ def analyze_import(
     # ── Ledger extraction (§4 step 2): every import-derived fact is
     # pending_review, regardless of confidence. Fresh ledger → no existing
     # facts to contradict. ───────────────────────────────────────────────────
-    yield STAGE_EXTRACTING_FACTS
+    yield ImportStageStarted(STAGE_EXTRACTING_FACTS)
     new_facts: list[dict] = []
     fact_minter = IdMinter([], "fact-")
     for scene in scene_docs:
@@ -211,7 +227,7 @@ def analyze_import(
             new_facts.append(_to_ledger_fact(ef, fact_minter.mint(), beat_index))
 
     # ── Consistency scan (§4 step 3): one sweep across the imported episode. ──
-    yield STAGE_CHECKING_CONSISTENCY
+    yield ImportStageStarted(STAGE_CHECKING_CONSISTENCY)
     scene_summaries = [
         {"id": s["id"], "location": s["location"], "whatHappens": s["whatHappens"]}
         for s in scene_docs

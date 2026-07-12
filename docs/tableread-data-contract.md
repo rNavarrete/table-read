@@ -215,11 +215,18 @@ export const ProjectImportStageName = z.enum([
   "checking_consistency", "saving",
 ]);
 
-// §9.3 SSE progress: any number of `stage` events (order above), then
+// §9.3 SSE progress: `stage` events announce each named stage, `progress`
+// events report monotonic item counts within a stage (`done <= total`), then
 // exactly one terminal `complete` or `failed`. `error` matches the
 // canonical `{code, message, details?}` envelope.
 export const ProjectImportProgressEvent = z.discriminatedUnion("type", [
   z.object({ type: z.literal("stage"), name: ProjectImportStageName }),
+  z.object({
+    type: z.literal("progress"),
+    stage: ProjectImportStageName,
+    done: z.number().int().nonnegative(),
+    total: z.number().int().nonnegative(),
+  }),
   z.object({ type: z.literal("complete"), result: ProjectImportResult }),
   z.object({
     type: z.literal("failed"),
@@ -435,7 +442,7 @@ Defined transactions:
   3. Run `scan_consistency` across the imported episode (initial sweep — imports can carry internal contradictions).
   4. One snapshot committing doc + ledger + flags together; partial failure rolls back all of it.
 - `POST /projects/import/extract-pdf` multipart `file` (`application/pdf`) → `PdfExtractResult` — pre-project PDF extraction only. It creates no project, snapshot, ledger row, or idempotency record, and never calls the LLM. Text-layer extraction uses `pypdf`; OCR uses pypdfium2-rendered pages plus Tesseract. On success, the client treats the editable result as `source.format: "text"` for the existing create-and-import path. Response wire shape is `{text, method, pageCount, warnings}` where `method` is `"text_layer"` or `"ocr"`. Reject missing/non-PDF, oversize/page-cap, unreadable, or empty extraction with `{error: {code: "VALIDATION", message}}`; if Tesseract is unavailable when OCR is required, return `{error: {code: "UNAVAILABLE", message}}`.
-- `POST /projects/import` `ProjectImportCreateRequest` with required `Idempotency-Key` header → **SSE** (§9.3 atomic create-and-import — the import-wizard analogue of `POST /projects` above): reuses the same parse/import pipeline as `POST /projects/{pid}/import`, but creates the project **and** its imported state in one DB transaction — every LLM/parsing stage that can fail runs before that single write, never an empty root followed by an import child. Events: `stage {type: "stage", name}` for each named stage in order (`parsing_scenes`, `segmenting_beats`, `extracting_facts`, `checking_consistency`, `saving`), then exactly one terminal `complete {type: "complete", result: ProjectImportResult}` or `failed {type: "failed", error}`. `ProjectImportResult` is `{project, newFacts, consistencyFlags}` — the same shape `POST /projects/{pid}/import` returns. Idempotency mirrors `POST /projects`: a hash conflict is rejected with a plain 409 `IDEMPOTENCY_CONFLICT` JSON response *before* the stream opens (never a mid-stream surprise); a same-key/same-hash replay opens a stream whose only frame is the terminal `complete` with the original result; a failed transaction leaves no key, so a retry with the same key runs normally.
+- `POST /projects/import` `ProjectImportCreateRequest` with required `Idempotency-Key` header → **SSE** (§9.3 atomic create-and-import — the import-wizard analogue of `POST /projects` above): reuses the same parse/import pipeline as `POST /projects/{pid}/import`, but creates the project **and** its imported state in one DB transaction — every LLM/parsing stage that can fail runs before that single write, never an empty root followed by an import child. Events: `stage {type: "stage", name}` announces each named stage in order (`parsing_scenes`, `segmenting_beats`, `extracting_facts`, `checking_consistency`, `saving`); `progress {type: "progress", stage, done, total}` may appear after a stage starts to report monotonic item progress within that stage, with `0 <= done <= total`. Example frames include `event: progress` / `data: {"type":"progress","stage":"segmenting_beats","done":2,"total":3}` while segmenting scenes and `event: progress` / `data: {"type":"progress","stage":"extracting_facts","done":2,"total":3}` while extracting facts. The stream then emits exactly one terminal `complete {type: "complete", result: ProjectImportResult}` or `failed {type: "failed", error}`. `ProjectImportResult` is `{project, newFacts, consistencyFlags}` — the same shape `POST /projects/{pid}/import` returns. Idempotency mirrors `POST /projects`: a hash conflict is rejected with a plain 409 `IDEMPOTENCY_CONFLICT` JSON response *before* the stream opens (never a mid-stream surprise); a same-key/same-hash replay opens a stream whose only frame is the terminal `complete` with the original result; a failed transaction leaves no key, so a retry with the same key runs normally.
 - `GET /projects/{pid}/export.fountain` → `text/plain`
 - `GET /projects/{pid}/export.json` → `PersistedState` (adoption A6) — the full fixture-shaped envelope (`project`, `ledger`, `snapshots`, `consistencyFlags`, `changeSets`, `suggestionHistory`). Privacy §7.1 "export-everything"; Settings UI offers the download. Round-trip: export → purge → re-seed from export restores project doc and ledger byte-identical.
 - `DELETE /projects/{pid}` — purges every project-scoped row across **all six DB tables plus embeddings**: `projects`, `snapshots`, `ledger_facts`, `change_sets` (including stored previews — they contain generated script text and instructions), `consistency_flags`, `suggestion_history`, and the embedding blobs stored with suggestion history (privacy §7.1). One transaction; the purge test asserts zero remaining rows per table. ("All six DB tables plus embeddings" is the canonical phrasing — build plan and test plan use it verbatim.)

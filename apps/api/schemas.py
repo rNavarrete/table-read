@@ -417,6 +417,13 @@ class ImportProgressStageEvent(_Base):
     name: ImportProgressStageName
 
 
+class ImportProgressItemEvent(_Base):
+    type: Literal["progress"]
+    stage: ImportProgressStageName
+    done: int = Field(ge=0)
+    total: int = Field(ge=0)
+
+
 class ImportProgressCompleteEvent(_Base):
     type: Literal["complete"]
     result: ProjectImportResult
@@ -437,6 +444,7 @@ class ProjectImportProgressEvent(
     RootModel[
         Annotated[
             ImportProgressStageEvent
+            | ImportProgressItemEvent
             | ImportProgressCompleteEvent
             | ImportProgressFailedEvent,
             Field(discriminator="type"),

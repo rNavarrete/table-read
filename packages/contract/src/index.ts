@@ -355,6 +355,12 @@ export type ProjectImportStageName = z.infer<typeof ProjectImportStageName>
 // other endpoint.
 export const ProjectImportProgressEvent = z.discriminatedUnion('type', [
   z.object({ type: z.literal('stage'), name: ProjectImportStageName }),
+  z.object({
+    type: z.literal('progress'),
+    stage: ProjectImportStageName,
+    done: z.number().int().nonnegative(),
+    total: z.number().int().nonnegative(),
+  }),
   z.object({ type: z.literal('complete'), result: ProjectImportResult }),
   z.object({
     type: z.literal('failed'),
