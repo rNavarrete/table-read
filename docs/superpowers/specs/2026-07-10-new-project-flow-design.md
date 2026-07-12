@@ -10,7 +10,7 @@ Replace the hardcoded seeded-project entry point with a calm, trustworthy projec
 
 1. resume recent work;
 2. create a project from an idea through guided setup; or
-3. create a project by uploading or pasting a Fountain/plain-text script.
+3. create a project by uploading or pasting a Fountain/plain-text/PDF script.
 
 The selected dashboard direction is **Story Launcher**: creation is primary, recent work is secondary, and organization remains deliberately light.
 

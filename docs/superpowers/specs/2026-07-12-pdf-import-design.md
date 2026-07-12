@@ -44,8 +44,9 @@ Import wizard steps become:
 
 1. **Add the script** — Upload (`.fountain` / `.txt` / `.pdf`) or Paste  
 2. **Confirm source** (new for PDF; also fine to show for upload/paste when useful) — editable textarea with extracted or pasted text; show `method` badge (`Text layer` / `OCR`) and any warnings  
-3. **Project basics** — title + format preset (unchanged)  
-4. **Create & analyze** — existing SSE path
+3. **Confirm basics** — title + format preset (unchanged)
+4. **Review source** — source type, filename when available, source counts, deterministic detected-scene count, and the trust note
+5. **Analyze** — existing SSE path with named stages; terminal success opens Plan with imported scenes/beats and Ledger pending-review badge
 
 Rules:
 

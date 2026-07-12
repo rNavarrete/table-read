@@ -30,3 +30,8 @@ Complete.
 ## Commit
 
 - `docs: PDF import extract-confirm path and Tesseract bootstrap`
+
+## Review Follow-up
+
+- Aligned the approved PDF import design spec with the five-step Import wizard / `WizardShell` shape: Add script -> Confirm source -> Confirm basics -> Review source -> Analyze.
+- Fixed the cheap related minor in the new-project-flow design goal text so script import includes Fountain/plain-text/PDF.
