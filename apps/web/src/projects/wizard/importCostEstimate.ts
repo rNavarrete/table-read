@@ -33,6 +33,19 @@ export function estimateImportCost(input: {
   }
 }
 
+export function formatImportCostLine(stats: {
+  detectedSceneCount: number
+  estimatedModelCalls: number
+  estimatedCostUsd: { low: number; high: number } | null
+}): string {
+  const scenes = `${stats.detectedSceneCount} scene(s) detected`
+  if (!stats.estimatedCostUsd || stats.estimatedModelCalls <= 0) {
+    return scenes
+  }
+  const { low, high } = stats.estimatedCostUsd
+  return `${scenes} · ~${stats.estimatedModelCalls} model calls · Est. $${low.toFixed(2)}–$${high.toFixed(2)}`
+}
+
 function roundUsd(n: number): number {
   return Math.round(n * 100) / 100
 }

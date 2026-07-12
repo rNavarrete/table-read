@@ -27,7 +27,7 @@ Ordered milestones, agent-sized tasks, acceptance criteria. Reference docs: desi
 *Accept:* all ops callable against mock; retry path unit-tested (first response invalid → second valid); tests never hit network.
 
 **T1.3 Fountain export + import.** Export walks scenes/beats emitting `scriptText`; import = full transaction per data contract §4: two-stage parse (prompt spec §7) → ledger extraction over imported scenes (all facts `pending_review`) → initial consistency scan → one snapshot committing doc + ledger + flags.
-*Accept:* fixture exports to valid Fountain (round-trips through `fountain-js` parse); importing that export reproduces scene/beat count and returns `{project, newFacts, consistencyFlags}` with every imported fact `pending_review`; overlapping/gapped beat line-ranges reject with `VALIDATION` and persist nothing; unassigned ranges preserved in scriptText and flagged — reconstructed text byte-identical to source; a mid-transaction failure (fault injection) leaves zero rows changed.
+*Accept:* fixture exports to valid Fountain (round-trips through `fountain-js` parse); importing that export reproduces scene/beat count and returns `{project, newFacts, consistencyFlags}` with every imported fact `pending_review`; overlapping beat line-ranges reject with `VALIDATION` and persist nothing; gapped ranges heal as unassigned `coverage_gap` buckets per T7.9; unassigned ranges preserved in scriptText and flagged — reconstructed text byte-identical to source; a mid-transaction failure (fault injection) leaves zero rows changed.
 
 ## Milestone 2 — Write mode
 
@@ -102,6 +102,9 @@ Replaces the hardcoded seeded entry point with a project dashboard, idea/import 
 
 **T7.8 PDF import MVP.** Add single-episode `.pdf` support to the Import wizard: contract types for `PdfExtractResult`, server-only pypdf text-layer extract with Tesseract OCR fallback, `POST /projects/import/extract-pdf`, editable Confirm source step, and existing create-and-import analyze with the confirmed text as `format: "text"`. — landed.
 *Accept:* text-layer PDF extracts without LLM calls; scanned PDF uses injected/mock OCR on the PR path and system Tesseract in dev; writer can edit extracted text before **Create & analyze script**; import still creates exactly one project/root snapshot only after the analyze trigger; docs include Tesseract bootstrap (`brew install tesseract`; Debian `tesseract-ocr tesseract-ocr-eng`).
+
+**T7.9 Import coverage heal + cost estimate.** Server fills beat-line gaps as `coverage_gap` unassigned; Review/Analyze show scene count, ~2N+1 calls, and Est. $ range from `config/llm_pricing.json`.
+*Accept:* trailing/mid gaps no longer abort import; overlaps still `VALIDATION`; wizard shows the three estimate figures before Create & analyze.
 
 ## Milestone 8 — Fabula adoption (P-MVP slices)
 

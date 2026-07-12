@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { estimateImportCost } from './importCostEstimate'
+import { estimateImportCost, formatImportCostLine } from './importCostEstimate'
 
 describe('estimateImportCost', () => {
   it('returns zeros/null for zero scenes', () => {
@@ -17,5 +17,17 @@ describe('estimateImportCost', () => {
     expect(r.estimatedCostUsd!.high).toBeGreaterThanOrEqual(
       r.estimatedCostUsd!.low,
     )
+  })
+})
+
+describe('formatImportCostLine', () => {
+  it('formats scene count, model calls, and cost range', () => {
+    expect(
+      formatImportCostLine({
+        detectedSceneCount: 2,
+        estimatedModelCalls: 5,
+        estimatedCostUsd: { low: 0.01, high: 0.03 },
+      }),
+    ).toBe('2 scene(s) detected · ~5 model calls · Est. $0.01–$0.03')
   })
 })

@@ -11,6 +11,7 @@ import {
   FORMAT_PRESETS,
   type FormatPresetId,
 } from './FormatPresets'
+import { formatImportCostLine } from './importCostEstimate'
 import { analyzeSource } from './importSourceStats'
 import { WizardShell } from './WizardShell'
 import { clearDraft, loadDraft, saveDraft } from './wizardDraft'
@@ -499,9 +500,10 @@ export function ImportWizard() {
                 {stats.byteCount} bytes · {stats.charCount} characters ·{' '}
                 {stats.lineCount} lines
               </p>
-              <p>{stats.detectedSceneCount} scene(s) detected</p>
+              <p>{formatImportCostLine(stats)}</p>
               <p>
-                Create & analyze script is the only action that sends this
+                Estimate uses the classifier model; actual usage may vary.
+                Create &amp; analyze script is the only action that sends this
                 source to the model. Scenes, beats, pending Ledger facts, and
                 consistency flags appear here only after that step.
               </p>
@@ -514,6 +516,10 @@ export function ImportWizard() {
           title: 'Analyze',
           body: (
             <div className="grid gap-4">
+              {(session.phase === 'idle' || session.phase === 'failed') &&
+                stats.estimatedModelCalls > 0 && (
+                  <p>{formatImportCostLine(stats)}</p>
+                )}
               <ol aria-label="Import progress" className="grid gap-2">
                 {STAGE_ORDER.map((stage) => {
                   const isDone = session.completedStages.includes(stage)

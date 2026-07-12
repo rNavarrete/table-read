@@ -94,6 +94,31 @@ describe('ImportWizard', () => {
     ).not.toBeNull()
   })
 
+  it('shows the import cost estimate on Review source', async () => {
+    const user = userEvent.setup()
+    render(<ImportWizard />)
+
+    await user.click(screen.getByRole('tab', { name: 'Paste' }))
+    await user.type(
+      screen.getByLabelText('Paste script text'),
+      [
+        'INT. BAR - NIGHT',
+        'Dan pours a drink.',
+        '',
+        'EXT. FERRY - DAY',
+        'Marta watches the harbor.',
+      ].join('\n'),
+    )
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    const titleInput = screen.getByLabelText('Title') as HTMLInputElement
+    await user.type(titleInput, 'Harbor Draft')
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    expect(screen.getByText(/model calls/)).not.toBeNull()
+    expect(screen.getByText(/Est\. \$/)).not.toBeNull()
+  })
+
   it('prefills the title from an uploaded filename and detects .fountain format', async () => {
     const user = userEvent.setup()
     render(<ImportWizard />)
