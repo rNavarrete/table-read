@@ -176,9 +176,13 @@ def _extract_ocr_with_tesseract(*, clock: Clock) -> PdfPageExtractor:
                     _raise_if_ocr_timed_out(start, clock)
                 except concurrent.futures.TimeoutError as exc:
                     future.cancel()
-                    raise PdfExtractError("UNAVAILABLE", "PDF OCR exceeded the 120s timeout") from exc
+                    raise PdfExtractError(
+                        "UNAVAILABLE", "PDF OCR exceeded the 120s timeout"
+                    ) from exc
                 except TesseractNotFoundError as exc:
-                    raise PdfExtractError("UNAVAILABLE", "Install/configure Tesseract for PDF OCR") from exc
+                    raise PdfExtractError(
+                        "UNAVAILABLE", "Install/configure Tesseract for PDF OCR"
+                    ) from exc
                 finally:
                     executor.shutdown(wait=False, cancel_futures=True)
                     page.close()

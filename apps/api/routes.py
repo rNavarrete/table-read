@@ -18,6 +18,12 @@ from collections.abc import Callable
 from datetime import UTC
 
 import anthropic
+from fastapi import APIRouter, Body, Depends, File, Header, Query, Response, UploadFile
+from fastapi.responses import PlainTextResponse, StreamingResponse
+from pydantic import ValidationError
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
+
 from drama_manager import (
     accept,
     candidates,
@@ -31,8 +37,6 @@ from drama_manager import (
     suggest as suggest_mod,
 )
 from errors import ApiError
-from fastapi import APIRouter, Body, Depends, File, Header, Query, Response, UploadFile
-from fastapi.responses import PlainTextResponse, StreamingResponse
 from fountain import create_import, pdf_extract
 from fountain.export import to_fountain
 from fountain.parse import CoverageError
@@ -40,7 +44,6 @@ from fountain.pipeline import run_import
 from llm.dependency import get_llm_client, get_llm_client_provider
 from llm.errors import LlmTimeoutError, SchemaInvalidLlmError
 from llm.protocol import LlmClient
-from pydantic import ValidationError
 from schemas import (
     BeatCandidate,
     ChangeSet,
@@ -60,8 +63,6 @@ from schemas import (
     SnapshotSummary,
     SuggestRequest,
 )
-from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
 from storage import project_scaffold, snapshots
 from storage.db import get_session
 from storage.models import ConsistencyFlagRow, LedgerFactRow, ProjectRow, SnapshotRow

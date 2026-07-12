@@ -209,7 +209,9 @@ export function ImportWizard() {
 
   function validateSource(): boolean {
     setSourceTouched(true)
-    return Boolean(draft.source.trim()) && sourceError === null && !isExtractingPdf
+    return (
+      Boolean(draft.source.trim()) && sourceError === null && !isExtractingPdf
+    )
   }
 
   function validateBasics(): boolean {
@@ -345,8 +347,7 @@ export function ImportWizard() {
                   {draft.filename && (
                     <div className="flex flex-wrap items-center gap-2 text-13 text-tr-text-secondary">
                       <span>
-                        {draft.filename} · detected format:{' '}
-                        {draft.sourceFormat}
+                        {draft.filename} · detected format: {draft.sourceFormat}
                       </span>
                       {draft.pdfExtract && (
                         <span className="rounded-chip border border-tr-border bg-tr-surface-sunken px-2 py-1 text-12 text-tr-text-muted">

@@ -17,14 +17,12 @@ const RECIPES = [
 const HREFS: Record<(typeof RECIPES)[number], string> = {
   'break-first-scene':
     '/?project=proj-longpour&scene=scene-3&tour=break-first-scene',
-  'lock-and-regenerate':
-    '/plan?project=proj-longpour&tour=lock-and-regenerate',
+  'lock-and-regenerate': '/plan?project=proj-longpour&tour=lock-and-regenerate',
   'review-a-change': '/review?project=proj-longpour&tour=review-a-change',
   'audit-facts': '/ledger?project=proj-longpour&tour=audit-facts',
   'suggest-and-write':
     '/?project=proj-longpour&scene=scene-3&tour=suggest-and-write',
-  'undo-timeline':
-    '/?project=proj-longpour&scene=scene-3&tour=undo-timeline',
+  'undo-timeline': '/?project=proj-longpour&scene=scene-3&tour=undo-timeline',
 }
 
 test('dashboard offers recipe picker', async ({ page }) => {

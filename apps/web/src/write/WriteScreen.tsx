@@ -89,26 +89,21 @@ export function WriteScreen() {
   const slots = candidateSession.session.slots
   const hasCards = slots.length > 0
   const streaming = candidateSession.session.phase === 'streaming'
+  const boundedFocusedCard = hasCards
+    ? Math.min(focusedCard, slots.length - 1)
+    : 0
 
-  useEffect(() => {
-    if (!hasCards) {
-      setFocusedCard(0)
-      return
-    }
-    setFocusedCard((i) => Math.min(i, slots.length - 1))
-  }, [hasCards, slots.length])
-
-  function lastBeatId(): string | null {
+  const lastBeatId = useCallback((): string | null => {
     if (!scene || scene.beats.length === 0) return null
     return scene.beats[scene.beats.length - 1].id
-  }
+  }, [scene])
 
   const handleNextBeat = useCallback(() => {
     candidateSession.generate({
       afterBeatId: lastBeatId(),
       craftLevel,
     })
-  }, [candidateSession, scene, craftLevel])
+  }, [candidateSession, lastBeatId, craftLevel])
 
   function handleCommandBarSubmit(instruction: string) {
     candidateSession.generate({
@@ -139,25 +134,28 @@ export function WriteScreen() {
     }
   }
 
-  async function handleAccept(index: number, candidate: BeatCandidate) {
-    const response = await accept.accept(index, candidate, lastBeatId())
-    if (response) {
-      candidateSession.skip(index)
-      const pendingDelta = response.newFacts.filter(
-        (f) => f.status === 'pending_review',
-      ).length
-      if (pendingDelta > 0) {
-        setLedgerCount((count) => count + pendingDelta)
+  const handleAccept = useCallback(
+    async (index: number, candidate: BeatCandidate) => {
+      const response = await accept.accept(index, candidate, lastBeatId())
+      if (response) {
+        candidateSession.skip(index)
+        const pendingDelta = response.newFacts.filter(
+          (f) => f.status === 'pending_review',
+        ).length
+        if (pendingDelta > 0) {
+          setLedgerCount((count) => count + pendingDelta)
+        }
       }
-    }
-  }
+    },
+    [accept, candidateSession, lastBeatId],
+  )
 
   const acceptFocused = useCallback(() => {
-    const slot = slots[focusedCard]
+    const slot = slots[boundedFocusedCard]
     if (!slot || slot.status !== 'done') return
     if (slot.candidate.continuityConflicts.length > 0) return
-    void handleAccept(focusedCard, slot.candidate)
-  }, [slots, focusedCard, accept, candidateSession, scene])
+    void handleAccept(boundedFocusedCard, slot.candidate)
+  }, [slots, boundedFocusedCard, handleAccept])
 
   useWriteKeyboard({
     quiet,
@@ -234,7 +232,7 @@ export function WriteScreen() {
         <CandidateDock
           session={candidateSession.session}
           quiet={quiet}
-          focusedIndex={hasCards ? focusedCard : null}
+          focusedIndex={hasCards ? boundedFocusedCard : null}
           craftLevel={craftLevel}
           onCraftLevelChange={(level) => void handleCraftLevelChange(level)}
           onNextBeat={handleNextBeat}

@@ -111,10 +111,5 @@ export function RecipeHost() {
   const recipe = getRecipe(recipeId)
 
   if (!recipe) return null
-  return (
-    <RecipeOverlay
-      recipe={recipe}
-      onClose={() => setRecipeId(null)}
-    />
-  )
+  return <RecipeOverlay recipe={recipe} onClose={() => setRecipeId(null)} />
 }

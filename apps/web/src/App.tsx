@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import { RecipeHost } from './onboarding/RecipeOverlay'
 import { LedgerScreen } from './ledger/LedgerScreen'
 import { PlanScreen } from './plan/PlanScreen'
@@ -15,7 +16,7 @@ import { WriteScreen } from './write/WriteScreen'
 // `window.location.pathname`, so this is the one place that reads it back.
 function App() {
   const path = window.location.pathname
-  let screen = null
+  let screen: ReactNode
   if (path === '/') {
     if (new URLSearchParams(window.location.search).has('project')) {
       screen = <WriteScreen />

@@ -323,15 +323,15 @@ export function CandidateCard({
               onClick={() => onAccept(candidate)}
               className="rounded-card bg-tr-coral px-3 py-1.5 text-13 text-tr-surface-raised transition-colors hover:bg-tr-coral-hover disabled:opacity-50 motion-reduce:transition-none"
             >
-              {accepting
-                ? 'Accepting…'
-                : acceptError
-                  ? 'Retry'
-                  : (
-                      <>
-                        Accept <span aria-hidden="true">[↵]</span>
-                      </>
-                    )}
+              {accepting ? (
+                'Accepting…'
+              ) : acceptError ? (
+                'Retry'
+              ) : (
+                <>
+                  Accept <span aria-hidden="true">[↵]</span>
+                </>
+              )}
             </button>
             <button
               type="button"

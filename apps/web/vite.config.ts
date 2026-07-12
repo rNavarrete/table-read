@@ -6,7 +6,10 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 // https://vite.dev/config/
-const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
+const rootDir = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  '../..',
+)
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],

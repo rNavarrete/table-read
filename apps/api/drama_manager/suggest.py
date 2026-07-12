@@ -12,7 +12,6 @@ No writer text is logged (hard rule 5): ids/counts/PROMPT_VERSION only.
 from __future__ import annotations
 
 import logging
-import math
 import uuid
 
 from sqlalchemy.orm import Session

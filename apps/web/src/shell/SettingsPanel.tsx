@@ -68,7 +68,7 @@ export function SettingsPanel({
       })
       const url = URL.createObjectURL(blob)
       const anchor = document.createElement('a')
-      const safeName = projectTitle.replace(/[^\w\-]+/g, '_').slice(0, 64)
+      const safeName = projectTitle.replace(/[^\w-]+/g, '_').slice(0, 64)
       anchor.href = url
       anchor.download = `${safeName || 'project'}.tableread.json`
       anchor.click()

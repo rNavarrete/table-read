@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-import fountain.pdf_extract as pdf_extract
 from fastapi.testclient import TestClient
+
+import fountain.pdf_extract as pdf_extract
 from fountain.pdf_extract import PdfExtractError
 from main import app
 from schemas import PdfExtractResult

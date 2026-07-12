@@ -446,7 +446,11 @@ def _considered_events(
     polish_instruction = (
         (instruction.strip() + "\n\n" if instruction.strip() else "")
         + "CRITIQUE AND SELECT: Prior drafts this round were: "
-        + "; ".join(f"{d.get('label', '')} — {_one_line(d.get('beatPlan', {}).get('whatHappens', ''))}" for d in drafts)
+        + "; ".join(
+            f"{d.get('label', '')} — "
+            f"{_one_line(d.get('beatPlan', {}).get('whatHappens', ''))}"
+            for d in drafts
+        )
         + ". Return a single polished best beat that keeps the strongest choice "
         "and improves weak lines. Do not merely copy one draft verbatim."
     )

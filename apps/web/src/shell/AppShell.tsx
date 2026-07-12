@@ -252,15 +252,12 @@ export function AppShell({
               data-testid="undo-history"
               aria-expanded={historyOpen}
               aria-haspopup="listbox"
-              title={
-                undoEnabled ? 'Undo history' : 'Nothing to undo'
-              }
+              title={undoEnabled ? 'Undo history' : 'Nothing to undo'}
               onClick={() => void openHistory()}
               className={
                 (undoEnabled
                   ? 'ml-1 text-tr-text-muted hover:text-tr-text-secondary'
-                  : 'ml-1 cursor-not-allowed opacity-50') +
-                ' px-0.5'
+                  : 'ml-1 cursor-not-allowed opacity-50') + ' px-0.5'
               }
             >
               ▾

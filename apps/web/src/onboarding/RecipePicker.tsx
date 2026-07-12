@@ -20,8 +20,8 @@ export function RecipePicker() {
           Workflow recipes
         </h2>
         <p className="mt-2 text-13 leading-6 text-tr-text-secondary">
-          Short guided tours on The Long Pour fixture — real UI, not docs.
-          New here? Start with any recipe below.
+          Short guided tours on The Long Pour fixture — real UI, not docs. New
+          here? Start with any recipe below.
         </p>
       </div>
       <ul className="grid gap-3 sm:grid-cols-2">
