@@ -287,6 +287,18 @@ class ProjectImportCreateRequest(_Base):
     source: ProjectImportSource
 
 
+class PdfExtractMethod(StrEnum):
+    text_layer = "text_layer"
+    ocr = "ocr"
+
+
+class PdfExtractResult(_Base):
+    text: str
+    method: PdfExtractMethod
+    page_count: int = Field(gt=0)
+    warnings: list[str]
+
+
 class SnapshotSummary(_Base):
     """One restorable ancestor entry for the undo timeline (adoption A5)."""
 

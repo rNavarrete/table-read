@@ -151,6 +151,15 @@ export const ProjectImportCreateRequest = z.object({
     content: z.string(),
   }),
 });
+
+export const PdfExtractMethod = z.enum(["text_layer", "ocr"]);
+
+export const PdfExtractResult = z.object({
+  text: z.string(),
+  method: PdfExtractMethod,
+  pageCount: z.number().int().positive(),
+  warnings: z.array(z.string()),
+});
 ```
 
 ## 2. Generation / Review types
@@ -424,6 +433,7 @@ Defined transactions:
   2. Run `extract_ledger_facts` over every imported scene; **all import-derived facts are created `pending_review` regardless of confidence** (nobody has vouched for inferences over a whole script — the writer batch-reviews them in the Ledger queue).
   3. Run `scan_consistency` across the imported episode (initial sweep — imports can carry internal contradictions).
   4. One snapshot committing doc + ledger + flags together; partial failure rolls back all of it.
+- `POST /projects/import/extract-pdf` multipart `file` (`application/pdf`) → `PdfExtractResult` — pre-project PDF extraction only. It creates no project, snapshot, ledger row, or idempotency record, and never calls the LLM. Text-layer extraction uses `pypdf`; OCR uses pypdfium2-rendered pages plus Tesseract. On success, the client treats the editable result as `source.format: "text"` for the existing create-and-import path. Reject missing/non-PDF, oversize/page-cap, unreadable, or empty extraction with `VALIDATION`; if Tesseract is unavailable when OCR is required, return `UNAVAILABLE`.
 - `POST /projects/import` `ProjectImportCreateRequest` with required `Idempotency-Key` header → **SSE** (§9.3 atomic create-and-import — the import-wizard analogue of `POST /projects` above): reuses the same parse/import pipeline as `POST /projects/{pid}/import`, but creates the project **and** its imported state in one DB transaction — every LLM/parsing stage that can fail runs before that single write, never an empty root followed by an import child. Events: `stage {type: "stage", name}` for each named stage in order (`parsing_scenes`, `segmenting_beats`, `extracting_facts`, `checking_consistency`, `saving`), then exactly one terminal `complete {type: "complete", result: ProjectImportResult}` or `failed {type: "failed", error}`. `ProjectImportResult` is `{project, newFacts, consistencyFlags}` — the same shape `POST /projects/{pid}/import` returns. Idempotency mirrors `POST /projects`: a hash conflict is rejected with a plain 409 `IDEMPOTENCY_CONFLICT` JSON response *before* the stream opens (never a mid-stream surprise); a same-key/same-hash replay opens a stream whose only frame is the terminal `complete` with the original result; a failed transaction leaves no key, so a retry with the same key runs normally.
 - `GET /projects/{pid}/export.fountain` → `text/plain`
 - `GET /projects/{pid}/export.json` → `PersistedState` (adoption A6) — the full fixture-shaped envelope (`project`, `ledger`, `snapshots`, `consistencyFlags`, `changeSets`, `suggestionHistory`). Privacy §7.1 "export-everything"; Settings UI offers the download. Round-trip: export → purge → re-seed from export restores project doc and ledger byte-identical.
@@ -473,7 +483,7 @@ Defined transactions:
 
 - `POST /projects/{pid}/suggest` `{context: "scene"|"beat", targetId, surface: "command_bar"|"scene_premise"|"tune", draftScript?}` → `{suggestions: string[3]}` (adoption A4) — contextual instruction chips; click inserts only, never auto-executes. Context bundle includes scene plan + latest accepted beat script (+ optional unsaved `draftScript`). Dedup against `suggestion_history`.
 
-**Error shape (all endpoints):** `{error: {code, message, details?}}`. Codes: `LOCKED_OBJECT`, `SCHEMA_INVALID_LLM` (after retry), `NOT_FOUND`, `VALIDATION`, `LLM_UNAVAILABLE`, `PREVIEW_STALE`, `CONFLICT_STALE_PROPOSAL`, `CONFLICT_STALE_HEAD`, `IDEMPOTENCY_CONFLICT`.
+**Error shape (all endpoints):** `{error: {code, message, details?}}`. Codes: `LOCKED_OBJECT`, `SCHEMA_INVALID_LLM` (after retry), `NOT_FOUND`, `VALIDATION`, `LLM_UNAVAILABLE`, `UNAVAILABLE`, `PREVIEW_STALE`, `CONFLICT_STALE_PROPOSAL`, `CONFLICT_STALE_HEAD`, `IDEMPOTENCY_CONFLICT`.
 
 **Optimistic concurrency:** every project-mutating write (PATCH, accept, ledger confirm/reject/edit/batch, flag dismiss, import, undo, restore, Change Set apply) goes through an atomic compare-and-swap on `projects.head_snapshot_id` (`UPDATE … WHERE head_snapshot_id = :expected`). Clients SHOULD send `If-Match: <headSnapshotId>` on those mutations; when present and stale, the server returns 409 `CONFLICT_STALE_HEAD` and persists nothing. When omitted, the server still CAS-guards against the head observed at read time so two concurrent writers that both loaded H cannot both commit children of H. Change Set apply additionally rejects when `preview.basedOnSnapshotId` ≠ current head (`PREVIEW_STALE` — re-preview required) before the CAS.
 

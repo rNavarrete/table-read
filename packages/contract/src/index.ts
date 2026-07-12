@@ -255,6 +255,17 @@ export type ProjectImportCreateRequest = z.input<
   typeof ProjectImportCreateRequest
 >
 
+export const PdfExtractMethod = z.enum(['text_layer', 'ocr'])
+export type PdfExtractMethod = z.infer<typeof PdfExtractMethod>
+
+export const PdfExtractResult = z.object({
+  text: z.string(),
+  method: PdfExtractMethod,
+  pageCount: z.number().int().positive(),
+  warnings: z.array(z.string()),
+})
+export type PdfExtractResult = z.infer<typeof PdfExtractResult>
+
 /** One restorable ancestor for the undo timeline (adoption A5). */
 export const SnapshotSummary = z.object({
   id: Id,
