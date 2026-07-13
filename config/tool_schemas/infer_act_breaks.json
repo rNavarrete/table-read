@@ -1,0 +1,28 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "starts": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "act": {
+            "type": "integer"
+          },
+          "startSceneIndex": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "act",
+          "startSceneIndex"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "starts"
+  ],
+  "type": "object"
+}

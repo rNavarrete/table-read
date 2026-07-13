@@ -9,13 +9,14 @@ EXPECTED_OPS = {
     "regenerate_elements": "writer",
     "extract_ledger_facts": "classifier",
     "suggest_instructions": "classifier",
+    "infer_act_breaks": "classifier",
     "segment_scene": "classifier",  # T6.1 escalation: moved writer->classifier for temperature 0
     "scan_consistency": "classifier",
     "generate_scene_skeleton": "writer",  # §9.4 guided-setup scene skeleton
 }
 
 
-def test_registry_has_all_nine_ops_with_expected_roles():
+def test_registry_has_all_ten_ops_with_expected_roles():
     assert OP_REGISTRY.keys() == EXPECTED_OPS.keys()
     for name, role in EXPECTED_OPS.items():
         assert OP_REGISTRY[name].role == role

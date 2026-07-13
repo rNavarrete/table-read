@@ -33,6 +33,7 @@ from schemas import (
     BeatCandidate,
     BlastRadius,
     ConsistencyScan,
+    InferredActBreaks,
     InitialSceneSkeleton,
     InstructionSuggestions,
     LedgerExtraction,
@@ -99,6 +100,13 @@ _OPS: tuple[LlmOp, ...] = (
         "classifier",
         "Suggest three diverse scene or beat instructions for the writer to "
         "choose from.",
+    ),
+    LlmOp(
+        "infer_act_breaks",
+        "InferredActBreaks",
+        InferredActBreaks,
+        "classifier",
+        "Infer ordered narrative act-start scene indices within the selected teleplay format.",
     ),
     # T6.1 escalation EXECUTED: prompt spec §7 mandates temperature 0 for stage-2
     # segmentation, but the writer tier rejects sampling params, so under the

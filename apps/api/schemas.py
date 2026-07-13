@@ -407,6 +407,7 @@ class ProjectImportResult(_Base):
 class ImportProgressStageName(StrEnum):
     parsing_scenes = "parsing_scenes"
     segmenting_beats = "segmenting_beats"
+    inferring_acts = "inferring_acts"
     extracting_facts = "extracting_facts"
     checking_consistency = "checking_consistency"
     saving = "saving"
@@ -648,6 +649,15 @@ class SuggestRequest(_Base):
     target_id: Id
     surface: Literal["command_bar", "scene_premise", "tune"]
     draft_script: str | None = None
+
+
+class InferredActStart(_Base):
+    act: int = Field(ge=0)
+    start_scene_index: int = Field(ge=0)
+
+
+class InferredActBreaks(_Base):
+    starts: list[InferredActStart] = Field(min_length=1)
 
 
 class SegmentedSceneBeat(_Base):

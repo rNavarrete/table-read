@@ -7,6 +7,9 @@ Must validate the real committed fixture file (docs/tableread-fixture.json,
 import json
 from pathlib import Path
 
+import pytest
+from pydantic import ValidationError
+
 from schemas import PersistedState, ProjectSummary
 
 FIXTURE_PATH = Path(__file__).resolve().parents[3] / "docs" / "tableread-fixture.json"
@@ -41,3 +44,15 @@ def test_project_summary_contract_accepts_dashboard_shape():
             "setupState": "ready",
         }
     )
+
+
+def test_inferred_act_breaks_contract():
+    from schemas import InferredActBreaks
+
+    value = InferredActBreaks.model_validate(
+        {"starts": [{"act": 1, "startSceneIndex": 0}]}
+    )
+    assert value.starts[0].act == 1
+    assert value.starts[0].start_scene_index == 0
+    with pytest.raises(ValidationError):
+        InferredActBreaks.model_validate({"starts": []})

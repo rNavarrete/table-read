@@ -314,7 +314,7 @@ def test_log_line_carries_metadata_but_never_prompt_or_response_text(caplog):
     assert "Marta" not in message
 
 
-def test_all_eight_ops_are_callable_against_the_fake_sdk():
+def test_all_ops_are_callable_against_the_fake_sdk():
     """Mirrors the mock-client coverage test but against AnthropicClient's
     own dispatch, using op-appropriate fake tool_use blocks."""
     from llm.ops import OP_REGISTRY
@@ -562,6 +562,7 @@ def _fixture_valid_input_for(op_name: str) -> dict:
         "regenerate_elements": {"beats": [], "scenes": [], "continuityConflicts": []},
         "extract_ledger_facts": {"newFacts": [], "contradictions": []},
         "suggest_instructions": {"suggestions": ["a", "b", "c"]},
+        "infer_act_breaks": {"starts": [{"act": 0, "startSceneIndex": 0}]},
         "segment_scene": {"segments": []},
         "scan_consistency": {"flags": []},
         "generate_scene_skeleton": {"label": "x", "scenes": []},

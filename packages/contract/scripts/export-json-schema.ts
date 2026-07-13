@@ -48,6 +48,7 @@ const SCHEMA_NAMES = [
   'LedgerExtraction',
   'InstructionSuggestions',
   'SuggestRequest',
+  'InferredActBreaks',
   'SegmentedScene',
   'ConsistencyScan',
   'InitialSceneSkeleton',

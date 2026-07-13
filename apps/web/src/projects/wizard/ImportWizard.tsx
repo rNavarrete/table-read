@@ -23,6 +23,7 @@ const ACCEPTED_EXTENSIONS = ['.fountain', '.txt', '.pdf']
 const STAGE_ORDER: ProjectImportStageName[] = [
   'parsing_scenes',
   'segmenting_beats',
+  'inferring_acts',
   'extracting_facts',
   'checking_consistency',
   'saving',
@@ -31,6 +32,7 @@ const STAGE_ORDER: ProjectImportStageName[] = [
 const STAGE_LABELS: Record<ProjectImportStageName, string> = {
   parsing_scenes: 'Parsing scenes',
   segmenting_beats: 'Segmenting beats',
+  inferring_acts: 'Inferring act structure',
   extracting_facts: 'Extracting facts',
   checking_consistency: 'Checking consistency',
   saving: 'Saving project',
