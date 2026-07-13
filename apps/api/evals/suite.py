@@ -25,6 +25,7 @@ _MODELS_CONFIG = Path(__file__).resolve().parents[3] / "config" / "models.toml"
 # single-eval run reports a truthful call estimate.
 EVAL_KEYS: dict[str, str] = {
     "schema": "schemaValidity",
+    "act-validity": "actBoundaryValidity",
     "lock": "lockViolation",
     "continuity": "continuityAdherence",
     "segmentation": "segmentationDeterminism",
@@ -36,11 +37,18 @@ EVAL_KEYS: dict[str, str] = {
 
 HARD_RUNS = 5
 SOFT_RUNS = 5
-HARD_FAMILY_KEYS = frozenset({"lockViolation", "continuityAdherence"})
+HARD_FAMILY_KEYS = frozenset(
+    {"actBoundaryValidity", "lockViolation", "continuityAdherence"}
+)
 
 # Default `make evals` runs only these hard-gate families. Soft / adoption
 # families stay available via `--full` or `--only <family>`.
-CORE_EVAL_KEYS: tuple[str, ...] = ("schema", "lock", "continuity")
+CORE_EVAL_KEYS: tuple[str, ...] = (
+    "schema",
+    "act-validity",
+    "lock",
+    "continuity",
+)
 SOFT_EVAL_KEYS: tuple[str, ...] = (
     "segmentation",
     "lock-repair",
@@ -55,6 +63,7 @@ SOFT_EVAL_KEYS: tuple[str, ...] = (
 # short keys the family-dispatch loop is keyed on.
 FAMILY_RESULT_NAME: dict[str, str] = {
     "schema": "schema-validity",
+    "act-validity": "act-boundary-validity",
     "lock": "lock-violation",
     "continuity": "continuity-adherence",
     "segmentation": "segmentation-determinism",
@@ -94,12 +103,13 @@ def nominal_call_estimate(runs: dict[str, int]) -> dict:
     extract + scan; guard rejections stop after 1) plus 1 per candidate attempt
     → ≤ 4 × lock runs. continuity = 3 grader calibration calls + (1 generate +
     1 grade) × continuity runs. Segmentation and each adoption soft eval = 1 ×
-    that family's runs. Act-boundary quality has two labeled probes, so it is
-    2 × that family's runs. Rule-9 retries can add up to one extra call per
-    product call (observed-worst budget ≈ 1.5× total). Core defaults
-    (schema/lock/continuity only, N=5): ≈78 nominal; `--full` adds soft
-    families (≈+30); `--runs 1` core ≈18."""
+    that family's runs. Act-boundary validity and quality each have two labeled
+    probes, so each is 2 × that family's runs. Rule-9 retries can add up to one
+    extra call per product call (observed-worst budget ≈ 1.5× total). Core
+    defaults (schema/act-validity/lock/continuity, N=5): ≈88 nominal; `--full`
+    adds soft families (≈+30); `--runs 1` core ≈20."""
     schema = len(probes.SCHEMA_PROBES) * runs["schemaValidity"]
+    act_validity = 2 * runs["actBoundaryValidity"]
     lock = 4 * runs["lockViolation"]
     continuity = 3 + 2 * runs["continuityAdherence"]
     segmentation = runs["segmentationDeterminism"]
@@ -109,6 +119,7 @@ def nominal_call_estimate(runs: dict[str, int]) -> dict:
     act_boundaries = 2 * runs["actBoundaryQuality"]
     return {
         "schemaValidity": schema,
+        "actBoundaryValidity": act_validity,
         "lockViolation": lock,
         "continuityAdherence": continuity,
         "segmentationDeterminism": segmentation,
@@ -118,6 +129,7 @@ def nominal_call_estimate(runs: dict[str, int]) -> dict:
         "actBoundaryQuality": act_boundaries,
         "totalNominal": (
             schema
+            + act_validity
             + lock
             + continuity
             + segmentation
@@ -167,9 +179,9 @@ def run_suite(
     """`session_factory` is a zero-arg callable returning a fresh DB `Session`
     (the lock-violation eval seeds + mutates an isolated project per attempt).
 
-    Default suite is **core hard gates only** (`schema`, `lock`, `continuity`).
-    Pass `full=True` to include soft/adoption families, or `only=<key>` for a
-    single family. See `CORE_EVAL_KEYS` / `SOFT_EVAL_KEYS`.
+    Default suite is **core hard gates only** (`schema`, `act-validity`, `lock`,
+    `continuity`). Pass `full=True` to include soft/adoption families, or
+    `only=<key>` for a single family. See `CORE_EVAL_KEYS` / `SOFT_EVAL_KEYS`.
 
     `checkpoint_path`/`skip_families`/`prior_results` are the v1.1 resume
     affordance (`--resume` in run.py): `skip_families` holds the
@@ -227,6 +239,15 @@ def run_suite(
         "schema",
         lambda: checks.schema_validity_eval(
             client, ctx, runs=runs[EVAL_KEYS["schema"]], on_progress=on_progress
+        ),
+    )
+    run_family(
+        "act-validity",
+        lambda: checks.act_boundary_validity_eval(
+            client,
+            ctx,
+            runs=runs[EVAL_KEYS["act-validity"]],
+            on_progress=on_progress,
         ),
     )
     run_family(

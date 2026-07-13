@@ -151,8 +151,8 @@ Existing cross-act drag behavior remains. The selector is the correction path fo
 ### Evals
 
 - Add representative half-hour and one-hour scripts with human-labeled approximate act boundaries.
-- Hard gates: schema validity after at most one retry and zero unassigned/duplicate scenes.
-- Soft quality gate: at least 80% of inferred boundaries fall within two scene positions of the human labels; review misses before changing the prompt or model pin.
+- Hard gates: operation-schema validity after at most one retry, plus a separate semantic-validity family requiring 100% of the two labeled cases to expand into total format-valid partitions. Schema-invalid responses, timeouts, and semantically invalid starts all fail the semantic-validity gate.
+- Soft quality gate: among actual act transitions (mandatory scene-zero anchors excluded), at least 80% of inferred starts place the same act within two scene positions of the human label; review misses before changing the prompt or model pin.
 - Run the full required prompt-change eval suite before merge.
 
 ## 9. Non-goals

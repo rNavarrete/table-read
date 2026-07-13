@@ -32,6 +32,7 @@ _DEFAULT_CAPTURE = Path(__file__).resolve().parent / "captures"
 # pull `storage` in before main() sets DATABASE_URL. A self-test asserts these
 # stay in sync with suite.EVAL_KEYS.
 _ONLY_CHOICES = (
+    "act-validity",
     "continuity",
     "lock",
     "schema",
@@ -61,7 +62,7 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         action="store_true",
         help="Include soft/adoption families (segmentation, lock-repair, "
         "import-inference, subtext, act-boundaries). Default runs hard gates "
-        "only: schema, lock, continuity.",
+        "only: schema, act-validity, lock, continuity.",
     )
     parser.add_argument(
         "--out",

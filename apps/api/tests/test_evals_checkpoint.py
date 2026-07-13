@@ -42,6 +42,7 @@ def _result(**kw) -> EvalResult:
 def _complete_results() -> list[EvalResult]:
     return [
         _result(name="schema-validity"),
+        _result(name="act-boundary-validity", gate=1.0),
         _result(name="lock-violation", gate=1.0),
         _result(name="continuity-adherence"),
         _result(name="segmentation-determinism", hard=False),
@@ -167,6 +168,7 @@ def test_resume_skips_completed_family(tmp_path, session_factory, monkeypatch):
     names = [r.name for r in report.results]
     assert names == [
         "schema-validity",
+        "act-boundary-validity",
         "lock-violation",
         "continuity-adherence",
         "segmentation-determinism",
@@ -218,7 +220,10 @@ def test_incomplete_family_never_written(tmp_path, session_factory, monkeypatch)
             checkpoint_path=cp_path,
         )
     cp = load_checkpoint(cp_path)
-    assert [r["name"] for r in cp["results"]] == ["schema-validity"]
+    assert [r["name"] for r in cp["results"]] == [
+        "schema-validity",
+        "act-boundary-validity",
+    ]
 
 
 def test_resume_merges_prior_and_new_in_stable_suite_order(session_factory, monkeypatch):
@@ -249,6 +254,7 @@ def test_resume_merges_prior_and_new_in_stable_suite_order(session_factory, monk
     names = [r.name for r in report.results]
     assert names == [
         "schema-validity",
+        "act-boundary-validity",
         "lock-violation",
         "continuity-adherence",
         "segmentation-determinism",
@@ -258,7 +264,7 @@ def test_resume_merges_prior_and_new_in_stable_suite_order(session_factory, monk
         "act-boundary-quality",
     ]
     assert report.results[0].score == 0.42
-    assert report.results[1].score == 0.99
+    assert report.results[2].score == 0.99
 
 
 def test_resume_with_only_still_honors_skip(session_factory, monkeypatch):
@@ -294,6 +300,7 @@ def test_resume_complete_checkpoint_writes_fresh_checkpoint_without_reinvoking_f
         raise AssertionError("completed checkpoint resume must not recompute eval families")
 
     monkeypatch.setattr(checks, "schema_validity_eval", _fail_if_called)
+    monkeypatch.setattr(checks, "act_boundary_validity_eval", _fail_if_called)
     monkeypatch.setattr(checks, "lock_violation_eval", _fail_if_called)
     monkeypatch.setattr(checks, "continuity_eval", _fail_if_called)
     monkeypatch.setattr(checks, "segmentation_determinism_eval", _fail_if_called)
@@ -348,7 +355,7 @@ def test_cli_writes_fresh_checkpoint_and_prints_path(tmp_path, capsys):
     checkpoints = list(tmp_path.glob("checkpoint-*.json"))
     assert len(checkpoints) == 1
     cp = load_checkpoint(checkpoints[0])
-    assert len(cp["results"]) == 3  # core hard gates only
+    assert len(cp["results"]) == 4  # core hard gates only
 
 
 def test_cli_resume_skips_completed_family(tmp_path, monkeypatch):

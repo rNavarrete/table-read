@@ -1072,8 +1072,10 @@ git commit -m "plan: let writers correct scene acts"
 
 **Interfaces:**
 - Adds schema-validity probe for `infer_act_breaks`.
+- Adds hard eval key `act-validity`, result `act-boundary-validity`, gate `1.0`.
 - Adds soft eval key `act-boundaries`, result `act-boundary-quality`, gate `0.80`.
-- Scores a boundary as correct when the same act begins within two scene positions of the human label.
+- Hard validity rejects schema failures, timeouts, and partitions rejected by the production semantic normalizer.
+- Soft quality scores actual act transitions when the same act begins within two scene positions of the human label; mandatory scene-zero anchors are excluded.
 - Adds build-plan task `T7.13` after the separate proposed `T7.12` import-progress work.
 
 - [ ] **Step 1: Extend the hard schema-validity probe**
@@ -1113,7 +1115,7 @@ Add:
 
 to `SCHEMA_PROBES`. Update `test_schema_validity_all_valid_passes` to assert this operation is covered.
 
-- [ ] **Step 2: Write RED quality-eval tests**
+- [ ] **Step 2: Write RED validity- and quality-eval tests**
 
 In `test_evals_checks.py`, add:
 
@@ -1144,9 +1146,13 @@ def test_act_boundary_quality_scores_within_two_scenes():
     assert not result.blocks
 ```
 
-Add a semantically invalid response test and assert it scores zero without crashing or writing writer text to `detail`.
+Add hard-validity tests for a valid partition and for semantic invalidity,
+`SchemaInvalidLlmError`, and `LlmTimeoutError`; every invalid attempt must
+contribute zero, force the 1.0 hard gate to block, and keep `detail` free of
+summary/writer text. Add equivalent quality error-branch tests and an explicit
+assertion that mandatory scene-zero anchors are absent from its denominator.
 
-- [ ] **Step 3: Add two labeled probes and the soft evaluator**
+- [ ] **Step 3: Add two labeled probes, hard validity, and soft quality**
 
 In `probes.py`, add this fixed, human-labeled case builder:
 
@@ -1218,6 +1224,7 @@ the evaluator reports ids/counts only and never includes summary text.
 In `checks.py`:
 
 ```python
+ACT_BOUNDARY_VALIDITY_GATE = 1.0
 ACT_BOUNDARY_QUALITY_GATE = 0.80
 
 
@@ -1250,12 +1257,17 @@ def act_boundary_quality_eval(
                 )
             except (SchemaInvalidLlmError, LlmTimeoutError, acts.ActInferenceError):
                 invalid += 1
-                expected_total += len(case["expectedStarts"])
+                expected_total += sum(
+                    start["startSceneIndex"] > 0
+                    for start in case["expectedStarts"]
+                )
                 continue
             predicted = {
                 start.act: start.start_scene_index for start in inferred.starts
             }
             for expected in case["expectedStarts"]:
+                if expected["startSceneIndex"] == 0:
+                    continue
                 expected_total += 1
                 actual = predicted.get(expected["act"])
                 if actual is not None and abs(actual - expected["startSceneIndex"]) <= 2:
@@ -1263,7 +1275,7 @@ def act_boundary_quality_eval(
     score = matched / expected_total if expected_total else 0.0
     return EvalResult(
         name="act-boundary-quality",
-        metric="labeled boundaries within ±2 scenes",
+        metric="labeled act transitions within ±2 scenes",
         score=score,
         gate=ACT_BOUNDARY_QUALITY_GATE,
         hard=False,
@@ -1283,20 +1295,34 @@ def act_boundary_quality_eval(
 Add:
 
 ```python
+"act-validity": "actBoundaryValidity",
 "act-boundaries": "actBoundaryQuality",
 ```
 
-to `suite.EVAL_KEYS`, `"act-boundaries"` to `SOFT_EVAL_KEYS`, and:
+to `suite.EVAL_KEYS`; add `"act-validity"` to `CORE_EVAL_KEYS` and
+`actBoundaryValidity` to `HARD_FAMILY_KEYS`, while `"act-boundaries"` remains
+in `SOFT_EVAL_KEYS`. Add:
 
 ```python
+"act-validity": "act-boundary-validity",
 "act-boundaries": "act-boundary-quality",
 ```
 
-to `FAMILY_RESULT_NAME`. Add `actBoundaryQuality` to the run map and nominal estimate as `2 * runs` because there are two probes.
+to `FAMILY_RESULT_NAME`. Add both run-map entries and estimate each as
+`2 * runs` because each family executes the same two probes.
 
 Dispatch it from `run_suite`:
 
 ```python
+run_family(
+    "act-validity",
+    lambda: checks.act_boundary_validity_eval(
+        client,
+        ctx,
+        runs=runs[EVAL_KEYS["act-validity"]],
+        on_progress=on_progress,
+    ),
+)
 run_family(
     "act-boundaries",
     lambda: checks.act_boundary_quality_eval(
@@ -1308,7 +1334,16 @@ run_family(
 )
 ```
 
-Add `"act-boundaries"` to `run.py::_ONLY_CHOICES` and update help/call-estimate prose. Extend existing CLI/suite synchronization tests.
+Add `act_boundary_validity_eval` over the same two cases and production
+`expand_act_starts` normalizer. Its score is valid attempts / total attempts;
+schema-invalid, timeout, and `ActInferenceError` attempts are invalid. Return
+`EvalResult(name="act-boundary-validity", gate=1.0, hard=True)` with
+ids/counts-only detail.
+
+Add `"act-validity"` and `"act-boundaries"` to `run.py::_ONLY_CHOICES` and
+update help/call-estimate prose. Extend CLI/suite/checkpoint synchronization
+tests. Default paid `make evals` must execute hard validity; quality remains
+full/soft-only.
 
 - [ ] **Step 5: Run the offline eval harness**
 
@@ -1321,7 +1356,9 @@ cd apps/api && .venv/bin/pytest tests/test_evals_checks.py \
 cd ../.. && make evals-dry
 ```
 
-Expected: PASS; dry-run report contains `act-boundary-quality`, does not block on a soft miss, and passes the no-writer-text audit.
+Expected: PASS; dry-run report contains passing hard
+`act-boundary-validity`, contains `act-boundary-quality` without blocking on a
+soft miss, and passes the no-writer-text audit.
 
 - [ ] **Step 6: Finalize authority docs**
 
@@ -1330,7 +1367,7 @@ Update:
 - data contract §2a with `InferredActBreaks`, and §9.3 stage order with `inferring_acts`;
 - prompt spec import flow with compact scene summaries, safe rendering, starts-only output, client schema retry plus one semantic retry, and `PROMPT_VERSION 0.11.0`;
 - UI spec Analyze stage and `2N+2` estimate, plus the editable format-constrained Act selector;
-- test plan with total partition, empty sections, retry/atomicity, stage, cost, lock, snapshot, rollback, and eval coverage;
+- test plan with total partition, empty sections, retry/atomicity, stage, cost, lock, snapshot, rollback, hard semantic validity, transition-only soft quality, and eval coverage;
 - build plan with **T7.13 Import act inference + correction** and the approved acceptance criteria;
 - handoff current state/open work with the new prompt version and pending real-eval sign-off.
 
@@ -1358,7 +1395,10 @@ Ask the user for permission because this costs money. Only after approval, run t
 cd apps/api && PYTHONUNBUFFERED=1 .venv/bin/python -m evals.run --full
 ```
 
-Expected hard gates: schema validity ≥ 0.98, lock violations zero, continuity ≥ 0.95. Expected new soft gate: act-boundary quality ≥ 0.80; a miss warns and requires human review before merge.
+Expected hard gates: schema validity ≥ 0.98, act-boundary validity = 1.0,
+lock violations zero, continuity ≥ 0.95. Expected soft gate: transition-only
+act-boundary quality ≥ 0.80; a miss warns and requires human review before
+merge.
 
 - [ ] **Step 9: Commit**
 
@@ -1369,12 +1409,12 @@ git add apps/api/evals/probes.py apps/api/evals/checks.py \
   docs/tableread-prompt-spec.md docs/tableread-ui-spec.md \
   docs/tableread-test-plan.md docs/tableread-build-plan.md \
   docs/tableread-handoff.md
-git commit -m "evals: gate imported act-boundary quality"
+git commit -m "evals: harden imported act-boundary gates"
 ```
 
 ## Self-review
 
-- Spec coverage: typed schema, classifier operation, safe compact prompt, dynamic validation, total partition, empty sections, semantic retry, atomic failure, SSE stage, `2N+2` cost, editable Act selector, lock/snapshot/no-LLM behavior, e2e, soft quality eval, authority docs, and required gates each map to a task.
+- Spec coverage: typed schema, classifier operation, safe compact prompt, dynamic validation, total partition, empty sections, semantic retry, atomic failure, SSE stage, `2N+2` cost, editable Act selector, lock/snapshot/no-LLM behavior, e2e, hard semantic-validity eval, transition-only soft quality eval, authority docs, and required gates each map to a task.
 - Type consistency: `InferredActBreaks.starts[].startSceneIndex` maps to Pydantic `start_scene_index`; `infer_act_breaks` is identical in protocol/mock/Anthropic; `inferring_acts` is identical in pipeline/Zod/Pydantic/web.
 - Scope: TAG, act-marker parsing, storyline inference, confirmation UI, and automatic rebalancing remain excluded.
 - Coordination: the plan targets current string stage events and records the adaptation required if the separate concurrency/progress plan lands first.

@@ -62,6 +62,7 @@ def _report(results) -> SuiteReport:
         dry_run=False,
         runs={
             "schemaValidity": 5,
+            "actBoundaryValidity": 5,
             "lockViolation": 20,
             "continuityAdherence": 20,
             "segmentationDeterminism": 5,
@@ -162,6 +163,7 @@ def test_estimated_calls_render_in_report_header():
         dry_run=False,
         runs={
             "schemaValidity": 5,
+            "actBoundaryValidity": 5,
             "lockViolation": 20,
             "continuityAdherence": 20,
             "segmentationDeterminism": 5,

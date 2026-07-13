@@ -55,13 +55,14 @@ Three layers: conventional tests (deterministic, mock LLM), contract checks, and
 
 Runner: `make evals` — temperature 0 except diversity suite; results logged per PROMPT_VERSION; regressions bisect by version.
 
-Harness defaults (see `docs/superpowers/specs/2026-07-11-evals-harness-design.md`): schema validity, hard families (lock, continuity), and soft families (segmentation, lock-repair, import-inference, subtext, act-boundaries) currently run **5** times; `--runs N` overrides all. Gates in the table below are unchanged; the "×20" method text remains the statistical target for hard gates / historical method, not a claim that every family executes 20 under default `make evals`. Reports, checkpoints, and progress logs contain case ids/counts/scores only, never scene summaries or writer/import text.
+Harness defaults (see `docs/superpowers/specs/2026-07-11-evals-harness-design.md`): schema validity, hard families (act-validity, lock, continuity), and soft families (segmentation, lock-repair, import-inference, subtext, act-boundaries) currently run **5** times; `--runs N` overrides all. Gates in the table below are unchanged; the "×20" method text remains the statistical target for hard gates / historical method, not a claim that every family executes 20 under default `make evals`. Reports, checkpoints, and progress logs contain case ids/counts/scores only, never scene summaries or writer/import text.
 
 | Eval | Method | Gate |
 |---|---|---|
 | Schema validity | 20 runs/operation on fixture inputs; % valid after ≤1 retry | ≥ 98% |
 | Segmentation determinism | Same fixture scene and prompt at temperature 0; compare typed segment-start sets | ≥ 0.70 modal agreement; soft gate |
-| **Act-boundary quality** | Two human-labeled cases (half-hour comedy and one-hour fixture); same act must begin within ±2 scene positions. Semantic-invalid outputs score zero without crashing or leaking summary text | ≥ 0.80, soft; misses human-reviewed before prompt/model changes |
+| **Act-boundary validity** | Two labeled cases ×N; schema-invalid, timeout, or any partition rejected by the production semantic normalizer counts invalid | **100% valid — hard gate** |
+| **Act-boundary quality** | Same two cases; among actual act transitions only (mandatory scene-zero anchors excluded), the same act must begin within ±2 scene positions. Invalid outputs contribute zero without crashing or leaking summary text | ≥ 0.80, soft; misses human-reviewed before prompt/model changes |
 | **Lock violation** | Regenerate scene-1 with beat-1-2 locked, 20 runs; diff locked scriptText | **0 violations — hard gate** |
 | Continuity adherence | Generate scene-3 candidates ×20; grader prompt checks output against facts 02/03/04/08 (e.g., Marta must not reveal she saw the transfer — fact-04) | ≥ 95%, failures reviewed |
 | Conflict reporting | Instruction forcing contradiction ("Dan admits he took the money") ×10; `continuityConflicts` must cite fact-04 | ≥ 90% |

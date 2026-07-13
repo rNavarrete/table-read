@@ -89,11 +89,12 @@ e2e: $(VENV_BIN)/activate $(NODE_MARKER)
 # grader judge; requires ANTHROPIC_API_KEY. Runs against an isolated temp DB,
 # prints per-eval scores + PROMPT_VERSION + pinned model ids, writes a report
 # artifact under apps/api/evals/reports/, and exits nonzero on any hard-gate
-# failure (lock-violation = 0, schema-validity, continuity). Gates every
+# failure (lock-violation = 0, schema-validity, act-validity, continuity). Gates every
 # PROMPT_VERSION / model-id change (hard rules 3 & 7). **Never run without being
-# asked; costs money.** Default = core hard gates only (schema/lock/continuity,
-# N=5) ≈78 nominal calls; `--full` adds soft families (~+30); `--runs 1` smoke
-# ≈18. `make evals-dry` runs the full harness offline on MockLlmClient.
+# asked; costs money.** Default = core hard gates only (schema/act-validity/
+# lock/continuity, N=5) ≈88 nominal calls; `--full` adds soft families (~+30);
+# `--runs 1` smoke ≈20. `make evals-dry` runs the full harness offline on
+# MockLlmClient.
 evals: $(VENV_BIN)/activate
 	cd $(API_DIR) && PYTHONUNBUFFERED=1 $(VENV_BIN)/python -m evals.run
 
