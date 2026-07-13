@@ -309,6 +309,46 @@ describe('ImportWizard', () => {
     restore()
   })
 
+  it('commits terminal stage completion before navigating away', async () => {
+    const user = userEvent.setup()
+    const { assignSpy, restore } = stubLocationAssign()
+    assignSpy.mockImplementation(() => {
+      expect(
+        screen.getByText('Parsing scenes').closest('li')?.textContent,
+      ).toContain('Done')
+      expect(
+        screen.getByText('Saving project').closest('li')?.textContent,
+      ).toContain('Done')
+    })
+    mockedStreamSse.mockImplementation(() =>
+      framesFrom([
+        { event: 'stage', data: { type: 'stage', name: 'parsing_scenes' } },
+        { event: 'stage', data: { type: 'stage', name: 'saving' } },
+        {
+          event: 'complete',
+          data: {
+            type: 'complete',
+            result: {
+              project: { id: 'proj-imported' },
+              newFacts: [],
+              consistencyFlags: [],
+            },
+          },
+        },
+      ]),
+    )
+
+    render(<ImportWizard />)
+    await fillSourceAndBasics(user, 'Ferry Crossing')
+    await user.click(
+      screen.getByRole('button', { name: 'Create & analyze script' }),
+    )
+
+    await waitFor(() => expect(assignSpy).toHaveBeenCalledTimes(1))
+
+    restore()
+  })
+
   it('renders truthful streaming counters, elapsed time, ETA, and throttled announcements', async () => {
     const user = userEvent.setup()
     mockedStreamSse.mockImplementation(() =>
@@ -382,6 +422,96 @@ describe('ImportWizard', () => {
     expect(screen.getByRole('status').textContent).toContain('10 of 10')
   })
 
+  it('hides estimating before the first progress frame goes stale while elapsed remains', async () => {
+    const user = userEvent.setup()
+    mockedStreamSse.mockImplementation(() =>
+      timedFramesFrom([
+        {
+          delayMs: 0,
+          event: 'stage',
+          data: { type: 'stage', name: 'segmenting_beats' },
+        },
+        {
+          delayMs: 60_000,
+          event: 'failed',
+          data: {
+            type: 'failed',
+            error: { code: 'CONNECTION_ERROR', message: 'connection lost' },
+          },
+        },
+      ]),
+    )
+
+    render(<ImportWizard />)
+    await fillSourceAndBasics(user, 'Ferry Crossing')
+    vi.useFakeTimers()
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Create & analyze script' }),
+    )
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0)
+    })
+    expect(screen.getByText('estimating…')).not.toBeNull()
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(31_000)
+    })
+
+    expect(screen.getByText('Elapsed 0:31')).not.toBeNull()
+    expect(screen.queryByText('estimating…')).toBeNull()
+    expect(screen.queryByText(/min left/)).toBeNull()
+  })
+
+  it('does not render a determinate progressbar for zero or unknown totals', async () => {
+    const user = userEvent.setup()
+    mockedStreamSse.mockImplementation(() =>
+      timedFramesFrom([
+        {
+          delayMs: 0,
+          event: 'stage',
+          data: { type: 'stage', name: 'segmenting_beats' },
+        },
+        {
+          delayMs: 0,
+          event: 'progress',
+          data: {
+            type: 'progress',
+            stage: 'segmenting_beats',
+            done: 0,
+            total: 0,
+          },
+        },
+        {
+          delayMs: 60_000,
+          event: 'failed',
+          data: {
+            type: 'failed',
+            error: { code: 'CONNECTION_ERROR', message: 'connection lost' },
+          },
+        },
+      ]),
+    )
+
+    render(<ImportWizard />)
+    await fillSourceAndBasics(user, 'Ferry Crossing')
+    vi.useFakeTimers()
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Create & analyze script' }),
+    )
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0)
+    })
+
+    expect(screen.getAllByText('0 of 0').length).toBeGreaterThan(0)
+    expect(
+      screen.queryByRole('progressbar', {
+        name: 'Segmenting beats progress',
+      }),
+    ).toBeNull()
+  })
+
   it('on failure preserves the draft, creates no project, and offers recovery actions', async () => {
     const user = userEvent.setup()
     mockedStreamSse.mockImplementation(() =>
@@ -406,6 +536,8 @@ describe('ImportWizard', () => {
     await waitFor(() =>
       expect(screen.getByText(/coverage failed/)).not.toBeNull(),
     )
+    expect(screen.getByText(/model calls/)).not.toBeNull()
+    expect(screen.getByText(/Est\. \$/)).not.toBeNull()
     expect(screen.getByRole('button', { name: 'Retry' })).not.toBeNull()
     expect(screen.getByRole('button', { name: 'Edit source' })).not.toBeNull()
     expect(

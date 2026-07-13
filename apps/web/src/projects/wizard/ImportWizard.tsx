@@ -1,4 +1,5 @@
 import { type ChangeEvent, useEffect, useRef, useState } from 'react'
+import { flushSync } from 'react-dom'
 import type {
   PdfExtractMethod,
   ProjectImportCreateRequest,
@@ -17,6 +18,7 @@ import {
   advanceImportProgress,
   estimateRemainingMs,
   formatElapsed,
+  isImportProgressStale,
   type ImportProgressState,
   initialImportProgressState,
 } from './importProgress'
@@ -302,10 +304,16 @@ export function ImportWizard() {
           })
         } else if (data.type === 'complete') {
           settled = true
-          setSession((current) => ({
-            ...current,
-            progress: advanceImportProgress(current.progress, data, Date.now()),
-          }))
+          flushSync(() => {
+            setSession((current) => ({
+              ...current,
+              progress: advanceImportProgress(
+                current.progress,
+                data,
+                Date.now(),
+              ),
+            }))
+          })
           const result = data.result
           clearDraft(IMPORT_PATH)
           window.location.assign(
@@ -344,9 +352,7 @@ export function ImportWizard() {
       ? 0
       : Math.max(0, nowMs - session.progress.startedAtMs)
   const etaMs = estimateRemainingMs(session.progress, nowMs)
-  const isEtaStale =
-    session.progress.lastProgressAtMs !== null &&
-    nowMs - session.progress.lastProgressAtMs > 30_000
+  const isProgressStale = isImportProgressStale(session.progress, nowMs)
 
   return (
     <WizardShell
@@ -626,24 +632,23 @@ export function ImportWizard() {
                           <span className="text-12 text-tr-text-muted">
                             {progress.done} of {progress.total}
                           </span>
-                          <div
-                            role="progressbar"
-                            aria-label={`${STAGE_LABELS[stage]} progress`}
-                            aria-valuemin={0}
-                            aria-valuemax={progress.total}
-                            aria-valuenow={progress.done}
-                            className="h-1 overflow-hidden rounded-card bg-tr-surface-sunken"
-                          >
+                          {progress.total > 0 && (
                             <div
-                              className="h-full bg-tr-coral"
-                              style={{
-                                width:
-                                  progress.total > 0
-                                    ? `${Math.min(100, (progress.done / progress.total) * 100)}%`
-                                    : '0%',
-                              }}
-                            />
-                          </div>
+                              role="progressbar"
+                              aria-label={`${STAGE_LABELS[stage]} progress`}
+                              aria-valuemin={0}
+                              aria-valuemax={progress.total}
+                              aria-valuenow={progress.done}
+                              className="h-1 overflow-hidden rounded-card bg-tr-surface-sunken"
+                            >
+                              <div
+                                className="h-full bg-tr-coral"
+                                style={{
+                                  width: `${Math.min(100, (progress.done / progress.total) * 100)}%`,
+                                }}
+                              />
+                            </div>
+                          )}
                         </div>
                       )}
                     </li>
@@ -657,7 +662,7 @@ export function ImportWizard() {
                     <span>
                       about {Math.max(1, Math.ceil(etaMs / 60_000))} min left
                     </span>
-                  ) : isEtaStale ? null : (
+                  ) : isProgressStale ? null : (
                     <span>estimating…</span>
                   )}
                 </p>

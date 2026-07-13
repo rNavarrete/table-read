@@ -78,12 +78,17 @@ export function advanceImportProgress(
   }
 
   if (event.type === 'complete') {
+    const startedStages = Object.keys(
+      withStart.stages,
+    ) as ProjectImportStageName[]
+    const completedStages = [withStart.currentStage, ...startedStages].reduce(
+      addCompletedStage,
+      withStart.completedStages,
+    )
+
     return {
       ...withStart,
-      completedStages: addCompletedStage(
-        withStart.completedStages,
-        withStart.currentStage,
-      ),
+      completedStages,
     }
   }
 
@@ -147,8 +152,16 @@ export function estimateRemainingMs(
   return Math.round((elapsedDelta / completedDelta) * remaining)
 }
 
+export function isImportProgressStale(
+  state: ImportProgressState,
+  nowMs: number,
+): boolean {
+  const lastActivityMs = state.lastProgressAtMs ?? state.startedAtMs
+  return lastActivityMs !== null && nowMs - lastActivityMs > STALE_PROGRESS_MS
+}
+
 function addCompletedStage(
-  completedStages: ProjectImportStageName[],
+  completedStages: readonly ProjectImportStageName[],
   stage: ProjectImportStageName | null,
 ): ProjectImportStageName[] {
   if (stage === null || completedStages.includes(stage)) return completedStages

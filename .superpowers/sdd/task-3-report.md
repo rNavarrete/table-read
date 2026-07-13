@@ -49,3 +49,27 @@ GREEN:
 - Confirmed progress counters use max-clamping so duplicate/out-of-order `progress` frames do not regress counters or samples.
 - Confirmed ETA uses at most 11 samples / latest 10 intervals, starts only after 5 completed scene units, combines remaining segmentation plus extraction units, seeds extraction total from segmentation before the first extraction event, and hides after `>30s` stale while elapsed remains.
 - Confirmed `aria-live` changes on stage events and every 10th completion while visual counters update on every progress frame.
+
+## Review Fix Evidence
+
+Review RED:
+
+- Command: `node /Users/rolandonavarrete/Documents/tableread/node_modules/vitest/vitest.mjs run src/projects/wizard/importProgress.test.ts src/projects/wizard/ImportWizard.test.tsx`
+- Result: failed as expected.
+- Evidence:
+  - `isImportProgressStale is not a function` for the no-progress stale regression.
+  - `expected [ 'saving' ] to include 'segmenting_beats'` for terminal completion of progress-started stages.
+  - `expected <span>estimating…</span> to be null` for stale-before-first-progress UI.
+  - `expected <div role="progressbar" ... aria-valuemax="0"> to be null` for zero/unknown totals.
+
+Review GREEN:
+
+- Command: `node /Users/rolandonavarrete/Documents/tableread/node_modules/prettier/bin/prettier.cjs --write src/projects/wizard/importProgress.ts src/projects/wizard/importProgress.test.ts src/projects/wizard/ImportWizard.tsx src/projects/wizard/ImportWizard.test.tsx && node /Users/rolandonavarrete/Documents/tableread/node_modules/vitest/vitest.mjs run src/projects/wizard/importProgress.test.ts src/projects/wizard/ImportWizard.test.tsx`
+- Result: `2 passed`, `21 passed`.
+- Command: `node /Users/rolandonavarrete/Documents/tableread/node_modules/vitest/vitest.mjs run src/projects/wizard/`
+- Result: `8 passed`, `37 passed`.
+- Command: `node /Users/rolandonavarrete/Documents/tableread/node_modules/eslint/bin/eslint.js src/projects/wizard/importProgress.ts src/projects/wizard/importProgress.test.ts src/projects/wizard/ImportWizard.tsx src/projects/wizard/ImportWizard.test.tsx`
+- Result: exit 0.
+- Command: `node /Users/rolandonavarrete/Documents/tableread/node_modules/prettier/bin/prettier.cjs --check src/projects/wizard/importProgress.ts src/projects/wizard/importProgress.test.ts src/projects/wizard/ImportWizard.tsx src/projects/wizard/ImportWizard.test.tsx`
+- Result: `All matched files use Prettier code style!`
+- IDE diagnostics: no linter errors for touched files.

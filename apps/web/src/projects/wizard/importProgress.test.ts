@@ -4,6 +4,7 @@ import {
   estimateRemainingMs,
   formatElapsed,
   initialImportProgressState,
+  isImportProgressStale,
 } from './importProgress'
 
 describe('import progress model', () => {
@@ -123,16 +124,33 @@ describe('import progress model', () => {
     expect(estimateRemainingMs(state, 36_001)).toBeNull()
   })
 
-  it('marks the current started stage done when complete arrives', () => {
+  it('treats a started import with no progress frames as stale after 30 seconds', () => {
     const state = advanceImportProgress(
+      initialImportProgressState,
+      { type: 'stage', name: 'segmenting_beats' },
+      1_000,
+    )
+
+    expect(isImportProgressStale(state, 31_000)).toBe(false)
+    expect(isImportProgressStale(state, 31_001)).toBe(true)
+  })
+
+  it('marks current and progress-started stages done when complete arrives', () => {
+    let state = advanceImportProgress(
       initialImportProgressState,
       { type: 'stage', name: 'saving' },
       1_000,
+    )
+    state = advanceImportProgress(
+      state,
+      { type: 'progress', stage: 'segmenting_beats', done: 1, total: 1 },
+      1_500,
     )
 
     const complete = advanceImportProgress(state, { type: 'complete' }, 2_000)
 
     expect(complete.completedStages).toContain('saving')
+    expect(complete.completedStages).toContain('segmenting_beats')
   })
 
   it('formats elapsed time as minutes and seconds', () => {
