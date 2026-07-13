@@ -18,6 +18,7 @@ Two test styles, matching test_import.py's own split:
 from __future__ import annotations
 
 import json
+import threading
 from types import SimpleNamespace
 
 import anthropic
@@ -74,8 +75,13 @@ def seg(beats: list[tuple], unassigned: list[tuple] | None = None) -> SegmentedS
     return SegmentedScene.model_validate(
         {
             "segments": [
-                {"kind": "beat", "startLine": s, "whatHappens": "w", "audienceLearns": "l",
-                 "audienceFeels": "f"}
+                {
+                    "kind": "beat",
+                    "startLine": s,
+                    "whatHappens": "w",
+                    "audienceLearns": "l",
+                    "audienceFeels": "f",
+                }
                 for s, _end in beats
             ]
             + [
@@ -98,8 +104,13 @@ def one_fact(beat_id: str = "beat-1-1", confidence: float = 0.95) -> dict:
     return {
         "fact": "Something is established.",
         "factType": "event",
-        "sourceSpan": {"episodeId": "ep-1", "sceneId": "scene-1", "beatId": beat_id,
-                       "startLine": 1, "endLine": 1},
+        "sourceSpan": {
+            "episodeId": "ep-1",
+            "sceneId": "scene-1",
+            "beatId": beat_id,
+            "startLine": 1,
+            "endLine": 1,
+        },
         "sourceText": "",
         "knownBy": ["char-marta"],
         "audienceKnows": True,
@@ -109,6 +120,23 @@ def one_fact(beat_id: str = "beat-1-1", confidence: float = 0.95) -> dict:
 
 def scan(flags: list[dict] | None = None) -> ConsistencyScan:
     return ConsistencyScan.model_validate({"flags": flags or []})
+
+
+class _FailingSecondSceneLlm(MockLlmClient):
+    def __init__(self) -> None:
+        super().__init__()
+        self._never_release = threading.Event()
+
+    def segment_scene(self, *, system: str, user_message: str, prompt_version: str):
+        del system, prompt_version
+        if "Alpha waits." in user_message:
+            self._never_release.wait(0.5)
+            return seg([(1, 2)])
+        if "Beta waits." in user_message:
+            raise SchemaInvalidLlmError("segment_scene")
+        if "Gamma waits." in user_message:
+            self._never_release.wait(0.5)
+        return seg([(1, 2)])
 
 
 def _configure_success(llm: MockLlmClient, src: str, *, fact: bool = False) -> None:
@@ -236,12 +264,27 @@ def test_success_streams_named_stages_then_complete(db_session, mock_llm):
     events = _parse_sse(resp.text)
     names = [n for n, _ in events]
     assert names == [
-        "stage", "stage", "stage", "stage", "stage", "complete",
+        "stage",
+        "stage",
+        "progress",
+        "stage",
+        "progress",
+        "stage",
+        "stage",
+        "complete",
     ]
     stage_names = [d["name"] for n, d in events if n == "stage"]
     assert stage_names == [
-        "parsing_scenes", "segmenting_beats", "extracting_facts",
-        "checking_consistency", "saving",
+        "parsing_scenes",
+        "segmenting_beats",
+        "extracting_facts",
+        "checking_consistency",
+        "saving",
+    ]
+    progress = [d for n, d in events if n == "progress"]
+    assert progress == [
+        {"type": "progress", "stage": "segmenting_beats", "done": 1, "total": 1},
+        {"type": "progress", "stage": "extracting_facts", "done": 1, "total": 1},
     ]
     for name, data in events:
         assert data["type"] == name
@@ -285,10 +328,7 @@ def test_success_creates_exactly_one_project_and_one_root_snapshot(db_session, m
     assert all(f.status == "pending_review" for f in facts)
     # Globally unique minting (not ordinal fact-01) so imports coexist with
     # the seeded fixture's ledger rows.
-    assert all(
-        f.id.startswith("fact-") and not f.id.removeprefix("fact-").isdigit()
-        for f in facts
-    )
+    assert all(f.id.startswith("fact-") and not f.id.removeprefix("fact-").isdigit() for f in facts)
 
     snapshots.purge_project(db_session, pid)
 
@@ -299,8 +339,17 @@ def test_success_persists_open_consistency_flags(db_session, mock_llm):
     mock_llm.set_response("extract_ledger_facts", extraction())
     mock_llm.set_response(
         "scan_consistency",
-        scan([{"objectType": "scene", "objectId": "scene-1", "factId": None,
-               "explanation": "internal contradiction", "severity": "contradiction"}]),
+        scan(
+            [
+                {
+                    "objectType": "scene",
+                    "objectId": "scene-1",
+                    "factId": None,
+                    "explanation": "internal contradiction",
+                    "severity": "contradiction",
+                }
+            ]
+        ),
     )
 
     resp = client.post(
@@ -351,11 +400,49 @@ def test_schema_invalid_llm_maps_to_failed_zero_rows(db_session, mock_llm):
         app.dependency_overrides[get_llm_client] = lambda: mock_llm
 
     events = _parse_sse(resp.text)
-    assert events[-1] == ("failed", {"type": "failed", "error": {
-        "code": "SCHEMA_INVALID_LLM",
-        "message": "segment_scene: LLM output failed schema validation twice",
-    }})
+    assert events[-1] == (
+        "failed",
+        {
+            "type": "failed",
+            "error": {
+                "code": "SCHEMA_INVALID_LLM",
+                "message": "segment_scene: LLM output failed schema validation twice",
+            },
+        },
+    )
     assert db_session.query(ProjectRow).count() == before
+
+
+def test_failing_scene_worker_fails_fast_with_zero_rows(db_session, monkeypatch):
+    monkeypatch.setattr(pipeline, "IMPORT_LLM_CONCURRENCY", 2, raising=False)
+    baseline = _table_counts(db_session)
+    llm = _FailingSecondSceneLlm()
+    src = "\n".join(
+        [
+            "INT. ALPHA - DAY",
+            "Alpha waits.",
+            "INT. BETA - DAY",
+            "Beta waits.",
+            "INT. GAMMA - DAY",
+            "Gamma waits.",
+        ]
+    )
+
+    app.dependency_overrides[get_llm_client] = lambda: llm
+    try:
+        resp = client.post(
+            URL,
+            json=_body(src),
+            headers=_headers("00000000-0000-4000-8000-000000000110"),
+        )
+    finally:
+        app.dependency_overrides.pop(get_llm_client, None)
+
+    events = _parse_sse(resp.text)
+    assert events[-1][0] == "failed"
+    assert events[-1][1]["error"]["code"] == "SCHEMA_INVALID_LLM"
+    assert "progress" not in [name for name, _data in events]
+    _assert_no_new_rows(db_session, baseline)
 
 
 def test_llm_transport_error_maps_to_failed_zero_rows(db_session, mock_llm):
@@ -442,8 +529,13 @@ def test_idempotency_unique_race_replays_winning_request(db_session, monkeypatch
         "premise": "",
         "seriesBible": {
             "existentialQuestion": {"text": "", "locked": False},
-            "worldRules": [], "storiesToAvoid": [], "characters": [],
-            "relationships": [], "audienceGoals": [], "narratorGoals": [], "worldQA": [],
+            "worldRules": [],
+            "storiesToAvoid": [],
+            "characters": [],
+            "relationships": [],
+            "audienceGoals": [],
+            "narratorGoals": [],
+            "worldQA": [],
         },
         "seasons": [],
         "headSnapshotId": "snap-raced-import",
@@ -453,18 +545,28 @@ def test_idempotency_unique_race_replays_winning_request(db_session, monkeypatch
     def race_then_integrity_error(*args, **kwargs):
         db_session.add(
             ProjectRow(
-                id=raced_doc["id"], doc=raced_doc, head_snapshot_id=raced_doc["headSnapshotId"],
-                creation_idempotency_key=key, creation_request_hash=req_hash,
+                id=raced_doc["id"],
+                doc=raced_doc,
+                head_snapshot_id=raced_doc["headSnapshotId"],
+                creation_idempotency_key=key,
+                creation_request_hash=req_hash,
             )
         )
         db_session.add(
             SnapshotRow(
-                id=raced_doc["headSnapshotId"], project_id=raced_doc["id"], parent_id=None,
-                instruction="raced", doc=raced_doc, ledger=[], flags=[], ts="2026-07-10T00:00:00Z",
+                id=raced_doc["headSnapshotId"],
+                project_id=raced_doc["id"],
+                parent_id=None,
+                instruction="raced",
+                doc=raced_doc,
+                ledger=[],
+                flags=[],
+                ts="2026-07-10T00:00:00Z",
             )
         )
         db_session.commit()
         from sqlalchemy.exc import IntegrityError
+
         raise IntegrityError("unique race", params=None, orig=Exception("unique"))
 
     monkeypatch.setattr(snapshots, "create_project_with_state", race_then_integrity_error)
@@ -484,9 +586,17 @@ def test_idempotency_unique_race_replays_winning_request(db_session, monkeypatch
     )
     parsed = _parse_sse("".join(events))
 
-    assert parsed[-1] == ("complete", {"type": "complete", "result": {
-        "project": raced_doc, "newFacts": [], "consistencyFlags": [],
-    }})
+    assert parsed[-1] == (
+        "complete",
+        {
+            "type": "complete",
+            "result": {
+                "project": raced_doc,
+                "newFacts": [],
+                "consistencyFlags": [],
+            },
+        },
+    )
     # Exactly the raced project was added by this test — no second (losing)
     # project from `create_and_import_events`'s own attempt.
     assert db_session.query(ProjectRow).count() == before + 1
@@ -509,9 +619,15 @@ def test_fault_parsing_scenes_zero_rows(db_session, monkeypatch, mock_llm):
     monkeypatch.setattr(pipeline, "split_into_scenes", boom)
 
     gen = create_import.create_and_import_events(
-        db_session, title="Fault Show", format_dict=BASICS["format"], premise="",
-        source_format="fountain", content="INT. BAR\nx", llm=mock_llm,
-        creation_idempotency_key="fault-1", creation_request_hash="fault-1",
+        db_session,
+        title="Fault Show",
+        format_dict=BASICS["format"],
+        premise="",
+        source_format="fountain",
+        content="INT. BAR\nx",
+        llm=mock_llm,
+        creation_idempotency_key="fault-1",
+        creation_request_hash="fault-1",
     )
     with pytest.raises(RuntimeError, match="injected"):
         _drain(gen)
@@ -526,9 +642,15 @@ def test_fault_segmenting_beats_zero_rows(db_session, mock_llm):
             raise RuntimeError("injected segmenting_beats failure")
 
     gen = create_import.create_and_import_events(
-        db_session, title="Fault Show", format_dict=BASICS["format"], premise="",
-        source_format="fountain", content="INT. BAR\nx", llm=_Raising(),
-        creation_idempotency_key="fault-2", creation_request_hash="fault-2",
+        db_session,
+        title="Fault Show",
+        format_dict=BASICS["format"],
+        premise="",
+        source_format="fountain",
+        content="INT. BAR\nx",
+        llm=_Raising(),
+        creation_idempotency_key="fault-2",
+        creation_request_hash="fault-2",
     )
     with pytest.raises(RuntimeError, match="injected"):
         _drain(gen)
@@ -547,9 +669,15 @@ def test_fault_extracting_facts_zero_rows(db_session):
     llm.set_responses("segment_scene", one_beat_per_scene(src))
 
     gen = create_import.create_and_import_events(
-        db_session, title="Fault Show", format_dict=BASICS["format"], premise="",
-        source_format="fountain", content=src, llm=llm,
-        creation_idempotency_key="fault-3", creation_request_hash="fault-3",
+        db_session,
+        title="Fault Show",
+        format_dict=BASICS["format"],
+        premise="",
+        source_format="fountain",
+        content=src,
+        llm=llm,
+        creation_idempotency_key="fault-3",
+        creation_request_hash="fault-3",
     )
     with pytest.raises(RuntimeError, match="injected"):
         _drain(gen)
@@ -569,9 +697,15 @@ def test_fault_checking_consistency_zero_rows(db_session):
     llm.set_response("extract_ledger_facts", extraction())
 
     gen = create_import.create_and_import_events(
-        db_session, title="Fault Show", format_dict=BASICS["format"], premise="",
-        source_format="fountain", content=src, llm=llm,
-        creation_idempotency_key="fault-4", creation_request_hash="fault-4",
+        db_session,
+        title="Fault Show",
+        format_dict=BASICS["format"],
+        premise="",
+        source_format="fountain",
+        content=src,
+        llm=llm,
+        creation_idempotency_key="fault-4",
+        creation_request_hash="fault-4",
     )
     with pytest.raises(RuntimeError, match="injected"):
         _drain(gen)
@@ -586,8 +720,17 @@ def test_fault_saving_zero_rows(db_session, monkeypatch):
     llm.set_response("extract_ledger_facts", extraction([one_fact(beat_id="beat-1-1")]))
     llm.set_response(
         "scan_consistency",
-        scan([{"objectType": "scene", "objectId": "scene-1", "factId": None,
-               "explanation": "x", "severity": "tension"}]),
+        scan(
+            [
+                {
+                    "objectType": "scene",
+                    "objectId": "scene-1",
+                    "factId": None,
+                    "explanation": "x",
+                    "severity": "tension",
+                }
+            ]
+        ),
     )
 
     def boom(*args, **kwargs):
@@ -600,9 +743,15 @@ def test_fault_saving_zero_rows(db_session, monkeypatch):
     monkeypatch.setattr(snapshots, "_rewrite_flags", boom)
 
     gen = create_import.create_and_import_events(
-        db_session, title="Fault Show", format_dict=BASICS["format"], premise="",
-        source_format="fountain", content=src, llm=llm,
-        creation_idempotency_key="fault-5", creation_request_hash="fault-5",
+        db_session,
+        title="Fault Show",
+        format_dict=BASICS["format"],
+        premise="",
+        source_format="fountain",
+        content=src,
+        llm=llm,
+        creation_idempotency_key="fault-5",
+        creation_request_hash="fault-5",
     )
     with pytest.raises(RuntimeError, match="injected"):
         _drain(gen)

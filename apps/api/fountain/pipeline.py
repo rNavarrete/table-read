@@ -26,8 +26,10 @@ from __future__ import annotations
 
 import copy
 import logging
-from collections.abc import Generator
+from collections.abc import Callable, Generator
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
+from typing import cast
 
 from drama_manager import locks, render
 from drama_manager.ledger_policy import IdMinter
@@ -40,6 +42,7 @@ from fountain.parse import (
     split_into_scenes,
 )
 from llm.protocol import LlmClient
+from schemas import LedgerExtraction
 from storage import snapshots
 from storage.models import LedgerFactRow, ProjectRow
 
@@ -54,6 +57,7 @@ STAGE_PARSING_SCENES = "parsing_scenes"
 STAGE_SEGMENTING_BEATS = "segmenting_beats"
 STAGE_EXTRACTING_FACTS = "extracting_facts"
 STAGE_CHECKING_CONSISTENCY = "checking_consistency"
+IMPORT_LLM_CONCURRENCY = 4
 
 
 @dataclass(frozen=True)
@@ -132,39 +136,11 @@ def analyze_import(
     spans = split_into_scenes(content)
 
     yield ImportStageStarted(STAGE_SEGMENTING_BEATS)
-    per_scene_beats: list[list[ImportedBeat]] = []
-    for span in spans:
-        system, user = render.build_segment_prompt(project_doc, span.lines, render.new_nonce())
-        segmented = llm.segment_scene(
-            system=system, user_message=user, prompt_version=render.PROMPT_VERSION
-        )
-        first = normalize_and_slice(span, segmented)
-        selected = first
-        retried = False
-        if first.should_retry:
-            retried = True
-            retry_system, retry_user = render.build_segment_retry_prompt(
-                project_doc, span.lines, first.diagnostics, render.new_nonce()
-            )
-            retry_segmented = llm.segment_scene(
-                system=retry_system,
-                user_message=retry_user,
-                prompt_version=render.PROMPT_VERSION,
-            )
-            second = normalize_and_slice(span, retry_segmented)
-            if second.score.ranking_key() < first.score.ranking_key():
-                selected = second
-        _logger.info(
-            "import_segment scene_lines=%d retried=%s discarded_metadata=%d "
-            "affected_lines=%d repair_events=%d prompt_version=%s",
-            len(span.lines),
-            retried,
-            selected.score.discarded_beat_metadata,
-            selected.score.affected_lines,
-            selected.score.event_count,
-            render.PROMPT_VERSION,
-        )
-        per_scene_beats.append(selected.beats)
+    per_scene_beats = yield from _run_ordered_parallel(
+        spans,
+        lambda index, span: _segment_one(index, span, project_doc, llm),
+        stage=STAGE_SEGMENTING_BEATS,
+    )
 
     # ── Assemble the episode doc with deterministic ids, carrying each beat's
     # unassigned ranges so they can be flagged. ──────────────────────────────
@@ -214,15 +190,14 @@ def analyze_import(
     # pending_review, regardless of confidence. Fresh ledger → no existing
     # facts to contradict. ───────────────────────────────────────────────────
     yield ImportStageStarted(STAGE_EXTRACTING_FACTS)
+    extractions = yield from _run_ordered_parallel(
+        scene_docs,
+        lambda index, scene: _extract_one(index, scene, new_doc, episode_id, characters, llm),
+        stage=STAGE_EXTRACTING_FACTS,
+    )
     new_facts: list[dict] = []
     fact_minter = IdMinter([], "fact-")
-    for scene in scene_docs:
-        system, user = render.build_extract_prompt(
-            new_doc, episode_id, scene, [], characters, render.new_nonce()
-        )
-        extraction = llm.extract_ledger_facts(
-            system=system, user_message=user, prompt_version=render.PROMPT_VERSION
-        )
+    for extraction in extractions:
         for ef in extraction.new_facts:
             new_facts.append(_to_ledger_fact(ef, fact_minter.mint(), beat_index))
 
@@ -272,6 +247,91 @@ def analyze_import(
         )
 
     return ImportAnalysis(new_doc=new_doc, new_facts=new_facts, raw_flags=raw_flags)
+
+
+def _run_ordered_parallel[T, R](
+    items: list[T],
+    worker: Callable[[int, T], R],
+    *,
+    stage: str,
+) -> Generator[ImportPipelineEvent, None, list[R]]:
+    """Run per-scene LLM work concurrently while returning results by source index.
+
+    On failure, pending futures are cancelled and the executor is not allowed to
+    wait for unrelated in-flight calls. Already-running HTTP calls cannot be
+    killed, but this generator raises immediately and emits no later progress.
+    """
+    if not items:
+        return []
+
+    results: list[R | None] = [None] * len(items)
+    pool = ThreadPoolExecutor(max_workers=IMPORT_LLM_CONCURRENCY)
+    try:
+        futures = {pool.submit(worker, index, item): index for index, item in enumerate(items)}
+        done = 0
+        for future in as_completed(futures):
+            index = futures[future]
+            results[index] = future.result()
+            done += 1
+            yield ImportStageProgress(stage, done, len(items))
+    except BaseException:
+        pool.shutdown(wait=False, cancel_futures=True)
+        raise
+    else:
+        pool.shutdown(wait=True)
+    return [cast(R, result) for result in results]
+
+
+def _segment_one(index: int, span, project_doc: dict, llm: LlmClient) -> list[ImportedBeat]:
+    system, user = render.build_segment_prompt(project_doc, span.lines, render.new_nonce())
+    segmented = llm.segment_scene(
+        system=system, user_message=user, prompt_version=render.PROMPT_VERSION
+    )
+    first = normalize_and_slice(span, segmented)
+    selected = first
+    retried = False
+    if first.should_retry:
+        retried = True
+        retry_system, retry_user = render.build_segment_retry_prompt(
+            project_doc, span.lines, first.diagnostics, render.new_nonce()
+        )
+        retry_segmented = llm.segment_scene(
+            system=retry_system,
+            user_message=retry_user,
+            prompt_version=render.PROMPT_VERSION,
+        )
+        second = normalize_and_slice(span, retry_segmented)
+        if second.score.ranking_key() < first.score.ranking_key():
+            selected = second
+    _logger.info(
+        "import_segment scene_index=%d scene_lines=%d retried=%s discarded_metadata=%d "
+        "affected_lines=%d repair_events=%d prompt_version=%s",
+        index,
+        len(span.lines),
+        retried,
+        selected.score.discarded_beat_metadata,
+        selected.score.affected_lines,
+        selected.score.event_count,
+        render.PROMPT_VERSION,
+    )
+    return selected.beats
+
+
+def _extract_one(
+    index: int,
+    scene: dict,
+    new_doc: dict,
+    episode_id: str,
+    characters: list[dict],
+    llm: LlmClient,
+) -> LedgerExtraction:
+    del index
+    system, user = render.build_extract_prompt(
+        new_doc, episode_id, scene, [], characters, render.new_nonce()
+    )
+    return llm.extract_ledger_facts(
+        system=system, user_message=user, prompt_version=render.PROMPT_VERSION
+    )
 
 
 def _segmentation_issue_explanation(issue: SegmentationIssue) -> str:
@@ -342,9 +402,7 @@ def run_import(
         row.to_wire_dict()
         for row in session.query(LedgerFactRow).filter_by(project_id=project.id).all()
     ]
-    analysis = run_to_completion(
-        analyze_import(project.doc, existing_ledger, content, llm)
-    )
+    analysis = run_to_completion(analyze_import(project.doc, existing_ledger, content, llm))
 
     # ── the single write (§4 step 4): doc + ledger + flags in one snapshot. ──
     def mutator(state: snapshots.MutationState) -> snapshots.MutationState:

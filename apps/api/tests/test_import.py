@@ -7,11 +7,14 @@ transaction, the response shape, and the zero-persistence guarantees.
 
 from __future__ import annotations
 
+import threading
+
 import anthropic
 import httpx
 import pytest
 from fastapi.testclient import TestClient
 
+from fountain import pipeline
 from fountain.parse import split_into_scenes
 from llm.dependency import get_llm_client
 from llm.errors import LlmTimeoutError, SchemaInvalidLlmError
@@ -44,8 +47,13 @@ def seg(beats: list[tuple], unassigned: list[tuple] | None = None) -> SegmentedS
     return SegmentedScene.model_validate(
         {
             "segments": [
-                {"kind": "beat", "startLine": s, "whatHappens": "w", "audienceLearns": "l",
-                 "audienceFeels": "f"}
+                {
+                    "kind": "beat",
+                    "startLine": s,
+                    "whatHappens": "w",
+                    "audienceLearns": "l",
+                    "audienceFeels": "f",
+                }
                 for s, _end in beats
             ]
             + [
@@ -69,8 +77,13 @@ def one_fact(beat_id: str = "beat-1-1", confidence: float = 0.95) -> dict:
     return {
         "fact": "Something is established.",
         "factType": "event",
-        "sourceSpan": {"episodeId": "ep-1", "sceneId": "scene-1", "beatId": beat_id,
-                       "startLine": 1, "endLine": 1},
+        "sourceSpan": {
+            "episodeId": "ep-1",
+            "sceneId": "scene-1",
+            "beatId": beat_id,
+            "startLine": 1,
+            "endLine": 1,
+        },
         "sourceText": "",
         "knownBy": ["char-marta"],
         "audienceKnows": True,
@@ -80,6 +93,75 @@ def one_fact(beat_id: str = "beat-1-1", confidence: float = 0.95) -> dict:
 
 def scan(flags: list[dict] | None = None) -> ConsistencyScan:
     return ConsistencyScan.model_validate({"flags": flags or []})
+
+
+def _drain_analysis(gen):
+    events = []
+    while True:
+        try:
+            events.append(next(gen))
+        except StopIteration as stop:
+            return events, stop.value
+
+
+class _OutOfOrderImportLlm(MockLlmClient):
+    """Coordinates scene workers so scene 2/3 finish before scene 1."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.segment_completed: list[str] = []
+        self.extract_completed: list[str] = []
+        self._scene_two_started = threading.Event()
+        self._release_scene_one = threading.Event()
+        self._lock = threading.Lock()
+
+    def segment_scene(self, *, system: str, user_message: str, prompt_version: str):
+        del system, prompt_version
+        if "Alpha waits." in user_message:
+            scene = "one"
+            self._scene_two_started.wait(0.5)
+            self._release_scene_one.wait(0.5)
+        elif "Beta waits." in user_message:
+            scene = "two"
+            self._scene_two_started.set()
+        elif "Gamma waits." in user_message:
+            scene = "three"
+            self._release_scene_one.set()
+        else:
+            raise AssertionError("unexpected scene prompt")
+
+        with self._lock:
+            self.segment_completed.append(scene)
+        return seg([(1, 2)])
+
+    def extract_ledger_facts(self, *, system: str, user_message: str, prompt_version: str):
+        del system, prompt_version
+        if '"sceneId": "scene-1"' in user_message:
+            scene_id, beat_id, label = "scene-1", "beat-1-1", "alpha"
+        elif '"sceneId": "scene-2"' in user_message:
+            scene_id, beat_id, label = "scene-2", "beat-2-1", "beta"
+        elif '"sceneId": "scene-3"' in user_message:
+            scene_id, beat_id, label = "scene-3", "beat-3-1", "gamma"
+        else:
+            raise AssertionError("unexpected extract prompt")
+
+        with self._lock:
+            self.extract_completed.append(scene_id)
+        return extraction(
+            [
+                {
+                    **one_fact(beat_id=beat_id),
+                    "fact": f"{label} fact",
+                    "sourceSpan": {
+                        "episodeId": "ep-1",
+                        "sceneId": scene_id,
+                        "beatId": beat_id,
+                        "startLine": 1,
+                        "endLine": 1,
+                    },
+                }
+            ]
+        )
 
 
 @pytest.fixture()
@@ -169,6 +251,78 @@ def test_roundtrip_reproduces_scene_and_beat_count(unlocked_project, db_session,
     assert db_session.query(SnapshotRow).filter_by(project_id=PROJECT_ID).count() == 2
 
 
+def test_analyze_import_reports_per_scene_segment_progress(unlocked_project):
+    src = "\n".join(
+        [
+            "INT. ALPHA - DAY",
+            "Alpha waits.",
+            "INT. BETA - DAY",
+            "Beta waits.",
+            "INT. GAMMA - DAY",
+            "Gamma waits.",
+        ]
+    )
+    llm = MockLlmClient()
+    llm.set_responses("segment_scene", one_beat_per_scene(src))
+    llm.set_response("extract_ledger_facts", extraction())
+    llm.set_response("scan_consistency", scan())
+
+    events, _analysis = _drain_analysis(
+        pipeline.analyze_import(unlocked_project["project"], [], src, llm)
+    )
+
+    segment = [
+        e
+        for e in events
+        if isinstance(e, pipeline.ImportStageProgress)
+        and e.stage == pipeline.STAGE_SEGMENTING_BEATS
+    ]
+    assert [(e.done, e.total) for e in segment] == [(1, 3), (2, 3), (3, 3)]
+
+
+def test_out_of_order_scene_workers_preserve_source_order(unlocked_project, monkeypatch):
+    monkeypatch.setattr(pipeline, "IMPORT_LLM_CONCURRENCY", 2, raising=False)
+    src = "\n".join(
+        [
+            "INT. ALPHA - DAY",
+            "Alpha waits.",
+            "INT. BETA - DAY",
+            "Beta waits.",
+            "INT. GAMMA - DAY",
+            "Gamma waits.",
+        ]
+    )
+    llm = _OutOfOrderImportLlm()
+    llm.set_response("scan_consistency", scan())
+
+    _events, analysis = _drain_analysis(
+        pipeline.analyze_import(unlocked_project["project"], [], src, llm)
+    )
+
+    assert llm.segment_completed[:2] == ["two", "three"]
+    scenes = analysis.new_doc["seasons"][0]["episodes"][0]["scenes"]
+    assert [(scene["id"], scene["location"]) for scene in scenes] == [
+        ("scene-1", "INT. ALPHA - DAY"),
+        ("scene-2", "INT. BETA - DAY"),
+        ("scene-3", "INT. GAMMA - DAY"),
+    ]
+    assert [(scene["beats"][0]["id"], scene["beats"][0]["scriptText"]) for scene in scenes] == [
+        ("beat-1-1", "INT. ALPHA - DAY\nAlpha waits."),
+        ("beat-2-1", "INT. BETA - DAY\nBeta waits."),
+        ("beat-3-1", "INT. GAMMA - DAY\nGamma waits."),
+    ]
+    assert [fact["sourceSpan"]["beatId"] for fact in analysis.new_facts] == [
+        "beat-1-1",
+        "beat-2-1",
+        "beat-3-1",
+    ]
+    assert [fact["fact"] for fact in analysis.new_facts] == [
+        "alpha fact",
+        "beta fact",
+        "gamma fact",
+    ]
+
+
 def test_import_replaces_target_episode_scenes(unlocked_project, mock_llm):
     src = "INT. NEW SCENE - DAY\nA brand new scene."
     mock_llm.set_responses("segment_scene", one_beat_per_scene(src))
@@ -214,8 +368,17 @@ def test_import_scan_flags_persisted_open(unlocked_project, mock_llm):
     mock_llm.set_response("extract_ledger_facts", extraction())
     mock_llm.set_response(
         "scan_consistency",
-        scan([{"objectType": "scene", "objectId": "scene-1", "factId": None,
-               "explanation": "internal contradiction", "severity": "contradiction"}]),
+        scan(
+            [
+                {
+                    "objectType": "scene",
+                    "objectId": "scene-1",
+                    "factId": None,
+                    "explanation": "internal contradiction",
+                    "severity": "contradiction",
+                }
+            ]
+        ),
     )
     body = client.post(
         f"/api/v1/projects/{PROJECT_ID}/import", json={"format": "fountain", "content": src}
@@ -232,8 +395,17 @@ def test_scan_flags_for_unknown_ids_are_dropped(unlocked_project, mock_llm):
     mock_llm.set_response("extract_ledger_facts", extraction())
     mock_llm.set_response(
         "scan_consistency",
-        scan([{"objectType": "scene", "objectId": "scene-999", "factId": None,
-               "explanation": "phantom", "severity": "tension"}]),
+        scan(
+            [
+                {
+                    "objectType": "scene",
+                    "objectId": "scene-999",
+                    "factId": None,
+                    "explanation": "phantom",
+                    "severity": "tension",
+                }
+            ]
+        ),
     )
     body = client.post(
         f"/api/v1/projects/{PROJECT_ID}/import", json={"format": "fountain", "content": src}
@@ -318,7 +490,8 @@ def test_missing_initial_start_retries_then_persists_selected_repair_flag(
     assert mock_llm.invocation_count("segment_scene") == 2
 
     review_flags = [
-        f for f in body["consistencyFlags"]
+        f
+        for f in body["consistencyFlags"]
         if f["objectType"] == "beat" and f["severity"] == "tension"
     ]
     assert len(review_flags) == 1
@@ -330,9 +503,7 @@ def test_missing_initial_start_retries_then_persists_selected_repair_flag(
     db_session.expire_all()
     persisted = db_session.get(ProjectRow, PROJECT_ID)
     persisted_beats = [
-        b
-        for s in persisted.doc["seasons"][0]["episodes"][0]["scenes"]
-        for b in s["beats"]
+        b for s in persisted.doc["seasons"][0]["episodes"][0]["scenes"] for b in s["beats"]
     ]
     assert "\n".join(b["scriptText"] for b in persisted_beats) == src
     assert persisted.head_snapshot_id == body["project"]["headSnapshotId"]
@@ -368,7 +539,8 @@ def test_unassigned_preserved_flagged_and_byte_identical(unlocked_project, mock_
     assert "\n".join(b["scriptText"] for b in all_beats) == src
     # an unassigned flag was raised on the beat (tension, contract flag shape)
     unassigned_flags = [
-        f for f in body["consistencyFlags"]
+        f
+        for f in body["consistencyFlags"]
         if f["objectType"] == "beat" and f["severity"] == "tension"
     ]
     assert len(unassigned_flags) == 1
@@ -392,8 +564,17 @@ def test_mid_transaction_fault_leaves_zero_rows(unlocked_project, db_session, mo
     llm.set_response("extract_ledger_facts", extraction([one_fact()]))
     llm.set_response(
         "scan_consistency",
-        scan([{"objectType": "scene", "objectId": "scene-1", "factId": None,
-               "explanation": "x", "severity": "tension"}]),
+        scan(
+            [
+                {
+                    "objectType": "scene",
+                    "objectId": "scene-1",
+                    "factId": None,
+                    "explanation": "x",
+                    "severity": "tension",
+                }
+            ]
+        ),
     )
 
     def boom(*args, **kwargs):
@@ -438,9 +619,7 @@ def test_transport_error_maps_to_llm_unavailable(unlocked_project):
 
 
 def test_llm_timeout_maps_to_llm_unavailable(unlocked_project):
-    app.dependency_overrides[get_llm_client] = lambda: _RaisingLlm(
-        LlmTimeoutError("segment_scene")
-    )
+    app.dependency_overrides[get_llm_client] = lambda: _RaisingLlm(LlmTimeoutError("segment_scene"))
     try:
         resp = client.post(
             f"/api/v1/projects/{PROJECT_ID}/import",
