@@ -13,7 +13,7 @@ export function estimateImportCost(input: {
   if (n <= 0) {
     return { estimatedModelCalls: 0, estimatedCostUsd: null }
   }
-  const calls = 2 * n + 1
+  const calls = 2 * n + 2
   const h = pricing.importHeuristic
   const rates = pricing.classifier
   const inputTokens =

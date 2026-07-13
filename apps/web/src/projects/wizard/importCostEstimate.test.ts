@@ -9,9 +9,9 @@ describe('estimateImportCost', () => {
     })
   })
 
-  it('uses 2N+1 calls for N scenes', () => {
+  it('uses 2N+2 calls for N scenes', () => {
     const r = estimateImportCost({ sceneCount: 110, charCount: 175_000 })
-    expect(r.estimatedModelCalls).toBe(221)
+    expect(r.estimatedModelCalls).toBe(222)
     expect(r.estimatedCostUsd).not.toBeNull()
     expect(r.estimatedCostUsd!.low).toBeGreaterThan(0)
     expect(r.estimatedCostUsd!.high).toBeGreaterThanOrEqual(
