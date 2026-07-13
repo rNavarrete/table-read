@@ -1,5 +1,9 @@
 """MockLlmClient: deterministic replay, override, and never-network coverage."""
 
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
+
 import pytest
 
 from llm.mock import MockLlmClient
@@ -67,6 +71,45 @@ def test_set_responses_returns_queue_in_order_then_falls_back_to_default():
     assert client.suggest_instructions(**_CALL_KWARGS) == default
 
 
+def test_concurrent_calls_do_not_lose_counts_or_race_queue_pop():
+    client = MockLlmClient()
+    queued = InstructionSuggestions(suggestions=["queued", "response", "only"])
+    fallback = client.suggest_instructions(**_CALL_KWARGS)
+    client.reset_invocation_counts()
+
+    class _SlowTruthQueue(list):
+        def __bool__(self) -> bool:
+            result = len(self) > 0
+            if result:
+                ready.wait()
+                time.sleep(0.001)
+            return result
+
+    class _SlowInvocationCounts(dict):
+        def get(self, key, default=None):
+            value = super().get(key, default)
+            ready.wait()
+            time.sleep(0.001)
+            return value
+
+    ready = threading.Event()
+    client._queues["suggest_instructions"] = _SlowTruthQueue([queued])
+    client._invocations = _SlowInvocationCounts(client._invocations)
+
+    def call_suggestions() -> InstructionSuggestions:
+        ready.wait()
+        return client.suggest_instructions(**_CALL_KWARGS)
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        futures = [pool.submit(call_suggestions) for _ in range(8)]
+        ready.set()
+        results = [future.result() for future in futures]
+
+    assert client.invocation_count("suggest_instructions") == 8
+    assert sum(result == queued for result in results) == 1
+    assert sum(result == fallback for result in results) == 7
+
+
 def test_set_responses_rejects_unknown_op():
     client = MockLlmClient()
     with pytest.raises(KeyError):
@@ -83,12 +126,16 @@ def test_stream_beat_candidate_default_serializes_generate_response():
 def test_stream_beat_candidate_follows_generate_response_queue():
     client = MockLlmClient()
     c1 = BeatCandidate(
-        label="First", beatPlan={"whatHappens": "a", "audienceLearns": "b", "audienceFeels": "c"},
-        scriptText="one", continuityConflicts=[],
+        label="First",
+        beatPlan={"whatHappens": "a", "audienceLearns": "b", "audienceFeels": "c"},
+        scriptText="one",
+        continuityConflicts=[],
     )
     c2 = BeatCandidate(
-        label="Second", beatPlan={"whatHappens": "a", "audienceLearns": "b", "audienceFeels": "c"},
-        scriptText="two", continuityConflicts=[],
+        label="Second",
+        beatPlan={"whatHappens": "a", "audienceLearns": "b", "audienceFeels": "c"},
+        scriptText="two",
+        continuityConflicts=[],
     )
     client.set_responses("generate_beat_candidates", [c1, c2])
 

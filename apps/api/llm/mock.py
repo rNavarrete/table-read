@@ -15,6 +15,7 @@ scenario call `set_response(op, value)` to override the default for that op.
 
 from __future__ import annotations
 
+import threading
 from collections.abc import Iterator
 
 from pydantic import BaseModel
@@ -60,8 +61,7 @@ def _default_responses() -> dict[str, BaseModel]:
                 "audienceFeels": "Frustration.",
             },
             scriptText=(
-                "MARTA\nI saw the transfer, Dan.\n\n"
-                "DAN\nI don't know what you're talking about."
+                "MARTA\nI saw the transfer, Dan.\n\nDAN\nI don't know what you're talking about."
             ),
             continuityConflicts=[],
         ),
@@ -80,8 +80,7 @@ def _default_responses() -> dict[str, BaseModel]:
                     "objectType": "beat",
                     "objectId": "beat-4-2",
                     "reason": (
-                        "Marta searches the bar safe for the money "
-                        "that would no longer be there."
+                        "Marta searches the bar safe for the money that would no longer be there."
                     ),
                     "confidence": "high",
                 },
@@ -105,15 +104,12 @@ def _default_responses() -> dict[str, BaseModel]:
                     "beatId": "beat-4-2",
                     "beatPlan": {
                         "whatHappens": (
-                            "Marta searches the marina for the money that is "
-                            "no longer in the bar."
+                            "Marta searches the marina for the money that is no longer in the bar."
                         ),
                         "audienceLearns": "Marta is hunting the cash at the marina.",
                         "audienceFeels": "Dread.",
                     },
-                    "scriptText": (
-                        "Marta cuts across the dark marina slips, flashlight low."
-                    ),
+                    "scriptText": ("Marta cuts across the dark marina slips, flashlight low."),
                 }
             ],
             scenes=[
@@ -252,6 +248,7 @@ class MockLlmClient:
     """See module docstring for the keying strategy."""
 
     def __init__(self) -> None:
+        self._lock = threading.Lock()
         self._responses: dict[str, BaseModel] = _default_responses()
         # Per-op FIFO queues for multi-call scenarios (e.g. import calls
         # segment_scene / extract_ledger_facts once per scene): each call pops
@@ -277,19 +274,23 @@ class MockLlmClient:
     def invocation_count(self, op: str) -> int:
         if op not in OP_REGISTRY:
             raise KeyError(f"unknown LLM operation {op!r}")
-        return self._invocations[op]
+        with self._lock:
+            return self._invocations[op]
 
     def total_invocations(self) -> int:
-        return sum(self._invocations.values())
+        with self._lock:
+            return sum(self._invocations.values())
 
     def reset_invocation_counts(self) -> None:
-        for name in self._invocations:
-            self._invocations[name] = 0
+        with self._lock:
+            for name in self._invocations:
+                self._invocations[name] = 0
 
     def set_response(self, op: str, response: BaseModel) -> None:
         if op not in OP_REGISTRY:
             raise KeyError(f"unknown LLM operation {op!r}")
-        self._responses[op] = response
+        with self._lock:
+            self._responses[op] = response
 
     def set_responses(self, op: str, responses: list[BaseModel]) -> None:
         """Queue a sequence of responses for ``op``, returned one per call in
@@ -297,15 +298,17 @@ class MockLlmClient:
         same op multiple times with different inputs."""
         if op not in OP_REGISTRY:
             raise KeyError(f"unknown LLM operation {op!r}")
-        self._queues[op] = list(responses)
+        with self._lock:
+            self._queues[op] = list(responses)
 
     def _call(self, op: str, *, system: str, user_message: str, prompt_version: str) -> BaseModel:
         del system, user_message, prompt_version  # mock never inspects prompt content
-        self._invocations[op] = self._invocations.get(op, 0) + 1
-        queue = self._queues.get(op)
-        if queue:
-            return queue.pop(0)
-        return self._responses[op]
+        with self._lock:
+            self._invocations[op] = self._invocations.get(op, 0) + 1
+            queue = self._queues.get(op)
+            if queue:
+                return queue.pop(0)
+            return self._responses[op]
 
     def set_candidate_streams(self, streams: list[list[str]]) -> None:
         """Queue raw-fragment streams for `stream_beat_candidate`, one list of
