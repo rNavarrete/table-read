@@ -37,6 +37,7 @@ from schemas import (
     BeatCandidate,
     BlastRadius,
     ConsistencyScan,
+    InferredActBreaks,
     InitialSceneSkeleton,
     InstructionSuggestions,
     LedgerExtraction,
@@ -467,6 +468,16 @@ class AnthropicClient:
     ) -> InstructionSuggestions:
         return self._call(
             "suggest_instructions",
+            system=system,
+            user_message=user_message,
+            prompt_version=prompt_version,
+        )
+
+    def infer_act_breaks(
+        self, *, system: str, user_message: str, prompt_version: str
+    ) -> InferredActBreaks:
+        return self._call(
+            "infer_act_breaks",
             system=system,
             user_message=user_message,
             prompt_version=prompt_version,

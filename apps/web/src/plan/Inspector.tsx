@@ -7,6 +7,8 @@ import { LockToggle } from './LockToggle'
 import type { PlanSelection } from './SceneCard'
 import {
   affectedFacts,
+  actLabel,
+  actNumbersForFormat,
   characterName,
   findScene,
   isBeatEffectivelyLocked,
@@ -204,18 +206,6 @@ function EditableField({
   )
 }
 
-/** Read-only inspector field (for values not editable in MVP, e.g. `act`). */
-function Field({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <p className="text-12 uppercase tracking-wide text-tr-text-muted">
-        {label}
-      </p>
-      <p className="text-13 text-tr-text-primary">{value || '—'}</p>
-    </div>
-  )
-}
-
 function MotivationsTable({
   scene,
   project,
@@ -309,7 +299,11 @@ export interface InspectorProps {
     beatId: string,
     scriptLocked: boolean,
   ) => void
-  onSaveSceneField: (sceneId: string, field: string, value: string) => void
+  onSaveSceneField: <K extends keyof Scene>(
+    sceneId: string,
+    field: K,
+    value: Scene[K],
+  ) => void
   onSaveBeatField: (
     sceneId: string,
     beatId: string,
@@ -430,7 +424,24 @@ export function Inspector({
               onSaveSceneField(scene.id, 'socialSituation', value)
             }
           />
-          <Field label="Act" value={String(scene.act)} />
+          <label className="text-12 uppercase tracking-wide text-tr-text-muted">
+            Act
+            <select
+              aria-label="Act"
+              value={scene.act}
+              disabled={locked || pending}
+              onChange={(event) =>
+                onSaveSceneField(scene.id, 'act', Number(event.target.value))
+              }
+              className="mt-1 block w-full rounded-card border border-tr-border bg-tr-surface-page px-2 py-1 text-13 text-tr-text-primary disabled:opacity-50"
+            >
+              {actNumbersForFormat(project.format).map((act) => (
+                <option key={act} value={act}>
+                  {actLabel(act, project.format)}
+                </option>
+              ))}
+            </select>
+          </label>
           <div>
             <p className="text-12 uppercase tracking-wide text-tr-text-muted">
               Storyline

@@ -7,9 +7,11 @@ import type {
   Scene,
   ShowFormat,
 } from 'contract'
+import type { InspectorProps } from './Inspector'
 import {
   actLabel,
   actNumbersForBoard,
+  actNumbersForFormat,
   affectedFacts,
   buildBeatPatch,
   buildScenePatch,
@@ -105,6 +107,7 @@ function project(scenes: Scene[]): Project {
       },
     ],
     headSnapshotId: 'snap-root',
+    defaultCraftLevel: 'standard',
   }
 }
 
@@ -289,6 +292,27 @@ describe('withSceneField / withBeatField (optimistic twins of the lock/save patc
         .scriptLocked,
     ).toBe(true)
   })
+
+  it('keeps scene field names correlated with their value types', () => {
+    const p = project(fixtureLikeScenes())
+    const saveSceneField: InspectorProps['onSaveSceneField'] = () => {}
+
+    withSceneField(p, 'scene-1', 'act', 2)
+    buildScenePatch(p, 'scene-1', 'location', 'INT. BAR - NIGHT')
+    saveSceneField('scene-1', 'locked', true)
+
+    const assertInvalidCallsFailToTypecheck = () => {
+      // @ts-expect-error An act update cannot carry a string.
+      withSceneField(p, 'scene-1', 'act', '2')
+      // @ts-expect-error A lock patch cannot carry a string.
+      buildScenePatch(p, 'scene-1', 'locked', 'true')
+      // @ts-expect-error Inspector callbacks preserve the selected field's type.
+      saveSceneField('scene-1', 'act', '2')
+    }
+    void assertInvalidCallsFailToTypecheck
+
+    expect(true).toBe(true)
+  })
 })
 
 describe('actNumbersForBoard / actLabel', () => {
@@ -300,6 +324,30 @@ describe('actNumbersForBoard / actLabel', () => {
     tag: false,
     serialization: 0.8,
   }
+
+  it('returns every valid act number for formats with and without a cold open', () => {
+    expect(
+      actNumbersForFormat({
+        genre: 'drama',
+        runtimeMinutes: 60,
+        actCount: 5,
+        coldOpen: true,
+        tag: false,
+        serialization: 0.8,
+      }),
+    ).toEqual([0, 1, 2, 3, 4, 5])
+
+    expect(
+      actNumbersForFormat({
+        genre: 'comedy',
+        runtimeMinutes: 30,
+        actCount: 2,
+        coldOpen: false,
+        tag: false,
+        serialization: 0.2,
+      }),
+    ).toEqual([0, 1])
+  })
 
   it('renders every act in the format range, cold open through the last act', () => {
     expect(actNumbersForBoard(format, [])).toEqual([0, 1, 2, 3, 4])

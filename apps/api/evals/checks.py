@@ -1,4 +1,4 @@
-"""The four eval families (build plan T6.1, test plan §3), each a function that
+"""The eval families (build plan T6.1/T7.13, test plan §3), each a function that
 takes an injected `LlmClient` (+ judge / DB session where needed) and returns an
 `EvalResult`.
 
@@ -21,6 +21,11 @@ takes an injected `LlmClient` (+ judge / DB session where needed) and returns an
      modal typed-start agreement. Soft gate 0.70, still flagged for threshold
      ratification (DESIGN-GAP(T6.1)); the temperature-0 escalation (segment_scene
      moved to the classifier tier, ops.py) is now applied.
+  5. `act_boundary_validity_eval` — two labeled scripts ×N through the product
+     semantic normalizer. Every partition must be valid (gate 1.0, hard).
+  6. `act_boundary_quality_eval` — same cases, scoring actual act transitions
+     within ±2 scenes of labels. Mandatory scene-zero anchors are excluded.
+     Soft gate 0.80.
 
 Rule 5: helpers below traffic in line numbers, ids, and counts — never script
 text. The only script text touched is compared in memory (never logged).
@@ -38,6 +43,7 @@ from evals.graders import CONTINUITY_FACT_IDS, GRADER_VERSION, Judge, calibrate
 from evals.harness import EvalResult
 from evals.probes import FixtureCtx
 from evals.progress import ProgressFn, emit_attempt
+from fountain import acts
 from llm.errors import LlmTimeoutError, SchemaInvalidLlmError
 from llm.ops import OP_REGISTRY
 from llm.protocol import LlmClient
@@ -58,6 +64,8 @@ CONTINUITY_GATE = 0.95
 # segment_scene to the classifier tier, which accepts temperature=0 — has been
 # applied (llm/ops.py); this eval verifies it lands.
 SEGMENTATION_DETERMINISM_GATE = 0.70
+ACT_BOUNDARY_VALIDITY_GATE = 1.0
+ACT_BOUNDARY_QUALITY_GATE = 0.80
 
 # Adversarial targets: scene-1 holds locked beat-1-2 (Marta reads the transfer)
 # beside unlocked beat-1-1 — the test-plan §3 lock-violation setup.
@@ -553,4 +561,163 @@ def segmentation_determinism_eval(
             "temperature-0 escalation applied: segment_scene moved to the "
             "classifier tier (temperature 0 per prompt spec §7)",
         ],
+    )
+
+
+# ── act boundary validity (hard) + quality (soft) ───────────────────────────────
+
+
+def _act_transition_starts(case: dict) -> list[dict]:
+    return [
+        start for start in case["expectedStarts"] if start["startSceneIndex"] > 0
+    ]
+
+
+def act_boundary_validity_eval(
+    client: LlmClient,
+    ctx: FixtureCtx,
+    *,
+    runs: int,
+    on_progress: ProgressFn | None = None,
+) -> EvalResult:
+    valid = 0
+    invalid = 0
+    cases = probes.act_boundary_cases(ctx)
+    total_attempts = runs * len(cases)
+    attempt = 0
+    for _run in range(runs):
+        for case in cases:
+            attempt += 1
+            emit_attempt(
+                on_progress,
+                family="act-validity",
+                run=attempt,
+                runs=total_attempts,
+                probe=case["caseId"],
+            )
+            t0 = time.monotonic()
+            system, user = render.build_act_inference_prompt(
+                case["project"], case["summaries"], render.new_nonce()
+            )
+            try:
+                inferred = client.infer_act_breaks(
+                    system=system,
+                    user_message=user,
+                    prompt_version=render.PROMPT_VERSION,
+                )
+                acts.expand_act_starts(
+                    inferred,
+                    scene_count=len(case["summaries"]),
+                    format_dict=case["project"]["format"],
+                )
+            except (SchemaInvalidLlmError, LlmTimeoutError, acts.ActInferenceError):
+                invalid += 1
+            else:
+                valid += 1
+            finally:
+                emit_attempt(
+                    on_progress,
+                    family="act-validity",
+                    run=attempt,
+                    runs=total_attempts,
+                    probe=case["caseId"],
+                    status="done",
+                    elapsed=time.monotonic() - t0,
+                )
+    score = valid / total_attempts if total_attempts else 0.0
+    return EvalResult(
+        name="act-boundary-validity",
+        metric="semantically valid act partitions",
+        score=score,
+        gate=ACT_BOUNDARY_VALIDITY_GATE,
+        hard=True,
+        detail={
+            "runs": runs,
+            "cases": len(cases),
+            "valid": valid,
+            "attempts": total_attempts,
+            "invalid": invalid,
+        },
+        notes=["any invalid partition fails the hard gate"],
+    )
+
+
+def act_boundary_quality_eval(
+    client: LlmClient,
+    ctx: FixtureCtx,
+    *,
+    runs: int,
+    on_progress: ProgressFn | None = None,
+) -> EvalResult:
+    matched = 0
+    expected_total = 0
+    invalid = 0
+    cases = probes.act_boundary_cases(ctx)
+    total_attempts = runs * len(cases)
+    attempt = 0
+    for _run in range(runs):
+        for case in cases:
+            attempt += 1
+            emit_attempt(
+                on_progress,
+                family="act-boundaries",
+                run=attempt,
+                runs=total_attempts,
+                probe=case["caseId"],
+            )
+            t0 = time.monotonic()
+            system, user = render.build_act_inference_prompt(
+                case["project"], case["summaries"], render.new_nonce()
+            )
+            try:
+                inferred = client.infer_act_breaks(
+                    system=system,
+                    user_message=user,
+                    prompt_version=render.PROMPT_VERSION,
+                )
+                acts.expand_act_starts(
+                    inferred,
+                    scene_count=len(case["summaries"]),
+                    format_dict=case["project"]["format"],
+                )
+            except (SchemaInvalidLlmError, LlmTimeoutError, acts.ActInferenceError):
+                invalid += 1
+                expected_total += len(_act_transition_starts(case))
+            else:
+                predicted = {
+                    start.act: start.start_scene_index for start in inferred.starts
+                }
+                for expected in _act_transition_starts(case):
+                    expected_total += 1
+                    actual = predicted.get(expected["act"])
+                    if (
+                        actual is not None
+                        and abs(actual - expected["startSceneIndex"]) <= 2
+                    ):
+                        matched += 1
+            finally:
+                emit_attempt(
+                    on_progress,
+                    family="act-boundaries",
+                    run=attempt,
+                    runs=total_attempts,
+                    probe=case["caseId"],
+                    status="done",
+                    elapsed=time.monotonic() - t0,
+                )
+    score = matched / expected_total if expected_total else 0.0
+    return EvalResult(
+        name="act-boundary-quality",
+        metric="labeled act transitions within ±2 scenes",
+        score=score,
+        gate=ACT_BOUNDARY_QUALITY_GATE,
+        hard=False,
+        detail={
+            "runs": runs,
+            "cases": len(cases),
+            "matched": matched,
+            "expected": expected_total,
+            "invalid": invalid,
+        },
+        notes=["soft gate; human-review misses before prompt/model changes"],
     )

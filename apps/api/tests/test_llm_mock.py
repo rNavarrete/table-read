@@ -52,6 +52,20 @@ def test_set_response_overrides_the_default_for_that_op_only():
     assert client.tune_beat(**_CALL_KWARGS) == original_tune  # untouched
 
 
+def test_infer_act_breaks_can_be_overridden():
+    from schemas import InferredActBreaks
+
+    client = MockLlmClient()
+    response = InferredActBreaks(
+        starts=[
+            {"act": 1, "startSceneIndex": 0},
+            {"act": 2, "startSceneIndex": 4},
+        ]
+    )
+    client.set_response("infer_act_breaks", response)
+    assert client.infer_act_breaks(**_CALL_KWARGS) == response
+
+
 def test_set_response_rejects_unknown_op():
     client = MockLlmClient()
     with pytest.raises(KeyError):

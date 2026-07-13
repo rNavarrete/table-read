@@ -114,6 +114,7 @@ function project(ep: Episode): Project {
       },
     ],
     headSnapshotId: 'snap-root',
+    defaultCraftLevel: 'standard',
   }
 }
 
@@ -223,6 +224,85 @@ describe('Inspector', () => {
       'Marta walks back in.',
     ) as HTMLTextAreaElement
     expect(textarea.readOnly).toBe(true)
+    expect(
+      (screen.getByRole('combobox', { name: 'Act' }) as HTMLSelectElement)
+        .disabled,
+    ).toBe(true)
+  })
+
+  it('disables the Act select when the containing episode is locked', () => {
+    const ep = episode({ locked: true })
+    render(
+      <Inspector
+        project={project(ep)}
+        episode={ep}
+        ledger={[]}
+        selection={{ type: 'scene', sceneId: 'scene-1' }}
+        pending={false}
+        onToggleSceneLock={noop}
+        onToggleBeatScriptLock={noop}
+        onSaveSceneField={noop}
+        onSaveBeatField={noop}
+        onSaveProjectField={noop}
+        onSaveEpisodeField={noop}
+      />,
+    )
+
+    expect(
+      (screen.getByRole('combobox', { name: 'Act' }) as HTMLSelectElement)
+        .disabled,
+    ).toBe(true)
+  })
+
+  it('disables the Act select while a scene patch is pending', () => {
+    const ep = episode()
+    render(
+      <Inspector
+        project={project(ep)}
+        episode={ep}
+        ledger={[]}
+        selection={{ type: 'scene', sceneId: 'scene-1' }}
+        pending
+        onToggleSceneLock={noop}
+        onToggleBeatScriptLock={noop}
+        onSaveSceneField={noop}
+        onSaveBeatField={noop}
+        onSaveProjectField={noop}
+        onSaveEpisodeField={noop}
+      />,
+    )
+
+    expect(
+      (screen.getByRole('combobox', { name: 'Act' }) as HTMLSelectElement)
+        .disabled,
+    ).toBe(true)
+  })
+
+  it('saves a format-constrained act selection immediately', async () => {
+    const user = userEvent.setup()
+    const onSaveSceneField = vi.fn()
+    const ep = episode()
+    render(
+      <Inspector
+        project={project(ep)}
+        episode={ep}
+        ledger={[]}
+        selection={{ type: 'scene', sceneId: 'scene-1' }}
+        pending={false}
+        onToggleSceneLock={noop}
+        onToggleBeatScriptLock={noop}
+        onSaveSceneField={onSaveSceneField}
+        onSaveBeatField={noop}
+        onSaveProjectField={noop}
+        onSaveEpisodeField={noop}
+      />,
+    )
+    const select = screen.getByRole('combobox', { name: 'Act' })
+    expect(
+      Array.from(select.querySelectorAll('option')).map((o) => o.textContent),
+    ).toEqual(['COLD OPEN', 'ACT ONE', 'ACT TWO', 'ACT THREE', 'ACT FOUR'])
+    await user.selectOptions(select, '2')
+    expect(onSaveSceneField).toHaveBeenCalledWith('scene-1', 'act', 2)
   })
 
   it('scene lock toggle calls onToggleSceneLock with the flipped value', async () => {

@@ -17,6 +17,7 @@ from schemas import (
     BeatCandidate,
     BlastRadius,
     ConsistencyScan,
+    InferredActBreaks,
     InitialSceneSkeleton,
     InstructionSuggestions,
     LedgerExtraction,
@@ -70,6 +71,10 @@ class LlmClient(Protocol):
     def suggest_instructions(
         self, *, system: str, user_message: str, prompt_version: str
     ) -> InstructionSuggestions: ...
+
+    def infer_act_breaks(
+        self, *, system: str, user_message: str, prompt_version: str
+    ) -> InferredActBreaks: ...
 
     def segment_scene(
         self, *, system: str, user_message: str, prompt_version: str

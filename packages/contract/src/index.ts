@@ -342,6 +342,7 @@ export type ProjectImportResult = z.infer<typeof ProjectImportResult>
 export const ProjectImportStageName = z.enum([
   'parsing_scenes',
   'segmenting_beats',
+  'inferring_acts',
   'extracting_facts',
   'checking_consistency',
   'saving',
@@ -592,6 +593,16 @@ export const SuggestRequest = z.object({
   draftScript: z.string().nullable().default(null),
 })
 export type SuggestRequest = z.infer<typeof SuggestRequest>
+
+const InferredActStart = z.object({
+  act: z.number().int().min(0),
+  startSceneIndex: z.number().int().min(0),
+})
+
+export const InferredActBreaks = z.object({
+  starts: z.array(InferredActStart).min(1),
+})
+export type InferredActBreaks = z.infer<typeof InferredActBreaks>
 
 // §7 parse_script stage 2
 const SegmentedSceneBeat = z.object({

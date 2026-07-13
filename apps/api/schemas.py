@@ -20,9 +20,17 @@ index.ts's module header and the task report for why.
 from __future__ import annotations
 
 from enum import StrEnum
+from math import isfinite
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, RootModel, StringConstraints
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    RootModel,
+    StringConstraints,
+    field_validator,
+)
 from pydantic.alias_generators import to_camel
 
 # "scene-1", "beat-1-2", "fact-04", "char-marta"
@@ -407,6 +415,7 @@ class ProjectImportResult(_Base):
 class ImportProgressStageName(StrEnum):
     parsing_scenes = "parsing_scenes"
     segmenting_beats = "segmenting_beats"
+    inferring_acts = "inferring_acts"
     extracting_facts = "extracting_facts"
     checking_consistency = "checking_consistency"
     saving = "saving"
@@ -656,6 +665,24 @@ class SuggestRequest(_Base):
     target_id: Id
     surface: Literal["command_bar", "scene_premise", "tune"]
     draft_script: str | None = None
+
+
+class InferredActStart(_Base):
+    act: int = Field(ge=0)
+    start_scene_index: int = Field(ge=0)
+
+    @field_validator("act", "start_scene_index", mode="before")
+    @classmethod
+    def require_integral_json_number(cls, value):
+        if isinstance(value, int) and not isinstance(value, bool):
+            return value
+        if isinstance(value, float) and isfinite(value) and value.is_integer():
+            return value
+        raise ValueError("must be an integral JSON number")
+
+
+class InferredActBreaks(_Base):
+    starts: list[InferredActStart] = Field(min_length=1)
 
 
 class SegmentedSceneBeat(_Base):

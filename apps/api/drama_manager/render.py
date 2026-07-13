@@ -36,14 +36,15 @@ from typing import Any
 # withholds (the T6.1 continuity-adherence failures); 0.5.0 added the
 # `regenerate_elements` builder; 0.4.0 added classify_blast_radius; 0.3.0 added
 # tune_beat; 0.2.0 added the candidate builder and the §0 shared system prompt.
-# 0.10.0 replaced import beat ranges with typed segment starts and structured
-# `{lineNumber, text}` source lines. 0.9.0 added lock-aware narrative repair +
-# subtext-fidelity HARD RULES
+# 0.11.0 added act-inference and deterministic-retry prompts over compact
+# post-segmentation scene summaries. 0.10.0 replaced import beat ranges with
+# typed segment starts and structured `{lineNumber, text}` source lines. 0.9.0
+# added lock-aware narrative repair + subtext-fidelity HARD RULES
 # (adoption A1 / A10) on the shared system prompt — prompt-changing; needs
 # `make evals` sign-off. History: 0.8.0 suggest_instructions; 0.7.0 scene
 # skeleton; 0.6.0 continuity constraint; 0.5.0 regenerate; 0.4.0 blast radius;
 # 0.3.0 tune; 0.2.0 candidate + §0 system prompt.
-PROMPT_VERSION = "0.10.0"
+PROMPT_VERSION = "0.11.0"
 
 
 def new_nonce() -> str:
@@ -148,6 +149,47 @@ def build_segment_retry_prompt(
         + "\nReturn a corrected segmentation for the same source. Call the tool "
         "with at least one segment, start the first at 1, keep starts strictly "
         "increasing, and keep every start within the scene line count.",
+    )
+
+
+def build_act_inference_prompt(
+    project: dict, summaries: list[dict], nonce: str
+) -> tuple[str, str]:
+    fmt = project["format"]
+    max_act = fmt["actCount"] if fmt["coldOpen"] else fmt["actCount"] - 1
+    payload = {
+        "format": {
+            "runtimeMinutes": fmt["runtimeMinutes"],
+            "actCount": fmt["actCount"],
+            "coldOpen": fmt["coldOpen"],
+        },
+        "scenes": summaries,
+    }
+    user = (
+        source_data("import_scene_summaries", payload, nonce)
+        + "\nInfer the narrative act structure from these scenes in source order. "
+        f"Return only ordered act starts using act values 0 through {max_act}. "
+        "The first startSceneIndex must be 0. Both act and startSceneIndex must "
+        "strictly increase. You may omit empty sections. Return starts only; "
+        "do not return scene ids, end indices, or per-scene assignments. "
+        "Do not infer a TAG; tag assignment is outside this operation."
+    )
+    return build_system_prompt({"format": fmt}, nonce), user
+
+
+def build_act_inference_retry_prompt(
+    project: dict,
+    summaries: list[dict],
+    diagnostics: list[dict],
+    nonce: str,
+) -> tuple[str, str]:
+    system, user = build_act_inference_prompt(project, summaries, nonce)
+    return (
+        system,
+        user
+        + "\nYour previous act starts failed these deterministic checks:\n"
+        + source_data("act_inference_repairs", diagnostics, nonce)
+        + "\nReturn one corrected set of ordered act starts for the same scenes.",
     )
 
 

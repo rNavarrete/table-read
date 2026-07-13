@@ -25,6 +25,7 @@ from schemas import (
     BeatCandidate,
     BlastRadius,
     ConsistencyScan,
+    InferredActBreaks,
     InitialSceneSkeleton,
     InstructionSuggestions,
     LedgerExtraction,
@@ -156,6 +157,9 @@ def _default_responses() -> dict[str, BaseModel]:
                 "Let Dan notice the printout before Marta says anything.",
                 "Cut the scene short with an interruption from Reyes.",
             ]
+        ),
+        "infer_act_breaks": InferredActBreaks(
+            starts=[{"act": 0, "startSceneIndex": 0}]
         ),
         "segment_scene": SegmentedScene(
             segments=[
@@ -406,6 +410,16 @@ class MockLlmClient:
     ) -> InstructionSuggestions:
         return self._call(
             "suggest_instructions",
+            system=system,
+            user_message=user_message,
+            prompt_version=prompt_version,
+        )
+
+    def infer_act_breaks(
+        self, *, system: str, user_message: str, prompt_version: str
+    ) -> InferredActBreaks:
+        return self._call(
+            "infer_act_breaks",
             system=system,
             user_message=user_message,
             prompt_version=prompt_version,

@@ -251,6 +251,7 @@ describe('ImportWizard', () => {
       framesFrom([
         { event: 'stage', data: { type: 'stage', name: 'parsing_scenes' } },
         { event: 'stage', data: { type: 'stage', name: 'segmenting_beats' } },
+        { event: 'stage', data: { type: 'stage', name: 'inferring_acts' } },
         { event: 'stage', data: { type: 'stage', name: 'extracting_facts' } },
         {
           event: 'stage',
@@ -280,6 +281,7 @@ describe('ImportWizard', () => {
     await waitFor(() =>
       expect(assignSpy).toHaveBeenCalledWith('/plan?project=proj-imported'),
     )
+    expect(screen.getByText('Inferring act structure')).not.toBeNull()
 
     expect(mockedStreamSse).toHaveBeenCalledTimes(1)
     const [url, body, , headers] = mockedStreamSse.mock.calls[0]
