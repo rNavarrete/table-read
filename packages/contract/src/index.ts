@@ -348,11 +348,11 @@ export const ProjectImportStageName = z.enum([
 ])
 export type ProjectImportStageName = z.infer<typeof ProjectImportStageName>
 
-// §9.3 SSE progress: a `stage` event per named stage (any number, in the
-// order above), then exactly one terminal `complete` or `failed`. `error`
-// matches the canonical `{code, message, details?}` envelope (data contract
-// §4) so the wizard's failure UI reuses the same error rendering as every
-// other endpoint.
+// §9.3 SSE progress: `stage` events mark named stage transitions and
+// `progress` events report scene completions within those stages, followed by
+// exactly one terminal `complete` or `failed`. `error` matches the canonical
+// `{code, message, details?}` envelope (data contract §4) so the wizard's
+// failure UI reuses the same error rendering as every other endpoint.
 export const ProjectImportProgressEvent = z.discriminatedUnion('type', [
   z.object({ type: z.literal('stage'), name: ProjectImportStageName }),
   z.object({

@@ -1,9 +1,10 @@
 """Atomic create-and-import (data contract §9.3): `POST /projects/import` in
 routes.py streams these events. This module builds the initial (unwritten)
 project doc, runs `fountain/pipeline.analyze_import`'s LLM/parsing stages —
-emitting a `stage` SSE frame as each begins — then writes the project row and
-its **one** root snapshot (already carrying the imported doc/ledger/flags)
-in a single transaction (`storage/snapshots.create_project_with_state`).
+emitting `stage` SSE frames as stages begin and `progress` frames as scene
+work completes — then writes the project row and its **one** root snapshot
+(already carrying the imported doc/ledger/flags) in a single transaction
+(`storage/snapshots.create_project_with_state`).
 
 Every stage that can fail runs before that single write, so a fault at any
 point — analysis or the write itself — leaves zero project-scoped rows
@@ -11,12 +12,12 @@ point — analysis or the write itself — leaves zero project-scoped rows
 is why the doc/ledger/flags are assembled entirely in memory here: there is
 no "create an empty project, then import into it" step to roll back.
 
-Failure shaping: once the stream has emitted its first `stage` frame, the
-HTTP response is already 200 — a route-layer `ApiError` mapping is no longer
-possible, so every *known* failure mode (coverage, locks, schema-invalid LLM
-output, LLM transport, idempotency conflict) is caught here and turned into
-one terminal `failed {error}` event instead. Anything else (an injected/
-unexpected fault, e.g. a monkeypatched storage internal in tests) propagates
+Failure shaping: once the stream has emitted its first `stage` or `progress`
+frame, the HTTP response is already 200 — a route-layer `ApiError` mapping is
+no longer possible, so every *known* failure mode (coverage, locks,
+schema-invalid LLM output, LLM transport, idempotency conflict) is caught here
+and turned into one terminal `failed {error}` event instead. Anything else (an
+injected/unexpected fault, e.g. a monkeypatched storage internal in tests) propagates
 out of the generator uncaught — same contract as `pipeline.run_import`'s
 mid-transaction fault test — because pytest asserting "zero rows changed"
 needs the real exception, not a swallowed one.

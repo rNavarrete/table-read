@@ -111,6 +111,9 @@ Replaces the hardcoded seeded entry point with a project dashboard, idea/import 
 
 **T7.11 Import-job checkpoint/cache spec.** Specify project-scoped reuse of validated per-scene LLM results across failed/retried atomic imports, including purge, privacy, prompt/model/source hashing, expiry, and no-writer-text logging. Separate infrastructure task; no cache implementation lands in T7.10. — queued.
 
+**T7.12 Parallel import progress.** Run scene-level import analysis with four bounded workers while preserving the deterministic project output: results are applied in source scene order, progress SSE frames report per-scene completion monotonically, and the wizard's stage rows distinguish work-in-progress from truly completed stages.
+*Accept:* segmenting/fact extraction/checking stages use at most four concurrent scene workers; final scenes/beats/facts/flags are ordered exactly as the serial source order requires; progress events for each stage are monotonic (`done` never decreases and never exceeds `total`); a stage shows Done only after every scene assigned to that stage has finished and the next stage is about to begin; import UI shows elapsed time during analysis; ETA appears only after at least 5 scene completions; stale ETA is hidden during long gaps without new completions; any worker/stage failure still emits one terminal `failed` event and creates zero project-scoped rows.
+
 ## Milestone 8 — Fabula adoption (P-MVP slices)
 
 See `docs/tableread-adoption-prd.md` for full A1–A10 requirements. Sequencing table there maps items onto earlier milestones; remaining P-MVP work lands here as explicit tasks.
