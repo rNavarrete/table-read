@@ -104,6 +104,93 @@ def scene_source_lines(scene: dict) -> list[str]:
     return "\n\n".join(parts).split("\n")
 
 
+def act_summaries_from_doc(doc: dict) -> list[dict]:
+    return [
+        {
+            "sceneIndex": index,
+            "location": scene.get("location", ""),
+            "beats": [
+                {
+                    "whatHappens": beat.get("whatHappens", ""),
+                    "audienceLearns": beat.get("audienceLearns", ""),
+                    "audienceFeels": beat.get("audienceFeels", ""),
+                }
+                for beat in scene.get("beats", [])
+            ],
+        }
+        for index, (_episode, scene) in enumerate(_iter_scenes(doc))
+    ]
+
+
+def act_boundary_cases(ctx: FixtureCtx) -> list[dict]:
+    half_hour_events = [
+        ("INT. KITCHEN - MORNING", "Nia hides a disastrous birthday cake before Jules enters."),
+        ("INT. KITCHEN - LATER", "Jules mistakes the cover-up for a surprise party."),
+        ("INT. OFFICE - DAY", "Nia recruits Omar to replace the cake before lunch."),
+        ("EXT. BAKERY - DAY", "The bakery has lost Nia's replacement order."),
+        ("INT. OFFICE - DAY", "Jules announces that the supposed party starts in an hour."),
+        (
+            "INT. KITCHEN - AFTERNOON",
+            "Nia admits there was never a party and reveals the ruined cake.",
+        ),
+        (
+            "INT. OFFICE - AFTERNOON",
+            "The coworkers turn the failed cover-up into an improvised celebration.",
+        ),
+        ("INT. KITCHEN - EVENING", "Jules saves one terrible slice as a souvenir."),
+    ]
+    half_hour_summaries = [
+        {
+            "sceneIndex": index,
+            "location": location,
+            "beats": [
+                {
+                    "whatHappens": event,
+                    "audienceLearns": "",
+                    "audienceFeels": "",
+                }
+            ],
+        }
+        for index, (location, event) in enumerate(half_hour_events)
+    ]
+    one_hour_expected = []
+    previous_act = None
+    for index, (_episode, scene) in enumerate(_iter_scenes(ctx.doc)):
+        if scene["act"] != previous_act:
+            one_hour_expected.append(
+                {"act": scene["act"], "startSceneIndex": index}
+            )
+            previous_act = scene["act"]
+    return [
+        {
+            "caseId": "half-hour-cover-up",
+            "project": {
+                "title": "Half Hour Probe",
+                "format": {
+                    "genre": "comedy",
+                    "runtimeMinutes": 30,
+                    "actCount": 2,
+                    "coldOpen": True,
+                    "tag": False,
+                    "serialization": 0.2,
+                },
+            },
+            "summaries": half_hour_summaries,
+            "expectedStarts": [
+                {"act": 0, "startSceneIndex": 0},
+                {"act": 1, "startSceneIndex": 2},
+                {"act": 2, "startSceneIndex": 5},
+            ],
+        },
+        {
+            "caseId": "one-hour-long-pour",
+            "project": ctx.doc,
+            "summaries": act_summaries_from_doc(ctx.doc),
+            "expectedStarts": one_hour_expected,
+        },
+    ]
+
+
 # A prompt builder: fixture context -> (system, user). One per covered op.
 PromptBuilder = Callable[[FixtureCtx], tuple[str, str]]
 
@@ -178,6 +265,12 @@ def _segment_prompt(ctx: FixtureCtx) -> tuple[str, str]:
     return render.build_segment_prompt(ctx.doc, lines, render.new_nonce())
 
 
+def _act_break_prompt(ctx: FixtureCtx) -> tuple[str, str]:
+    return render.build_act_inference_prompt(
+        ctx.doc, act_summaries_from_doc(ctx.doc), render.new_nonce()
+    )
+
+
 def _scan_prompt(ctx: FixtureCtx) -> tuple[str, str]:
     untouched = [
         {"id": s["id"], "location": s.get("location", ""), "whatHappens": s.get("whatHappens", "")}
@@ -216,6 +309,7 @@ SCHEMA_PROBES: dict[str, PromptBuilder] = {
     "classify_blast_radius": _blast_radius_prompt,
     "regenerate_elements": _regenerate_prompt,
     "extract_ledger_facts": _extract_prompt,
+    "infer_act_breaks": _act_break_prompt,
     "segment_scene": _segment_prompt,
     "scan_consistency": _scan_prompt,
     "suggest_instructions": _suggest_prompt,

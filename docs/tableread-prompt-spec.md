@@ -242,7 +242,13 @@ Server rules: for starts `s₁…sₙ`, the server derives each end as `sᵢ₊�
 
 ### Import act inference
 
-The synchronized `infer_act_breaks` operation uses the `classifier` role at temperature 0. Its input will contain compact scene summaries in source order; the concrete renderer and prompt wording land with the pipeline task. Its strict typed output contains only ordered `{act, startSceneIndex}` starts (`InferredActBreaks`), never act coverage or heading text. Dynamic format and scene-count bounds are server validation. Schema-invalid output follows the standard one-retry rule and then surfaces `SCHEMA_INVALID_LLM`; there is no fabricated fallback.
+The synchronized `infer_act_breaks` operation uses the `classifier` role at temperature 0. After all scenes are segmented, its input contains compact scene summaries in source order: zero-based `sceneIndex`, heading/location, and each segmented beat's `whatHappens`, `audienceLearns`, and `audienceFeels`, plus the selected format's `runtimeMinutes`, `actCount`, and `coldOpen`. The renderer places this structured payload inside the nonce-wrapped `<source_data kind="import_scene_summaries">` boundary; imported and model-derived summary text is never interpolated outside `drama_manager/render.py`.
+
+Its strict typed output contains only ordered `{act, startSceneIndex}` starts (`InferredActBreaks`), never scene ids, end indices, per-scene assignments, heading text, or a TAG. The first scene index must be 0; act and scene indices must strictly increase and remain within the selected format and parsed scene count. Omitted valid acts represent empty sections. The server validates those semantic constraints and expands accepted starts into exactly one act for every scene.
+
+Schema-invalid tool output follows the client's standard one-retry rule. Separately, a schema-valid but semantically invalid boundary set gets exactly one pipeline retry using `build_act_inference_retry_prompt`; deterministic diagnostic codes/counts are rendered through a second inert source-data block. A second semantic failure surfaces `SCHEMA_INVALID_LLM`. There is no even-distribution, all-in-one-act, or other fabricated fallback, and the atomic import persists nothing on failure.
+
+This operation shipped with `PROMPT_VERSION 0.11.0`; prompt/tool-schema changes remain pending real-eval sign-off until the explicitly authorized full suite passes.
 
 ## 8. Cross-cutting conventions
 

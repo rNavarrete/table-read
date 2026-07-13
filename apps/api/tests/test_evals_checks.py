@@ -12,7 +12,7 @@ from __future__ import annotations
 import pytest
 
 from drama_manager.render import PROMPT_VERSION
-from evals import checks
+from evals import checks, probes
 from evals.checks import (
     continuity_eval,
     lock_violation_eval,
@@ -26,7 +26,7 @@ from evals.probes import load_fixture_ctx
 from evals.suite import resolve_run_map, run_suite
 from llm.errors import SchemaInvalidLlmError
 from llm.mock import MockLlmClient
-from schemas import BeatCandidate, RegeneratedElements
+from schemas import BeatCandidate, InferredActBreaks, RegeneratedElements
 
 _FIXTURE_TEXT = [
     "Marta slides a folded printout across the counter",
@@ -73,6 +73,7 @@ def test_schema_validity_all_valid_passes():
     # All registered ops have real prompt builders (incl. suggest_instructions / A4).
     assert result.detail["perOp"].keys() >= {
         "generate_beat_candidates",
+        "infer_act_breaks",
         "segment_scene",
         "suggest_instructions",
     }
@@ -233,6 +234,55 @@ def test_segmentation_deterministic_mock_full_agreement():
     assert not result.blocks
 
 
+# ── act-boundary quality (soft gate) ────────────────────────────────────────────
+
+
+def test_act_boundary_quality_scores_within_two_scenes():
+    client = MockLlmClient()
+    client.set_responses(
+        "infer_act_breaks",
+        [
+            InferredActBreaks(
+                starts=[
+                    {"act": 0, "startSceneIndex": 0},
+                    {"act": 1, "startSceneIndex": 2},
+                    {"act": 2, "startSceneIndex": 5},
+                ]
+            ),
+            InferredActBreaks(
+                starts=[
+                    {"act": 0, "startSceneIndex": 0},
+                    {"act": 1, "startSceneIndex": 1},
+                    {"act": 2, "startSceneIndex": 3},
+                    {"act": 3, "startSceneIndex": 4},
+                    {"act": 4, "startSceneIndex": 5},
+                ]
+            ),
+        ],
+    )
+    result = checks.act_boundary_quality_eval(client, load_fixture_ctx(), runs=1)
+    assert result.score >= 0.8
+    assert not result.blocks
+
+
+def test_act_boundary_quality_semantic_invalid_scores_zero_without_text_leak():
+    invalid = InferredActBreaks(starts=[{"act": 0, "startSceneIndex": 1}])
+    client = MockLlmClient()
+    client.set_responses("infer_act_breaks", [invalid, invalid])
+
+    result = checks.act_boundary_quality_eval(client, load_fixture_ctx(), runs=1)
+
+    assert result.score == 0.0
+    assert result.detail["invalid"] == 2
+    assert result.detail["expected"] == sum(
+        len(case["expectedStarts"]) for case in probes.act_boundary_cases(load_fixture_ctx())
+    )
+    detail = repr(result.detail)
+    assert "Nia hides a disastrous birthday cake" not in detail
+    assert "Marta slides a folded printout" not in detail
+    assert not result.blocks
+
+
 # ── end-to-end dry run + rule-5 audit ──────────────────────────────────────────
 
 
@@ -273,6 +323,7 @@ def test_run_suite_full_includes_soft_families(session_factory):
         "lock-repair-quality",
         "import-inference",
         "subtext-fidelity",
+        "act-boundary-quality",
     ]
 
 
@@ -290,6 +341,7 @@ def test_default_run_map_tiers_hard_and_soft():
     assert m["lockRepairQuality"] == 5
     assert m["importInference"] == 5
     assert m["subtextFidelity"] == 5
+    assert m["actBoundaryQuality"] == 5
 
 
 def test_resolve_run_map_override_is_uniform():
@@ -297,7 +349,7 @@ def test_resolve_run_map_override_is_uniform():
 
     m = resolve_run_map(1)
     assert set(m.values()) == {1}
-    assert len(m) == 7
+    assert len(m) == 8
 
 
 def test_nominal_call_estimate_core_defaults():
@@ -309,11 +361,12 @@ def test_nominal_call_estimate_core_defaults():
     )
 
     core = filter_call_estimate(nominal_call_estimate(default_run_map()), CORE_EVAL_KEYS)
-    assert core["schemaValidity"] == 40  # 8 probes × 5
+    assert core["schemaValidity"] == 45  # 9 probes × 5
     assert core["lockViolation"] == 20
     assert core["continuityAdherence"] == 13
-    assert core["totalNominal"] == 73
+    assert core["totalNominal"] == 78
     assert "subtextFidelity" not in core
+    assert "actBoundaryQuality" not in core
 
 
 def test_nominal_call_estimate_uniform_one():
@@ -325,7 +378,7 @@ def test_nominal_call_estimate_uniform_one():
     )
 
     core = filter_call_estimate(nominal_call_estimate(resolve_run_map(1)), CORE_EVAL_KEYS)
-    assert 11 <= core["totalNominal"] <= 17
+    assert core["totalNominal"] == 18
 
 
 def test_run_suite_report_carries_call_estimate(session_factory):
@@ -405,6 +458,22 @@ def test_run_suite_only_runs_single_eval(session_factory):
     assert [r.name for r in report.results] == ["continuity-adherence"]
     # Estimate is scoped to just the selected family (truthful cost header).
     assert set(report.estimated_calls) == {"continuityAdherence", "totalNominal"}
+
+
+def test_run_suite_only_act_boundaries_uses_two_calls(session_factory):
+    report = run_suite(
+        MockLlmClient(),
+        MockJudge(),
+        session_factory,
+        runs=resolve_run_map(1),
+        dry_run=True,
+        only="act-boundaries",
+    )
+    assert [r.name for r in report.results] == ["act-boundary-quality"]
+    assert report.estimated_calls == {
+        "actBoundaryQuality": 2,
+        "totalNominal": 2,
+    }
 
 
 def test_capture_writes_failure_artifact_with_warning(tmp_path):

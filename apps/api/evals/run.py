@@ -39,6 +39,7 @@ _ONLY_CHOICES = (
     "lock-repair",
     "import-inference",
     "subtext",
+    "act-boundaries",
 )
 
 
@@ -59,8 +60,8 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         "--full",
         action="store_true",
         help="Include soft/adoption families (segmentation, lock-repair, "
-        "import-inference, subtext). Default runs hard gates only: schema, "
-        "lock, continuity.",
+        "import-inference, subtext, act-boundaries). Default runs hard gates "
+        "only: schema, lock, continuity.",
     )
     parser.add_argument(
         "--out",

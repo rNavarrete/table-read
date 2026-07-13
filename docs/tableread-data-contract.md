@@ -379,8 +379,12 @@ const InferredActStart = z.object({
 export const InferredActBreaks = z.object({
   starts: z.array(InferredActStart).min(1),
 });
-// Bounds that depend on the selected format and parsed scene count are
-// validated by the server, not encoded in this static operation schema.
+// Bounds that depend on the selected format and parsed scene count are server
+// validated, not encoded in this static operation schema. Starts must begin at
+// scene 0 and strictly increase by both act and scene index. Valid acts are
+// 0...actCount when coldOpen is true, otherwise 0...(actCount - 1). Omitted
+// acts are empty sections; the server expands accepted starts into exactly one
+// act assignment for every parsed scene.
 
 // §7 parse_script stage 2
 const SegmentedSceneBeat = z.object({
@@ -436,13 +440,13 @@ Defined transactions:
 - `GET /projects` -> `ProjectSummary[]` sorted by `updatedAt` descending. `pendingReviewCount` counts Ledger facts with `status: "pending_review"`. `setupState` is `"ready"` iff the project has at least one scene containing at least one beat; otherwise `"incomplete"`. Summaries must not include full writer text fields such as `premise` or `seasons`.
 - `POST /projects` `ProjectCreateRequest` with required `Idempotency-Key` header → `Project` — in one transaction: creates the project (minimal bible scaffolded, plus optional writer-supplied foundation) **and its root snapshot** (`parent_id: null`, `doc` = initial state, `ledger` = `[]`, `flags` = `[]`), setting `headSnapshotId` to it. `headSnapshotId` is therefore never null after creation — previews, undo, and forks always have an anchor. Character seeds contain no IDs; the server assigns `char-*`, sets `locked: false`, maps supplied `traits` or `""`, and initializes `embodiment`, `presentation`, `hiding`, and `seriesArc` to `""`. Project creation performs no LLM call. Same idempotency key + same canonical request hash replays the 201 response; same key + different hash returns 409 `IDEMPOTENCY_CONFLICT`; failed transactions persist no key.
 - `GET /projects/{pid}` → `Project`
-- `PATCH /projects/{pid}` — JSON-patch body for direct writer edits (no regeneration); creates snapshot. Patches touching **structural plan fields** (scene/episode `whatHappens`, `premise`, storyline summaries) additionally trigger `scan_consistency` and return `{project, consistencyFlags}` — the "Save field only" path skips Review, never the flagging promise. Patches into locked ranges → 409 `LOCKED_OBJECT`.
+- `PATCH /projects/{pid}` — JSON-patch body for direct writer edits (no regeneration); creates snapshot. Patches touching **structural plan fields** (scene/episode `whatHappens`, `premise`, storyline summaries) additionally trigger `scan_consistency` and return `{project, consistencyFlags}` — the "Save field only" path skips Review, never the flagging promise. Changing a scene's `act` is a non-text structural correction: it creates one normal snapshot but runs no LLM/extraction/consistency call. Patches into locked ranges, including a stale attempt to change a locked scene's act, → 409 `LOCKED_OBJECT`.
 - `POST /projects/{pid}/undo` → `Project` (moves head to parent snapshot)
 - `GET /projects/{pid}/snapshots` → `SnapshotSummary[]` (adoption A5) — up to 20 proper ancestors of the current head, nearest parent first. Each entry is `{id, instruction, ts}` for the undo-timeline dropdown. Does not include the current head.
 - `POST /projects/{pid}/restore` `{snapshotId}` → `Project` (adoption A5) — restore doc+ledger+flags from that ancestor; same CAS/`If-Match` rules as undo. Non-ancestor or current head → 409 `VALIDATION`.
 - `POST /projects/{pid}/import` `{format: "fountain"|"text", content}` → `{project, newFacts, consistencyFlags}` — full import transaction:
   1. Deterministic scene split + LLM typed segment-start proposal (prompt spec §7); the server derives a total line partition, optionally retries that scene once under the repair-quality gate, and persists a review flag for every repair in the selected attempt. Semantic start errors never drop/duplicate text or abort coverage.
-  2. Run `infer_act_breaks` over compact scene summaries in source order; the model returns ordered `{act, startSceneIndex}` starts and the server validates format/scene bounds and derives scene coverage.
+  2. Run `infer_act_breaks` over compact scene summaries in source order; the model returns ordered `{act, startSceneIndex}` starts and the server validates format/scene bounds and derives a total partition with exactly one act per scene. Omitted valid acts remain empty. A semantic failure gets exactly one classifier retry with inert diagnostics; a second failure surfaces `SCHEMA_INVALID_LLM`, and the import persists nothing.
   3. Run `extract_ledger_facts` over every imported scene; **all import-derived facts are created `pending_review` regardless of confidence** (nobody has vouched for inferences over a whole script — the writer batch-reviews them in the Ledger queue).
   4. Run `scan_consistency` across the imported episode (initial sweep — imports can carry internal contradictions).
   5. One snapshot committing doc + ledger + flags together; partial failure rolls back all of it.

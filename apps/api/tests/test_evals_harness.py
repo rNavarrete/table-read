@@ -68,6 +68,7 @@ def _report(results) -> SuiteReport:
             "lockRepairQuality": 5,
             "importInference": 5,
             "subtextFidelity": 5,
+            "actBoundaryQuality": 5,
         },
         results=results,
     )
@@ -167,6 +168,7 @@ def test_estimated_calls_render_in_report_header():
             "lockRepairQuality": 5,
             "importInference": 5,
             "subtextFidelity": 5,
+            "actBoundaryQuality": 5,
         },
         results=[_result(score=1.0)],
         estimated_calls={"schemaValidity": 140, "totalNominal": 283},

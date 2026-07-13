@@ -31,6 +31,7 @@ EVAL_KEYS: dict[str, str] = {
     "lock-repair": "lockRepairQuality",
     "import-inference": "importInference",
     "subtext": "subtextFidelity",
+    "act-boundaries": "actBoundaryQuality",
 }
 
 HARD_RUNS = 5
@@ -45,6 +46,7 @@ SOFT_EVAL_KEYS: tuple[str, ...] = (
     "lock-repair",
     "import-inference",
     "subtext",
+    "act-boundaries",
 )
 
 # `--only`/checkpoint short key → the `EvalResult.name` that family produces.
@@ -59,6 +61,7 @@ FAMILY_RESULT_NAME: dict[str, str] = {
     "lock-repair": "lock-repair-quality",
     "import-inference": "import-inference",
     "subtext": "subtext-fidelity",
+    "act-boundaries": "act-boundary-quality",
 }
 
 
@@ -86,15 +89,16 @@ def nominal_call_estimate(runs: dict[str, int]) -> dict:
     """Nominal (retry-free) real-API call counts per eval family — cost
     visibility for the report header and the Makefile target.
 
-    Per family: schema = one call per probe per run (8 × schema runs). lock =
+    Per family: schema = one call per probe per run (9 × schema runs). lock =
     up to 3 product calls per regenerate attempt (preview's regenerate + apply's
     extract + scan; guard rejections stop after 1) plus 1 per candidate attempt
     → ≤ 4 × lock runs. continuity = 3 grader calibration calls + (1 generate +
     1 grade) × continuity runs. Segmentation and each adoption soft eval = 1 ×
-    that family's runs. Rule-9 retries can add up to one extra call per product
-    call (observed-worst budget ≈ 1.5× total). Core defaults (schema/lock/
-    continuity only, hard N=5): ≈73 nominal; `--full` adds soft families
-    (≈+20); `--runs 1` core ≈11–15."""
+    that family's runs. Act-boundary quality has two labeled probes, so it is
+    2 × that family's runs. Rule-9 retries can add up to one extra call per
+    product call (observed-worst budget ≈ 1.5× total). Core defaults
+    (schema/lock/continuity only, N=5): ≈78 nominal; `--full` adds soft
+    families (≈+30); `--runs 1` core ≈18."""
     schema = len(probes.SCHEMA_PROBES) * runs["schemaValidity"]
     lock = 4 * runs["lockViolation"]
     continuity = 3 + 2 * runs["continuityAdherence"]
@@ -102,6 +106,7 @@ def nominal_call_estimate(runs: dict[str, int]) -> dict:
     lock_repair = runs["lockRepairQuality"]
     import_inference = runs["importInference"]
     subtext = runs["subtextFidelity"]
+    act_boundaries = 2 * runs["actBoundaryQuality"]
     return {
         "schemaValidity": schema,
         "lockViolation": lock,
@@ -110,6 +115,7 @@ def nominal_call_estimate(runs: dict[str, int]) -> dict:
         "lockRepairQuality": lock_repair,
         "importInference": import_inference,
         "subtextFidelity": subtext,
+        "actBoundaryQuality": act_boundaries,
         "totalNominal": (
             schema
             + lock
@@ -118,6 +124,7 @@ def nominal_call_estimate(runs: dict[str, int]) -> dict:
             + lock_repair
             + import_inference
             + subtext
+            + act_boundaries
         ),
     }
 
@@ -265,6 +272,15 @@ def run_suite(
         "subtext",
         lambda: adoption.subtext_eval(
             client, ctx, runs=runs[EVAL_KEYS["subtext"]], on_progress=on_progress
+        ),
+    )
+    run_family(
+        "act-boundaries",
+        lambda: checks.act_boundary_quality_eval(
+            client,
+            ctx,
+            runs=runs[EVAL_KEYS["act-boundaries"]],
+            on_progress=on_progress,
         ),
     )
 

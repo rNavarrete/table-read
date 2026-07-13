@@ -48,6 +48,7 @@ def _complete_results() -> list[EvalResult]:
         _result(name="lock-repair-quality", hard=False),
         _result(name="import-inference", hard=False),
         _result(name="subtext-fidelity", hard=False),
+        _result(name="act-boundary-quality", hard=False),
     ]
 
 
@@ -172,6 +173,7 @@ def test_resume_skips_completed_family(tmp_path, session_factory, monkeypatch):
         "lock-repair-quality",
         "import-inference",
         "subtext-fidelity",
+        "act-boundary-quality",
     ]
     # the resumed family is the exact prior object, not recomputed
     assert report.results[0] is prior[0]
@@ -253,6 +255,7 @@ def test_resume_merges_prior_and_new_in_stable_suite_order(session_factory, monk
         "lock-repair-quality",
         "import-inference",
         "subtext-fidelity",
+        "act-boundary-quality",
     ]
     assert report.results[0].score == 0.42
     assert report.results[1].score == 0.99
@@ -297,6 +300,7 @@ def test_resume_complete_checkpoint_writes_fresh_checkpoint_without_reinvoking_f
     monkeypatch.setattr(adoption, "lock_repair_eval", _fail_if_called)
     monkeypatch.setattr(adoption, "import_inference_eval", _fail_if_called)
     monkeypatch.setattr(adoption, "subtext_eval", _fail_if_called)
+    monkeypatch.setattr(checks, "act_boundary_quality_eval", _fail_if_called)
 
     prior = _complete_results()
     cp_path = tmp_path / "checkpoint-fresh.json"
