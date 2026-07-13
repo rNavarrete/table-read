@@ -17,7 +17,7 @@ from llm.dependency import get_llm_client
 from llm.errors import LlmTimeoutError, SchemaInvalidLlmError
 from llm.mock import MockLlmClient
 from main import app
-from schemas import ConsistencyScan, LedgerExtraction, SegmentedScene
+from schemas import ConsistencyScan, InferredActBreaks, LedgerExtraction, SegmentedScene
 from storage import snapshots
 from storage.models import LedgerFactRow, ProjectRow, SnapshotRow
 
@@ -59,6 +59,10 @@ def seg(beats: list[tuple], unassigned: list[tuple] | None = None) -> SegmentedS
 def one_beat_per_scene(source: str) -> list[SegmentedScene]:
     """A valid single-beat segmentation for each scene of `source`."""
     return [seg([(1, len(scene.lines))]) for scene in split_into_scenes(source)]
+
+
+def act_breaks(*starts) -> InferredActBreaks:
+    return InferredActBreaks(starts=list(starts))
 
 
 def extraction(facts: list[dict] | None = None) -> LedgerExtraction:
@@ -141,6 +145,97 @@ def test_import_into_project_with_locked_content_is_rejected_zero_rows(
 
 
 # ── round-trip: reproduces scene/beat count + response shape ──────────────────
+
+
+def test_import_assigns_inferred_acts_and_allows_empty_sections(
+    unlocked_project, db_session, mock_llm
+):
+    source = "\n".join(
+        f"INT. ROOM {i} - DAY\nScene {i}." for i in range(1, 7)
+    )
+    mock_llm.set_responses("segment_scene", one_beat_per_scene(source))
+    mock_llm.set_response(
+        "infer_act_breaks",
+        act_breaks(
+            {"act": 1, "startSceneIndex": 0},
+            {"act": 3, "startSceneIndex": 2},
+            {"act": 5, "startSceneIndex": 4},
+        ),
+    )
+    mock_llm.set_response("extract_ledger_facts", extraction())
+    mock_llm.set_response("scan_consistency", scan())
+
+    from fountain.pipeline import run_import
+
+    project = db_session.get(ProjectRow, PROJECT_ID)
+    project.doc = {
+        **project.doc,
+        "format": {**project.doc["format"], "actCount": 5},
+    }
+    result = run_import(
+        db_session, project, source, mock_llm, instruction="Import test"
+    )
+    scenes = result["project"]["seasons"][0]["episodes"][0]["scenes"]
+    assert [scene["act"] for scene in scenes] == [1, 1, 3, 3, 5, 5]
+
+
+def test_import_retries_semantically_invalid_act_inference_once(
+    unlocked_project, db_session, mock_llm
+):
+    source = "\n".join(
+        f"INT. ROOM {i} - DAY\nScene {i}." for i in range(1, 4)
+    )
+    mock_llm.set_responses("segment_scene", one_beat_per_scene(source))
+    mock_llm.set_responses(
+        "infer_act_breaks",
+        [
+            act_breaks({"act": 1, "startSceneIndex": 1}),
+            act_breaks({"act": 1, "startSceneIndex": 0}),
+        ],
+    )
+    mock_llm.set_response("extract_ledger_facts", extraction())
+    mock_llm.set_response("scan_consistency", scan())
+
+    from fountain.pipeline import run_import
+
+    project = db_session.get(ProjectRow, PROJECT_ID)
+    result = run_import(
+        db_session, project, source, mock_llm, instruction="Import test"
+    )
+    scenes = result["project"]["seasons"][0]["episodes"][0]["scenes"]
+    assert [scene["act"] for scene in scenes] == [1, 1, 1]
+    assert mock_llm.invocation_count("infer_act_breaks") == 2
+
+
+def test_second_semantically_invalid_act_inference_persists_nothing(
+    unlocked_project, db_session, mock_llm
+):
+    project = db_session.get(ProjectRow, PROJECT_ID)
+    original_doc = project.doc
+    original_head = project.head_snapshot_id
+    original_snaps = db_session.query(SnapshotRow).filter_by(project_id=PROJECT_ID).count()
+    original_facts = db_session.query(LedgerFactRow).filter_by(project_id=PROJECT_ID).count()
+    source = "INT. BAR - DAY\nScene."
+    mock_llm.set_responses("segment_scene", one_beat_per_scene(source))
+    mock_llm.set_responses(
+        "infer_act_breaks",
+        [
+            act_breaks({"act": 1, "startSceneIndex": 1}),
+            act_breaks({"act": 1, "startSceneIndex": 1}),
+        ],
+    )
+
+    from fountain.pipeline import run_import
+
+    with pytest.raises(SchemaInvalidLlmError, match="infer_act_breaks"):
+        run_import(
+            db_session, project, source, mock_llm, instruction="Import test"
+        )
+
+    assert mock_llm.invocation_count("infer_act_breaks") == 2
+    _assert_unchanged(
+        db_session, original_doc, original_head, original_snaps, original_facts
+    )
 
 
 def test_roundtrip_reproduces_scene_and_beat_count(unlocked_project, db_session, mock_llm):

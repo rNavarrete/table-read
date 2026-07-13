@@ -162,12 +162,12 @@ def test_success_streams_named_stages_then_complete(db_session, mock_llm):
     events = _parse_sse(resp.text)
     names = [n for n, _ in events]
     assert names == [
-        "stage", "stage", "stage", "stage", "stage", "complete",
+        "stage", "stage", "stage", "stage", "stage", "stage", "complete",
     ]
     stage_names = [d["name"] for n, d in events if n == "stage"]
     assert stage_names == [
-        "parsing_scenes", "segmenting_beats", "extracting_facts",
-        "checking_consistency", "saving",
+        "parsing_scenes", "segmenting_beats", "inferring_acts",
+        "extracting_facts", "checking_consistency", "saving",
     ]
     for name, data in events:
         assert data["type"] == name
@@ -458,6 +458,29 @@ def test_fault_segmenting_beats_zero_rows(db_session, mock_llm):
     )
     with pytest.raises(RuntimeError, match="injected"):
         _drain(gen)
+    _assert_no_new_rows(db_session, baseline)
+
+
+def test_fault_inferring_acts_zero_rows(db_session):
+    baseline = _table_counts(db_session)
+
+    class _Raising(MockLlmClient):
+        def infer_act_breaks(self, **kwargs):
+            raise SchemaInvalidLlmError("infer_act_breaks")
+
+    gen = create_import.create_and_import_events(
+        db_session,
+        title="Fault Show",
+        format_dict=BASICS["format"],
+        premise="",
+        source_format="fountain",
+        content="INT. BAR\nx",
+        llm=_Raising(),
+        creation_idempotency_key="fault-acts",
+        creation_request_hash="fault-acts",
+    )
+    events = _parse_sse("".join(gen))
+    assert events[-1][1]["error"]["code"] == "SCHEMA_INVALID_LLM"
     _assert_no_new_rows(db_session, baseline)
 
 

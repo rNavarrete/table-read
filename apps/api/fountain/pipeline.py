@@ -11,9 +11,9 @@ inside `analyze_import`, entirely *before* either caller's single DB write
 
 `analyze_import` is a generator so a caller that wants named progress (the
 create-and-import SSE stream, data contract §9.3: `parsing_scenes` /
-`segmenting_beats` / `extracting_facts` / `checking_consistency`) can drive it
-one stage at a time; `run_import` below, which has no such caller, drains it
-in one call via `run_to_completion`.
+`segmenting_beats` / `inferring_acts` / `extracting_facts` /
+`checking_consistency`) can drive it one stage at a time; `run_import` below,
+which has no such caller, drains it in one call via `run_to_completion`.
 
 The LLM never controls text coverage (§7): `scriptText` is sliced verbatim
 from the server-derived partition returned by `parse.normalize_and_slice`,
@@ -31,6 +31,7 @@ from dataclasses import dataclass
 
 from drama_manager import locks, render
 from drama_manager.ledger_policy import IdMinter
+from fountain import acts
 from fountain.parse import (
     CoverageError,
     ImportedBeat,
@@ -39,6 +40,7 @@ from fountain.parse import (
     normalize_and_slice,
     split_into_scenes,
 )
+from llm.errors import SchemaInvalidLlmError
 from llm.protocol import LlmClient
 from storage import snapshots
 from storage.models import LedgerFactRow, ProjectRow
@@ -51,6 +53,7 @@ _logger = logging.getLogger("fountain.pipeline")
 # single DB write, which happens *after* analysis completes.
 STAGE_PARSING_SCENES = "parsing_scenes"
 STAGE_SEGMENTING_BEATS = "segmenting_beats"
+STAGE_INFERRING_ACTS = "inferring_acts"
 STAGE_EXTRACTING_FACTS = "extracting_facts"
 STAGE_CHECKING_CONSISTENCY = "checking_consistency"
 
@@ -150,6 +153,56 @@ def analyze_import(
         )
         per_scene_beats.append(selected.beats)
 
+    # ── Infer the total act partition after all scenes have their semantic
+    # summaries, but before scene assembly and every later LLM stage. ─────────
+    yield STAGE_INFERRING_ACTS
+    summaries = acts.scene_summaries(spans, per_scene_beats)
+    system, user = render.build_act_inference_prompt(
+        project_doc, summaries, render.new_nonce()
+    )
+    inferred = llm.infer_act_breaks(
+        system=system,
+        user_message=user,
+        prompt_version=render.PROMPT_VERSION,
+    )
+    selected_inference = inferred
+    retried_acts = False
+    try:
+        scene_acts = acts.expand_act_starts(
+            inferred,
+            scene_count=len(spans),
+            format_dict=project_doc["format"],
+        )
+    except acts.ActInferenceError as first_error:
+        retried_acts = True
+        retry_system, retry_user = render.build_act_inference_retry_prompt(
+            project_doc,
+            summaries,
+            first_error.diagnostics,
+            render.new_nonce(),
+        )
+        repaired = llm.infer_act_breaks(
+            system=retry_system,
+            user_message=retry_user,
+            prompt_version=render.PROMPT_VERSION,
+        )
+        selected_inference = repaired
+        try:
+            scene_acts = acts.expand_act_starts(
+                repaired,
+                scene_count=len(spans),
+                format_dict=project_doc["format"],
+            )
+        except acts.ActInferenceError as second_error:
+            raise SchemaInvalidLlmError("infer_act_breaks") from second_error
+    _logger.info(
+        "import_infer_acts scenes=%d boundaries=%d retried=%s prompt_version=%s",
+        len(spans),
+        len(selected_inference.starts),
+        retried_acts,
+        render.PROMPT_VERSION,
+    )
+
     # ── Assemble the episode doc with deterministic ids, carrying each beat's
     # unassigned ranges so they can be flagged. ──────────────────────────────
     scene_docs: list[dict] = []
@@ -175,7 +228,7 @@ def analyze_import(
             {
                 "id": f"scene-{si}",
                 "index": si - 1,
-                "act": 0,  # plain scripts carry no act markers (MVP); default cold-open act
+                "act": scene_acts[si - 1],
                 "storyline": "A",
                 "locked": False,
                 "location": span.location,
