@@ -174,7 +174,7 @@ def build_act_inference_prompt(
         "do not return scene ids, end indices, or per-scene assignments. "
         "Do not infer a TAG; tag assignment is outside this operation."
     )
-    return build_system_prompt(project, nonce), user
+    return build_system_prompt({"format": fmt}, nonce), user
 
 
 def build_act_inference_retry_prompt(

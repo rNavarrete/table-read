@@ -1,6 +1,7 @@
 import pytest
 
-from fountain.acts import ActInferenceError, expand_act_starts
+from fountain.acts import ActInferenceError, expand_act_starts, scene_summaries
+from fountain.parse import ImportedBeat, SceneSpan
 from schemas import InferredActBreaks
 
 FORMAT = {
@@ -54,3 +55,39 @@ def test_no_cold_open_uses_zero_as_act_one():
         {"act": 1, "startSceneIndex": 3},
     )
     assert expand_act_starts(value, scene_count=5, format_dict=fmt) == [0, 0, 0, 1, 1]
+
+
+def test_scene_summaries_project_only_compact_post_segmentation_fields():
+    spans = [
+        SceneSpan(
+            location="INT. BAR - NIGHT",
+            lines=["INT. BAR - NIGHT", "Marta returns."],
+            start_line=4,
+        )
+    ]
+    beats = [[
+        ImportedBeat(
+            what_happens="Marta returns.",
+            audience_learns="She kept the key.",
+            audience_feels="Dread.",
+            script_text="MARTA\nI came back.",
+        )
+    ]]
+
+    summaries = scene_summaries(spans, beats)
+
+    assert summaries == [
+        {
+            "sceneIndex": 0,
+            "location": "INT. BAR - NIGHT",
+            "beats": [
+                {
+                    "whatHappens": "Marta returns.",
+                    "audienceLearns": "She kept the key.",
+                    "audienceFeels": "Dread.",
+                }
+            ],
+        }
+    ]
+    assert "scriptText" not in str(summaries)
+    assert "MARTA\nI came back." not in str(summaries)
