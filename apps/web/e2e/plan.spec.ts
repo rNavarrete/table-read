@@ -63,6 +63,32 @@ test('reorder scene-4 before scene-3 (cross-act drag) persists after reload', as
   ])
 })
 
+test('correcting a scene act in the inspector persists after reload', async ({
+  page,
+}) => {
+  await page.goto('/plan?project=proj-longpour')
+
+  await page.getByTestId('scene-card-scene-5').click()
+  const inspector = page.getByTestId('inspector')
+  await inspector.getByRole('combobox', { name: 'Act' }).selectOption('2')
+
+  await expect(
+    page.getByTestId('act-frame-2').getByTestId('scene-card-scene-5'),
+  ).toBeVisible()
+  await expect(
+    page.getByTestId('act-frame-3').getByTestId('scene-card-scene-5'),
+  ).toHaveCount(0)
+
+  await page.reload()
+
+  await expect(
+    page.getByTestId('act-frame-2').getByTestId('scene-card-scene-5'),
+  ).toBeVisible()
+  await expect(
+    page.getByTestId('act-frame-3').getByTestId('scene-card-scene-5'),
+  ).toHaveCount(0)
+})
+
 test('lock icon renders on beat-1-2 (locked in fixture); beat-1-1 has none', async ({
   page,
 }) => {

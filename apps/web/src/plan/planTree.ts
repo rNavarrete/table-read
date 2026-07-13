@@ -322,15 +322,19 @@ export function buildBeatPatch(
  * present on a scene (defensive: a frame is never silently dropped just
  * because a drag emptied it, and no scene is ever orphaned by a format that
  * disagrees with the data), sorted ascending. */
+export function actNumbersForFormat(format: ShowFormat): number[] {
+  const count = format.coldOpen ? format.actCount + 1 : format.actCount
+  return Array.from({ length: count }, (_, index) => index)
+}
+
 export function actNumbersForBoard(
   format: ShowFormat,
   scenes: Scene[],
 ): number[] {
-  const expected = format.coldOpen
-    ? Array.from({ length: format.actCount + 1 }, (_, i) => i)
-    : Array.from({ length: format.actCount }, (_, i) => i)
   const present = scenes.map((s) => s.act)
-  return Array.from(new Set([...expected, ...present])).sort((a, b) => a - b)
+  return Array.from(new Set([...actNumbersForFormat(format), ...present])).sort(
+    (a, b) => a - b,
+  )
 }
 
 /** Display label for an act frame (UI spec §4: "COLD OPEN", "ACT ONE"…). */

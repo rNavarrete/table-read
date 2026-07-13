@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import type { ConsistencyFlag, LedgerFact, Project } from 'contract'
+import type { ConsistencyFlag, LedgerFact, Project, Scene } from 'contract'
 import {
   createChangeSet,
   getConsistencyFlags,
@@ -181,14 +181,15 @@ export function PlanScreen() {
     )
   }
 
-  function handleSaveSceneField(sceneId: string, field: string, value: string) {
+  function handleSaveSceneField(
+    sceneId: string,
+    field: keyof Scene,
+    value: unknown,
+  ) {
     if (!project) return
     const ops = buildScenePatch(project, sceneId, field, value)
     if (!ops) return
-    void patcher.patch(
-      ops,
-      withSceneField(project, sceneId, field as never, value),
-    )
+    void patcher.patch(ops, withSceneField(project, sceneId, field, value))
   }
 
   function handleSaveBeatField(

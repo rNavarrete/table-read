@@ -27,6 +27,7 @@ client = TestClient(app)
 PROJECT_ID = "proj-longpour"
 SCENE_3_WHATHAPPENS = "/seasons/0/episodes/0/scenes/2/whatHappens"
 SCENE_3_LOCATION = "/seasons/0/episodes/0/scenes/2/location"
+SCENE_3_ACT = "/seasons/0/episodes/0/scenes/2/act"
 
 
 def scan(flags=None) -> ConsistencyScan:
@@ -126,6 +127,18 @@ def test_non_structural_edit_never_calls_the_model(seeded_project):
     resp = _patch([{"op": "replace", "path": "/title", "value": "Renamed"}])
     assert resp.status_code == 200
     assert resp.json()["title"] == "Renamed"
+
+
+def test_act_edit_is_silent_snapshotted_and_never_calls_model(
+    seeded_project, db_session
+):
+    before = _snaps(db_session)
+    resp = _patch([{"op": "replace", "path": SCENE_3_ACT, "value": 2}])
+
+    assert resp.status_code == 200
+    assert "consistencyFlags" not in resp.json()
+    assert resp.json()["seasons"][0]["episodes"][0]["scenes"][2]["act"] == 2
+    assert _snaps(db_session) == before + 1
 
 
 # ── atomicity: a scan LLM failure persists nothing (T2.2 precedent, rule 9) ───

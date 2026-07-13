@@ -10,6 +10,7 @@ import type {
 import {
   actLabel,
   actNumbersForBoard,
+  actNumbersForFormat,
   affectedFacts,
   buildBeatPatch,
   buildScenePatch,
@@ -300,6 +301,30 @@ describe('actNumbersForBoard / actLabel', () => {
     tag: false,
     serialization: 0.8,
   }
+
+  it('returns every valid act number for formats with and without a cold open', () => {
+    expect(
+      actNumbersForFormat({
+        genre: 'drama',
+        runtimeMinutes: 60,
+        actCount: 5,
+        coldOpen: true,
+        tag: false,
+        serialization: 0.8,
+      }),
+    ).toEqual([0, 1, 2, 3, 4, 5])
+
+    expect(
+      actNumbersForFormat({
+        genre: 'comedy',
+        runtimeMinutes: 30,
+        actCount: 2,
+        coldOpen: false,
+        tag: false,
+        serialization: 0.2,
+      }),
+    ).toEqual([0, 1])
+  })
 
   it('renders every act in the format range, cold open through the last act', () => {
     expect(actNumbersForBoard(format, [])).toEqual([0, 1, 2, 3, 4])

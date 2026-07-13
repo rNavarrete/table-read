@@ -87,6 +87,22 @@ def test_patch_into_locked_scene_content_is_rejected_zero_mutations(seeded_proje
     assert _snap_count(db_session) == snaps_after_lock
 
 
+def test_patch_locked_scene_act_is_rejected_without_snapshot(
+    seeded_project, db_session
+):
+    lock_resp = _patch(
+        [{"op": "replace", "path": f"{SCENE_3}/locked", "value": True}]
+    )
+    assert lock_resp.status_code == 200
+    snaps_after_lock = _snap_count(db_session)
+
+    resp = _patch([{"op": "replace", "path": f"{SCENE_3}/act", "value": 2}])
+
+    assert resp.status_code == 409
+    assert resp.json()["error"]["code"] == "LOCKED_OBJECT"
+    assert _snap_count(db_session) == snaps_after_lock
+
+
 def test_patch_removing_a_locked_beat_is_rejected(seeded_project):
     resp = _patch([{"op": "remove", "path": BEAT_1_2}])
     assert resp.status_code == 409
