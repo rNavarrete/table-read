@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -33,6 +34,7 @@ afterEach(() => {
   mockedExtractPdf.mockReset()
   mockedStreamSse.mockReset()
   vi.restoreAllMocks()
+  vi.useRealTimers()
 })
 
 function stubLocationAssign() {
@@ -58,6 +60,17 @@ function stubLocationAssign() {
 
 async function* framesFrom(events: Array<{ event: string; data: unknown }>) {
   for (const event of events) yield event
+}
+
+async function* timedFramesFrom(
+  events: Array<{ delayMs: number; event: string; data: unknown }>,
+) {
+  for (const event of events) {
+    if (event.delayMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, event.delayMs))
+    }
+    yield { event: event.event, data: event.data }
+  }
 }
 
 async function fillSourceAndBasics(
@@ -294,6 +307,79 @@ describe('ImportWizard', () => {
     expect(loadDraft(IMPORT_PATH)).toBeNull()
 
     restore()
+  })
+
+  it('renders truthful streaming counters, elapsed time, ETA, and throttled announcements', async () => {
+    const user = userEvent.setup()
+    mockedStreamSse.mockImplementation(() =>
+      timedFramesFrom([
+        {
+          delayMs: 0,
+          event: 'stage',
+          data: { type: 'stage', name: 'segmenting_beats' },
+        },
+        ...Array.from({ length: 10 }, (_, index) => ({
+          delayMs: 1_000,
+          event: 'progress',
+          data: {
+            type: 'progress',
+            stage: 'segmenting_beats',
+            done: index + 1,
+            total: 10,
+          },
+        })),
+        {
+          delayMs: 60_000,
+          event: 'failed',
+          data: {
+            type: 'failed',
+            error: { code: 'CONNECTION_ERROR', message: 'connection lost' },
+          },
+        },
+      ]),
+    )
+
+    render(<ImportWizard />)
+    await fillSourceAndBasics(user, 'Ferry Crossing')
+    vi.useFakeTimers()
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Create & analyze script' }),
+    )
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0)
+    })
+
+    expect(screen.getByText('Segmenting beats')).not.toBeNull()
+    expect(screen.getByRole('status').textContent).toContain('Segmenting beats')
+    expect(screen.getByRole('status').textContent).not.toContain('1 of 10')
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000)
+    })
+
+    expect(screen.getByText('5 of 10')).not.toBeNull()
+    expect(screen.getByText('Elapsed 0:05')).not.toBeNull()
+    expect(screen.getByText('about 1 min left')).not.toBeNull()
+    const segmentingProgress = screen.getByRole('progressbar', {
+      name: 'Segmenting beats progress',
+    })
+    expect(segmentingProgress.getAttribute('aria-valuenow')).toBe('5')
+    expect(segmentingProgress.getAttribute('aria-valuemax')).toBe('10')
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(4_000)
+    })
+
+    expect(screen.getByText('9 of 10')).not.toBeNull()
+    expect(screen.getByRole('status').textContent).not.toContain('9 of 10')
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_000)
+    })
+
+    expect(screen.getByText('10 of 10')).not.toBeNull()
+    expect(screen.getByRole('status').textContent).toContain('10 of 10')
   })
 
   it('on failure preserves the draft, creates no project, and offers recovery actions', async () => {

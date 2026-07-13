@@ -1,7 +1,8 @@
-import { type ChangeEvent, useRef, useState } from 'react'
+import { type ChangeEvent, useEffect, useRef, useState } from 'react'
 import type {
   PdfExtractMethod,
   ProjectImportCreateRequest,
+  ProjectImportProgressEvent,
   ProjectImportStageName,
 } from 'contract'
 import { extractPdf, importCreateUrl } from '../../api/client'
@@ -12,6 +13,13 @@ import {
   type FormatPresetId,
 } from './FormatPresets'
 import { formatImportCostLine } from './importCostEstimate'
+import {
+  advanceImportProgress,
+  estimateRemainingMs,
+  formatElapsed,
+  type ImportProgressState,
+  initialImportProgressState,
+} from './importProgress'
 import { analyzeSource } from './importSourceStats'
 import { WizardShell } from './WizardShell'
 import { clearDraft, loadDraft, saveDraft } from './wizardDraft'
@@ -60,15 +68,15 @@ interface AnalyzeError {
 
 interface AnalyzeSession {
   phase: 'idle' | 'streaming' | 'failed'
-  completedStages: ProjectImportStageName[]
-  currentStage: ProjectImportStageName | null
+  progress: ImportProgressState
+  liveAnnouncement: string
   error: AnalyzeError | null
 }
 
 const INITIAL_SESSION: AnalyzeSession = {
   phase: 'idle',
-  completedStages: [],
-  currentStage: null,
+  progress: initialImportProgressState,
+  liveAnnouncement: '',
   error: null,
 }
 
@@ -122,6 +130,32 @@ function importCreateBody(draft: ImportDraft): ProjectImportCreateRequest {
   }
 }
 
+function shouldAnnounceProgress(
+  previous: ImportProgressState,
+  next: ImportProgressState,
+  event: ProjectImportProgressEvent,
+): boolean {
+  if (event.type !== 'progress') return false
+  const before = previous.stages[event.stage]?.done ?? 0
+  const after = next.stages[event.stage]?.done ?? 0
+  return after > before && after % 10 === 0
+}
+
+function liveAnnouncementFor(
+  progress: ImportProgressState,
+  event: ProjectImportProgressEvent,
+): string | null {
+  if (event.type === 'stage') {
+    return `${STAGE_LABELS[event.name]}…`
+  }
+  if (event.type === 'progress') {
+    const stage = progress.stages[event.stage]
+    if (stage === undefined) return null
+    return `${STAGE_LABELS[event.stage]} ${stage.done} of ${stage.total}`
+  }
+  return null
+}
+
 export function ImportWizard() {
   const [draft, setDraft] = useState<ImportDraft>(() =>
     normalizeDraft(loadDraft<Partial<ImportDraft>>(IMPORT_PATH)),
@@ -132,10 +166,17 @@ export function ImportWizard() {
   const [basicsTouched, setBasicsTouched] = useState(false)
   const [titleTouched, setTitleTouched] = useState(false)
   const [session, setSession] = useState<AnalyzeSession>(INITIAL_SESSION)
+  const [nowMs, setNowMs] = useState(() => Date.now())
   const [jumpTo, setJumpTo] = useState<
     { stepId: string; token: number } | undefined
   >(undefined)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+
+  useEffect(() => {
+    if (session.phase !== 'streaming') return
+    const intervalId = window.setInterval(() => setNowMs(Date.now()), 1_000)
+    return () => window.clearInterval(intervalId)
+  }, [session.phase])
 
   function updateDraft(nextDraft: ImportDraft) {
     setDraft(nextDraft)
@@ -221,6 +262,7 @@ export function ImportWizard() {
 
   async function handleAnalyze() {
     if (session.phase === 'streaming') return
+    setNowMs(Date.now())
     setSession({ ...INITIAL_SESSION, phase: 'streaming' })
     let settled = false
     try {
@@ -231,20 +273,40 @@ export function ImportWizard() {
         { 'Idempotency-Key': draft.idempotencyKey },
       )
       for await (const raw of frames) {
-        const data = raw.data as { type?: string }
+        const data = raw.data as ProjectImportProgressEvent
         if (data.type === 'stage') {
-          const name = (data as { name: ProjectImportStageName }).name
           setSession((current) => ({
             ...current,
-            currentStage: name,
-            completedStages: current.completedStages.includes(name)
-              ? current.completedStages
-              : [...current.completedStages, name],
+            progress: advanceImportProgress(current.progress, data, Date.now()),
+            liveAnnouncement: liveAnnouncementFor(current.progress, data) ?? '',
           }))
+        } else if (data.type === 'progress') {
+          setSession((current) => {
+            const progress = advanceImportProgress(
+              current.progress,
+              data,
+              Date.now(),
+            )
+            const announcement = shouldAnnounceProgress(
+              current.progress,
+              progress,
+              data,
+            )
+              ? liveAnnouncementFor(progress, data)
+              : current.liveAnnouncement
+            return {
+              ...current,
+              progress,
+              liveAnnouncement: announcement ?? current.liveAnnouncement,
+            }
+          })
         } else if (data.type === 'complete') {
           settled = true
-          const result = (data as { result: { project: { id: string } } })
-            .result
+          setSession((current) => ({
+            ...current,
+            progress: advanceImportProgress(current.progress, data, Date.now()),
+          }))
+          const result = data.result
           clearDraft(IMPORT_PATH)
           window.location.assign(
             `/plan?project=${encodeURIComponent(result.project.id)}`,
@@ -277,6 +339,14 @@ export function ImportWizard() {
 
   const stats = analyzeSource(draft.source)
   const hasEnteredData = Boolean(draft.source || draft.title)
+  const elapsedMs =
+    session.progress.startedAtMs === null
+      ? 0
+      : Math.max(0, nowMs - session.progress.startedAtMs)
+  const etaMs = estimateRemainingMs(session.progress, nowMs)
+  const isEtaStale =
+    session.progress.lastProgressAtMs !== null &&
+    nowMs - session.progress.lastProgressAtMs > 30_000
 
   return (
     <WizardShell
@@ -523,8 +593,16 @@ export function ImportWizard() {
                 )}
               <ol aria-label="Import progress" className="grid gap-2">
                 {STAGE_ORDER.map((stage) => {
-                  const isDone = session.completedStages.includes(stage)
-                  const isCurrent = session.currentStage === stage && !isDone
+                  const progress = session.progress.stages[stage] ?? {
+                    done: 0,
+                    total: 0,
+                  }
+                  const isHeavyStage =
+                    stage === 'segmenting_beats' || stage === 'extracting_facts'
+                  const isDone =
+                    session.progress.completedStages.includes(stage)
+                  const isCurrent =
+                    session.progress.currentStage === stage && !isDone
                   const status =
                     session.phase === 'idle'
                       ? 'Pending'
@@ -537,18 +615,55 @@ export function ImportWizard() {
                     <li
                       key={stage}
                       aria-current={isCurrent ? 'step' : undefined}
-                      className="flex items-center justify-between rounded-card border border-tr-border bg-tr-surface-page px-3 py-2 text-13"
+                      className="grid gap-2 rounded-card border border-tr-border bg-tr-surface-page px-3 py-2 text-13"
                     >
-                      <span>{STAGE_LABELS[stage]}</span>
-                      <span className="text-tr-text-secondary">{status}</span>
+                      <div className="flex items-center justify-between gap-3">
+                        <span>{STAGE_LABELS[stage]}</span>
+                        <span className="text-tr-text-secondary">{status}</span>
+                      </div>
+                      {isHeavyStage && (
+                        <div className="grid gap-1">
+                          <span className="text-12 text-tr-text-muted">
+                            {progress.done} of {progress.total}
+                          </span>
+                          <div
+                            role="progressbar"
+                            aria-label={`${STAGE_LABELS[stage]} progress`}
+                            aria-valuemin={0}
+                            aria-valuemax={progress.total}
+                            aria-valuenow={progress.done}
+                            className="h-1 overflow-hidden rounded-card bg-tr-surface-sunken"
+                          >
+                            <div
+                              className="h-full bg-tr-coral"
+                              style={{
+                                width:
+                                  progress.total > 0
+                                    ? `${Math.min(100, (progress.done / progress.total) * 100)}%`
+                                    : '0%',
+                              }}
+                            />
+                          </div>
+                        </div>
+                      )}
                     </li>
                   )
                 })}
               </ol>
+              {session.phase === 'streaming' && (
+                <p className="flex flex-wrap gap-2 text-13 text-tr-text-secondary">
+                  <span>Elapsed {formatElapsed(elapsedMs)}</span>
+                  {etaMs !== null ? (
+                    <span>
+                      about {Math.max(1, Math.ceil(etaMs / 60_000))} min left
+                    </span>
+                  ) : isEtaStale ? null : (
+                    <span>estimating…</span>
+                  )}
+                </p>
+              )}
               <p role="status" aria-live="polite">
-                {session.phase === 'streaming' &&
-                  session.currentStage &&
-                  `${STAGE_LABELS[session.currentStage]}…`}
+                {session.phase === 'streaming' && session.liveAnnouncement}
               </p>
               {session.phase === 'failed' && session.error && (
                 <div className="grid gap-3 rounded-card border border-tr-danger bg-tr-surface-page p-3">
