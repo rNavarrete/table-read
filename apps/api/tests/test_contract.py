@@ -46,13 +46,38 @@ def test_project_summary_contract_accepts_dashboard_shape():
     )
 
 
-def test_inferred_act_breaks_contract():
+def test_inferred_act_breaks_accepts_integral_json_numbers():
     from schemas import InferredActBreaks
 
     value = InferredActBreaks.model_validate(
-        {"starts": [{"act": 1, "startSceneIndex": 0}]}
+        {"starts": [{"act": 1.0, "startSceneIndex": 0.0}]}
     )
     assert value.starts[0].act == 1
     assert value.starts[0].start_scene_index == 0
+
+
+@pytest.mark.parametrize(
+    "start",
+    [
+        {"act": "1", "startSceneIndex": 0},
+        {"act": 1, "startSceneIndex": "0"},
+        {"act": True, "startSceneIndex": 0},
+        {"act": 1, "startSceneIndex": False},
+        {"act": 1.5, "startSceneIndex": 0},
+        {"act": 1, "startSceneIndex": 0.5},
+        {"act": -1, "startSceneIndex": 0},
+        {"act": 1, "startSceneIndex": -1},
+    ],
+)
+def test_inferred_act_breaks_rejects_invalid_start_primitives(start):
+    from schemas import InferredActBreaks
+
+    with pytest.raises(ValidationError):
+        InferredActBreaks.model_validate({"starts": [start]})
+
+
+def test_inferred_act_breaks_rejects_empty_starts():
+    from schemas import InferredActBreaks
+
     with pytest.raises(ValidationError):
         InferredActBreaks.model_validate({"starts": []})

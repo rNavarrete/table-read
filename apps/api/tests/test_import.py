@@ -207,6 +207,66 @@ def test_import_retries_semantically_invalid_act_inference_once(
     assert mock_llm.invocation_count("infer_act_breaks") == 2
 
 
+def test_infer_act_pipeline_logs_only_safe_metadata(
+    unlocked_project, db_session, mock_llm, caplog
+):
+    source = (
+        "INT. PRIVATE LOCATION - NIGHT\nWRITER SECRET DIALOGUE.\n"
+        "INT. SECOND PRIVATE LOCATION - DAY\nMORE WRITER SECRET TEXT."
+    )
+    segmented = SegmentedScene.model_validate(
+        {
+            "segments": [
+                {
+                    "kind": "beat",
+                    "startLine": 1,
+                    "whatHappens": "SECRET SCENE SUMMARY",
+                    "audienceLearns": "SECRET REVELATION",
+                    "audienceFeels": "SECRET EMOTION",
+                }
+            ]
+        }
+    )
+    mock_llm.set_responses("segment_scene", [segmented, segmented])
+    mock_llm.set_response(
+        "infer_act_breaks",
+        act_breaks(
+            {"act": 0, "startSceneIndex": 0},
+            {"act": 1, "startSceneIndex": 1},
+        ),
+    )
+    mock_llm.set_response("extract_ledger_facts", extraction())
+    mock_llm.set_response("scan_consistency", scan())
+
+    from fountain.pipeline import run_import
+
+    project = db_session.get(ProjectRow, PROJECT_ID)
+    with caplog.at_level("INFO", logger="fountain.pipeline"):
+        run_import(db_session, project, source, mock_llm, instruction="Import test")
+
+    records = [
+        record
+        for record in caplog.records
+        if record.name == "fountain.pipeline"
+        and record.msg.startswith("import_infer_acts")
+    ]
+    assert len(records) == 1
+    assert records[0].msg == (
+        "import_infer_acts scenes=%d boundaries=%d retried=%s prompt_version=%s"
+    )
+    assert records[0].args[:3] == (2, 2, False)
+    assert isinstance(records[0].args[3], str)
+    logged = records[0].getMessage()
+    for private_text in (
+        "PRIVATE LOCATION",
+        "WRITER SECRET",
+        "SECRET SCENE SUMMARY",
+        "SECRET REVELATION",
+        "SECRET EMOTION",
+    ):
+        assert private_text not in logged
+
+
 def test_second_semantically_invalid_act_inference_persists_nothing(
     unlocked_project, db_session, mock_llm
 ):

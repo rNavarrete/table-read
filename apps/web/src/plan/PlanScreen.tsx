@@ -181,10 +181,10 @@ export function PlanScreen() {
     )
   }
 
-  function handleSaveSceneField(
+  function handleSaveSceneField<K extends keyof Scene>(
     sceneId: string,
-    field: keyof Scene,
-    value: unknown,
+    field: K,
+    value: Scene[K],
   ) {
     if (!project) return
     const ops = buildScenePatch(project, sceneId, field, value)

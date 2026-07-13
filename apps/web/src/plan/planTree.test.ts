@@ -7,6 +7,7 @@ import type {
   Scene,
   ShowFormat,
 } from 'contract'
+import type { InspectorProps } from './Inspector'
 import {
   actLabel,
   actNumbersForBoard,
@@ -106,6 +107,7 @@ function project(scenes: Scene[]): Project {
       },
     ],
     headSnapshotId: 'snap-root',
+    defaultCraftLevel: 'standard',
   }
 }
 
@@ -289,6 +291,27 @@ describe('withSceneField / withBeatField (optimistic twins of the lock/save patc
       p.seasons[0].episodes[0].scenes[0].beats.find((b) => b.id === 'beat-1-2')!
         .scriptLocked,
     ).toBe(true)
+  })
+
+  it('keeps scene field names correlated with their value types', () => {
+    const p = project(fixtureLikeScenes())
+    const saveSceneField: InspectorProps['onSaveSceneField'] = () => {}
+
+    withSceneField(p, 'scene-1', 'act', 2)
+    buildScenePatch(p, 'scene-1', 'location', 'INT. BAR - NIGHT')
+    saveSceneField('scene-1', 'locked', true)
+
+    const assertInvalidCallsFailToTypecheck = () => {
+      // @ts-expect-error An act update cannot carry a string.
+      withSceneField(p, 'scene-1', 'act', '2')
+      // @ts-expect-error A lock patch cannot carry a string.
+      buildScenePatch(p, 'scene-1', 'locked', 'true')
+      // @ts-expect-error Inspector callbacks preserve the selected field's type.
+      saveSceneField('scene-1', 'act', '2')
+    }
+    void assertInvalidCallsFailToTypecheck
+
+    expect(true).toBe(true)
   })
 })
 

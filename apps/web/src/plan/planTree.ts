@@ -157,11 +157,11 @@ export function swapScenesLocally(
 
 /** Optimistic twin of `buildScenePatch`: sets one field on `sceneId`
  * immutably, everything else structurally shared. */
-export function withSceneField(
+export function withSceneField<K extends keyof Scene>(
   project: Project,
   sceneId: string,
-  field: keyof Scene,
-  value: unknown,
+  field: K,
+  value: Scene[K],
 ): Project {
   return {
     ...project,
@@ -209,11 +209,11 @@ export function withBeatField(
 
 /** Single-field `replace` patch for a scene field (lock toggle, "Save field
  * only"). `null` if the scene isn't found. */
-export function buildScenePatch(
+export function buildScenePatch<K extends keyof Scene>(
   project: Project,
   sceneId: string,
-  field: string,
-  value: unknown,
+  field: K,
+  value: Scene[K],
 ): JsonPatchOp[] | null {
   const pointer = findScenePointer(project, sceneId)
   if (!pointer) return null

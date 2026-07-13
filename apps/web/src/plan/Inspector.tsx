@@ -299,10 +299,10 @@ export interface InspectorProps {
     beatId: string,
     scriptLocked: boolean,
   ) => void
-  onSaveSceneField: (
+  onSaveSceneField: <K extends keyof Scene>(
     sceneId: string,
-    field: keyof Scene,
-    value: unknown,
+    field: K,
+    value: Scene[K],
   ) => void
   onSaveBeatField: (
     sceneId: string,

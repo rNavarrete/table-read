@@ -20,9 +20,17 @@ index.ts's module header and the task report for why.
 from __future__ import annotations
 
 from enum import StrEnum
+from math import isfinite
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, RootModel, StringConstraints
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    RootModel,
+    StringConstraints,
+    field_validator,
+)
 from pydantic.alias_generators import to_camel
 
 # "scene-1", "beat-1-2", "fact-04", "char-marta"
@@ -654,6 +662,15 @@ class SuggestRequest(_Base):
 class InferredActStart(_Base):
     act: int = Field(ge=0)
     start_scene_index: int = Field(ge=0)
+
+    @field_validator("act", "start_scene_index", mode="before")
+    @classmethod
+    def require_integral_json_number(cls, value):
+        if isinstance(value, int) and not isinstance(value, bool):
+            return value
+        if isinstance(value, float) and isfinite(value) and value.is_integer():
+            return value
+        raise ValueError("must be an integral JSON number")
 
 
 class InferredActBreaks(_Base):

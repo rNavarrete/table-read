@@ -3,6 +3,7 @@ import { act, renderHook } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Project } from 'contract'
 import { ApiError } from '../api/errors'
+import { buildScenePatch, withSceneField } from './planTree'
 import { useProjectPatch } from './useProjectPatch'
 
 const { patchProjectMock } = vi.hoisted(() => ({ patchProjectMock: vi.fn() }))
@@ -34,6 +35,7 @@ function project(title: string): Project {
     },
     seasons: [],
     headSnapshotId: 'snap-root',
+    defaultCraftLevel: 'standard',
   }
 }
 
@@ -116,6 +118,72 @@ describe('useProjectPatch', () => {
       message: 'locked',
     })
     expect(result.current.pending).toBe(false)
+  })
+
+  it('rolls back an optimistic Act selection when its PATCH fails', async () => {
+    const before = project('Before')
+    before.seasons = [
+      {
+        id: 'season-1',
+        index: 0,
+        locked: false,
+        seasonArc: '',
+        characterArcs: [],
+        episodes: [
+          {
+            id: 'ep-1',
+            index: 0,
+            locked: false,
+            title: 'Pilot',
+            premise: '',
+            seasonFunction: '',
+            storylines: [],
+            scenes: [
+              {
+                id: 'scene-1',
+                index: 0,
+                act: 0,
+                storyline: 'A',
+                locked: false,
+                location: 'INT. ROOM - DAY',
+                time: '',
+                socialSituation: '',
+                whatHappens: '',
+                audienceLearns: '',
+                audienceFeels: '',
+                motivations: [],
+                beats: [],
+              },
+            ],
+          },
+        ],
+      },
+    ]
+    const ops = buildScenePatch(before, 'scene-1', 'act', 2)
+    expect(ops).not.toBeNull()
+    const optimistic = withSceneField(before, 'scene-1', 'act', 2)
+    patchProjectMock.mockRejectedValue(
+      new ApiError(500, { code: 'UNKNOWN', message: 'save failed' }),
+    )
+
+    let current = before
+    const setProject = vi.fn((next: Project) => {
+      current = next
+    })
+    const { result } = renderHook(() =>
+      useProjectPatch('proj-x', before, setProject),
+    )
+
+    await act(async () => {
+      await result.current.patch(ops!, optimistic)
+    })
+
+    expect(setProject).toHaveBeenNthCalledWith(1, optimistic)
+    expect(setProject).toHaveBeenNthCalledWith(2, before)
+    expect(current.seasons[0].episodes[0].scenes[0].act).toBe(0)
+    expect(patchProjectMock).toHaveBeenCalledWith('proj-x', ops, {
+      expectedHeadSnapshotId: 'snap-root',
+    })
   })
 
   it('refuses a second mutation while the first is in flight (concurrent-mutation guard)', async () => {
