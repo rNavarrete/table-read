@@ -36,6 +36,5 @@ describe('CandidateDock', () => {
 
     const dock = screen.getByTestId('candidate-dock')
     expect(dock.className).toContain('w-panel-candidate-dock')
-    expect(dock.className).toContain('bg-tr-surface-sunken')
   })
 })

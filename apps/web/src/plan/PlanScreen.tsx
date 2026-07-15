@@ -10,6 +10,7 @@ import { requireProjectId } from '../projects/projectRouting'
 import { loadResume, saveResume } from '../projects/resumeContext'
 import { navigateToReview, stashChangeSet } from '../review/changeSetSession'
 import { AppShell } from '../shell/AppShell'
+import { navigateToWriteScene } from '../shell/modeNavigation'
 import { Toast } from '../shell/Toast'
 import { lockedObjectMessage, staleHeadMessage } from '../shell/toastCopy'
 import { Board } from './Board'
@@ -363,6 +364,10 @@ export function PlanScreen() {
           onSelectBeat={(sceneId, beatId) =>
             setSelection({ type: 'beat', sceneId, beatId })
           }
+          onOpenInWrite={(sceneId) => {
+            saveResume(activeProjectId, { mode: 'Write', sceneId })
+            navigateToWriteScene(sceneId)
+          }}
           onReorder={handleReorder}
         />
         <Inspector

@@ -90,7 +90,7 @@ function makeScene(partial: Partial<Scene> & { id: string }): Scene {
   }
 }
 
-function project(): Project {
+function project(scenes?: Scene[]): Project {
   return {
     id: 'proj-1',
     title: 'West Wing Pilot',
@@ -101,7 +101,7 @@ function project(): Project {
           {
             id: 'ep-1',
             index: 0,
-            scenes: [
+            scenes: scenes ?? [
               makeScene({
                 id: 'scene-1',
                 location: 'OVAL OFFICE',
@@ -155,5 +155,36 @@ describe('WriteScreen script home', () => {
       screen.getByTestId('write-outline-scene-2').getAttribute('aria-current'),
     ).toBe('true')
     expect(window.location.search).toContain('scene=scene-2')
+  })
+
+  it('?scene= deep link activates and scrolls that scene (even if thin plan fields)', async () => {
+    const scrollIntoView = vi.fn()
+    Element.prototype.scrollIntoView = scrollIntoView
+
+    vi.mocked(getProject).mockResolvedValue(
+      project([
+        makeScene({ id: 'scene-1', location: '', whatHappens: '' }),
+        makeScene({
+          id: 'scene-24',
+          location: 'INT. WHITE HOUSE - NIGHT',
+          whatHappens: '',
+        }),
+      ]),
+    )
+    vi.mocked(getLedger).mockResolvedValue([])
+    window.history.pushState({}, '', '/?project=proj-1&scene=scene-24')
+
+    render(<WriteScreen />)
+
+    await waitFor(() => {
+      expect(
+        screen
+          .getByTestId('write-outline-scene-24')
+          .getAttribute('aria-current'),
+      ).toBe('true')
+    })
+    await waitFor(() => {
+      expect(scrollIntoView).toHaveBeenCalled()
+    })
   })
 })

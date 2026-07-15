@@ -57,6 +57,8 @@ export interface SceneCardProps {
   hasOpenConsistencyFlag: boolean
   onSelectScene: (sceneId: string) => void
   onSelectBeat: (sceneId: string, beatId: string) => void
+  /** Double-click opens Write on this scene (script-home deep link). */
+  onOpenInWrite: (sceneId: string) => void
   dragging: boolean
   dropTarget: boolean
   onDragStartScene: (sceneId: string) => void
@@ -79,6 +81,7 @@ export interface SceneCardProps {
  * Keyboard: the card is a focusable button — Enter/Space selects the scene
  * (UI spec §8: full keyboard path). Only when the card itself is focused;
  * keydown bubbling up from the chevron (its own button) is ignored.
+ * Double-click opens Write on this scene (UI spec §5).
  */
 export function SceneCard({
   scene,
@@ -88,6 +91,7 @@ export function SceneCard({
   hasOpenConsistencyFlag,
   onSelectScene,
   onSelectBeat,
+  onOpenInWrite,
   dragging,
   dropTarget,
   onDragStartScene,
@@ -107,6 +111,13 @@ export function SceneCard({
       return
     }
     onSelectScene(scene.id)
+  }
+
+  function handleDoubleClick(event: MouseEvent) {
+    // Ignore dblclick on the expand chevron (nested button).
+    if ((event.target as HTMLElement).closest('button')) return
+    event.preventDefault()
+    onOpenInWrite(scene.id)
   }
 
   function handleKeyDown(event: KeyboardEvent) {
@@ -155,9 +166,11 @@ export function SceneCard({
       onDragLeave={onDragLeaveScene}
       onDrop={handleDrop}
       onClick={handleClick}
+      onDoubleClick={handleDoubleClick}
       onKeyDown={handleKeyDown}
       data-testid={`scene-card-${scene.id}`}
       data-locked={locked}
+      title="Double-click to open in Write"
       className={
         'w-card-scene shrink-0 cursor-pointer select-none transition-shadow motion-reduce:transition-none' +
         (dragging ? ' shadow-lift opacity-60' : '') +

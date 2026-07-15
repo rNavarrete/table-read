@@ -33,7 +33,7 @@ const dangerShell =
 function ScriptPreview({ text }: { text: string }) {
   return (
     <div className="relative mt-2 overflow-hidden">
-      <p className="line-clamp-[8] whitespace-pre-wrap font-script text-12 text-tr-text-secondary">
+      <p className="line-clamp-[8] whitespace-pre-wrap font-script text-12 leading-relaxed text-tr-text-secondary">
         {text}
       </p>
       <div className="absolute inset-x-0 bottom-0 h-6 bg-gradient-to-b from-transparent to-tr-surface-raised" />

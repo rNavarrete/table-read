@@ -52,6 +52,8 @@ export function WriteScreen() {
   const scrollportRef = useRef<HTMLDivElement>(null)
   const suppressSpyUntilRef = useRef(0)
   const typingInCanvasRef = useRef(false)
+  /** After `?scene=` / resume land, scroll once the episode canvas mounts. */
+  const pendingScrollSceneIdRef = useRef<string | null>(null)
 
   useEffect(() => {
     if (!projectId) return
@@ -71,7 +73,15 @@ export function WriteScreen() {
         )
         const preferredId = requestedSceneId ?? resume.sceneId
         const initial = pickDefaultScene(loadedProject, preferredId)
-        if (initial) setActiveSceneId(initial.id)
+        if (initial) {
+          setActiveSceneId(initial.id)
+          // Deep link / Plan jump: keep spy quiet until we scroll the target
+          // into view — otherwise the topmost scene steals active.
+          if (preferredId && findScene(loadedProject, preferredId)) {
+            pendingScrollSceneIdRef.current = preferredId
+            suppressSpyUntilRef.current = Date.now() + 2000
+          }
+        }
       })
       .catch((err: unknown) => {
         if (cancelled) return
@@ -99,7 +109,7 @@ export function WriteScreen() {
       setActiveSceneId(sceneId)
       replaceSceneQuery(sceneId)
       if (scroll) {
-        suppressSpyUntilRef.current = Date.now() + 500
+        suppressSpyUntilRef.current = Date.now() + 1500
         requestAnimationFrame(() => {
           const el = document.querySelector(
             `[data-testid="write-scene-${sceneId}"]`,
@@ -112,6 +122,26 @@ export function WriteScreen() {
     },
     [],
   )
+
+  // Scroll the deep-linked / resume scene into view once sections exist.
+  useEffect(() => {
+    const sceneId = pendingScrollSceneIdRef.current
+    if (!sceneId || scenes.length === 0) return
+    const el = document.querySelector(`[data-testid="write-scene-${sceneId}"]`)
+    if (!(el instanceof HTMLElement)) return
+    pendingScrollSceneIdRef.current = null
+    suppressSpyUntilRef.current = Date.now() + 1500
+    setActiveSceneId(sceneId)
+    requestAnimationFrame(() => {
+      el.scrollIntoView({ block: 'start' })
+      const outlineRow = document.querySelector(
+        `[data-testid="write-outline-${sceneId}"]`,
+      )
+      if (outlineRow instanceof HTMLElement) {
+        outlineRow.scrollIntoView({ block: 'nearest' })
+      }
+    })
+  }, [scenes, project?.id])
 
   // Scroll spy: topmost visible scene updates outline — not while typing in a beat
   // and not during a short window after outline/keyboard jumps.
@@ -340,7 +370,7 @@ export function WriteScreen() {
           {llmUnavailableMessage}
         </Toast>
       )}
-      <div className="flex h-[calc(100vh-3.5rem)] min-h-0 overflow-hidden">
+      <div className="flex h-[calc(100vh-3.5rem)] min-h-0 overflow-hidden bg-tr-surface-page">
         <SceneOutline
           scenes={scenes}
           activeSceneId={activeSceneId}
@@ -349,7 +379,7 @@ export function WriteScreen() {
         <div
           ref={scrollportRef}
           data-testid="write-scrollport"
-          className="min-h-0 min-w-0 flex-1 overflow-y-auto px-6 py-8 pb-24"
+          className="min-h-0 min-w-0 flex-1 overflow-y-auto px-8 py-8 pb-28"
         >
           <ScriptCanvas
             scenes={scenes}
@@ -358,7 +388,7 @@ export function WriteScreen() {
             onSceneFocus={(id) => selectScene(id, { scroll: false })}
           />
         </div>
-        <div className="shrink-0 py-8 pr-6">
+        <div className="flex shrink-0 flex-col border-l border-tr-border bg-tr-surface-sunken p-4">
           <CandidateDock
             key={activeSceneId ?? 'none'}
             session={candidateSession.session}

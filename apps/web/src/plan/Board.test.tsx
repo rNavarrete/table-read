@@ -124,6 +124,7 @@ function renderBoard(
       flaggedSceneIds={new Set()}
       onSelectScene={noop}
       onSelectBeat={noop}
+      onOpenInWrite={noop}
       onReorder={noop}
       {...rest}
     />,
@@ -198,6 +199,19 @@ describe('Board / SceneCard / BeatCard', () => {
     })
     await user.click(screen.getByTestId('scene-card-scene-1'))
     expect(onSelectScene).toHaveBeenCalledWith('scene-1')
+  })
+
+  it('double-clicking a scene card opens it in Write', async () => {
+    const user = userEvent.setup()
+    const ep = episode([scene()])
+    const onOpenInWrite = vi.fn()
+    renderBoard({
+      project: project(ep),
+      episode: ep,
+      onOpenInWrite,
+    })
+    await user.dblClick(screen.getByTestId('scene-card-scene-1'))
+    expect(onOpenInWrite).toHaveBeenCalledWith('scene-1')
   })
 
   it('a selected scene card uses the Quiet Tool soft accent fill', () => {

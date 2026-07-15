@@ -40,9 +40,11 @@ export function isUnusableScene(scene: Scene): boolean {
 }
 
 /**
- * Prefer a requested/resume scene when it exists and is usable; otherwise the
- * first scene with beats, else the first usable scene, else the first scene.
- * Skips placeholder stubs so Next Beat isn't run on empty cast context.
+ * Prefer a requested/resume/`?scene=` id when it exists (deep links and Plan
+ * double-click always win, even if plan fields are thin — common after
+ * import). Otherwise the first scene with beats, else the first usable
+ * scene, else the first scene. Automatic fallback skips placeholder stubs
+ * so Next Beat isn't run on empty cast context.
  */
 export function pickDefaultScene(
   project: Project,
@@ -53,7 +55,7 @@ export function pickDefaultScene(
 
   if (preferredSceneId) {
     const preferred = findScene(project, preferredSceneId)
-    if (preferred && !isUnusableScene(preferred)) return preferred
+    if (preferred) return preferred
   }
 
   const withBeats = scenes.find(

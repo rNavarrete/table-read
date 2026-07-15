@@ -92,10 +92,10 @@ export function CandidateDock({
   return (
     <aside
       className={
-        'flex w-panel-candidate-dock shrink-0 flex-col rounded-card border border-tr-border bg-tr-surface-sunken p-4' +
+        'flex w-panel-candidate-dock shrink-0 flex-col' +
         (quiet ? ' opacity-40' : '') +
         (streaming
-          ? ' ring-2 ring-tr-coral-soft motion-safe:animate-pulse'
+          ? ' rounded-card ring-2 ring-tr-coral-soft motion-safe:animate-pulse'
           : '')
       }
       aria-label="Candidate dock"

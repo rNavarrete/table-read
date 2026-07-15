@@ -34,3 +34,14 @@ export function navigateToMode(mode: Mode) {
   }
   window.location.assign(url.toString())
 }
+
+/** Open Write on a specific scene (Plan scene-card double-click / deep link).
+ * Preserves `?project=` and sets `?scene=`; drops Review-only `changeSet`. */
+export function navigateToWriteScene(sceneId: string) {
+  const url = new URL(window.location.href)
+  url.pathname = '/'
+  url.searchParams.set('scene', sceneId)
+  url.searchParams.delete('changeSet')
+  url.searchParams.delete('highlightBeat')
+  window.location.assign(url.toString())
+}

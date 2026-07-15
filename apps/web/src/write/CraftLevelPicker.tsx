@@ -47,14 +47,13 @@ export function CraftLevelPicker({
             title={opt.sub}
             onClick={() => onChange(opt.value)}
             className={
-              'rounded-card px-2 py-1 text-left text-13 transition-colors disabled:opacity-50' +
+              'rounded-card px-2.5 py-1.5 text-13 transition-colors disabled:opacity-50' +
               (active
-                ? ' bg-tr-coral-soft text-tr-accent-ink'
-                : ' text-tr-text-muted hover:text-tr-text-secondary')
+                ? ' bg-tr-coral-soft font-medium text-tr-accent-ink'
+                : ' text-tr-text-secondary hover:text-tr-text-primary')
             }
           >
-            <span className="block font-medium">{opt.label}</span>
-            <span className="block text-13 opacity-70">{opt.sub}</span>
+            {opt.label}
           </button>
         )
       })}

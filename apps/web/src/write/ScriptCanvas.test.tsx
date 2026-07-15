@@ -73,6 +73,38 @@ describe('ScriptCanvas', () => {
     )
   })
 
+  it('does not duplicate a slugline already present in the beat script', () => {
+    render(
+      <ScriptCanvas
+        scenes={[
+          scene({
+            id: 'scene-12',
+            location: "INT. JOSH'S OFFICE",
+            time: 'DAY',
+            whatHappens: '',
+            beats: [
+              {
+                id: 'beat-12',
+                index: 0,
+                locked: false,
+                scriptLocked: false,
+                whatHappens: '',
+                audienceLearns: '',
+                audienceFeels: '',
+                scriptText: "INT. JOSH'S OFFICE - DAY\n\nJosh is at his desk.",
+              },
+            ],
+          }),
+        ]}
+        canvasHandlers={noopHandlers}
+      />,
+    )
+    expect(screen.queryByTestId('script-scene-slug-scene-12')).toBeNull()
+    expect(screen.getByTestId('formatted-script').textContent).toContain(
+      "INT. JOSH'S OFFICE",
+    )
+  })
+
   it('focusing a beat reports the owning scene', async () => {
     const user = userEvent.setup()
     const onSceneFocus = vi.fn()
@@ -115,7 +147,8 @@ describe('ScriptCanvas', () => {
         onSceneFocus={onSceneFocus}
       />,
     )
-    await user.click(screen.getByTestId('beat-beat-2'))
+    const scene2 = screen.getByTestId('write-scene-scene-2')
+    await user.click(scene2.querySelector('[data-testid="formatted-script"]')!)
     expect(onSceneFocus).toHaveBeenCalledWith('scene-2')
   })
 
@@ -160,7 +193,7 @@ describe('ScriptCanvas', () => {
     expect(textarea.value).toBe('')
   })
 
-  it('an unlocked beat is a live, editable textarea', async () => {
+  it('renders Fountain teleplay layout, then edits as plain text on click', async () => {
     const user = userEvent.setup()
     render(
       <ScriptCanvas
@@ -175,7 +208,7 @@ describe('ScriptCanvas', () => {
                 whatHappens: '',
                 audienceLearns: '',
                 audienceFeels: '',
-                scriptText: 'Marta slides a note.',
+                scriptText: 'DAN\nWe are closed.',
               },
             ],
           }),
@@ -183,13 +216,18 @@ describe('ScriptCanvas', () => {
         canvasHandlers={noopHandlers}
       />,
     )
+    expect(screen.getByTestId('formatted-script')).not.toBeNull()
+    expect(screen.getByText('DAN').className).toContain('ml-[22ch]')
+    expect(screen.getByText('We are closed.').className).toContain('ml-[10ch]')
+
+    await user.click(screen.getByTestId('formatted-script'))
     const textarea = screen.getByTestId('beat-beat-3-1') as HTMLTextAreaElement
     expect(textarea.readOnly).toBe(false)
     await user.type(textarea, ' More.')
-    expect(textarea.value).toBe('Marta slides a note. More.')
+    expect(textarea.value).toBe('DAN\nWe are closed. More.')
   })
 
-  it('a locked (or scriptLocked) beat renders read-only with a lock glyph and a focus hint, never editable', async () => {
+  it('a locked beat stays formatted and is not editable', async () => {
     const user = userEvent.setup()
     render(
       <ScriptCanvas
@@ -212,15 +250,11 @@ describe('ScriptCanvas', () => {
         canvasHandlers={noopHandlers}
       />,
     )
-    const textarea = screen.getByTestId('beat-beat-1-2') as HTMLTextAreaElement
-    expect(textarea.readOnly).toBe(true)
-
-    // Hint text exists in the DOM (its focus-only visibility is a CSS
-    // peer-focus trick — e2e/write.spec.ts exercises the actual visibility).
-    expect(screen.getByText('Locked — click the lock to edit')).not.toBeNull()
-
-    await user.click(textarea)
-    await user.keyboard('xyz')
-    expect(textarea.value).toBe("Dan doesn't know yet.") // unchanged — readOnly holds
+    expect(screen.getByTestId('formatted-script').textContent).toContain(
+      "Dan doesn't know yet.",
+    )
+    expect(screen.getByText('Locked — unlock to edit')).not.toBeNull()
+    await user.click(screen.getByTestId('formatted-script'))
+    expect(screen.queryByTestId('beat-beat-1-2')).toBeNull()
   })
 })

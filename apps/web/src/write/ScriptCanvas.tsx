@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState, type ChangeEvent } from 'react'
 import type { Beat, Scene } from 'contract'
+import { FormattedScript } from './FormattedScript'
+import { parseFountainLines } from './fountainFormat'
 import { formatSceneSlug } from './SceneOutline'
 import type { QuietAiCanvasHandlers } from './useQuietAi'
 
@@ -64,9 +66,12 @@ function BeatRow({
 }) {
   const locked = beat.locked || beat.scriptLocked
   const [text, setText] = useState(beat.scriptText)
+  const [editing, setEditing] = useState(false)
   const rowRef = useRef<HTMLDivElement>(null)
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null)
   const planPitch = beat.whatHappens.trim()
   const showPlan = text.trim().length === 0 && planPitch.length > 0
+  const showFormatted = text.trim().length > 0 && (locked || !editing)
 
   // Ledger source-span jump (UI spec §6): highlight 2s via DOM classes —
   // avoids setState-in-effect (react-hooks lint) while still timing out.
@@ -86,15 +91,31 @@ function BeatRow({
     }
   }, [highlighted])
 
+  useEffect(() => {
+    if (!editing) return
+    const el = textareaRef.current
+    if (!el) return
+    autosize(el)
+    el.focus()
+    const len = el.value.length
+    el.setSelectionRange(len, len)
+  }, [editing])
+
   function onChange(event: ChangeEvent<HTMLTextAreaElement>) {
     setText(event.target.value)
     autosize(event.target)
   }
 
+  function startEditing() {
+    if (locked) return
+    onFocusScene?.()
+    setEditing(true)
+  }
+
   return (
     <div
       ref={rowRef}
-      className="group relative flex gap-4 border-t border-tr-border py-4 first:border-t-0"
+      className="group relative flex gap-4 py-5"
       data-testid={`beat-row-${beat.id}`}
     >
       <div
@@ -127,39 +148,59 @@ function BeatRow({
             )}
           </div>
         ) : null}
-        <textarea
-          className={
-            'peer w-full resize-none overflow-hidden whitespace-pre-wrap border-0 bg-transparent font-script text-12 leading-relaxed text-tr-text-primary outline-none' +
-            (locked ? ' cursor-default text-tr-text-secondary' : '') +
-            (showPlan
-              ? ' min-h-[3rem] rounded-card border border-tr-border bg-tr-surface-clay px-3 py-2'
-              : '')
-          }
-          value={text}
-          readOnly={locked}
-          aria-readonly={locked}
-          aria-label={
-            showPlan ? `Script for beat ${index + 1}` : `Beat ${index + 1}`
-          }
-          data-testid={`beat-${beat.id}`}
-          ref={(el) => el && autosize(el)}
-          onChange={onChange}
-          onFocus={onFocusScene}
-          rows={showPlan ? 3 : 1}
-        />
+        {showFormatted ? (
+          <FormattedScript
+            text={text}
+            aria-label={
+              locked
+                ? `Beat ${index + 1} (locked)`
+                : `Beat ${index + 1} — click to edit`
+            }
+            onActivate={locked ? undefined : startEditing}
+          />
+        ) : (
+          <textarea
+            className={
+              'peer w-full resize-none overflow-hidden whitespace-pre-wrap border-0 bg-transparent font-script text-12 leading-relaxed text-tr-text-primary outline-none' +
+              (locked ? ' cursor-default text-tr-text-secondary' : '') +
+              (showPlan
+                ? ' min-h-[3rem] rounded-card border border-tr-border bg-tr-surface-clay px-3 py-2'
+                : '')
+            }
+            value={text}
+            readOnly={locked}
+            aria-readonly={locked}
+            aria-label={
+              showPlan ? `Script for beat ${index + 1}` : `Beat ${index + 1}`
+            }
+            data-testid={`beat-${beat.id}`}
+            ref={(el) => {
+              textareaRef.current = el
+              if (el) autosize(el)
+            }}
+            onChange={onChange}
+            onFocus={onFocusScene}
+            onBlur={() => setEditing(false)}
+            rows={showPlan ? 3 : 1}
+          />
+        )}
         {showPlan && !locked ? (
           <p className="mt-1 text-12 text-tr-text-secondary">
             Type script here, or use Next Beat to draft dialogue for this scene.
           </p>
         ) : null}
         {locked && (
-          <p className="pointer-events-none max-h-0 overflow-hidden text-13 text-tr-text-muted opacity-0 transition-all peer-focus:max-h-6 peer-focus:opacity-100 motion-reduce:transition-none">
-            Locked — click the lock to edit
-          </p>
+          <p className="mt-1 text-12 text-tr-text-muted">Locked — unlock to edit</p>
         )}
       </div>
     </div>
   )
+}
+
+function sceneScriptOpensWithHeading(scene: Scene): boolean {
+  const first = scene.beats[0]?.scriptText?.trim() ?? ''
+  if (!first) return false
+  return parseFountainLines(first).some((line) => line.type === 'scene_heading')
 }
 
 function SceneBlock({
@@ -174,31 +215,42 @@ function SceneBlock({
   const slug = formatSceneSlug(scene)
   const scenePitch = scene.whatHappens.trim()
   const focus = () => onSceneFocus?.(scene.id)
+  // Avoid INT. … twice: once in chrome, once in Fountain body (imports).
+  const showSlug =
+    !sceneScriptOpensWithHeading(scene) && slug !== 'Untitled scene'
+  const showHeader = showSlug || scenePitch.length > 0
 
   return (
     <section
       data-testid={`write-scene-${scene.id}`}
       data-scene-id={scene.id}
       aria-label={`Script — ${scene.location || slug}`}
-      className="border-b border-tr-border pb-8 last:border-b-0 last:pb-0"
+      className="border-b border-tr-border py-8 last:border-b-0"
       onFocusCapture={focus}
     >
-      <header className="mb-6 border-b border-tr-border pb-4">
-        <p
-          data-testid={`script-scene-slug-${scene.id}`}
-          className="font-script text-12 font-bold uppercase tracking-wide text-tr-text-primary"
-        >
-          {slug}
-        </p>
-        {scenePitch ? (
-          <p
-            data-testid={`script-scene-pitch-${scene.id}`}
-            className="mt-2 text-15 leading-6 text-tr-text-primary"
-          >
-            {scenePitch}
-          </p>
-        ) : null}
-      </header>
+      {showHeader ? (
+        <header className={scenePitch || scene.beats.length === 0 ? 'mb-5' : 'mb-2'}>
+          {showSlug ? (
+            <p
+              data-testid={`script-scene-slug-${scene.id}`}
+              className="font-script text-12 font-bold uppercase tracking-wide text-tr-text-primary"
+            >
+              {slug}
+            </p>
+          ) : null}
+          {scenePitch ? (
+            <p
+              data-testid={`script-scene-pitch-${scene.id}`}
+              className={
+                'text-15 leading-6 text-tr-text-secondary' +
+                (showSlug ? ' mt-2' : '')
+              }
+            >
+              {scenePitch}
+            </p>
+          ) : null}
+        </header>
+      ) : null}
 
       {scene.beats.length === 0 ? (
         <div className="py-8 text-center">
@@ -251,7 +303,7 @@ export function ScriptCanvas({
     <div
       // max-w-script-col = --tr-script-col (600px, UI spec §3), minted per
       // controller ruling on T2.3 review.
-      className="mx-auto max-w-script-col w-full rounded-card bg-tr-surface-raised px-8 py-8 shadow-raised"
+      className="mx-auto max-w-script-col w-full rounded-card bg-tr-surface-raised px-10 py-10 shadow-raised"
       aria-label="Episode script"
       data-testid="script-canvas"
       {...canvasHandlers}

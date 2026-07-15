@@ -22,6 +22,7 @@ interface ActFrameProps {
   dropTargetId: string | null
   onSelectScene: (sceneId: string) => void
   onSelectBeat: (sceneId: string, beatId: string) => void
+  onOpenInWrite: (sceneId: string) => void
   onDragStartScene: (sceneId: string) => void
   onDragEndScene: () => void
   onDragOverScene: (sceneId: string) => void
@@ -42,6 +43,7 @@ function ActFrame({
   dropTargetId,
   onSelectScene,
   onSelectBeat,
+  onOpenInWrite,
   onDragStartScene,
   onDragEndScene,
   onDragOverScene,
@@ -73,6 +75,7 @@ function ActFrame({
                 hasOpenConsistencyFlag={flaggedSceneIds.has(scene.id)}
                 onSelectScene={onSelectScene}
                 onSelectBeat={onSelectBeat}
+                onOpenInWrite={onOpenInWrite}
                 dragging={scene.id === dragSourceId}
                 dropTarget={
                   scene.id === dropTargetId && scene.id !== dragSourceId
@@ -104,6 +107,7 @@ export interface BoardProps {
   flaggedSceneIds: Set<string>
   onSelectScene: (sceneId: string) => void
   onSelectBeat: (sceneId: string, beatId: string) => void
+  onOpenInWrite?: (sceneId: string) => void
   onReorder: (draggedSceneId: string, targetSceneId: string) => void
 }
 
@@ -127,6 +131,7 @@ export function Board({
   flaggedSceneIds,
   onSelectScene,
   onSelectBeat,
+  onOpenInWrite = () => {},
   onReorder,
 }: BoardProps) {
   const [dragSourceId, setDragSourceId] = useState<string | null>(null)
@@ -162,6 +167,7 @@ export function Board({
             dropTargetId={dropTargetId}
             onSelectScene={onSelectScene}
             onSelectBeat={onSelectBeat}
+            onOpenInWrite={onOpenInWrite}
             onDragStartScene={setDragSourceId}
             onDragEndScene={() => {
               setDragSourceId(null)

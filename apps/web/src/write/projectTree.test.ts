@@ -95,7 +95,7 @@ describe('pickDefaultScene', () => {
     expect(pickDefaultScene(project([junk, good]))?.id).toBe('scene-good')
   })
 
-  it('ignores a preferred id when that scene is unusable', () => {
+  it('honors an explicit preferred id even when that scene is thin (deep link)', () => {
     const junk = scene({
       id: 'scene-junk',
       location: 'placeholder',
@@ -107,7 +107,7 @@ describe('pickDefaultScene', () => {
       whatHappens: 'Ju Li clocks a car.',
     })
     expect(pickDefaultScene(project([junk, good]), 'scene-junk')?.id).toBe(
-      'scene-good',
+      'scene-junk',
     )
   })
 
