@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ChangeEvent } from 'react'
 import type { Beat, Scene } from 'contract'
+import { formatSceneSlug } from './SceneOutline'
 import type { QuietAiCanvasHandlers } from './useQuietAi'
 
 function autosize(el: HTMLTextAreaElement) {
@@ -31,19 +32,6 @@ const HIGHLIGHT_CLASSES = [
   'outline-tr-coral',
 ] as const
 
-function sceneSlug(scene: Scene): string {
-  const location = scene.location.trim()
-  const time = scene.time.trim()
-  if (
-    location &&
-    time &&
-    !location.toUpperCase().includes(time.toUpperCase())
-  ) {
-    return `${location} — ${time}`
-  }
-  return location || time || 'Untitled scene'
-}
-
 /**
  * One beat row: gutter label (hover-visible) + the beat's script text.
  * Unlocked beats are a live `<textarea>` (rule: "Direct typing is allowed
@@ -67,10 +55,12 @@ function BeatRow({
   beat,
   index,
   highlighted,
+  onFocusScene,
 }: {
   beat: Beat
   index: number
   highlighted: boolean
+  onFocusScene?: () => void
 }) {
   const locked = beat.locked || beat.scriptLocked
   const [text, setText] = useState(beat.scriptText)
@@ -154,6 +144,7 @@ function BeatRow({
           data-testid={`beat-${beat.id}`}
           ref={(el) => el && autosize(el)}
           onChange={onChange}
+          onFocus={onFocusScene}
           rows={showPlan ? 3 : 1}
         />
         {showPlan && !locked ? (
@@ -171,46 +162,37 @@ function BeatRow({
   )
 }
 
-export interface ScriptCanvasProps {
-  scene: Scene
-  canvasHandlers: QuietAiCanvasHandlers
-  /** When set (Ledger source-span jump), highlight that beat for 2s. */
-  highlightBeatId?: string | null
-}
-
-/**
- * The script canvas: the "hero" surface (design doc §4.3) — a formatted
- * teleplay page, current scene's beats separated by faint rules, gutter
- * labels visible on hover. `canvasHandlers` (write/useQuietAi.ts) is spread
- * on this root container so focus anywhere inside — any beat's textarea —
- * drives the quiet-AI rule.
- */
-export function ScriptCanvas({
+function SceneBlock({
   scene,
-  canvasHandlers,
-  highlightBeatId = null,
-}: ScriptCanvasProps) {
-  const slug = sceneSlug(scene)
+  highlightBeatId,
+  onSceneFocus,
+}: {
+  scene: Scene
+  highlightBeatId: string | null
+  onSceneFocus?: (sceneId: string) => void
+}) {
+  const slug = formatSceneSlug(scene)
   const scenePitch = scene.whatHappens.trim()
+  const focus = () => onSceneFocus?.(scene.id)
 
   return (
     <section
-      // max-w-script-col = --tr-script-col (600px, UI spec §3), minted per
-      // controller ruling on T2.3 review.
-      className="max-w-script-col flex-1 rounded-card bg-tr-surface-raised px-8 py-8 shadow-raised"
-      aria-label={`Script — ${scene.location}`}
-      {...canvasHandlers}
+      data-testid={`write-scene-${scene.id}`}
+      data-scene-id={scene.id}
+      aria-label={`Script — ${scene.location || slug}`}
+      className="border-b border-tr-border pb-8 last:border-b-0 last:pb-0"
+      onFocusCapture={focus}
     >
       <header className="mb-6 border-b border-tr-border pb-4">
         <p
-          data-testid="script-scene-slug"
+          data-testid={`script-scene-slug-${scene.id}`}
           className="font-script text-12 font-bold uppercase tracking-wide text-tr-text-primary"
         >
           {slug}
         </p>
         {scenePitch ? (
           <p
-            data-testid="script-scene-pitch"
+            data-testid={`script-scene-pitch-${scene.id}`}
             className="mt-2 text-15 leading-6 text-tr-text-primary"
           >
             {scenePitch}
@@ -234,9 +216,54 @@ export function ScriptCanvas({
             beat={beat}
             index={index}
             highlighted={highlightBeatId === beat.id}
+            onFocusScene={focus}
           />
         ))
       )}
     </section>
+  )
+}
+
+export interface ScriptCanvasProps {
+  /** Episode scenes in document order (Write script-home, T2.4). */
+  scenes: Scene[]
+  canvasHandlers: QuietAiCanvasHandlers
+  /** When set (Ledger source-span jump), highlight that beat for 2s. */
+  highlightBeatId?: string | null
+  /** Focus/caret inside a scene sets the Write active scene. */
+  onSceneFocus?: (sceneId: string) => void
+}
+
+/**
+ * The script canvas: the "hero" surface (design doc §4.3 / T2.4) — a
+ * formatted teleplay page with the episode's scenes stacked for continuous
+ * scroll. Beats stay delimited with gutter labels. `canvasHandlers`
+ * (write/useQuietAi.ts) is spread on the root so focus anywhere inside
+ * drives the quiet-AI rule.
+ */
+export function ScriptCanvas({
+  scenes,
+  canvasHandlers,
+  highlightBeatId = null,
+  onSceneFocus,
+}: ScriptCanvasProps) {
+  return (
+    <div
+      // max-w-script-col = --tr-script-col (600px, UI spec §3), minted per
+      // controller ruling on T2.3 review.
+      className="mx-auto max-w-script-col w-full rounded-card bg-tr-surface-raised px-8 py-8 shadow-raised"
+      aria-label="Episode script"
+      data-testid="script-canvas"
+      {...canvasHandlers}
+    >
+      {scenes.map((scene) => (
+        <SceneBlock
+          key={scene.id}
+          scene={scene}
+          highlightBeatId={highlightBeatId}
+          onSceneFocus={onSceneFocus}
+        />
+      ))}
+    </div>
   )
 }

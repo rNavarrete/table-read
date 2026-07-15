@@ -1,5 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { BeatCandidate, CraftLevel, Project } from 'contract'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FocusEvent,
+} from 'react'
+import type { BeatCandidate, CraftLevel, Project, Scene } from 'contract'
 import { getLedger, getProject, patchProject } from '../api/client'
 import { requireProjectId } from '../projects/projectRouting'
 import { loadResume, saveResume } from '../projects/resumeContext'
@@ -8,18 +15,25 @@ import { Toast } from '../shell/Toast'
 import { llmUnavailableMessage } from '../shell/toastCopy'
 import { CandidateDock } from './CandidateDock'
 import { CommandBar, type CommandBarHandle } from './CommandBar'
+import { SceneOutline } from './SceneOutline'
 import { ScriptCanvas } from './ScriptCanvas'
 import { useAcceptBeat } from './useAcceptBeat'
 import { useCandidateSession } from './useCandidateSession'
 import { useQuietAi } from './useQuietAi'
 import { useWriteKeyboard } from './useWriteKeyboard'
-import { allScenes, pickDefaultScene } from './projectTree'
+import { allScenes, findScene, pickDefaultScene } from './projectTree'
 
 function useUrlParam(name: string): string | null {
   return useMemo(
     () => new URLSearchParams(window.location.search).get(name),
     [name],
   )
+}
+
+function replaceSceneQuery(sceneId: string) {
+  const url = new URL(window.location.href)
+  url.searchParams.set('scene', sceneId)
+  window.history.replaceState({}, '', `${url.pathname}${url.search}`)
 }
 
 export function WriteScreen() {
@@ -33,7 +47,11 @@ export function WriteScreen() {
   const [loadError, setLoadError] = useState<string | null>(null)
   const [focusedCard, setFocusedCard] = useState(0)
   const [craftLevel, setCraftLevel] = useState<CraftLevel>('standard')
+  const [activeSceneId, setActiveSceneId] = useState<string | null>(null)
   const commandBarRef = useRef<CommandBarHandle>(null)
+  const scrollportRef = useRef<HTMLDivElement>(null)
+  const suppressSpyUntilRef = useRef(0)
+  const typingInCanvasRef = useRef(false)
 
   useEffect(() => {
     if (!projectId) return
@@ -46,6 +64,14 @@ export function WriteScreen() {
         setLedgerCount(
           ledger.filter((f) => f.status === 'pending_review').length,
         )
+        const scenes = allScenes(loadedProject)
+        const resume = loadResume(
+          projectId,
+          scenes.map((s) => s.id),
+        )
+        const preferredId = requestedSceneId ?? resume.sceneId
+        const initial = pickDefaultScene(loadedProject, preferredId)
+        if (initial) setActiveSceneId(initial.id)
       })
       .catch((err: unknown) => {
         if (cancelled) return
@@ -56,32 +82,106 @@ export function WriteScreen() {
     return () => {
       cancelled = true
     }
-  }, [projectId])
+  }, [projectId, requestedSceneId])
 
-  const scene =
-    projectId && project
-      ? (() => {
-          const scenes = allScenes(project)
-          const resume = loadResume(
-            projectId,
-            scenes.map((s) => s.id),
-          )
-          const preferredId = requestedSceneId ?? resume.sceneId
-          return pickDefaultScene(project, preferredId)
-        })()
-      : null
+  const scenes: Scene[] = project ? allScenes(project) : []
+  const activeScene =
+    activeSceneId && project ? findScene(project, activeSceneId) : null
 
   useEffect(() => {
-    if (projectId && scene) {
-      saveResume(projectId, { mode: 'Write', sceneId: scene.id })
+    if (projectId && activeSceneId) {
+      saveResume(projectId, { mode: 'Write', sceneId: activeSceneId })
     }
-  }, [projectId, scene])
+  }, [projectId, activeSceneId])
+
+  const selectScene = useCallback(
+    (sceneId: string, { scroll = true }: { scroll?: boolean } = {}) => {
+      setActiveSceneId(sceneId)
+      replaceSceneQuery(sceneId)
+      if (scroll) {
+        suppressSpyUntilRef.current = Date.now() + 500
+        requestAnimationFrame(() => {
+          const el = document.querySelector(
+            `[data-testid="write-scene-${sceneId}"]`,
+          )
+          if (el instanceof HTMLElement) {
+            el.scrollIntoView({ block: 'start' })
+          }
+        })
+      }
+    },
+    [],
+  )
+
+  // Scroll spy: topmost visible scene updates outline — not while typing in a beat
+  // and not during a short window after outline/keyboard jumps.
+  useEffect(() => {
+    const root = scrollportRef.current
+    if (!root || scenes.length === 0) return
+    if (typeof IntersectionObserver === 'undefined') return
+    const sections = scenes
+      .map((s) =>
+        root.querySelector(`[data-testid="write-scene-${s.id}"]`),
+      )
+      .filter((el): el is HTMLElement => el instanceof HTMLElement)
+    if (sections.length === 0) return
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (Date.now() < suppressSpyUntilRef.current) return
+        if (typingInCanvasRef.current) return
+        const visible = entries
+          .filter((e) => e.isIntersecting)
+          .sort(
+            (a, b) =>
+              a.boundingClientRect.top - b.boundingClientRect.top,
+          )
+        const top = visible[0]?.target
+        if (!(top instanceof HTMLElement)) return
+        const id = top.dataset.sceneId
+        if (id) setActiveSceneId(id)
+      },
+      { root, rootMargin: '-10% 0px -70% 0px', threshold: [0, 0.25, 0.5] },
+    )
+    for (const section of sections) observer.observe(section)
+    return () => observer.disconnect()
+  }, [scenes, project?.headSnapshotId])
+
+  // Ledger / deep-link: scroll highlighted beat into view once.
+  useEffect(() => {
+    if (!highlightBeatId) return
+    const t = window.setTimeout(() => {
+      const el = document.querySelector(
+        `[data-testid="beat-row-${highlightBeatId}"]`,
+      )
+      if (el instanceof HTMLElement) {
+        suppressSpyUntilRef.current = Date.now() + 500
+        el.scrollIntoView({ block: 'center' })
+      }
+    }, 50)
+    return () => window.clearTimeout(t)
+  }, [highlightBeatId, scenes.length])
 
   const { quiet, canvasHandlers } = useQuietAi()
-  const candidateSession = useCandidateSession(activeProjectId, scene?.id ?? '')
+  const baseCanvasHandlers = canvasHandlers
+  const wrappedCanvasHandlers = {
+    onFocus: (e: FocusEvent<HTMLElement>) => {
+      typingInCanvasRef.current = true
+      baseCanvasHandlers.onFocus(e)
+    },
+    onBlur: (e: FocusEvent<HTMLElement>) => {
+      typingInCanvasRef.current = false
+      baseCanvasHandlers.onBlur(e)
+    },
+  }
+
+  const candidateSession = useCandidateSession(
+    activeProjectId,
+    activeSceneId ?? '',
+  )
   const accept = useAcceptBeat(
     activeProjectId,
-    scene?.id ?? '',
+    activeSceneId ?? '',
     project,
     setProject,
   )
@@ -94,18 +194,20 @@ export function WriteScreen() {
     : 0
 
   const lastBeatId = useCallback((): string | null => {
-    if (!scene || scene.beats.length === 0) return null
-    return scene.beats[scene.beats.length - 1].id
-  }, [scene])
+    if (!activeScene || activeScene.beats.length === 0) return null
+    return activeScene.beats[activeScene.beats.length - 1].id
+  }, [activeScene])
 
   const handleNextBeat = useCallback(() => {
+    if (!activeSceneId) return
     candidateSession.generate({
       afterBeatId: lastBeatId(),
       craftLevel,
     })
-  }, [candidateSession, lastBeatId, craftLevel])
+  }, [candidateSession, lastBeatId, craftLevel, activeSceneId])
 
   function handleCommandBarSubmit(instruction: string) {
+    if (!activeSceneId) return
     candidateSession.generate({
       afterBeatId: lastBeatId(),
       instruction,
@@ -157,6 +259,17 @@ export function WriteScreen() {
     void handleAccept(boundedFocusedCard, slot.candidate)
   }, [slots, boundedFocusedCard, handleAccept])
 
+  const stepScene = useCallback(
+    (delta: -1 | 1) => {
+      if (scenes.length === 0 || !activeSceneId) return
+      const i = scenes.findIndex((s) => s.id === activeSceneId)
+      if (i < 0) return
+      const next = scenes[i + delta]
+      if (next) selectScene(next.id)
+    },
+    [scenes, activeSceneId, selectScene],
+  )
+
   useWriteKeyboard({
     quiet,
     streaming,
@@ -172,6 +285,8 @@ export function WriteScreen() {
     onSelectCard: (index) => {
       if (index >= 0 && index < slots.length) setFocusedCard(index)
     },
+    onPrevScene: () => stepScene(-1),
+    onNextScene: () => stepScene(1),
   })
 
   const llmUnavailableAccept = Object.entries(accept.errorByIndex).find(
@@ -195,15 +310,17 @@ export function WriteScreen() {
 
   if (!projectId) return null
 
-  if (!project || !scene) {
+  if (!project || scenes.length === 0) {
     return (
       <AppShell
-        projectTitle="Table Read"
+        projectTitle={project?.title ?? 'Table Read'}
         activeMode="Write"
-        ledgerCount={0}
+        ledgerCount={ledgerCount}
         projectId={projectId}
       >
-        <p className="p-8 text-15 text-tr-text-secondary">Loading…</p>
+        <p className="p-8 text-15 text-tr-text-secondary">
+          {project ? 'No scenes in this episode yet.' : 'Loading…'}
+        </p>
       </AppShell>
     )
   }
@@ -223,38 +340,53 @@ export function WriteScreen() {
           {llmUnavailableMessage}
         </Toast>
       )}
-      <div className="flex justify-center gap-6 px-6 py-8 pb-24">
-        <ScriptCanvas
-          scene={scene}
-          canvasHandlers={canvasHandlers}
-          highlightBeatId={highlightBeatId}
+      <div className="flex h-[calc(100vh-3.5rem)] min-h-0 overflow-hidden">
+        <SceneOutline
+          scenes={scenes}
+          activeSceneId={activeSceneId}
+          onSelect={(id) => selectScene(id)}
         />
-        <CandidateDock
-          session={candidateSession.session}
-          quiet={quiet}
-          focusedIndex={hasCards ? boundedFocusedCard : null}
-          craftLevel={craftLevel}
-          onCraftLevelChange={(level) => void handleCraftLevelChange(level)}
-          onNextBeat={handleNextBeat}
-          onSkip={candidateSession.skip}
-          onReplace={(index, candidate) =>
-            candidateSession.replaceSlot(index, { status: 'done', candidate })
-          }
-          onAccept={handleAccept}
-          onRetry={candidateSession.retry}
-          acceptingIndex={accept.acceptingIndex}
-          errorByIndex={accept.errorByIndex}
-          projectId={projectId}
-          sceneId={scene.id}
-        />
+        <div
+          ref={scrollportRef}
+          data-testid="write-scrollport"
+          className="min-h-0 min-w-0 flex-1 overflow-y-auto px-6 py-8 pb-24"
+        >
+          <ScriptCanvas
+            scenes={scenes}
+            canvasHandlers={wrappedCanvasHandlers}
+            highlightBeatId={highlightBeatId}
+            onSceneFocus={(id) => selectScene(id, { scroll: false })}
+          />
+        </div>
+        <div className="shrink-0 py-8 pr-6">
+          <CandidateDock
+            key={activeSceneId ?? 'none'}
+            session={candidateSession.session}
+            quiet={quiet}
+            focusedIndex={hasCards ? boundedFocusedCard : null}
+            craftLevel={craftLevel}
+            onCraftLevelChange={(level) => void handleCraftLevelChange(level)}
+            onNextBeat={handleNextBeat}
+            onSkip={candidateSession.skip}
+            onReplace={(index, candidate) =>
+              candidateSession.replaceSlot(index, { status: 'done', candidate })
+            }
+            onAccept={handleAccept}
+            onRetry={candidateSession.retry}
+            acceptingIndex={accept.acceptingIndex}
+            errorByIndex={accept.errorByIndex}
+            projectId={projectId}
+            sceneId={activeSceneId ?? ''}
+          />
+        </div>
       </div>
       <CommandBar
         ref={commandBarRef}
         onSubmit={handleCommandBarSubmit}
-        disabled={streaming}
+        disabled={streaming || !activeSceneId}
         hidden={quiet}
         projectId={projectId}
-        sceneId={scene.id}
+        sceneId={activeSceneId ?? ''}
       />
     </AppShell>
   )

@@ -116,4 +116,28 @@ describe('useWriteKeyboard', () => {
     press('w')
     expect(onFocusCommandBar).toHaveBeenCalledOnce()
   })
+
+  it('bracket keys step previous/next scene', () => {
+    const onPrevScene = vi.fn()
+    const onNextScene = vi.fn()
+    renderHook(() =>
+      useWriteKeyboard({
+        quiet: false,
+        streaming: false,
+        onGenerate: vi.fn(),
+        onFocusCommandBar: vi.fn(),
+        onCycleFocus: vi.fn(),
+        onAcceptFocused: vi.fn(),
+        onDismissDock: vi.fn(),
+        onSelectCard: vi.fn(),
+        hasCards: false,
+        onPrevScene,
+        onNextScene,
+      }),
+    )
+    press('[')
+    press(']')
+    expect(onPrevScene).toHaveBeenCalledOnce()
+    expect(onNextScene).toHaveBeenCalledOnce()
+  })
 })

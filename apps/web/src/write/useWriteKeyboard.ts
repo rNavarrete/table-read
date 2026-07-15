@@ -22,6 +22,9 @@ export interface WriteKeyboardHandlers {
   onSelectCard: (index: number) => void
   /** Whether the dock currently has any candidate cards. */
   hasCards: boolean
+  /** Previous/next scene in the episode outline (T2.4). */
+  onPrevScene?: () => void
+  onNextScene?: () => void
 }
 
 /**
@@ -41,6 +44,8 @@ export function useWriteKeyboard({
   onDismissDock,
   onSelectCard,
   hasCards,
+  onPrevScene,
+  onNextScene,
 }: WriteKeyboardHandlers): void {
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
@@ -62,6 +67,18 @@ export function useWriteKeyboard({
       if (key === 'w' || key === 'W') {
         event.preventDefault()
         onFocusCommandBar()
+        return
+      }
+      if (key === '[') {
+        if (!onPrevScene) return
+        event.preventDefault()
+        onPrevScene()
+        return
+      }
+      if (key === ']') {
+        if (!onNextScene) return
+        event.preventDefault()
+        onNextScene()
         return
       }
       if (key === 'Escape') {
@@ -99,5 +116,7 @@ export function useWriteKeyboard({
     onDismissDock,
     onSelectCard,
     hasCards,
+    onPrevScene,
+    onNextScene,
   ])
 }

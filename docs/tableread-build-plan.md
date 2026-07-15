@@ -40,6 +40,9 @@ Ordered milestones, agent-sized tasks, acceptance criteria. Reference docs: desi
 **T2.3 Write mode UI.** Script canvas (teleplay CSS), right candidate cards with labels + Accept/Tune/Skip, bottom command bar, streaming text. States per UI spec §3: empty, streaming, error.
 *Accept:* e2e (Playwright + mock API): open fixture scene-3 → "Next Beat" → 3 labeled cards stream in → Accept → beat appears in script → ledger badge increments. AI controls invisible while textarea focused (spec §3).
 
+**T2.4 Write script home.** Episode-continuous scrollable script + left scene outline + active-scene generation target (design: `docs/superpowers/specs/2026-07-14-write-script-home-design.md`). Client-only; Plan remains structural. No contract/prompt changes.
+*Accept:* Write shows a scrollport with all episode scenes stacked; outline lists every scene and click jumps + highlights active; Next Beat / command bar use active scene; `[`/`]` step scenes when not typing; `?scene=` / Ledger `highlightBeat` still land correctly; unit tests for outline, stacked canvas, WriteScreen scrollport.
+
 ## Milestone 3 — Plan mode (simplified board)
 
 **T3.1 Board UI.** One episode: act columns (or rows) as frames, scene cards, expandable beat cards; select → right inspector (fields per UI spec §4); lock toggles; drag to reorder scenes (PATCH index swap).

@@ -149,9 +149,9 @@ The app opens on a **project dashboard** at `/projects` (the "Story Launcher"), 
 
 ### 4.3 Write mode
 
-The **script canvas is the hero**: a formatted teleplay page on a warm ivory surface, current scene's beats subtly delimited, maximum breathing room. Everything else defers to it.
+The **script canvas is the hero**: a formatted teleplay page on a warm ivory surface for the **whole episode** (scenes stacked, continuously scrollable), with a left **scene outline** for jump navigation and an **active scene** that owns generation. Beats stay subtly delimited; maximum breathing room. Structural board work (reorder, acts, locks UI) stays in Plan — the outline is navigate-only.
 
-- **Next Beat variants** dock on the right as tactile cards, each with a short interpretive label — *"Tense refusal," "Quiet reveal," "Power shift"* — so the writer scans intents, not walls of text. Card actions: **Accept** (coral primary), **Tune** (adjust with a short instruction), **Skip**.
+- **Next Beat variants** dock on the right as tactile cards, each with a short interpretive label — *"Tense refusal," "Quiet reveal," "Power shift"* — so the writer scans intents, not walls of text. Card actions: **Accept** (coral primary), **Tune** (adjust with a short instruction), **Skip**. Generation always targets the active scene.
 - A **bottom command bar** takes writer instructions in natural language ("she refuses the offer, but softer") — command-palette feel, not a chat thread.
 - The AI stays quiet and adjacent, never dominant: no sparkle buttons, no assistant persona in the writing surface, no generation without a writer gesture. When the writer is typing, the AI is invisible.
 
