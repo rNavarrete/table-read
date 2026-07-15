@@ -115,6 +115,16 @@ export function LedgerScreen() {
       try {
         const next = await mutate()
         setLedger(next)
+        // Ledger mutations mint a new snapshot; refresh head so the next
+        // If-Match is not stale (scene-batch / accept-all are sequential).
+        // Refresh failure must not roll back an already-applied mutation.
+        if (activeProjectId) {
+          try {
+            setProject(await getProject(activeProjectId))
+          } catch {
+            /* next mutation may 409; writer can reload */
+          }
+        }
       } catch (err) {
         setLedger(before)
         setActionError(
@@ -129,7 +139,7 @@ export function LedgerScreen() {
         inFlightRef.current = false
       }
     },
-    [ledger],
+    [activeProjectId, ledger],
   )
 
   function handleAccept(factId: string) {
