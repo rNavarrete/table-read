@@ -26,9 +26,19 @@ function focusLabel(project: Project, characterId: string | null): string {
 
 function matchesFocus(
   fact: LedgerFact,
+  project: Project,
   characterId: string | null,
 ): boolean {
-  if (characterId) return fact.knownBy.includes(characterId)
+  if (characterId) {
+    if (fact.knownBy.includes(characterId)) return true
+    const characterName = project.seriesBible.characters
+      .find((entry) => entry.id === characterId)
+      ?.name.trim()
+    return Boolean(
+      characterName &&
+      fact.fact.toLocaleLowerCase().includes(characterName.toLocaleLowerCase()),
+    )
+  }
   return fact.knownBy.length === 0
 }
 
@@ -45,7 +55,7 @@ export function buildKnowledgeGraph(
   cap = DEFAULT_CAP,
 ): KnowledgeGraphModel {
   const factNodes = facts
-    .filter((fact) => matchesFocus(fact, characterId))
+    .filter((fact) => matchesFocus(fact, project, characterId))
     .sort(compareFactPriority)
     .slice(0, cap)
 

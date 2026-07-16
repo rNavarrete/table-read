@@ -14,6 +14,9 @@ export interface StoryAtlasProps {
   onReject?: (factId: string) => void
   onEdit?: (factId: string, body: { fact: string; knownBy: string[] }) => void
   onSourceSpanClick?: (fact: LedgerFact) => void
+  expandedFactId?: string | null
+  onExpandedFactIdChange?: (factId: string | null) => void
+  emptyMessage?: string
 }
 
 const TYPE_CUE: Record<LedgerFact['factType'], string> = {
@@ -49,22 +52,29 @@ export function StoryAtlas({
   onReject,
   onEdit,
   onSourceSpanClick,
+  expandedFactId,
+  onExpandedFactIdChange,
+  emptyMessage = 'No facts match.',
 }: StoryAtlasProps) {
-  const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [uncontrolledExpandedId, setUncontrolledExpandedId] = useState<
+    string | null
+  >(null)
+  const expandedId =
+    expandedFactId === undefined ? uncontrolledExpandedId : expandedFactId
   const chapters = groupFactsIntoChapters(facts)
 
   if (facts.length === 0) {
     return (
       <div data-testid="story-atlas">
-        <p className="text-13 text-tr-text-muted">
-          No facts match these filters.
-        </p>
+        <p className="text-13 text-tr-text-muted">{emptyMessage}</p>
       </div>
     )
   }
 
   function toggleExpanded(factId: string) {
-    setExpandedId((current) => (current === factId ? null : factId))
+    const nextId = expandedId === factId ? null : factId
+    if (expandedFactId === undefined) setUncontrolledExpandedId(nextId)
+    onExpandedFactIdChange?.(nextId)
   }
 
   return (
@@ -96,10 +106,7 @@ export function StoryAtlas({
                       data-testid={`atlas-row-${fact.id}`}
                       aria-expanded
                     >
-                      <CollapsedRowContent
-                        fact={fact}
-                        project={project}
-                      />
+                      <CollapsedRowContent fact={fact} project={project} />
                     </button>
                     <FactCard
                       fact={fact}

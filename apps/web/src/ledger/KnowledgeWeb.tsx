@@ -14,6 +14,7 @@ export interface KnowledgeWebProps {
   onReject?: (factId: string) => void
   onEdit?: (factId: string, body: { fact: string; knownBy: string[] }) => void
   onSourceSpanClick?: (fact: LedgerFact) => void
+  onOpenInAtlas?: (factId: string) => void
 }
 
 function factNodeClass(fact: LedgerFact): string {
@@ -38,6 +39,7 @@ export function KnowledgeWeb({
   onReject,
   onEdit,
   onSourceSpanClick,
+  onOpenInAtlas,
 }: KnowledgeWebProps) {
   const graph = useMemo(
     () => buildKnowledgeGraph(facts, project, characterId),
@@ -141,6 +143,13 @@ export function KnowledgeWeb({
             onEdit={onEdit}
             onSourceSpanClick={onSourceSpanClick}
           />
+          <button
+            type="button"
+            className="mt-2 rounded-card bg-tr-surface-clay px-3 py-1 text-13 text-tr-text-primary"
+            onClick={() => onOpenInAtlas?.(selectedFact.id)}
+          >
+            Open in Atlas
+          </button>
         </div>
       )}
     </div>

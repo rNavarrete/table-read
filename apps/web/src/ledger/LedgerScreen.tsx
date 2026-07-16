@@ -25,7 +25,11 @@ import {
   pendingReviewFacts,
   type LedgerFilters,
 } from './filters'
-import { loadLedgerView, type LedgerViewId } from './viewPreference'
+import {
+  loadLedgerView,
+  saveLedgerView,
+  type LedgerViewId,
+} from './viewPreference'
 
 function useUrlParam(name: string): string | null {
   return useMemo(
@@ -58,7 +62,12 @@ export function LedgerScreen() {
   const [project, setProject] = useState<Project | null>(null)
   const [ledger, setLedger] = useState<LedgerFact[]>([])
   const [filters, setFilters] = useState<LedgerFilters>(DEFAULT_FILTERS)
-  const [view, setView] = useState<LedgerViewId>('atlas')
+  const [view, setView] = useState<LedgerViewId>(() =>
+    focusFactId ? 'atlas' : projectId ? loadLedgerView(projectId) : 'atlas',
+  )
+  const [expandedFactId, setExpandedFactId] = useState<string | null>(
+    () => focusFactId,
+  )
   const [loadError, setLoadError] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
@@ -91,9 +100,9 @@ export function LedgerScreen() {
   }, [projectId])
 
   useEffect(() => {
-    if (!projectId || !project) return
-    setView(loadLedgerView(projectId))
-  }, [projectId, project])
+    if (!focusFactId || !projectId) return
+    saveLedgerView(projectId, 'atlas')
+  }, [focusFactId, projectId])
 
   useEffect(() => {
     if (!focusFactId) return
@@ -101,14 +110,14 @@ export function LedgerScreen() {
       `[data-testid="fact-card-${focusFactId}"]`,
     )
     if (el instanceof HTMLElement) {
-      el.scrollIntoView({ block: 'nearest' })
+      el.scrollIntoView?.({ block: 'nearest' })
       el.classList.add('outline', 'outline-selected', 'outline-tr-coral')
       const t = window.setTimeout(() => {
         el.classList.remove('outline', 'outline-selected', 'outline-tr-coral')
       }, 2000)
       return () => window.clearTimeout(t)
     }
-  }, [focusFactId, ledger])
+  }, [expandedFactId, focusFactId, ledger, view])
 
   const queue = useMemo(() => pendingReviewFacts(ledger), [ledger])
   const highConf = useMemo(() => highConfidencePending(ledger), [ledger])
@@ -117,9 +126,15 @@ export function LedgerScreen() {
     const filtered = filterFacts(ledger, filters)
     // Pending facts live in the review-queue section; don't duplicate them
     // in the grid unless the writer filtered status to pending_review.
-    if (filters.status === 'pending_review') return filtered
-    return filtered.filter((f) => f.status !== 'pending_review')
-  }, [ledger, filters])
+    const visible =
+      filters.status === 'pending_review'
+        ? filtered
+        : filtered.filter((f) => f.status !== 'pending_review')
+    const focused = ledger.find((fact) => fact.id === focusFactId)
+    return focused && !visible.some((fact) => fact.id === focused.id)
+      ? [...visible, focused]
+      : visible
+  }, [ledger, filters, focusFactId])
   const pendingCount = queue.length
 
   const runMutation = useCallback(
@@ -294,6 +309,18 @@ export function LedgerScreen() {
     window.location.assign(url.toString())
   }
 
+  function handleOpenInAtlas(factId: string) {
+    setView('atlas')
+    saveLedgerView(projectId, 'atlas')
+    setExpandedFactId(factId)
+  }
+
+  function scrollToReviewQueue() {
+    document
+      .querySelector('[data-testid="review-queue"]')
+      ?.scrollIntoView?.({ block: 'nearest' })
+  }
+
   if (!projectId) return null
 
   if (loadError) {
@@ -344,9 +371,13 @@ export function LedgerScreen() {
               onChange={setView}
             />
             {pendingCount > 0 && (
-              <span className="rounded-chip bg-tr-amber-soft px-2 py-1 text-13 text-tr-text-primary">
+              <button
+                type="button"
+                onClick={scrollToReviewQueue}
+                className="rounded-chip bg-tr-amber-soft px-2 py-1 text-13 text-tr-text-primary"
+              >
                 {pendingCount} to review
-              </span>
+              </button>
             )}
           </header>
           {actionError && (
@@ -448,6 +479,13 @@ export function LedgerScreen() {
                 onReject={handleReject}
                 onEdit={handleEdit}
                 onSourceSpanClick={handleSourceSpanClick}
+                expandedFactId={expandedFactId}
+                onExpandedFactIdChange={setExpandedFactId}
+                emptyMessage={
+                  ledger.length === 0
+                    ? "Facts appear as you write. Table Read tracks what's true so you don't have to."
+                    : 'No facts match.'
+                }
               />
             ) : (
               <KnowledgeWeb
@@ -460,6 +498,7 @@ export function LedgerScreen() {
                 onReject={handleReject}
                 onEdit={handleEdit}
                 onSourceSpanClick={handleSourceSpanClick}
+                onOpenInAtlas={handleOpenInAtlas}
               />
             )}
           </section>

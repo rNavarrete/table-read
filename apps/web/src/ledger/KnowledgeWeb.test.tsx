@@ -132,9 +132,9 @@ describe('KnowledgeWeb', () => {
     expect(screen.getByTestId('web-fact-reyes-pending').className).toMatch(
       /bg-tr-amber-soft/,
     )
-    expect(screen.getByTestId('web-fact-reyes-knowledge').className).not.toMatch(
-      /bg-tr-amber-soft/,
-    )
+    expect(
+      screen.getByTestId('web-fact-reyes-knowledge').className,
+    ).not.toMatch(/bg-tr-amber-soft/)
   })
 
   it('clicking a fact node opens FactCard detail panel', async () => {
@@ -156,9 +156,29 @@ describe('KnowledgeWeb', () => {
 
     await user.click(screen.getByTestId('web-fact-reyes-knowledge'))
     expect(screen.getByTestId('fact-card-reyes-knowledge')).toBeTruthy()
-    expect(screen.getByTestId('fact-card-reyes-knowledge').textContent).toContain(
-      'Reyes knows the marina gate code',
+    expect(
+      screen.getByTestId('fact-card-reyes-knowledge').textContent,
+    ).toContain('Reyes knows the marina gate code')
+  })
+
+  it('opens the selected fact in Atlas', async () => {
+    const user = userEvent.setup()
+    const onOpenInAtlas = vi.fn()
+    render(
+      <KnowledgeWeb
+        facts={[reyesKnowledge]}
+        allFacts={[reyesKnowledge]}
+        project={project}
+        characterId="char-reyes"
+        busy={false}
+        onOpenInAtlas={onOpenInAtlas}
+      />,
     )
+
+    await user.click(screen.getByTestId('web-fact-reyes-knowledge'))
+    await user.click(screen.getByRole('button', { name: 'Open in Atlas' }))
+
+    expect(onOpenInAtlas).toHaveBeenCalledWith('reyes-knowledge')
   })
 
   it('shows queue actions in detail when selected fact is pending', async () => {

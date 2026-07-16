@@ -85,6 +85,25 @@ describe('buildKnowledgeGraph', () => {
     ])
   })
 
+  it('includes facts that mention the focused character by name', () => {
+    const model = buildKnowledgeGraph(
+      [
+        fact({
+          id: 'mentioned-reyes',
+          fact: 'Marta lies to detective ana reyes.',
+          knownBy: ['char-marta'],
+          factType: 'event',
+        }),
+      ],
+      project,
+      'char-reyes',
+    )
+
+    expect(model.factNodes.map((entry) => entry.id)).toEqual([
+      'mentioned-reyes',
+    ])
+  })
+
   it('caps visible fact nodes at 24 by default', () => {
     const many = Array.from({ length: 30 }, (_, i) =>
       fact({
@@ -94,9 +113,9 @@ describe('buildKnowledgeGraph', () => {
       }),
     )
 
-    expect(buildKnowledgeGraph(many, project, 'char-reyes').factNodes).toHaveLength(
-      24,
-    )
+    expect(
+      buildKnowledgeGraph(many, project, 'char-reyes').factNodes,
+    ).toHaveLength(24)
   })
 
   it('respects a custom cap', () => {

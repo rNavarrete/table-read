@@ -23,11 +23,7 @@ vi.mock('../projects/resumeContext', () => ({
   saveResume: vi.fn(),
 }))
 
-import {
-  batchLedgerReview,
-  getLedger,
-  getProject,
-} from '../api/client'
+import { batchLedgerReview, getLedger, getProject } from '../api/client'
 
 afterEach(() => {
   cleanup()
@@ -66,11 +62,7 @@ function project(headSnapshotId: string): Project {
   } as unknown as Project
 }
 
-function pendingFact(
-  id: string,
-  sceneId: string,
-  beatId: string,
-): LedgerFact {
+function pendingFact(id: string, sceneId: string, beatId: string): LedgerFact {
   return {
     id,
     fact: `Fact ${id}`,
@@ -109,7 +101,10 @@ describe('LedgerScreen batch concurrency', () => {
     vi.mocked(getLedger).mockResolvedValue(initialLedger)
     vi.mocked(batchLedgerReview)
       .mockResolvedValueOnce({
-        ledger: [{ ...factA, status: 'active', provenance: 'writer_confirmed' }, factB],
+        ledger: [
+          { ...factA, status: 'active', provenance: 'writer_confirmed' },
+          factB,
+        ],
       })
       .mockResolvedValueOnce({
         ledger: [
@@ -186,5 +181,40 @@ describe('LedgerScreen dual views', () => {
     await user.click(await screen.findByRole('button', { name: 'Web' }))
 
     expect(await screen.findByTestId('knowledge-web')).not.toBeNull()
+  })
+
+  it('opens and expands a URL-focused fact in Atlas', async () => {
+    const focusedFact = {
+      ...pendingFact('fact-a', 'scene-3', 'beat-3-1'),
+      status: 'active' as const,
+    }
+    vi.mocked(getProject).mockResolvedValue(project('snap-1'))
+    vi.mocked(getLedger).mockResolvedValue([focusedFact])
+    localStorage.setItem('tr.ledger.view.proj-1', 'web')
+
+    window.history.pushState({}, '', '/ledger?project=proj-1&fact=fact-a')
+    render(<LedgerScreen />)
+
+    expect(await screen.findByTestId('story-atlas')).not.toBeNull()
+    expect(await screen.findByTestId('fact-card-fact-a')).not.toBeNull()
+  })
+
+  it('scrolls to the review queue from the pending chip', async () => {
+    const user = userEvent.setup()
+    const scrollIntoView = vi.fn()
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+      configurable: true,
+      value: scrollIntoView,
+    })
+    vi.mocked(getProject).mockResolvedValue(project('snap-1'))
+    vi.mocked(getLedger).mockResolvedValue([
+      pendingFact('fact-a', 'scene-3', 'beat-3-1'),
+    ])
+
+    window.history.pushState({}, '', '/ledger?project=proj-1')
+    render(<LedgerScreen />)
+
+    await user.click(await screen.findByRole('button', { name: '1 to review' }))
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' })
   })
 })

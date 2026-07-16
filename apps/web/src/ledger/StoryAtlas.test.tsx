@@ -122,6 +122,28 @@ describe('StoryAtlas', () => {
     expect(card.textContent).toContain('Dan took cash from the register.')
   })
 
+  it('expands the controlled fact', () => {
+    const facts = [
+      fact({
+        id: 'f-event',
+        factType: 'event',
+        fact: 'Dan took cash from the register.',
+      }),
+    ]
+
+    render(
+      <StoryAtlas
+        facts={facts}
+        allFacts={facts}
+        project={project()}
+        busy={false}
+        expandedFactId="f-event"
+      />,
+    )
+
+    expect(screen.getByTestId('fact-card-f-event')).not.toBeNull()
+  })
+
   it('keeps only one fact expanded globally', async () => {
     const user = userEvent.setup()
     const facts = [
@@ -208,15 +230,24 @@ describe('StoryAtlas', () => {
 
   it('shows filtered-empty copy when no facts', () => {
     render(
+      <StoryAtlas facts={[]} allFacts={[]} project={project()} busy={false} />,
+    )
+
+    expect(screen.getByTestId('story-atlas')).not.toBeNull()
+    expect(screen.getByText('No facts match.')).not.toBeNull()
+  })
+
+  it('uses the supplied empty message', () => {
+    render(
       <StoryAtlas
         facts={[]}
         allFacts={[]}
         project={project()}
         busy={false}
+        emptyMessage="Facts appear as you write."
       />,
     )
 
-    expect(screen.getByTestId('story-atlas')).not.toBeNull()
-    expect(screen.getByText('No facts match these filters.')).not.toBeNull()
+    expect(screen.getByText('Facts appear as you write.')).not.toBeNull()
   })
 })
