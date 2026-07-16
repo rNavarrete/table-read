@@ -19,6 +19,24 @@ const FACT_TYPES: FactTypeFilter[] = [
   'world_rule',
 ]
 
+const STATUS_LABELS: Record<FactStatusFilter, string> = {
+  all: 'All',
+  pending_review: 'Needs review',
+  active: 'Active',
+  superseded: 'Superseded',
+  stale: 'Stale',
+  rejected: 'Rejected',
+}
+
+const FACT_TYPE_LABELS: Record<FactTypeFilter, string> = {
+  all: 'All truths',
+  event: 'Events',
+  state: 'States',
+  knowledge: 'Knowledge',
+  relationship: 'Relationships',
+  world_rule: 'World rules',
+}
+
 export interface FilterRailProps {
   project: Project
   filters: LedgerFilters
@@ -58,7 +76,7 @@ export function FilterRail({ project, filters, onChange }: FilterRailProps) {
                 checked={filters.status === status}
                 onChange={() => onChange({ ...filters, status })}
               />
-              {status === 'all' ? 'All' : status}
+              {STATUS_LABELS[status]}
             </label>
           ))}
         </div>
@@ -66,7 +84,7 @@ export function FilterRail({ project, filters, onChange }: FilterRailProps) {
 
       <fieldset className="mb-6">
         <legend className="mb-2 text-12 uppercase tracking-wide text-tr-text-muted">
-          Character
+          People
         </legend>
         <div className="flex flex-col gap-1">
           <label className={optionClass(filters.characterId === null)}>
@@ -99,7 +117,7 @@ export function FilterRail({ project, filters, onChange }: FilterRailProps) {
 
       <fieldset>
         <legend className="mb-2 text-12 uppercase tracking-wide text-tr-text-muted">
-          Fact type
+          Lenses
         </legend>
         <div className="flex flex-col gap-1">
           {FACT_TYPES.map((factType) => (
@@ -114,7 +132,7 @@ export function FilterRail({ project, filters, onChange }: FilterRailProps) {
                 checked={filters.factType === factType}
                 onChange={() => onChange({ ...filters, factType })}
               />
-              {factType === 'all' ? 'All' : factType}
+              {FACT_TYPE_LABELS[factType]}
             </label>
           ))}
         </div>

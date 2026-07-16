@@ -13,6 +13,26 @@ const project = {
 } as Project
 
 describe('FilterRail', () => {
+  it('shows writer-facing status and lenses labels', () => {
+    render(
+      <FilterRail
+        project={project}
+        filters={{
+          status: 'all',
+          characterId: null,
+          factType: 'all',
+        }}
+        onChange={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByText('Needs review')).toBeTruthy()
+    expect(screen.getByText('Lenses')).toBeTruthy()
+    expect(screen.getByText('People')).toBeTruthy()
+    expect(screen.getByText('All truths')).toBeTruthy()
+    expect(screen.getByText('World rules')).toBeTruthy()
+  })
+
   it('marks active filters with Quiet Tool soft accent chrome', () => {
     render(
       <FilterRail
@@ -30,10 +50,10 @@ describe('FilterRail', () => {
       /border-tr-border/,
     )
     expect(
-      screen.getByLabelText('pending_review').parentElement?.className,
+      screen.getByLabelText('Needs review').parentElement?.className,
     ).toContain('bg-tr-coral-soft')
     expect(
-      screen.getByLabelText('pending_review').parentElement?.className,
+      screen.getByLabelText('Needs review').parentElement?.className,
     ).toContain('text-tr-accent-ink')
   })
 })
