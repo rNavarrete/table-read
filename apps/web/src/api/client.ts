@@ -1,5 +1,6 @@
 import type {
   BeatCandidate,
+  Character,
   ChangeSet,
   ConsistencyFlag,
   CraftLevel,
@@ -272,6 +273,62 @@ export function batchLedgerReview(
     body,
     opts,
   )
+}
+
+/** `PATCH /projects/{pid}/characters/{cid}` (data contract §4 Cast
+ * management, T7.16) — rename and/or replace aliases. Locked character →
+ * 409 `LOCKED_OBJECT`. */
+export function renameCharacter(
+  projectId: string,
+  characterId: string,
+  body: { name?: string; aliases?: string[] },
+  opts?: IfMatchOpts,
+): Promise<Character> {
+  return patchJson<Character>(
+    `/projects/${projectId}/characters/${characterId}`,
+    body,
+    opts,
+  )
+}
+
+/** `POST .../characters/{cid}/merge-into/{targetId}` response (data contract
+ * §4 Cast management): the atomic merge rewrites both the project doc
+ * (aliases, relationships, motivations, characterArcs, storylines) and the
+ * ledger (`knownBy`), so it returns both. */
+export interface MergeCharacterResponse {
+  project: Project
+  ledger: LedgerFact[]
+}
+
+/** `POST /projects/{pid}/characters/{cid}/merge-into/{targetId}` — absorbs
+ * `characterId` into `targetId`, one snapshot. Either side locked → 409
+ * `LOCKED_OBJECT`; merging into itself → 400 `VALIDATION`. */
+export function mergeCharacterInto(
+  projectId: string,
+  characterId: string,
+  targetId: string,
+  opts?: IfMatchOpts,
+): Promise<MergeCharacterResponse> {
+  return postJson<MergeCharacterResponse>(
+    `/projects/${projectId}/characters/${characterId}/merge-into/${targetId}`,
+    {},
+    opts,
+  )
+}
+
+/** `DELETE /projects/{pid}/characters/{cid}` — refused 409 `VALIDATION`
+ * (with fact/relationship counts in `details`) while any reference remains,
+ * or 409 `LOCKED_OBJECT` for a locked character. */
+export async function deleteCharacter(
+  projectId: string,
+  characterId: string,
+  opts?: IfMatchOpts,
+): Promise<void> {
+  const res = await fetch(
+    `${BASE}/projects/${projectId}/characters/${characterId}`,
+    { method: 'DELETE', headers: ifMatchHeaders(opts) },
+  )
+  if (!res.ok) throw await toApiError(res)
 }
 
 /** `GET /projects/{pid}/consistency-flags?status=` (data contract §4). Plan

@@ -28,6 +28,7 @@ from drama_manager import (
     accept,
     candidates,
     change_sets,
+    characters,
     ledger_mutations,
     locks,
     scan,
@@ -48,6 +49,7 @@ from schemas import (
     BeatCandidate,
     ChangeSet,
     ChangeSetApprovedRequest,
+    Character,
     ConsistencyFlag,
     InitialSceneSkeletonCandidate,
     InstructionSuggestions,
@@ -987,6 +989,148 @@ def batch_ledger(
 
     facts = session.query(LedgerFactRow).filter_by(project_id=pid).all()
     return {"ledger": [f.to_wire_dict() for f in facts]}
+
+
+def _character_or_404(doc: dict, cid: str) -> dict:
+    try:
+        return characters.get_character(doc, cid)
+    except characters.CharacterNotFound as exc:
+        raise ApiError(404, "NOT_FOUND", f"character {exc} not found") from exc
+
+
+@router.patch("/{pid}/characters/{cid}", response_model=Character)
+def patch_character(
+    pid: str,
+    cid: str,
+    name: str | None = Body(default=None),
+    aliases: list[str] | None = Body(default=None),
+    session: Session = Depends(get_session),
+    if_match: str | None = Header(default=None, alias="If-Match"),
+) -> dict:
+    """Rename and/or edit aliases (data contract §4 Cast management, T7.16).
+    A locked character is rejected 409 `LOCKED_OBJECT` before any mutation
+    (rule 2) — checked ahead of `mutate` so a locked target costs zero
+    writes, matching every other lock guard in this module."""
+    project = _get_project_or_404(session, pid)
+    _character_or_404(project.doc, cid)
+    if locks.is_locked(project.doc, cid):
+        raise ApiError(409, "LOCKED_OBJECT", f"character {cid!r} is locked")
+
+    try:
+        snapshots.mutate(
+            session,
+            pid,
+            "Rename character",
+            lambda state: MutationState(
+                doc=characters.rename_character(
+                    state.doc, cid, name=name, aliases=aliases
+                ),
+                ledger=state.ledger,
+                flags=state.flags,
+            ),
+            expected_head_snapshot_id=_expected_head(if_match),
+        )
+    except snapshots.StaleHead as exc:
+        raise ApiError(409, "CONFLICT_STALE_HEAD", str(exc)) from exc
+    except characters.CharacterNotFound as exc:
+        raise ApiError(404, "NOT_FOUND", f"character {exc} not found") from exc
+    except characters.ValidationError as exc:
+        raise ApiError(400, "VALIDATION", str(exc)) from exc
+
+    updated_doc = session.get(ProjectRow, pid).doc
+    return characters.get_character(updated_doc, cid)
+
+
+@router.post("/{pid}/characters/{cid}/merge-into/{target_id}")
+def merge_character(
+    pid: str,
+    cid: str,
+    target_id: str,
+    session: Session = Depends(get_session),
+    if_match: str | None = Header(default=None, alias="If-Match"),
+) -> dict:
+    """Merge `cid` into `target_id` (data contract §4 Cast management,
+    T7.16) — atomic, one snapshot: absorbs aliases, rewrites every
+    characterId reference (ledger `knownBy`, relationships, motivations,
+    characterArcs, episode storylines) from source to target, and removes
+    the source (`drama_manager.characters.merge_character`). Either side
+    locked, or missing, is rejected before any mutation → `{project, ledger}`."""
+    project = _get_project_or_404(session, pid)
+    _character_or_404(project.doc, cid)
+    _character_or_404(project.doc, target_id)
+    if locks.is_locked(project.doc, cid) or locks.is_locked(project.doc, target_id):
+        raise ApiError(409, "LOCKED_OBJECT", "cannot merge a locked character")
+
+    def mutator(state: MutationState) -> MutationState:
+        new_doc, new_ledger = characters.merge_character(
+            state.doc, state.ledger, cid, target_id
+        )
+        return MutationState(doc=new_doc, ledger=new_ledger, flags=state.flags)
+
+    try:
+        snapshots.mutate(
+            session,
+            pid,
+            "Merged character",
+            mutator,
+            expected_head_snapshot_id=_expected_head(if_match),
+        )
+    except snapshots.StaleHead as exc:
+        raise ApiError(409, "CONFLICT_STALE_HEAD", str(exc)) from exc
+    except characters.ValidationError as exc:
+        raise ApiError(400, "VALIDATION", str(exc)) from exc
+    except characters.CharacterNotFound as exc:
+        raise ApiError(404, "NOT_FOUND", f"character {exc} not found") from exc
+
+    updated = session.get(ProjectRow, pid)
+    ledger_rows = session.query(LedgerFactRow).filter_by(project_id=pid).all()
+    return {
+        "project": updated.doc,
+        "ledger": [row.to_wire_dict() for row in ledger_rows],
+    }
+
+
+@router.delete("/{pid}/characters/{cid}", status_code=204)
+def delete_character(
+    pid: str,
+    cid: str,
+    session: Session = Depends(get_session),
+    if_match: str | None = Header(default=None, alias="If-Match"),
+) -> Response:
+    """Delete a character (data contract §4 Cast management, T7.16). Any
+    remaining ledger-fact/relationship reference → 409 `VALIDATION` with the
+    counts in `details` before any mutation. A locked character → 409
+    `LOCKED_OBJECT`."""
+    project = _get_project_or_404(session, pid)
+    _character_or_404(project.doc, cid)
+    if locks.is_locked(project.doc, cid):
+        raise ApiError(409, "LOCKED_OBJECT", f"character {cid!r} is locked")
+
+    def mutator(state: MutationState) -> MutationState:
+        return MutationState(
+            doc=characters.delete_character(state.doc, state.ledger, cid),
+            ledger=state.ledger,
+            flags=state.flags,
+        )
+
+    try:
+        snapshots.mutate(
+            session,
+            pid,
+            "Deleted character",
+            mutator,
+            expected_head_snapshot_id=_expected_head(if_match),
+        )
+    except snapshots.StaleHead as exc:
+        raise ApiError(409, "CONFLICT_STALE_HEAD", str(exc)) from exc
+    except characters.CharacterNotFound as exc:
+        raise ApiError(404, "NOT_FOUND", f"character {exc} not found") from exc
+    except characters.ReferencedError as exc:
+        raise ApiError(
+            409, "VALIDATION", "character is still referenced", details=exc.counts
+        ) from exc
+
+    return Response(status_code=204)
 
 
 def _fact_row_or_404(session: Session, fact_id: str) -> LedgerFactRow:

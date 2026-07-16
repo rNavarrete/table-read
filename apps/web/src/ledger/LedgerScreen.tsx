@@ -12,6 +12,7 @@ import { ApiError } from '../api/errors'
 import { requireProjectId } from '../projects/projectRouting'
 import { loadResume, saveResume } from '../projects/resumeContext'
 import { AppShell } from '../shell/AppShell'
+import { CastPanel } from './CastPanel'
 import { FactCard } from './FactCard'
 import { FilterRail } from './FilterRail'
 import { KnowledgeWeb } from './KnowledgeWeb'
@@ -71,6 +72,7 @@ export function LedgerScreen() {
   const [loadError, setLoadError] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
+  const [castPanelOpen, setCastPanelOpen] = useState(false)
   const inFlightRef = useRef(false)
 
   useEffect(() => {
@@ -359,7 +361,12 @@ export function LedgerScreen() {
       projectId={projectId}
     >
       <div className="flex min-h-[calc(100vh-3.5rem)]">
-        <FilterRail project={project} filters={filters} onChange={setFilters} />
+        <FilterRail
+          project={project}
+          filters={filters}
+          onChange={setFilters}
+          onManageCast={() => setCastPanelOpen(true)}
+        />
         <div className="flex min-w-0 flex-1 flex-col gap-4 p-6">
           <header className="flex flex-wrap items-center gap-3">
             <h1 className="font-display text-22 text-tr-text-primary">
@@ -384,6 +391,15 @@ export function LedgerScreen() {
             <p className="text-13 text-tr-danger" role="alert">
               {actionError}
             </p>
+          )}
+          {castPanelOpen && (
+            <CastPanel
+              project={project}
+              ledger={ledger}
+              onProjectChange={setProject}
+              onLedgerChange={setLedger}
+              onClose={() => setCastPanelOpen(false)}
+            />
           )}
           {queue.length > 0 && (
             <section

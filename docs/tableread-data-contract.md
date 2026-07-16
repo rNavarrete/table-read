@@ -537,6 +537,12 @@ Defined transactions:
 
 **Ledger mutations are versioned mutations.** Confirm, reject, edit, and batch all run the standard snapshot transaction (§3 — ledger is snapshot-versioned state), so every ledger action is undoable via `POST /undo` like any other change.
 
+**Cast management (T7.16)**
+
+- `PATCH /projects/{pid}/characters/{cid}` `{name?, aliases?}` → `Character` — rename and/or replace aliases; one snapshot (`instruction: "Rename character"`). At least one of `name`/`aliases` is required, else 400 `VALIDATION`. A locked character → 409 `LOCKED_OBJECT` before any mutation.
+- `POST /projects/{pid}/characters/{cid}/merge-into/{targetId}` → `{project, ledger}` — atomic, one snapshot: the target absorbs the source's `aliases` plus the source's own `name` as a new alias; every characterId reference is rewritten from source to target — ledger fact `knownBy`, relationship `between`, scene `motivations[].characterId`, season `characterArcs[].characterId`, and episode storyline `characterIds` — deduping the set-shaped fields so the rewrite never produces a duplicate id; a relationship the merge collapses into a self-pair (source and target were directly related) is dropped; the source character is removed. Merging a character into itself → 400 `VALIDATION`. Either side locked, or either id unknown, is rejected before any mutation (409 `LOCKED_OBJECT` / 404 `NOT_FOUND`).
+- `DELETE /projects/{pid}/characters/{cid}` → 204 — deletes a character with zero remaining references. Any ledger-fact `knownBy` or relationship `between` reference remaining → 409 `VALIDATION` with `details: {facts, relationships}` counts, nothing mutated. A locked character → 409 `LOCKED_OBJECT`.
+
 **Supersede resolution semantics (atomic — one transaction each):**
 
 - `confirm` on a `pending_review` fact with `supersedes: null` → fact becomes `active` / `writer_confirmed`.

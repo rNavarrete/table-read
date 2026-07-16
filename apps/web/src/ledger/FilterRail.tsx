@@ -41,12 +41,18 @@ export interface FilterRailProps {
   project: Project
   filters: LedgerFilters
   onChange: (next: LedgerFilters) => void
+  onManageCast?: () => void
 }
 
 /**
  * Left filter rail (UI spec §6: 198px — status, character, fact type).
  */
-export function FilterRail({ project, filters, onChange }: FilterRailProps) {
+export function FilterRail({
+  project,
+  filters,
+  onChange,
+  onManageCast,
+}: FilterRailProps) {
   const optionClass = (active: boolean) =>
     'flex cursor-pointer items-center gap-2 rounded-chip px-3 py-1 text-13 transition-colors focus-within:outline focus-within:outline-selected focus-within:outline-tr-coral ' +
     (active
@@ -83,9 +89,21 @@ export function FilterRail({ project, filters, onChange }: FilterRailProps) {
       </fieldset>
 
       <fieldset className="mb-6">
-        <legend className="mb-2 text-12 uppercase tracking-wide text-tr-text-muted">
-          People
-        </legend>
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <legend className="text-12 uppercase tracking-wide text-tr-text-muted">
+            People
+          </legend>
+          {onManageCast && (
+            <button
+              type="button"
+              onClick={onManageCast}
+              className="text-12 text-tr-sky underline-offset-2 hover:underline"
+              data-testid="manage-cast-button"
+            >
+              Manage cast
+            </button>
+          )}
+        </div>
         <div className="flex flex-col gap-1">
           <label className={optionClass(filters.characterId === null)}>
             <input
