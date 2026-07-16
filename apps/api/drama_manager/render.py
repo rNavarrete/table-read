@@ -26,25 +26,19 @@ from typing import Any
 
 # Prompt spec §8 / hard rule 7: every template carries a PROMPT_VERSION (semver);
 # it is logged with each call and bumped on any template change. Bumped to
-# 0.7.0 for Task 6 (new-project-flow design spec §6/§9.4): added
-# `build_scene_skeleton_prompt` for the guided-setup `generate_scene_skeleton`
-# op — a new prompt-changing surface requiring `make evals` sign-off before
-# merge (CLAUDE.md rule 7; not run in this task per the task brief). History:
-# 0.6.0 added the candidate-template continuity constraint (_CONTINUITY_
-# CONSTRAINT) — an explicit knownBy/dramatic-irony framing over the
-# continuity_facts block, to stop candidates telegraphing knowledge a fact
-# withholds (the T6.1 continuity-adherence failures); 0.5.0 added the
-# `regenerate_elements` builder; 0.4.0 added classify_blast_radius; 0.3.0 added
-# tune_beat; 0.2.0 added the candidate builder and the §0 shared system prompt.
-# 0.11.0 added act-inference and deterministic-retry prompts over compact
-# post-segmentation scene summaries. 0.10.0 replaced import beat ranges with
-# typed segment starts and structured `{lineNumber, text}` source lines. 0.9.0
-# added lock-aware narrative repair + subtext-fidelity HARD RULES
-# (adoption A1 / A10) on the shared system prompt — prompt-changing; needs
-# `make evals` sign-off. History: 0.8.0 suggest_instructions; 0.7.0 scene
-# skeleton; 0.6.0 continuity constraint; 0.5.0 regenerate; 0.4.0 blast radius;
-# 0.3.0 tune; 0.2.0 candidate + §0 system prompt.
-PROMPT_VERSION = "0.11.0"
+# 0.12.0 for T7.15 (import-continuity-mvp Task 2): added `build_entity_prompt`
+# for the new `infer_story_entities` op (§5a) — a new prompt-changing surface
+# requiring `make evals` sign-off before merge (CLAUDE.md rule 7; not run in
+# this task per the task brief). History: 0.11.0 added act-inference and
+# deterministic-retry prompts over compact post-segmentation scene summaries.
+# 0.10.0 replaced import beat ranges with typed segment starts and structured
+# `{lineNumber, text}` source lines. 0.9.0 added lock-aware narrative repair +
+# subtext-fidelity HARD RULES (adoption A1 / A10) on the shared system prompt
+# — prompt-changing; needed `make evals` sign-off. History: 0.8.0
+# suggest_instructions; 0.7.0 scene skeleton; 0.6.0 continuity constraint;
+# 0.5.0 regenerate; 0.4.0 blast radius; 0.3.0 tune; 0.2.0 candidate + §0
+# system prompt.
+PROMPT_VERSION = "0.12.0"
 
 
 def new_nonce() -> str:
@@ -191,6 +185,34 @@ def build_act_inference_retry_prompt(
         + source_data("act_inference_repairs", diagnostics, nonce)
         + "\nReturn one corrected set of ordered act starts for the same scenes.",
     )
+
+
+def build_entity_prompt(
+    project: dict,
+    scene_summaries: list[dict],
+    speaker_names: list[str],
+    nonce: str,
+) -> tuple[str, str]:
+    """`infer_story_entities` (§5a): compact per-scene summaries (each
+    carrying its scene's early scriptText) plus the ground-truth speaker
+    list already minted from cues (`fountain/characters.cues_from_scenes`)
+    — a floor the model extends with non-speaking characters,
+    relationships, and world elements, never replaces or omits from."""
+    user = (
+        source_data("import_scene_summaries", scene_summaries, nonce)
+        + "\n"
+        + source_data("known_speakers", speaker_names, nonce)
+        + "\nIdentify every character in this imported script (including "
+        "any non-speaking ones), every relationship between two "
+        "characters, and every significant location or object. "
+        "known_speakers is a ground-truth floor of names already detected "
+        "from dialogue cues: include every one of them as a character and "
+        "do not omit or rename any of them. Refer to every character only "
+        "by a name string, never an id — the server resolves and mints "
+        "ids, not you. Give every entity at least one scene id and a "
+        "short, verbatim-ish quote as evidence."
+    )
+    return build_system_prompt(project, nonce), user
 
 
 def build_extract_prompt(

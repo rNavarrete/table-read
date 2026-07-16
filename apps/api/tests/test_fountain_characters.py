@@ -1,4 +1,4 @@
-"""Unit tests for import cast minting (T7.14)."""
+"""Unit tests for import cast minting (T7.14) and entity-inference merge (T7.15)."""
 
 from __future__ import annotations
 
@@ -7,8 +7,10 @@ from fountain.characters import (
     cues_from_scenes,
     extract_character_cues,
     merge_characters_into_bible,
+    merge_inferred_entities,
     normalize_known_by,
 )
+from schemas import StoryEntities
 
 
 def test_extract_cues_keeps_speakers_drops_transitions():
@@ -140,3 +142,186 @@ def test_backfill_rewrites_ledger_known_by():
     ids = {c["id"] for c in chars}
     assert set(new_ledger[0]["knownBy"]) <= ids
     assert "audience" not in new_ledger[0]["knownBy"]
+
+
+# ── alias-aware resolution (T7.15) ────────────────────────────────────────
+
+
+def test_normalize_resolves_via_character_alias_not_prefix():
+    """"Doc" is an alias of "Emmett Brown" with no name-prefix relation at
+    all — this can only resolve through the character's `aliases` list, not
+    the pre-existing prefix heuristic."""
+    characters = [
+        {
+            "id": "char-brown",
+            "name": "Emmett Brown",
+            "locked": False,
+            "aliases": ["Doc"],
+            "embodiment": "",
+            "presentation": "",
+            "hiding": "",
+            "traits": "",
+            "seriesArc": "",
+        }
+    ]
+    known, chars = normalize_known_by(["Doc"], characters)
+    assert known == ["char-brown"]
+    assert len(chars) == 1  # no duplicate minted
+
+
+# ── infer_story_entities merge (T7.15) ────────────────────────────────────
+
+
+def _entities(**overrides) -> StoryEntities:
+    payload = {
+        "characters": [],
+        "relationships": [],
+        "worldElements": [],
+        **overrides,
+    }
+    return StoryEntities.model_validate(payload)
+
+
+def _evidence(scene_id: str = "scene-1", quote: str = "x") -> list[dict]:
+    return [{"sceneId": scene_id, "quote": quote}]
+
+
+def test_merge_mints_character_with_aliases_and_non_speaking_character():
+    bible: dict = {"characters": [], "relationships": [], "worldQA": []}
+    entities = _entities(
+        characters=[
+            {
+                "name": "Doc Brown",
+                "aliases": ["Doc"],
+                "role": "principal",
+                "traits": "eccentric inventor",
+                "evidence": _evidence(),
+            },
+            {
+                "name": "Einstein",
+                "aliases": [],
+                "role": "minor",
+                "traits": "a dog",
+                "evidence": _evidence(quote="Einstein barks."),
+            },
+        ]
+    )
+    characters = merge_inferred_entities(bible, entities)
+    by_name = {c["name"]: c for c in characters}
+    assert set(by_name) == {"Doc Brown", "Einstein"}
+    assert by_name["Doc Brown"]["aliases"] == ["Doc"]
+    assert by_name["Einstein"]["locked"] is False
+
+
+def test_merge_appends_resolved_relationship_and_drops_unresolvable():
+    bible: dict = {
+        "characters": [
+            {
+                "id": "char-marty",
+                "name": "Marty",
+                "locked": False,
+                "aliases": [],
+                "embodiment": "",
+                "presentation": "",
+                "hiding": "",
+                "traits": "",
+                "seriesArc": "",
+            }
+        ],
+        "relationships": [],
+        "worldQA": [],
+    }
+    entities = _entities(
+        characters=[
+            {
+                "name": "Doc Brown",
+                "aliases": ["Doc"],
+                "role": "principal",
+                "traits": "",
+                "evidence": _evidence(),
+            }
+        ],
+        relationships=[
+            {
+                "betweenNames": ["Doc Brown", "Marty"],
+                "label": "friends",
+                "reallyLike": "",
+                "evidence": _evidence(),
+            },
+            {
+                "betweenNames": ["Doc Brown", "Nobody"],
+                "label": "unknown",
+                "reallyLike": "",
+                "evidence": _evidence(),
+            },
+        ],
+    )
+    characters = merge_inferred_entities(bible, entities)
+    doc_id = next(c["id"] for c in characters if c["name"] == "Doc Brown")
+    marty_id = next(c["id"] for c in characters if c["name"] == "Marty")
+    assert bible["relationships"] == [
+        {"between": [doc_id, marty_id], "label": "friends", "reallyLike": "", "locked": False}
+    ]
+
+
+def test_merge_appends_world_elements_as_world_qa():
+    bible: dict = {"characters": [], "relationships": [], "worldQA": []}
+    entities = _entities(
+        worldElements=[
+            {
+                "kind": "location",
+                "name": "The Long Pour",
+                "note": "The bar Marta and Dan co-own.",
+                "evidence": _evidence(),
+            }
+        ]
+    )
+    merge_inferred_entities(bible, entities)
+    assert bible["worldQA"] == [
+        {"q": "Where is The Long Pour?", "a": "The bar Marta and Dan co-own.", "locked": False}
+    ]
+
+
+def test_merge_never_touches_locked_character_fields():
+    bible: dict = {
+        "characters": [
+            {
+                "id": "char-locked-doc",
+                "name": "Doc Brown",
+                "locked": True,
+                "aliases": [],
+                "embodiment": "time travel",
+                "presentation": "wild hair",
+                "hiding": "",
+                "traits": "eccentric genius",
+                "seriesArc": "",
+            }
+        ],
+        "relationships": [],
+        "worldQA": [],
+    }
+    entities = _entities(
+        characters=[
+            {
+                "name": "Doc Brown",
+                "aliases": ["Doc", "The Doc"],
+                "role": "principal",
+                "traits": "should never overwrite the locked traits",
+                "evidence": _evidence(),
+            }
+        ]
+    )
+    characters = merge_inferred_entities(bible, entities)
+    assert characters == [
+        {
+            "id": "char-locked-doc",
+            "name": "Doc Brown",
+            "locked": True,
+            "aliases": [],
+            "embodiment": "time travel",
+            "presentation": "wild hair",
+            "hiding": "",
+            "traits": "eccentric genius",
+            "seriesArc": "",
+        }
+    ]

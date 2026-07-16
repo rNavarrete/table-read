@@ -20,7 +20,13 @@ from llm.dependency import get_llm_client
 from llm.errors import LlmTimeoutError, SchemaInvalidLlmError
 from llm.mock import MockLlmClient
 from main import app
-from schemas import ConsistencyScan, InferredActBreaks, LedgerExtraction, SegmentedScene
+from schemas import (
+    ConsistencyScan,
+    InferredActBreaks,
+    LedgerExtraction,
+    SegmentedScene,
+    StoryEntities,
+)
 from storage import snapshots
 from storage.models import LedgerFactRow, ProjectRow, SnapshotRow
 
@@ -880,3 +886,170 @@ def test_import_mints_characters_and_normalizes_known_by(db_session, mock_llm):
     assert set(known) == {by_name["Doc"], by_name["Marty"]}
     assert "audience" not in known
     assert all(k.startswith("char-") for k in known)
+
+
+# ── entity inference merge (T7.15) ────────────────────────────────────────
+
+
+def entities(
+    characters: list[dict] | None = None,
+    relationships: list[dict] | None = None,
+    world_elements: list[dict] | None = None,
+) -> StoryEntities:
+    return StoryEntities.model_validate(
+        {
+            "characters": characters or [],
+            "relationships": relationships or [],
+            "worldElements": world_elements or [],
+        }
+    )
+
+
+def test_import_merges_inferred_entities_and_resolves_alias_known_by(db_session, mock_llm):
+    """T7.15: a non-speaking character and an alias-bearing character minted
+    entirely from `infer_story_entities` (not from a script cue) both land in
+    the bible, their relationship is recorded, and a fact's `knownBy` alias
+    resolves to the minted character's id."""
+    created = client.post(
+        "/api/v1/projects",
+        json=NEW_PROJECT_BODY,
+        headers={"Idempotency-Key": "00000000-0000-4000-8000-000000000041"},
+    ).json()
+    pid = created["id"]
+
+    src = "INT. LAB - NIGHT\n\nMARTY\nDoc, are you there?\n"
+    mock_llm.set_responses("segment_scene", one_beat_per_scene(src))
+    mock_llm.set_response(
+        "infer_story_entities",
+        entities(
+            characters=[
+                {
+                    "name": "Doc Brown",
+                    "aliases": ["Doc"],
+                    "role": "principal",
+                    "traits": "eccentric inventor",
+                    "evidence": [{"sceneId": "scene-1", "quote": "Doc, are you there?"}],
+                },
+                {
+                    "name": "Einstein",
+                    "aliases": [],
+                    "role": "minor",
+                    "traits": "Doc's dog",
+                    "evidence": [{"sceneId": "scene-1", "quote": "a dog barks off-panel"}],
+                },
+            ],
+            relationships=[
+                {
+                    "betweenNames": ["Doc Brown", "Marty"],
+                    "label": "mentor and protégé",
+                    "reallyLike": "",
+                    "evidence": [{"sceneId": "scene-1", "quote": "Doc, are you there?"}],
+                }
+            ],
+        ),
+    )
+    mock_llm.set_response(
+        "extract_ledger_facts",
+        extraction(
+            [
+                {
+                    **one_fact(),
+                    "knownBy": ["Doc", "Marty"],
+                }
+            ]
+        ),
+    )
+    mock_llm.set_response("scan_consistency", scan())
+
+    body = client.post(
+        f"/api/v1/projects/{pid}/import", json={"format": "fountain", "content": src}
+    ).json()
+
+    bible = body["project"]["seriesBible"]
+    by_name = {c["name"]: c for c in bible["characters"]}
+    assert "Doc Brown" in by_name
+    assert by_name["Doc Brown"]["aliases"] == ["Doc"]
+    assert "Einstein" in by_name  # non-speaking character, minted purely from inference
+    assert "Marty" in by_name
+
+    relationships = bible["relationships"]
+    assert {tuple(r["between"]) for r in relationships} == {
+        (by_name["Doc Brown"]["id"], by_name["Marty"]["id"])
+    }
+
+    known = body["newFacts"][0]["knownBy"]
+    assert set(known) == {by_name["Doc Brown"]["id"], by_name["Marty"]["id"]}
+
+
+def test_reimport_never_modifies_locked_character_fields(unlocked_project, db_session, mock_llm):
+    project = db_session.get(ProjectRow, PROJECT_ID)
+    bible = project.doc["seriesBible"]
+    locked_char = {
+        "id": "char-locked-doc",
+        "name": "Doc Brown",
+        "locked": True,
+        "aliases": [],
+        "embodiment": "time travel",
+        "presentation": "wild hair",
+        "hiding": "",
+        "traits": "eccentric genius",
+        "seriesArc": "",
+    }
+    project.doc = {
+        **project.doc,
+        "seriesBible": {**bible, "characters": [*bible["characters"], locked_char]},
+    }
+    db_session.commit()
+
+    src = "INT. LAB - NIGHT\n\nDOC\nGreat Scott!\n"
+    mock_llm.set_responses("segment_scene", one_beat_per_scene(src))
+    mock_llm.set_response(
+        "infer_story_entities",
+        entities(
+            characters=[
+                {
+                    "name": "Doc Brown",
+                    "aliases": ["Doc", "The Doc"],
+                    "role": "principal",
+                    "traits": "should never overwrite the locked traits",
+                    "evidence": [{"sceneId": "scene-1", "quote": "Great Scott!"}],
+                }
+            ]
+        ),
+    )
+    mock_llm.set_response("extract_ledger_facts", extraction())
+    mock_llm.set_response("scan_consistency", scan())
+
+    from fountain.pipeline import run_import
+
+    project = db_session.get(ProjectRow, PROJECT_ID)
+    result = run_import(db_session, project, src, mock_llm, instruction="Import test")
+
+    characters = result["project"]["seriesBible"]["characters"]
+    doc_brown = next(c for c in characters if c["id"] == "char-locked-doc")
+    assert doc_brown == locked_char
+
+
+class _RaisingEntitiesLlm(MockLlmClient):
+    def infer_story_entities(self, **kwargs):
+        raise SchemaInvalidLlmError("infer_story_entities")
+
+
+def test_schema_invalid_entities_persists_nothing(unlocked_project, db_session):
+    """Rule 9: schema-invalid `infer_story_entities` output (after the
+    client's own retry-once is exhausted) fails the import atomically —
+    zero rows changed, same contract as segmentation/act inference."""
+    project = db_session.get(ProjectRow, PROJECT_ID)
+    original_doc = project.doc
+    original_head = project.head_snapshot_id
+    original_snaps = db_session.query(SnapshotRow).filter_by(project_id=PROJECT_ID).count()
+    original_facts = db_session.query(LedgerFactRow).filter_by(project_id=PROJECT_ID).count()
+    src = "INT. BAR - DAY\nScene."
+
+    from fountain.pipeline import run_import
+
+    llm = _RaisingEntitiesLlm()
+    with pytest.raises(SchemaInvalidLlmError, match="infer_story_entities"):
+        run_import(db_session, project, src, llm, instruction="Import test")
+
+    _assert_unchanged(db_session, original_doc, original_head, original_snaps, original_facts)

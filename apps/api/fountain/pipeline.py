@@ -11,9 +11,10 @@ inside `analyze_import`, entirely *before* either caller's single DB write
 
 `analyze_import` is a generator so a caller that wants named progress (the
 create-and-import SSE stream, data contract §9.3: `parsing_scenes` /
-`segmenting_beats` / `inferring_acts` / `extracting_facts` /
-`checking_consistency`) can drive it one stage at a time; `run_import` below,
-which has no such caller, drains it in one call via `run_to_completion`.
+`segmenting_beats` / `inferring_acts` / `inferring_entities` /
+`extracting_facts` / `checking_consistency`) can drive it one stage at a
+time; `run_import` below, which has no such caller, drains it in one call
+via `run_to_completion`.
 
 The LLM never controls text coverage (§7): `scriptText` is sliced verbatim
 from the server-derived partition returned by `parse.normalize_and_slice`,
@@ -37,6 +38,7 @@ from fountain import acts
 from fountain.characters import (
     cues_from_scenes,
     merge_characters_into_bible,
+    merge_inferred_entities,
     normalize_known_by,
 )
 from fountain.parse import (
@@ -63,6 +65,7 @@ _logger = logging.getLogger("fountain.pipeline")
 STAGE_PARSING_SCENES = "parsing_scenes"
 STAGE_SEGMENTING_BEATS = "segmenting_beats"
 STAGE_INFERRING_ACTS = "inferring_acts"
+STAGE_INFERRING_ENTITIES = "inferring_entities"
 STAGE_EXTRACTING_FACTS = "extracting_facts"
 STAGE_CHECKING_CONSISTENCY = "checking_consistency"
 IMPORT_LLM_CONCURRENCY = 4
@@ -244,7 +247,31 @@ def analyze_import(
     # ── Cast mint (T7.14): Fountain character cues → seriesBible.characters
     # before extract so knownBy resolves to real ids on every import. ────────
     bible = new_doc.setdefault("seriesBible", {})
-    characters = merge_characters_into_bible(bible, cues_from_scenes(scene_docs))
+    speaker_names = cues_from_scenes(scene_docs)
+    characters = merge_characters_into_bible(bible, speaker_names)
+
+    # ── Entity inference (§5a, T7.15): one classifier call over compact
+    # scene summaries + the cue-derived speaker floor, merged into the bible
+    # (characters incl. non-speaking ones + aliases, relationships, world
+    # elements as worldQA) before extraction so extract/scan see the fuller
+    # cast. Schema-invalid output after the client's own retry-once
+    # (CLAUDE.md rule 9) propagates as SchemaInvalidLlmError, same atomic-
+    # failure contract as segmentation/act inference. ────────────────────────
+    yield ImportStageStarted(STAGE_INFERRING_ENTITIES)
+    system, user = render.build_entity_prompt(
+        new_doc, _entity_scene_summaries(scene_docs), speaker_names, render.new_nonce()
+    )
+    entities = llm.infer_story_entities(
+        system=system, user_message=user, prompt_version=render.PROMPT_VERSION
+    )
+    characters = merge_inferred_entities(bible, entities)
+    _logger.info(
+        "import_infer_entities characters=%d relationships=%d world_elements=%d prompt_version=%s",
+        len(entities.characters),
+        len(entities.relationships),
+        len(entities.world_elements),
+        render.PROMPT_VERSION,
+    )
 
     # ── Ledger extraction (§4 step 2): every import-derived fact is
     # pending_review, regardless of confidence. Fresh ledger → no existing
@@ -396,6 +423,33 @@ def _extract_one(
     return llm.extract_ledger_facts(
         system=system, user_message=user, prompt_version=render.PROMPT_VERSION
     )
+
+
+_ENTITY_PROMPT_EARLY_LINES = 40
+
+
+def _entity_scene_summaries(scene_docs: list[dict]) -> list[dict]:
+    """Per-scene `{id, location, whatHappens, scriptText}` summaries for
+    `render.build_entity_prompt` (§5a): `whatHappens` rolls up each beat's
+    semantic summary (already produced by segmentation, not transcribed
+    text); `scriptText` is the scene's first `_ENTITY_PROMPT_EARLY_LINES`
+    verbatim lines — a compact but on-page-grounded read for entity
+    inference, source-data-wrapped by the renderer, never used to derive
+    facts (extraction still reads full beat text)."""
+    summaries = []
+    for scene in scene_docs:
+        beats = scene.get("beats") or []
+        full_text = "\n".join(b.get("scriptText", "") for b in beats)
+        what_happens = " ".join(b["whatHappens"] for b in beats if b.get("whatHappens"))
+        summaries.append(
+            {
+                "id": scene["id"],
+                "location": scene.get("location", ""),
+                "whatHappens": what_happens,
+                "scriptText": "\n".join(full_text.split("\n")[:_ENTITY_PROMPT_EARLY_LINES]),
+            }
+        )
+    return summaries
 
 
 def _segmentation_issue_explanation(issue: SegmentationIssue) -> str:
