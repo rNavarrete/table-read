@@ -157,3 +157,34 @@ describe('LedgerScreen batch concurrency', () => {
     expect(getProject).toHaveBeenCalledTimes(3)
   })
 })
+
+describe('LedgerScreen dual views', () => {
+  it('shows the Atlas by default with the Ledger view switcher', async () => {
+    vi.mocked(getProject).mockResolvedValue(project('snap-1'))
+    vi.mocked(getLedger).mockResolvedValue([
+      pendingFact('fact-a', 'scene-3', 'beat-3-1'),
+    ])
+
+    window.history.pushState({}, '', '/ledger?project=proj-1')
+    render(<LedgerScreen />)
+
+    expect(await screen.findByTestId('ledger-view-switcher')).not.toBeNull()
+    expect(await screen.findByTestId('story-atlas')).not.toBeNull()
+    expect(screen.getByText("What's true in this story")).not.toBeNull()
+  })
+
+  it('shows Knowledge Web after selecting Web', async () => {
+    const user = userEvent.setup()
+    vi.mocked(getProject).mockResolvedValue(project('snap-1'))
+    vi.mocked(getLedger).mockResolvedValue([
+      pendingFact('fact-a', 'scene-3', 'beat-3-1'),
+    ])
+
+    window.history.pushState({}, '', '/ledger?project=proj-1')
+    render(<LedgerScreen />)
+
+    await user.click(await screen.findByRole('button', { name: 'Web' }))
+
+    expect(await screen.findByTestId('knowledge-web')).not.toBeNull()
+  })
+})

@@ -14,6 +14,9 @@ import { loadResume, saveResume } from '../projects/resumeContext'
 import { AppShell } from '../shell/AppShell'
 import { FactCard } from './FactCard'
 import { FilterRail } from './FilterRail'
+import { KnowledgeWeb } from './KnowledgeWeb'
+import { LedgerViewSwitcher } from './LedgerViewSwitcher'
+import { StoryAtlas } from './StoryAtlas'
 import {
   DEFAULT_FILTERS,
   filterFacts,
@@ -22,6 +25,7 @@ import {
   pendingReviewFacts,
   type LedgerFilters,
 } from './filters'
+import { loadLedgerView, type LedgerViewId } from './viewPreference'
 
 function useUrlParam(name: string): string | null {
   return useMemo(
@@ -30,9 +34,21 @@ function useUrlParam(name: string): string | null {
   )
 }
 
+function sceneLabel(project: Project, sceneId: string): string {
+  for (const season of project.seasons) {
+    for (const episode of season.episodes) {
+      const scene = episode.scenes.find((candidate) => candidate.id === sceneId)
+      const location = (scene as { location?: string } | undefined)?.location
+      if (location) return location
+    }
+  }
+  return sceneId
+}
+
 /**
  * Ledger mode (UI spec §6 / build plan T5.1): filter rail · review queue ·
- * fact card grid. Server is source of truth; mutations roll back on 4xx/5xx.
+ * Atlas / Knowledge Web. Server is source of truth; mutations roll back on
+ * 4xx/5xx.
  */
 export function LedgerScreen() {
   const projectId = requireProjectId()
@@ -42,6 +58,7 @@ export function LedgerScreen() {
   const [project, setProject] = useState<Project | null>(null)
   const [ledger, setLedger] = useState<LedgerFact[]>([])
   const [filters, setFilters] = useState<LedgerFilters>(DEFAULT_FILTERS)
+  const [view, setView] = useState<LedgerViewId>('atlas')
   const [loadError, setLoadError] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
@@ -72,6 +89,11 @@ export function LedgerScreen() {
     const resume = loadResume(projectId)
     saveResume(projectId, { ...resume, mode: 'Ledger' })
   }, [projectId])
+
+  useEffect(() => {
+    if (!projectId || !project) return
+    setView(loadLedgerView(projectId))
+  }, [projectId, project])
 
   useEffect(() => {
     if (!focusFactId) return
@@ -312,6 +334,21 @@ export function LedgerScreen() {
       <div className="flex min-h-[calc(100vh-3.5rem)]">
         <FilterRail project={project} filters={filters} onChange={setFilters} />
         <div className="flex min-w-0 flex-1 flex-col gap-4 p-6">
+          <header className="flex flex-wrap items-center gap-3">
+            <h1 className="font-display text-22 text-tr-text-primary">
+              What&apos;s true in this story
+            </h1>
+            <LedgerViewSwitcher
+              projectId={projectId}
+              value={view}
+              onChange={setView}
+            />
+            {pendingCount > 0 && (
+              <span className="rounded-chip bg-tr-amber-soft px-2 py-1 text-13 text-tr-text-primary">
+                {pendingCount} to review
+              </span>
+            )}
+          </header>
           {actionError && (
             <p className="text-13 text-tr-danger" role="alert">
               {actionError}
@@ -349,7 +386,7 @@ export function LedgerScreen() {
                   >
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <h3 className="text-13 text-tr-text-secondary">
-                        {group.sceneId}
+                        {sceneLabel(project, group.sceneId)}
                         <span className="ml-2 text-tr-text-muted">
                           ({group.facts.length})
                         </span>
@@ -401,26 +438,29 @@ export function LedgerScreen() {
             </section>
           )}
           <section aria-label="Ledger facts">
-            <div className="grid gap-3 md:grid-cols-2">
-              {gridFacts.map((fact) => (
-                <FactCard
-                  key={fact.id}
-                  fact={fact}
-                  allFacts={ledger}
-                  project={project}
-                  queueActions={fact.status === 'pending_review'}
-                  busy={busyId !== null}
-                  onAccept={handleAccept}
-                  onReject={handleReject}
-                  onEdit={handleEdit}
-                  onSourceSpanClick={handleSourceSpanClick}
-                />
-              ))}
-            </div>
-            {gridFacts.length === 0 && (
-              <p className="text-13 text-tr-text-muted">
-                No facts match these filters.
-              </p>
+            {view === 'atlas' ? (
+              <StoryAtlas
+                facts={gridFacts}
+                allFacts={ledger}
+                project={project}
+                busy={busyId !== null}
+                onAccept={handleAccept}
+                onReject={handleReject}
+                onEdit={handleEdit}
+                onSourceSpanClick={handleSourceSpanClick}
+              />
+            ) : (
+              <KnowledgeWeb
+                facts={gridFacts}
+                allFacts={ledger}
+                project={project}
+                busy={busyId !== null}
+                characterId={filters.characterId}
+                onAccept={handleAccept}
+                onReject={handleReject}
+                onEdit={handleEdit}
+                onSourceSpanClick={handleSourceSpanClick}
+              />
             )}
           </section>
         </div>
