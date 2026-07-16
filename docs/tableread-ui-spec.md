@@ -41,7 +41,7 @@ Quiet Tool visual language: cool paper neutrals, slate-blue accent (`--tr-coral*
   --tr-font-script: "Courier Prime", "Courier New", monospace; /* teleplay */
   --tr-font-display:"Instrument Sans", system-ui, sans-serif; /* headings, mode titles */
 
-  /* Scale: 12/13/15/17/22/28. Script canvas fixed 12pt Courier equivalent. */
+  /* Scale: 11/12/13/15/17/22/28. 11px = secondary chrome; script canvas 12pt Courier. */
   /* Spacing: 4-base — 4/8/12/16/24/32/48/64. Generous: default section pad 24. */
   /* Radius: cards 12px, chips 999px, canvas frames 12px. */
   /* Shadow: 0 1px 2px rgb(38 39 43 / 0.04), lift: 0 4px 16px rgb(38 39 43 / 0.08) */
@@ -98,7 +98,7 @@ Layout (T2.4 script home): left **scene outline** (232px, `--tr-panel-story-laye
 - **Keyboard (adoption A8):** `Q` Next Beat · `W`/`/` focus command bar · `[` / `]` previous/next scene · `1`/`2`/`3` select candidate · `Tab`/`Shift-Tab` cycle cards · `Enter` accept focused card · `Esc` dismiss dock. All disabled while the script canvas has focus (AI-quiet) or while typing in a text field.
 - **Quiet AI rule (enforced):** while the script canvas has focus and the writer is typing, the dock dims to 40% opacity and never updates; no proactive generation ever.
 
-**States:** *Empty scene* (no beats) — scene slug + pitch when present, clear "No beats in this scene yet" copy, single coral **Next Beat** in the dock. *Planned beats, no script yet* — solid beat-plan copy on the sheet (see above). *Streaming* — cards fill sequentially; command bar disabled with subtle progress shimmer on the dock border. *Error* — dock card with `--tr-danger` left border, message + Retry; script canvas untouched. *Continuity conflict on a candidate* — amber chip "conflicts with: Dan doesn't know (fact-04)" on the card; accepting requires a confirm click on the chip.
+**States:** *Empty scene* (no beats) — scene slug + pitch when present, clear "No beats in this scene yet" copy, single coral **Next Beat** in the dock. *Planned beats, no script yet* — solid beat-plan copy on the sheet (see above). *Streaming* — cards fill sequentially; command bar disabled with subtle progress shimmer on the dock border. *Error* — dock card with `--tr-danger` left border, message + Retry; script canvas untouched. *Continuity conflict on a candidate* — amber callout "May conflict with the Ledger" with a short cleaned explanation (no raw `fact-…` ids or `audienceKnows` jargon) and a clear **I understand — unlock Accept** control; Accept stays disabled until that acknowledgment. After acknowledge, copy confirms Accept is unlocked and points to Tune if they want to resolve first.
 
 ## 5. Plan mode (MVP: simplified board)
 
@@ -138,18 +138,76 @@ Layout: quiet full-mode Review surface — compact header card with small instru
 
 ## 7. Ledger mode
 
-Layout: left filter rail (198px: status, character, fact type) with accent-tint active filter pills · two-column fact card grid (center) · **review queue** pinned top when non-empty (amber banner: "3 facts awaiting review").
+Ledger is a **story bible** — writers open it to understand what is true in the story world. Two swappable views share the same filters, review queue, and mutation paths:
 
-- **Fact card:** hairline-border raised card with fact text (15px primary) · type chip (sky) · `establishedIn` + source-span link ("ep 1 · sc 3 · beat 2" → jumps to beat in Write mode, highlighted 2s) · **Known by** avatars/initials chips (empty = "audience only", italic) · confidence bar (2px, sage fill on cool-paper track; muted fill when superseded) · provenance chip (`inferred` amber / `confirmed` sage / `writer-authored` sky) · status. Superseded facts: strikethrough text + "superseded by →" link; chain view expands inline as a vertical thread.
+| View | Job |
+|---|---|
+| **Story Atlas** (default) | Compact expandable rows grouped by storytelling meaning |
+| **Knowledge Web** | Character-focused knowledge graph (or audience overview) |
+
+Layout: left **Lenses** rail (198px, `--tr-panel-ledger-filters`) · main column with page header + active view body · **review queue** pinned at top when non-empty in **both** views.
+
+### 7a. Page chrome
+
+- **Title:** display font — "What's true in this story" (`font-display`, 17–22px).
+- **View switcher:** segmented control **Atlas · Web** in the header (`LedgerViewSwitcher`); active segment `--tr-coral-soft` fill + `--tr-accent-ink` text (match mode switcher). Choice persists per project in `localStorage` (`tr.ledger.view.{projectId}`).
+- **Pending chip:** amber when `pending_review` count > 0 ("N to review"); click scrolls to / focuses the review queue.
+
+### 7b. Lenses rail (shared filters)
+
+Same `LedgerFilters` model (`status`, `characterId`, `factType`); writer-facing labels only:
+
+| Control | Options |
+|---|---|
+| **Status** | All · Needs review · Active · Superseded · Stale · Rejected |
+| **People** | All · character names (also sets Knowledge Web focus when Web is active) |
+| **Lenses** | All truths · Events · States · Knowledge · Relationships · World rules |
+
+Accent-tint active pills on a warm sunken panel. Filters affect both Atlas and Web.
+
+### 7c. Review queue (both views)
+
+Unchanged mutation semantics; presentation polish only.
+
+- Amber section when pending non-empty ("N facts awaiting review").
+- **Accept all high-confidence (n)** (sage, facts ≥0.8 in one batch snapshot).
+- Per-scene grouping with **Accept scene** / **Reject scene**; scene labels prefer resolvable location from the project, not raw `scene-38`.
+- Queue cards use the same detail actions as expanded Atlas rows (see §7e).
+
+### 7d. Story Atlas
+
+Filtered non-queue facts (pending stay in the queue unless status filter is Needs review) group into **chapters** by `factType`; empty chapters omitted:
+
+| Chapter | `factType` |
+|---|---|
+| People & knowledge | `knowledge` |
+| Events | `event` |
+| States | `state` |
+| Relationships | `relationship` |
+| World rules | `world_rule` |
+
+**Collapsed row:** type cue chip (EVENT / STATE / KNOWS / REL / RULE) · fact text (15px primary, 1–2 line clamp) · trailing muted known-by initials or "audience" · scene link label.
+
+**Expanded row:** full fact text · type · source-span link · known-by chips · confidence bar · provenance · status · supersede chain · queue actions when `pending_review`. Click toggles expand; **one row expanded globally** at a time. Expanded detail reuses `FactCard`.
+
+### 7e. Knowledge Web
+
+- **Focus:** selected **People** filter, or **Audience** when All — audience overview shows facts with empty `knownBy`.
+- **Graph (MVP, no library):** focus node center-left; up to **24** fact nodes as spokes on the right (prefer `knowledge` / `relationship` types when ranking). Pending nodes `--tr-amber-soft`; active nodes raised surface.
+- **Interaction:** click fact node → detail panel (`FactCard`, same fields/actions as Atlas expanded row). **Open in Atlas** switches to Atlas and expands that fact. Empty graph: "No knowledge facts for {name} yet" + switcher hint.
+
+### 7f. Fact detail (shared)
+
+Hairline-border raised card with fact text (15px primary) · type chip (sky) · `establishedIn` + source-span link ("ep 1 · sc 3 · beat 2" → jumps to beat in Write mode, highlighted 2s) · **Known by** avatars/initials chips (empty = "audience only", italic) · confidence bar (2px, sage fill on cool-paper track; muted fill when superseded) · provenance chip (`inferred` amber / `confirmed` sage / `writer-authored` sky) · status. Superseded facts: strikethrough text + "superseded by →" link; chain view expands inline as a vertical thread.
+
 - **Queue card actions:** **Accept** (sage) · **Edit** (opens inline form: text, knownBy, type → saves as `writer_authored`) · **Reject** (muted; fact becomes `rejected`, excluded from prompts). **Every ledger action is a versioned mutation**: accept/edit/reject/batch each commit through the standard snapshot transaction (ledger is snapshot-versioned state), so all of them are undoable via the global undo — a mistaken batch-accept is one undo away, and the undo control is enabled in Ledger mode like everywhere else.
-- **Batch review (import case):** imports queue every extracted fact, so the queue header gains "Accept all high-confidence (n)" (sage, confirms facts ≥0.8 in one action; backed by the batch endpoint, one snapshot for the whole batch) and per-scene grouping with group accept/reject — reviewing 40 facts one card at a time is not acceptable UX after an import.
 - **Dependency hint:** card footer "referenced by 2 upcoming scenes" when other scenes' plans mention linked characters + this fact was injected into their last generation (best-effort, from prompt logs).
 
 **States:** *Empty ledger* — "Facts appear as you write. Table Read tracks what's true so you don't have to." *Filtered empty* — plain "No facts match."
 
 ## 8. Component inventory (build once, reuse)
 
-`ModeSwitcher` · `Card` (raised/sunken variants) · `Chip` (status hues) · `LockToggle` · `ConfidenceBar` · `DiffPane` (plan + script variants) · `CandidateCard` · `CommandBar` · `InspectorField` (read-only-when-locked behavior built in) · `FactCard` · `ChangeSetRow` · `SsePane` (streaming text region) · `Toast`. Storybook story per component per state is part of each UI task's definition of done.
+`ModeSwitcher` · `Card` (raised/sunken variants) · `Chip` (status hues) · `LockToggle` · `ConfidenceBar` · `DiffPane` (plan + script variants) · `CandidateCard` · `CommandBar` · `InspectorField` (read-only-when-locked behavior built in) · `FactCard` · `LedgerViewSwitcher` · `StoryAtlas` · `KnowledgeWeb` · `ChangeSetRow` · `SsePane` (streaming text region) · `Toast`. Storybook story per component per state is part of each UI task's definition of done.
 
 ## 9. Workflow recipes (adoption A9)
 

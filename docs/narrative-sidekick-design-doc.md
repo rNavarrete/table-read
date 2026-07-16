@@ -181,7 +181,9 @@ This is the blast-radius confirmation flow (§6.2) elevated to a first-class sur
 
 ### 4.6 Ledger mode
 
-Continuity facts as an **inspectable source-of-truth layer**, not a flat list. Each fact is a card carrying: fact text; source span (click to jump to the establishing beat); `establishedIn` (episode/scene); `knownBy` (which characters know it — critical for dramatic irony); linked characters and world elements; confidence; status (active/superseded); supersedes/supersededBy chain; and writer confirmation state (inferred vs. confirmed vs. writer-authored).
+Continuity facts as an **inspectable source-of-truth layer**, not a flat list. Ledger presents as a story bible with two swappable views: **Story Atlas** (chaptered expandable facts grouped by storytelling meaning) and **Knowledge Web** (a character- or audience-focused graph of who-knows-what). Writers switch via a header segmented control; preference persists per project. Shared **Lenses** filters (status, people, fact type) and the amber review queue apply in both views.
+
+Each fact is a card carrying: fact text; source span (click to jump to the establishing beat); `establishedIn` (episode/scene); `knownBy` (which characters know it — critical for dramatic irony); linked characters and world elements; confidence; status (active/superseded); supersedes/supersededBy chain; and writer confirmation state (inferred vs. confirmed vs. writer-authored).
 
 Workflows: **accept / edit / reject** queued inferred facts (amber until resolved); filter by character, episode, storyline, or status; trace a supersede chain; see which upcoming scenes depend on a fact before changing it. Ledger facts also surface contextually elsewhere — in the Plan inspector ("affected facts") and as Review continuity flags — but Ledger mode is where the writer audits the world.
 
