@@ -34,6 +34,11 @@ from typing import cast
 from drama_manager import locks, render
 from drama_manager.ledger_policy import IdMinter
 from fountain import acts
+from fountain.characters import (
+    cues_from_scenes,
+    merge_characters_into_bible,
+    normalize_known_by,
+)
 from fountain.parse import (
     CoverageError,
     ImportedBeat,
@@ -235,7 +240,11 @@ def analyze_import(
     new_doc, episode_id = _install_scenes(project_doc, scene_docs)
     beat_index = {b["id"]: b for s in scene_docs for b in s["beats"]}
     known_ids = set(beat_index) | {s["id"] for s in scene_docs}
-    characters = new_doc.get("seriesBible", {}).get("characters", [])
+
+    # ── Cast mint (T7.14): Fountain character cues → seriesBible.characters
+    # before extract so knownBy resolves to real ids on every import. ────────
+    bible = new_doc.setdefault("seriesBible", {})
+    characters = merge_characters_into_bible(bible, cues_from_scenes(scene_docs))
 
     # ── Ledger extraction (§4 step 2): every import-derived fact is
     # pending_review, regardless of confidence. Fresh ledger → no existing
@@ -250,7 +259,11 @@ def analyze_import(
     fact_minter = IdMinter([], "fact-")
     for extraction in extractions:
         for ef in extraction.new_facts:
-            new_facts.append(_to_ledger_fact(ef, fact_minter.mint(), beat_index))
+            fact = _to_ledger_fact(ef, fact_minter.mint(), beat_index)
+            normalized, characters = normalize_known_by(fact["knownBy"], characters)
+            fact["knownBy"] = normalized
+            new_facts.append(fact)
+    bible["characters"] = characters
 
     # ── Consistency scan (§4 step 3): one sweep across the imported episode. ──
     yield ImportStageStarted(STAGE_CHECKING_CONSISTENCY)

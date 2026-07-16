@@ -839,3 +839,44 @@ def test_import_scaffolds_fresh_project(db_session, mock_llm):
     seasons = body["project"]["seasons"]
     assert len(seasons) == 1
     assert len(seasons[0]["episodes"][0]["scenes"]) == 1
+
+
+def test_import_mints_characters_and_normalizes_known_by(db_session, mock_llm):
+    """T7.14: every import seeds seriesBible.characters from cues and stores
+    knownBy as character ids so Ledger PEOPLE / Knowledge Web work platform-wide.
+    """
+    created = client.post(
+        "/api/v1/projects",
+        json=NEW_PROJECT_BODY,
+        headers={"Idempotency-Key": "00000000-0000-4000-8000-000000000031"},
+    ).json()
+    pid = created["id"]
+
+    src = "INT. LAB - NIGHT\n\nDOC\nGreat Scott!\n\nMARTY\nWhat is it?\n"
+    mock_llm.set_responses("segment_scene", one_beat_per_scene(src))
+    mock_llm.set_response(
+        "extract_ledger_facts",
+        extraction(
+            [
+                {
+                    **one_fact(),
+                    "knownBy": ["Doc Brown", "Marty", "audience"],
+                }
+            ]
+        ),
+    )
+    mock_llm.set_response("scan_consistency", scan())
+
+    body = client.post(
+        f"/api/v1/projects/{pid}/import", json={"format": "fountain", "content": src}
+    ).json()
+    characters = body["project"]["seriesBible"]["characters"]
+    by_name = {c["name"]: c["id"] for c in characters}
+    assert "Doc" in by_name
+    assert "Marty" in by_name
+
+    assert body["newFacts"], "expected extracted facts"
+    known = body["newFacts"][0]["knownBy"]
+    assert set(known) == {by_name["Doc"], by_name["Marty"]}
+    assert "audience" not in known
+    assert all(k.startswith("char-") for k in known)
