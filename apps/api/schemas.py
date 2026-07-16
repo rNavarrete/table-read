@@ -65,6 +65,10 @@ class Character(_Base):
     id: Id
     name: str
     locked: bool = False
+    # Alternate names/nicknames the script uses for this character
+    # (infer_story_entities resolves these against existing characters before
+    # minting a new one). Defaults to [] so pre-existing docs validate.
+    aliases: list[str] = []
     embodiment: str
     presentation: str
     hiding: str
@@ -416,6 +420,7 @@ class ImportProgressStageName(StrEnum):
     parsing_scenes = "parsing_scenes"
     segmenting_beats = "segmenting_beats"
     inferring_acts = "inferring_acts"
+    inferring_entities = "inferring_entities"
     extracting_facts = "extracting_facts"
     checking_consistency = "checking_consistency"
     saving = "saving"
@@ -621,6 +626,59 @@ class InitialSceneSkeletonScene(_Base):
 class InitialSceneSkeleton(_Base):
     label: str = Field(max_length=40)
     scenes: list[InitialSceneSkeletonScene]
+
+
+class InferredCharacterRole(StrEnum):
+    principal = "principal"
+    supporting = "supporting"
+    minor = "minor"
+
+
+class WorldElementKind(StrEnum):
+    location = "location"
+    object = "object"
+
+
+# §5a infer_story_entities — import-time character/relationship/world-element
+# candidates, run between act inference and fact extraction (prompt spec
+# §5a). Names are strings, not ids: the server resolves each against the
+# existing bible (matching on name/aliases) and mints new ids for anything
+# unresolved — the model never sets/knows ids. Every entity carries at least
+# one evidence citation (scene id + short quote) for the review UI.
+class EntityEvidence(_Base):
+    scene_id: Id
+    quote: str  # verbatim-ish; server-truncated to 200 chars
+
+
+class InferredCharacter(_Base):
+    name: str
+    aliases: list[str]
+    role: InferredCharacterRole
+    traits: str  # one line, may be ""
+    evidence: list[EntityEvidence] = Field(min_length=1)
+
+
+class InferredRelationship(_Base):
+    between_names: tuple[str, str]
+    label: str
+    really_like: str  # may be ""
+    evidence: list[EntityEvidence] = Field(min_length=1)
+
+
+class InferredWorldElement(_Base):
+    kind: WorldElementKind
+    name: str
+    note: str  # one line, may be ""
+    evidence: list[EntityEvidence] = Field(min_length=1)
+
+
+# InferredWorldElement rows land as SeriesBible.worldQA entries
+# (`q: "Where/What is <name>?"`, `a: note`) — no first-class Project field
+# in P0; a dedicated world-element entity is P1 (see task report).
+class StoryEntities(_Base):
+    characters: list[InferredCharacter]
+    relationships: list[InferredRelationship]
+    world_elements: list[InferredWorldElement]
 
 
 class ExtractedFactSourceSpan(_Base):

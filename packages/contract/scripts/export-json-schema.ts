@@ -52,6 +52,11 @@ const SCHEMA_NAMES = [
   'SegmentedScene',
   'ConsistencyScan',
   'InitialSceneSkeleton',
+  'EntityEvidence',
+  'InferredCharacter',
+  'InferredRelationship',
+  'InferredWorldElement',
+  'StoryEntities',
 ] as const
 
 const { z } = await import('zod')

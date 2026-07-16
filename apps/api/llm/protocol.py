@@ -1,4 +1,4 @@
-"""`LlmClient` -- the 8-operation Protocol both `MockLlmClient` and
+"""`LlmClient` -- the 9-operation Protocol both `MockLlmClient` and
 `AnthropicClient` structurally satisfy (data contract §2a + §2's
 `BeatCandidate`; see `llm/ops.py`'s module docstring for the "7 ops" naming
 reconciliation).
@@ -23,6 +23,7 @@ from schemas import (
     LedgerExtraction,
     RegeneratedElements,
     SegmentedScene,
+    StoryEntities,
 )
 
 
@@ -75,6 +76,10 @@ class LlmClient(Protocol):
     def infer_act_breaks(
         self, *, system: str, user_message: str, prompt_version: str
     ) -> InferredActBreaks: ...
+
+    def infer_story_entities(
+        self, *, system: str, user_message: str, prompt_version: str
+    ) -> StoryEntities: ...
 
     def segment_scene(
         self, *, system: str, user_message: str, prompt_version: str

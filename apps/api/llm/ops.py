@@ -16,9 +16,11 @@ scripts/check_contract.py (BlastRadius, RegeneratedElements, ExtractedFact,
 LedgerExtraction, InstructionSuggestions, SegmentedScene, ConsistencyScan).
 `ExtractedFact` is a nested type (inside `LedgerExtraction`), not its own
 tool call, while `ConsistencyScan` (op 8c, scan_consistency) *is* its own
-call -- so the real operation count is 8: the 6 distinct ops those 7 schemas
+call -- so the real operation count was 8: the 6 distinct ops those 7 schemas
 produce, plus `generate_beat_candidates` and `tune_beat`, which both return
-`BeatCandidate` (defined in §2, not §2a). All 8 are implemented here; see the
+`BeatCandidate` (defined in §2, not §2a). T-continuity Task 1 adds a 9th,
+`infer_story_entities` (§5a, StoryEntities) -- schema/registry only here;
+Task 2 owns its prompt/pipeline wiring. All 9 are implemented here; see the
 task report for this reconciliation.
 """
 
@@ -39,6 +41,7 @@ from schemas import (
     LedgerExtraction,
     RegeneratedElements,
     SegmentedScene,
+    StoryEntities,
 )
 
 Role = Literal["writer", "classifier"]
@@ -107,6 +110,22 @@ _OPS: tuple[LlmOp, ...] = (
         InferredActBreaks,
         "classifier",
         "Infer ordered narrative act-start scene indices within the selected teleplay format.",
+    ),
+    # §5a import-time entity inference (T7.15 import-continuity-mvp; Task 1
+    # of that plan adds schema/registry only -- Task 2 owns the prompt,
+    # pipeline wiring, and PROMPT_VERSION bump). Runs between act inference
+    # and fact extraction, classifier role/temperature 0 (a deterministic
+    # cast/relationship/world-element read, not a creative task); names are
+    # strings the server resolves/mints against the existing bible, never
+    # model-assigned ids.
+    LlmOp(
+        "infer_story_entities",
+        "StoryEntities",
+        StoryEntities,
+        "classifier",
+        "Identify characters (including non-speaking ones), relationships, and "
+        "world elements (locations/objects) implied by the imported script, "
+        "each with source evidence.",
     ),
     # T6.1 escalation EXECUTED: prompt spec §7 mandates temperature 0 for stage-2
     # segmentation, but the writer tier rejects sampling params, so under the

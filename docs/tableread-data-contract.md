@@ -20,6 +20,11 @@ export const ShowFormat = z.object({
 
 export const Character = z.object({
   id: Id, name: z.string(), locked: z.boolean().default(false),
+  // Alternate names/nicknames the script uses for this character. Populated
+  // by infer_story_entities (§2a) at import time and used to resolve knownBy
+  // strings and later mentions against the right character. Defaults to []
+  // so pre-existing docs validate.
+  aliases: z.array(z.string()).default([]),
   embodiment: z.string(), presentation: z.string(), hiding: z.string(),
   traits: z.string(), seriesArc: z.string(),
 });
@@ -209,10 +214,11 @@ export const ProjectImportResult = z.object({
   consistencyFlags: z.array(ConsistencyFlag),
 });
 
-// Named import progress stages (§7 step 4), in emission order.
+// Named import progress stages (§7 step 4), in emission order. `inferring_entities`
+// (§2a infer_story_entities/§5a) runs between act inference and fact extraction.
 export const ProjectImportStageName = z.enum([
-  "parsing_scenes", "segmenting_beats", "inferring_acts", "extracting_facts",
-  "checking_consistency", "saving",
+  "parsing_scenes", "segmenting_beats", "inferring_acts", "inferring_entities",
+  "extracting_facts", "checking_consistency", "saving",
 ]);
 
 // §9.3 SSE progress: `stage` events announce each named stage, `progress`
@@ -373,6 +379,44 @@ export const LedgerExtraction = z.object({
   })),
 });
 
+// §5a infer_story_entities — import-time character/relationship/world-element
+// candidates, run between act inference and fact extraction (prompt spec
+// §5a). Names are strings, not ids: the server resolves each against the
+// existing bible (matching on name/aliases) and mints new ids for anything
+// unresolved — the model never sets/knows ids. Every entity carries at least
+// one evidence citation (scene id + short quote) for the review UI.
+// InferredWorldElement rows land as SeriesBible.worldQA entries
+// (`q: "Where/What is <name>?"`, `a: note`) — no first-class Project field
+// in P0; a dedicated world-element entity is P1.
+export const EntityEvidence = z.object({
+  sceneId: Id,
+  quote: z.string(), // verbatim-ish; server-truncated to 200 chars
+});
+export const InferredCharacter = z.object({
+  name: z.string(),
+  aliases: z.array(z.string()),
+  role: z.enum(["principal", "supporting", "minor"]),
+  traits: z.string(), // one line, may be ""
+  evidence: z.array(EntityEvidence).min(1),
+});
+export const InferredRelationship = z.object({
+  betweenNames: z.tuple([z.string(), z.string()]),
+  label: z.string(),
+  reallyLike: z.string(), // may be ""
+  evidence: z.array(EntityEvidence).min(1),
+});
+export const InferredWorldElement = z.object({
+  kind: z.enum(["location", "object"]),
+  name: z.string(),
+  note: z.string(), // one line, may be ""
+  evidence: z.array(EntityEvidence).min(1),
+});
+export const StoryEntities = z.object({
+  characters: z.array(InferredCharacter),
+  relationships: z.array(InferredRelationship),
+  worldElements: z.array(InferredWorldElement),
+});
+
 // §6 suggest_instructions
 export const InstructionSuggestions = z.object({
   suggestions: z.array(z.string()).length(3),
@@ -445,7 +489,7 @@ Defined transactions:
 **Projects**
 
 - `GET /projects` -> `ProjectSummary[]` sorted by `updatedAt` descending. `pendingReviewCount` counts Ledger facts with `status: "pending_review"`. `setupState` is `"ready"` iff the project has at least one scene containing at least one beat; otherwise `"incomplete"`. Summaries must not include full writer text fields such as `premise` or `seasons`.
-- `POST /projects` `ProjectCreateRequest` with required `Idempotency-Key` header → `Project` — in one transaction: creates the project (minimal bible scaffolded, plus optional writer-supplied foundation) **and its root snapshot** (`parent_id: null`, `doc` = initial state, `ledger` = `[]`, `flags` = `[]`), setting `headSnapshotId` to it. `headSnapshotId` is therefore never null after creation — previews, undo, and forks always have an anchor. Character seeds contain no IDs; the server assigns `char-*`, sets `locked: false`, maps supplied `traits` or `""`, and initializes `embodiment`, `presentation`, `hiding`, and `seriesArc` to `""`. Project creation performs no LLM call. Same idempotency key + same canonical request hash replays the 201 response; same key + different hash returns 409 `IDEMPOTENCY_CONFLICT`; failed transactions persist no key.
+- `POST /projects` `ProjectCreateRequest` with required `Idempotency-Key` header → `Project` — in one transaction: creates the project (minimal bible scaffolded, plus optional writer-supplied foundation) **and its root snapshot** (`parent_id: null`, `doc` = initial state, `ledger` = `[]`, `flags` = `[]`), setting `headSnapshotId` to it. `headSnapshotId` is therefore never null after creation — previews, undo, and forks always have an anchor. Character seeds contain no IDs; the server assigns `char-*`, sets `locked: false`, maps supplied `traits` or `""`, initializes `aliases` to `[]`, and initializes `embodiment`, `presentation`, `hiding`, and `seriesArc` to `""`. Project creation performs no LLM call. Same idempotency key + same canonical request hash replays the 201 response; same key + different hash returns 409 `IDEMPOTENCY_CONFLICT`; failed transactions persist no key.
 - `GET /projects/{pid}` → `Project`
 - `PATCH /projects/{pid}` — JSON-patch body for direct writer edits (no regeneration); creates snapshot. Patches touching **structural plan fields** (scene/episode `whatHappens`, `premise`, storyline summaries) additionally trigger `scan_consistency` and return `{project, consistencyFlags}` — the "Save field only" path skips Review, never the flagging promise. Changing a scene's `act` is a non-text structural correction: it creates one normal snapshot but runs no LLM/extraction/consistency call. Patches into locked ranges, including a stale attempt to change a locked scene's act, → 409 `LOCKED_OBJECT`.
 - `POST /projects/{pid}/undo` → `Project` (moves head to parent snapshot)
@@ -458,7 +502,7 @@ Defined transactions:
   4. Run `scan_consistency` across the imported episode (initial sweep — imports can carry internal contradictions).
   5. One snapshot committing doc + ledger + flags together; partial failure rolls back all of it.
 - `POST /projects/import/extract-pdf` multipart `file` (`application/pdf`) → `PdfExtractResult` — pre-project PDF extraction only. It creates no project, snapshot, ledger row, or idempotency record, and never calls the LLM. Text-layer extraction uses `pypdf`; OCR uses pypdfium2-rendered pages plus Tesseract. On success, the client treats the editable result as `source.format: "text"` for the existing create-and-import path. Response wire shape is `{text, method, pageCount, warnings}` where `method` is `"text_layer"` or `"ocr"`. Reject missing/non-PDF, oversize/page-cap, unreadable, or empty extraction with `{error: {code: "VALIDATION", message}}`; if Tesseract is unavailable when OCR is required, return `{error: {code: "UNAVAILABLE", message}}`.
-- `POST /projects/import` `ProjectImportCreateRequest` with required `Idempotency-Key` header → **SSE** (§9.3 atomic create-and-import — the import-wizard analogue of `POST /projects` above): reuses the same parse/import pipeline as `POST /projects/{pid}/import`, but creates the project **and** its imported state in one DB transaction — every LLM/parsing stage that can fail runs before that single write, never an empty root followed by an import child. Events: `stage {type: "stage", name}` announces each named stage in order (`parsing_scenes`, `segmenting_beats`, `inferring_acts`, `extracting_facts`, `checking_consistency`, `saving`); `progress {type: "progress", stage, done, total}` may appear after a stage starts to report monotonic item progress within that stage, with `0 <= done <= total`. Scene progress is emitted for `segmenting_beats` and `extracting_facts`; the singleton `inferring_acts` stage emits no per-scene progress. Example frames include `event: progress` / `data: {"type":"progress","stage":"segmenting_beats","done":2,"total":3}` while segmenting scenes and `event: progress` / `data: {"type":"progress","stage":"extracting_facts","done":2,"total":3}` while extracting facts. The stream then emits exactly one terminal `complete {type: "complete", result: ProjectImportResult}` or `failed {type: "failed", error}`. `ProjectImportResult` is `{project, newFacts, consistencyFlags}` — the same shape `POST /projects/{pid}/import` returns. Idempotency mirrors `POST /projects`: a hash conflict is rejected with a plain 409 `IDEMPOTENCY_CONFLICT` JSON response *before* the stream opens (never a mid-stream surprise); a same-key/same-hash replay opens a stream whose only frame is the terminal `complete` with the original result; a failed transaction leaves no key, so a retry with the same key runs normally.
+- `POST /projects/import` `ProjectImportCreateRequest` with required `Idempotency-Key` header → **SSE** (§9.3 atomic create-and-import — the import-wizard analogue of `POST /projects` above): reuses the same parse/import pipeline as `POST /projects/{pid}/import`, but creates the project **and** its imported state in one DB transaction — every LLM/parsing stage that can fail runs before that single write, never an empty root followed by an import child. Events: `stage {type: "stage", name}` announces each named stage in order (`parsing_scenes`, `segmenting_beats`, `inferring_acts`, `inferring_entities`, `extracting_facts`, `checking_consistency`, `saving`); `progress {type: "progress", stage, done, total}` may appear after a stage starts to report monotonic item progress within that stage, with `0 <= done <= total`. Scene progress is emitted for `segmenting_beats` and `extracting_facts`; the singleton `inferring_acts` stage emits no per-scene progress. Example frames include `event: progress` / `data: {"type":"progress","stage":"segmenting_beats","done":2,"total":3}` while segmenting scenes and `event: progress` / `data: {"type":"progress","stage":"extracting_facts","done":2,"total":3}` while extracting facts. The stream then emits exactly one terminal `complete {type: "complete", result: ProjectImportResult}` or `failed {type: "failed", error}`. `ProjectImportResult` is `{project, newFacts, consistencyFlags}` — the same shape `POST /projects/{pid}/import` returns. Idempotency mirrors `POST /projects`: a hash conflict is rejected with a plain 409 `IDEMPOTENCY_CONFLICT` JSON response *before* the stream opens (never a mid-stream surprise); a same-key/same-hash replay opens a stream whose only frame is the terminal `complete` with the original result; a failed transaction leaves no key, so a retry with the same key runs normally.
 - `GET /projects/{pid}/export.fountain` → `text/plain`
 - `GET /projects/{pid}/export.json` → `PersistedState` (adoption A6) — the full fixture-shaped envelope (`project`, `ledger`, `snapshots`, `consistencyFlags`, `changeSets`, `suggestionHistory`). Privacy §7.1 "export-everything"; Settings UI offers the download. Round-trip: export → purge → re-seed from export restores project doc and ledger byte-identical.
 - `DELETE /projects/{pid}` — purges every project-scoped row across **all six DB tables plus embeddings**: `projects`, `snapshots`, `ledger_facts`, `change_sets` (including stored previews — they contain generated script text and instructions), `consistency_flags`, `suggestion_history`, and the embedding blobs stored with suggestion history (privacy §7.1). One transaction; the purge test asserts zero remaining rows per table. ("All six DB tables plus embeddings" is the canonical phrasing — build plan and test plan use it verbatim.)

@@ -110,6 +110,7 @@ def _series_bible_from_foundation(body: ProjectCreateRequest) -> dict:
             "id": f"char-{uuid.uuid4().hex}",
             "name": seed.name,
             "locked": False,
+            "aliases": [],
             "embodiment": "",
             "presentation": "",
             "hiding": "",

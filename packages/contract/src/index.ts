@@ -38,6 +38,10 @@ export const Character = z.object({
   id: Id,
   name: z.string(),
   locked: z.boolean().default(false),
+  // Alternate names/nicknames the script uses for this character (T-continuity
+  // §1: infer_story_entities resolves these against existing characters
+  // before minting a new one). Defaults to [] so pre-existing docs validate.
+  aliases: z.array(z.string()).default([]),
   embodiment: z.string(),
   presentation: z.string(),
   hiding: z.string(),
@@ -343,6 +347,7 @@ export const ProjectImportStageName = z.enum([
   'parsing_scenes',
   'segmenting_beats',
   'inferring_acts',
+  'inferring_entities',
   'extracting_facts',
   'checking_consistency',
   'saving',
@@ -541,6 +546,53 @@ export const InitialSceneSkeleton = z.object({
   ),
 })
 export type InitialSceneSkeleton = z.infer<typeof InitialSceneSkeleton>
+
+// §5a infer_story_entities — import-time character/relationship/world-element
+// candidates, run between act inference and fact extraction (prompt spec
+// §5a). Names are strings, not ids: the server resolves each against the
+// existing bible (matching on name/aliases) and mints new ids for anything
+// unresolved — the model never sets/knows ids. Every entity carries at least
+// one evidence citation (scene id + short quote) for the review UI.
+export const EntityEvidence = z.object({
+  sceneId: Id,
+  quote: z.string(), // verbatim-ish; server-truncated to 200 chars
+})
+export type EntityEvidence = z.infer<typeof EntityEvidence>
+
+export const InferredCharacter = z.object({
+  name: z.string(),
+  aliases: z.array(z.string()),
+  role: z.enum(['principal', 'supporting', 'minor']),
+  traits: z.string(), // one line, may be ""
+  evidence: z.array(EntityEvidence).min(1),
+})
+export type InferredCharacter = z.infer<typeof InferredCharacter>
+
+export const InferredRelationship = z.object({
+  betweenNames: z.tuple([z.string(), z.string()]),
+  label: z.string(),
+  reallyLike: z.string(), // may be ""
+  evidence: z.array(EntityEvidence).min(1),
+})
+export type InferredRelationship = z.infer<typeof InferredRelationship>
+
+export const InferredWorldElement = z.object({
+  kind: z.enum(['location', 'object']),
+  name: z.string(),
+  note: z.string(), // one line, may be ""
+  evidence: z.array(EntityEvidence).min(1),
+})
+export type InferredWorldElement = z.infer<typeof InferredWorldElement>
+
+// InferredWorldElement rows land as SeriesBible.worldQA entries
+// (`q: "Where/What is <name>?"`, `a: note`) — no first-class Project field
+// in P0; a dedicated world-element entity is P1 (see task report).
+export const StoryEntities = z.object({
+  characters: z.array(InferredCharacter),
+  relationships: z.array(InferredRelationship),
+  worldElements: z.array(InferredWorldElement),
+})
+export type StoryEntities = z.infer<typeof StoryEntities>
 
 // §5 extract_ledger_facts — model span has lines only; char offsets are computed server-side.
 export const ExtractedFact = z.object({

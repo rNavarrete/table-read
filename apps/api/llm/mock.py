@@ -31,6 +31,7 @@ from schemas import (
     LedgerExtraction,
     RegeneratedElements,
     SegmentedScene,
+    StoryEntities,
 )
 
 
@@ -160,6 +161,48 @@ def _default_responses() -> dict[str, BaseModel]:
         ),
         "infer_act_breaks": InferredActBreaks(
             starts=[{"act": 0, "startSceneIndex": 0}]
+        ),
+        # §5a infer_story_entities placeholder (T-continuity Task 1; Task 2
+        # wires the real prompt call). Fixture-consistent: "Marta" resolves
+        # against the existing char-marta, "Sal" is a non-speaking minor
+        # character the merge step will mint.
+        "infer_story_entities": StoryEntities(
+            characters=[
+                {
+                    "name": "Marta",
+                    "aliases": [],
+                    "role": "principal",
+                    "traits": "",
+                    "evidence": [{"sceneId": "scene-1", "quote": "Marta wipes down the bar."}],
+                },
+                {
+                    "name": "Sal",
+                    "aliases": ["the regular"],
+                    "role": "minor",
+                    "traits": "A silent fixture at the end of the bar.",
+                    "evidence": [
+                        {"sceneId": "scene-1", "quote": "Sal nods from his usual stool."}
+                    ],
+                },
+            ],
+            relationships=[
+                {
+                    "betweenNames": ["Marta", "Dan"],
+                    "label": "co-owners",
+                    "reallyLike": "",
+                    "evidence": [
+                        {"sceneId": "scene-1", "quote": "Marta and Dan run the place together."}
+                    ],
+                }
+            ],
+            worldElements=[
+                {
+                    "kind": "location",
+                    "name": "The Long Pour",
+                    "note": "The bar Marta and Dan co-own.",
+                    "evidence": [{"sceneId": "scene-1", "quote": "INT. THE LONG POUR - NIGHT"}],
+                }
+            ],
         ),
         "segment_scene": SegmentedScene(
             segments=[
@@ -420,6 +463,16 @@ class MockLlmClient:
     ) -> InferredActBreaks:
         return self._call(
             "infer_act_breaks",
+            system=system,
+            user_message=user_message,
+            prompt_version=prompt_version,
+        )
+
+    def infer_story_entities(
+        self, *, system: str, user_message: str, prompt_version: str
+    ) -> StoryEntities:
+        return self._call(
+            "infer_story_entities",
             system=system,
             user_message=user_message,
             prompt_version=prompt_version,

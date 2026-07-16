@@ -92,6 +92,11 @@ SCHEMA_NAMES = [
     "SegmentedScene",
     "ConsistencyScan",
     "InitialSceneSkeleton",
+    "EntityEvidence",
+    "InferredCharacter",
+    "InferredRelationship",
+    "InferredWorldElement",
+    "StoryEntities",
 ]
 
 # JSON Schema keys that are cosmetic/library-specific noise, not part of the

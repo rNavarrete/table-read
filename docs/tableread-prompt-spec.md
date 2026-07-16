@@ -210,6 +210,40 @@ Server-side policy (not the model's job): `confidence < 0.8` → review queue, e
 
 **Worked example:** accepted beat where Dan is arrested on-page → newFact `{fact: "Dan is arrested", factType: "event", knownBy: ["char-marta","char-dan","char-reyes"], confidence: 0.97}`; if fact-07 said "Dan has never been in trouble with the law" → contradiction referencing fact-07.
 
+## 5a. `infer_story_entities`
+
+Purpose: import-time cast/relationship/world-element read, run once per import between act inference and fact extraction (data contract §2a/§9.3 `inferring_entities` stage; T7.15). Model: `classifier` role, temperature 0 — a deterministic identification task, not a creative one.
+
+**Input:** scene plan summaries (`{id, location, whatHappens}`) plus each scene's early script text, and the ground-truth speaker list already minted from cues (`fountain/characters.cues_from_scenes`) as a floor to extend, never replace — inside `<source_data_{nonce}>` tags per §8b.
+
+**Output schema (`StoryEntities`):** characters (incl. non-speaking), relationships, and world elements (locations/objects) — **names, not ids**: the model never mints or knows character/scene ids, only refers to entities by name string. The server resolves each name against the existing bible (exact/casefold/alias match) and mints a new id for anything unresolved. Every entity carries at least one `EntityEvidence` (`{sceneId, quote}`) citation for the review UI — `min(1)`, enforced by the schema, not a convention.
+
+```json
+{
+  "characters": [{
+    "name": "string",
+    "aliases": ["string"],
+    "role": "principal | supporting | minor",
+    "traits": "one line, may be empty",
+    "evidence": [{"sceneId": "", "quote": "verbatim-ish, server-truncated to 200 chars"}]
+  }],
+  "relationships": [{
+    "betweenNames": ["string", "string"],
+    "label": "string",
+    "reallyLike": "may be empty",
+    "evidence": [{"sceneId": "", "quote": ""}]
+  }],
+  "worldElements": [{
+    "kind": "location | object",
+    "name": "string",
+    "note": "one line, may be empty",
+    "evidence": [{"sceneId": "", "quote": ""}]
+  }]
+}
+```
+
+Server-side merge policy (Task 2): resolved characters extend existing rows with aliases (never rename/delete, never touch `locked: true` fields); relationships whose both endpoints resolve are appended, unresolvable rows dropped and counted in logs; world elements land as `worldQA` entries (`q: "Where/What is <name>?"`, `a: note`) — no first-class Project field in P0. Schema-invalid after one retry surfaces `SCHEMA_INVALID_LLM`, import fails atomically (rule 9; no silent degradation).
+
 ## 6. `suggest_instructions`
 
 Purpose: 3 diverse scene/beat instruction suggestions ("Inspire me" / empty-field carousels). Model: `classifier` role. Output: `{"suggestions": ["", "", ""]}`. Server deduplicates against `suggestionHistory` embeddings (cosine > 0.85 → regenerate; MVP exact-text when embeddings absent).
@@ -252,7 +286,7 @@ This operation shipped with `PROMPT_VERSION 0.11.0`; prompt/tool-schema changes 
 
 ## 8. Cross-cutting conventions
 
-- **Model pinning:** prompts reference model *roles* (`writer`, `classifier`), resolved via `config/models.toml`, which pins exact model IDs (e.g., `writer = "claude-sonnet-4-5-20250929"`) per PROMPT_VERSION. Every call logs both the role and the resolved model ID; changing a pinned ID is a versioned change requiring `make evals`, same as a prompt edit. Role assignments: `writer` = §1 candidates, §2 tune (tuning dialogue is still creative writing), §4 regenerate, §9 scene skeleton; `classifier` = §3 blast radius, §5 extraction, §6 suggestions, §7 segmentation and act inference, §8c consistency scan. (§7 segmentation was reassigned writer→classifier per the T6.1 escalation so it can run at temperature 0 as §7 requires — see build plan T6.1; the writer tier rejects sampling params.)
+- **Model pinning:** prompts reference model *roles* (`writer`, `classifier`), resolved via `config/models.toml`, which pins exact model IDs (e.g., `writer = "claude-sonnet-4-5-20250929"`) per PROMPT_VERSION. Every call logs both the role and the resolved model ID; changing a pinned ID is a versioned change requiring `make evals`, same as a prompt edit. Role assignments: `writer` = §1 candidates, §2 tune (tuning dialogue is still creative writing), §4 regenerate, §9 scene skeleton; `classifier` = §3 blast radius, §5 extraction, §5a entity inference, §6 suggestions, §7 segmentation and act inference, §8c consistency scan. (§7 segmentation was reassigned writer→classifier per the T6.1 escalation so it can run at temperature 0 as §7 requires — see build plan T6.1; the writer tier rejects sampling params.)
 - **Strict tool use:** every tool definition sets `strict: true`; candidate cards are actionable only after full tool-input validation (header policy + §8a).
 - **Real schemas, one source:** the canonical `input_schema` for every op is **generated from the Zod definitions in the data contract §2a** (`packages/contract`, via `z.toJSONSchema`) with `additionalProperties: false`, explicit `required` arrays, enums, and nullable fields — every operation type in this doc (`BeatCandidate`, `BlastRadius`, `RegeneratedElements`, `LedgerExtraction`, `InstructionSuggestions`, `InferredActBreaks`, `SegmentedScene`, `ConsistencyScan`) is defined there and CI-diffed; the JSON blocks in this doc are readable summaries, not the artifact. Example of the real thing, `BeatCandidate`:
 

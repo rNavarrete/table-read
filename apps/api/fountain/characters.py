@@ -83,6 +83,7 @@ def empty_character(name: str, *, character_id: str | None = None) -> dict:
         "id": character_id or f"char-{uuid.uuid4().hex}",
         "name": name,
         "locked": False,
+        "aliases": [],
         "embodiment": "",
         "presentation": "",
         "hiding": "",
