@@ -39,30 +39,44 @@ def ensure_storage_schema() -> None:
     """Apply storage-only compatibility upgrades for existing dev SQLite DBs.
 
     `Base.metadata.create_all()` creates new tables but does not alter old ones.
-    The project-creation idempotency columns are storage plumbing, so keep this
-    narrow until the repo grows a full migration system.
+    Keep this narrow until the repo grows a full migration system.
     """
     inspector = inspect(engine)
-    if not inspector.has_table("projects"):
-        return
-
-    columns = {column["name"] for column in inspector.get_columns("projects")}
     with engine.begin() as connection:
-        if "creation_idempotency_key" not in columns:
-            connection.execute(
-                text("ALTER TABLE projects ADD COLUMN creation_idempotency_key VARCHAR")
-            )
-        if "creation_request_hash" not in columns:
-            connection.execute(
-                text("ALTER TABLE projects ADD COLUMN creation_request_hash VARCHAR")
-            )
-
-        indexes = {index["name"] for index in inspector.get_indexes("projects")}
-        if "ux_projects_creation_idempotency_key" not in indexes:
-            connection.execute(
-                text(
-                    "CREATE UNIQUE INDEX IF NOT EXISTS "
-                    "ux_projects_creation_idempotency_key "
-                    "ON projects (creation_idempotency_key)"
+        if inspector.has_table("projects"):
+            columns = {column["name"] for column in inspector.get_columns("projects")}
+            if "creation_idempotency_key" not in columns:
+                connection.execute(
+                    text(
+                        "ALTER TABLE projects ADD COLUMN creation_idempotency_key VARCHAR"
+                    )
                 )
-            )
+            if "creation_request_hash" not in columns:
+                connection.execute(
+                    text(
+                        "ALTER TABLE projects ADD COLUMN creation_request_hash VARCHAR"
+                    )
+                )
+
+            indexes = {index["name"] for index in inspector.get_indexes("projects")}
+            if "ux_projects_creation_idempotency_key" not in indexes:
+                connection.execute(
+                    text(
+                        "CREATE UNIQUE INDEX IF NOT EXISTS "
+                        "ux_projects_creation_idempotency_key "
+                        "ON projects (creation_idempotency_key)"
+                    )
+                )
+
+        # T7.23: existing dev DBs predate LedgerFact.knowledgeEvents.
+        if inspector.has_table("ledger_facts"):
+            fact_columns = {
+                column["name"] for column in inspector.get_columns("ledger_facts")
+            }
+            if "knowledge_events" not in fact_columns:
+                connection.execute(
+                    text(
+                        "ALTER TABLE ledger_facts ADD COLUMN knowledge_events JSON "
+                        "DEFAULT '[]'"
+                    )
+                )
