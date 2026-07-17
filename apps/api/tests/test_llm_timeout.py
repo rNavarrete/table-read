@@ -81,6 +81,7 @@ def test_log_llm_unavailable_rate_limit_metadata_not_message(caplog):
     assert "RateLimitError" in joined
     assert "status=429" in joined
     assert "error_type=rate_limit_error" in joined
+    assert "reason_class=rate_limit" in joined
     assert "infer_story_entities" in joined
     assert "SECRET_SCRIPT_FRAGMENT" not in joined
 

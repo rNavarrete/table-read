@@ -11,7 +11,28 @@ until T2.1 (the first LLM-backed endpoint)."""
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
+
+# Boilerplate substrings safe to echo (truncated). Never used as a gateway for
+# free-form Anthropic messages that may echo request/prompt fragments.
+_SAFE_REASON_EXCERPT_RE = re.compile(
+    r"(?:prompt\s+is\s+too\s+long[^.!?\n]{0,80}"
+    r"|rate\s*limit[^.!?\n]{0,80}"
+    r"|overloaded[^.!?\n]{0,40}"
+    r"|(?:maximum\s+)?(?:context|input)\s+length[^.!?\n]{0,80}"
+    r"|\d[\d,]*\s*(?:input\s+)?tokens?[^.!?\n]{0,60}"
+    r"|temperature[^.!?\n]{0,60})",
+    re.IGNORECASE,
+)
+
+_PROMPT_TOO_LONG_RE = re.compile(
+    r"prompt\s+is\s+too\s+long|context\s+length|too\s+many\s+tokens",
+    re.I,
+)
+_RATE_LIMIT_RE = re.compile(r"rate\s*limit", re.I)
+_OVERLOADED_RE = re.compile(r"overloaded", re.I)
+_TEMPERATURE_RE = re.compile(r"temperature", re.I)
 
 
 class LlmTimeoutError(Exception):
@@ -59,6 +80,58 @@ def _anthropic_error_type(exc: BaseException) -> Any:
     return body.get("type")
 
 
+def _anthropic_error_message(exc: BaseException) -> str | None:
+    """Pull `error.message` from an Anthropic body for classification only.
+    Callers must not log this string unless `_safe_reason_excerpt` accepts it."""
+    body = getattr(exc, "body", None)
+    if not isinstance(body, dict):
+        return None
+    inner = body.get("error")
+    if isinstance(inner, dict):
+        message = inner.get("message")
+        return message if isinstance(message, str) else None
+    return None
+
+
+def _safe_reason_excerpt(message: str | None) -> str | None:
+    """Return a short boilerplate excerpt, or None if nothing is safe to echo."""
+    if not message:
+        return None
+    match = _SAFE_REASON_EXCERPT_RE.search(message)
+    if not match:
+        return None
+    return match.group(0)[:120]
+
+
+def classify_llm_unavailable_reason(exc: BaseException) -> tuple[str, str | None]:
+    """Map an LLM transport failure to `(reason_class, safe_reason_excerpt)`.
+
+    `reason_class` is always a stable enum-like token. `safe_reason_excerpt` is
+    only set when a known Anthropic boilerplate pattern matches — never the
+    raw exception message (hard rule 5).
+    """
+    if isinstance(exc, LlmTimeoutError):
+        return "timeout", None
+
+    error_type = _anthropic_error_type(exc)
+    message = _anthropic_error_message(exc)
+    excerpt = _safe_reason_excerpt(message)
+
+    if error_type == "rate_limit_error" or (message and _RATE_LIMIT_RE.search(message)):
+        return "rate_limit", excerpt
+    if error_type == "overloaded_error" or (message and _OVERLOADED_RE.search(message)):
+        return "overloaded", excerpt
+    if message and _PROMPT_TOO_LONG_RE.search(message):
+        return "prompt_too_long", excerpt
+    if message and _TEMPERATURE_RE.search(message):
+        return "invalid_temperature", excerpt
+    if error_type == "invalid_request_error":
+        return "other_invalid_request", excerpt
+    if error_type:
+        return str(error_type), excerpt
+    return "other", excerpt
+
+
 def log_llm_unavailable(
     logger: logging.Logger,
     exc: BaseException,
@@ -68,14 +141,19 @@ def log_llm_unavailable(
 ) -> None:
     """Log structured metadata when mapping a transport/timeout failure to
     `LLM_UNAVAILABLE`. Logs class name, HTTP status, Anthropic error type,
-    request id, and op — never exception message, body text, or prompts."""
+    request id, op, and a privacy-safe reason classification — never raw
+    exception messages, body dumps, or prompts."""
     resolved_op = op if op is not None else getattr(exc, "op", None)
+    reason_class, reason = classify_llm_unavailable_reason(exc)
     logger.warning(
-        "llm_unavailable where=%s cause=%s op=%s status=%s error_type=%s request_id=%s",
+        "llm_unavailable where=%s cause=%s op=%s status=%s error_type=%s "
+        "request_id=%s reason_class=%s reason=%s",
         where,
         type(exc).__name__,
         resolved_op,
         getattr(exc, "status_code", None),
         _anthropic_error_type(exc),
         getattr(exc, "request_id", None),
+        reason_class,
+        reason,
     )

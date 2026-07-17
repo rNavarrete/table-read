@@ -42,6 +42,11 @@ from fountain.characters import (
     merge_inferred_entities,
     normalize_known_by,
 )
+from fountain.entity_inference import (
+    ENTITY_INFER_USER_CHAR_BUDGET,
+    chunk_entity_scene_summaries,
+    combine_story_entities,
+)
 from fountain.object_states import detect_object_conflicts, infer_object_states
 from fountain.parse import (
     CoverageError,
@@ -254,39 +259,61 @@ def analyze_import(
     speaker_names = cues_from_scenes(scene_docs)
     characters = merge_characters_into_bible(bible, speaker_names)
 
-    # ── Entity inference (§5a, T7.15): one classifier call over compact
+    # ── Entity inference (§5a, T7.15): classifier call(s) over compact
     # scene summaries + the cue-derived speaker floor, merged into the bible
     # (characters incl. non-speaking ones + aliases, relationships, world
     # elements as worldQA) before extraction so extract/scan see the fuller
-    # cast. Schema-invalid output after the client's own retry-once
-    # (CLAUDE.md rule 9) propagates as SchemaInvalidLlmError, same atomic-
-    # failure contract as segmentation/act inference. ────────────────────────
+    # cast. Large imports are chunked under ENTITY_INFER_USER_CHAR_BUDGET so
+    # a single giant prompt cannot 400 with prompt-too-long; small scripts
+    # stay one chunk (same as the historical single call). Schema-invalid
+    # output after the client's own retry-once (CLAUDE.md rule 9) propagates
+    # as SchemaInvalidLlmError for any chunk — same atomic-failure contract
+    # as segmentation/act inference. ──────────────────────────────────────
     yield ImportStageStarted(STAGE_INFERRING_ENTITIES)
-    system, user = render.build_entity_prompt(
-        new_doc, _entity_scene_summaries(scene_docs), speaker_names, render.new_nonce()
+    scene_summaries = _entity_scene_summaries(scene_docs)
+    summary_chunks = chunk_entity_scene_summaries(
+        scene_summaries, speaker_names, budget=ENTITY_INFER_USER_CHAR_BUDGET
     )
-    # Counts/hashes only (hard rule 5) — entity inference is one classifier
-    # call over the whole import; size + prior concurrency often explain
-    # LLM_UNAVAILABLE here after per-scene segmentation succeeded.
     _logger.info(
-        "import_infer_entities_start scenes=%d speakers=%d user_chars=%d "
-        "system_chars=%d prompt_version=%s",
+        "import_infer_entities_start scenes=%d chunks=%d speakers=%d "
+        "budget=%d prompt_version=%s",
         len(scene_docs),
+        len(summary_chunks),
         len(speaker_names),
-        len(user),
-        len(system),
+        ENTITY_INFER_USER_CHAR_BUDGET,
         render.PROMPT_VERSION,
     )
-    entities = llm.infer_story_entities(
-        system=system, user_message=user, prompt_version=render.PROMPT_VERSION
-    )
+    entity_parts = []
+    for chunk_index, chunk in enumerate(summary_chunks):
+        system, user = render.build_entity_prompt(
+            new_doc, chunk, speaker_names, render.new_nonce()
+        )
+        _logger.info(
+            "import_infer_entities_chunk chunk=%d/%d scenes=%d "
+            "user_chars=%d system_chars=%d",
+            chunk_index + 1,
+            len(summary_chunks),
+            len(chunk),
+            len(user),
+            len(system),
+        )
+        entity_parts.append(
+            llm.infer_story_entities(
+                system=system,
+                user_message=user,
+                prompt_version=render.PROMPT_VERSION,
+            )
+        )
+    entities = combine_story_entities(entity_parts)
     characters, relationship_states = merge_inferred_entities(bible, entities)
     _episode_ref(new_doc, episode_id)["relationshipStates"] = relationship_states
     _logger.info(
-        "import_infer_entities characters=%d relationships=%d world_elements=%d prompt_version=%s",
+        "import_infer_entities characters=%d relationships=%d world_elements=%d "
+        "chunks=%d prompt_version=%s",
         len(entities.characters),
         len(entities.relationships),
         len(entities.world_elements),
+        len(summary_chunks),
         render.PROMPT_VERSION,
     )
 
@@ -297,7 +324,14 @@ def analyze_import(
     # new (non-duplicate) world rules onto the bible — never overwriting or
     # duplicating a locked rule's text (drama_manager.promises). Same
     # schema-invalid-after-retry atomic-failure contract as every other
-    # import LLM stage. ───────────────────────────────────────────────────
+    # import LLM stage.
+    #
+    # Follow-up: `infer_narrative_promises` is still one-shot over all
+    # scenes and can hit the same prompt-too-long class of failure on very
+    # large imports. Do not naively reuse entity chunking — threads are
+    # cross-scene by design (setup in chunk A / payoff in chunk B). A later
+    # pass should choose overlapping windows or a second reduce step before
+    # splitting. ─────────────────────────────────────────────────────────
     yield ImportStageStarted(STAGE_INFERRING_PROMISES)
     known_cast = [c["name"] for c in characters if c.get("name")]
     existing_world_rule_texts = [

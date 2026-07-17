@@ -1550,6 +1550,105 @@ class _RaisingEntitiesLlm(MockLlmClient):
         raise SchemaInvalidLlmError("infer_story_entities")
 
 
+
+def test_import_entity_inference_chunks_and_merges(db_session, mock_llm, monkeypatch):
+    """Large-budget override forces 2 entity chunks; results merge into bible."""
+    import fountain.entity_inference as entity_inference
+    import fountain.pipeline as pipeline_mod
+
+    monkeypatch.setattr(entity_inference, "ENTITY_INFER_USER_CHAR_BUDGET", 800)
+    monkeypatch.setattr(pipeline_mod, "ENTITY_INFER_USER_CHAR_BUDGET", 800)
+
+    created = client.post(
+        "/api/v1/projects",
+        json=NEW_PROJECT_BODY,
+        headers={"Idempotency-Key": "00000000-0000-4000-8000-000000000091"},
+    ).json()
+    pid = created["id"]
+
+    # Two scenes with enough early scriptText that each exceeds the tiny budget
+    # alone when packed with the other (chunker yields 2 chunks of 1 scene).
+    pad = "\n".join(f"LINE {i} padding for entity chunk budget." for i in range(40))
+    src = (
+        "INT. LAB - NIGHT\n\nDOC\nGreat Scott!\n"
+        + pad
+        + "\n\nINT. STREET - DAY\n\nMARTY\nWhoa.\n"
+        + pad
+    )
+    mock_llm.set_responses("segment_scene", one_beat_per_scene(src))
+    mock_llm.set_responses(
+        "infer_story_entities",
+        [
+            entities(
+                characters=[
+                    {
+                        "name": "Doc Brown",
+                        "aliases": ["Doc"],
+                        "role": "principal",
+                        "traits": "inventor",
+                        "evidence": [{"sceneId": "scene-1", "quote": "Great Scott!"}],
+                    }
+                ],
+                relationships=[
+                    {
+                        "betweenNames": ["Doc Brown", "Marty"],
+                        "label": "mentor",
+                        "reallyLike": "",
+                        "evidence": [{"sceneId": "scene-1", "quote": "Great Scott!"}],
+                    }
+                ],
+            ),
+            entities(
+                characters=[
+                    {
+                        "name": "DOC",
+                        "aliases": ["Emmett"],
+                        "role": "principal",
+                        "traits": "",
+                        "evidence": [{"sceneId": "scene-2", "quote": "Doc left a note"}],
+                    },
+                    {
+                        "name": "Einstein",
+                        "aliases": [],
+                        "role": "minor",
+                        "traits": "dog",
+                        "evidence": [{"sceneId": "scene-2", "quote": "barks"}],
+                    },
+                ],
+                relationships=[
+                    {
+                        "betweenNames": ["Marty", "Doc"],
+                        "label": "Mentor",
+                        "reallyLike": "father figure",
+                        "evidence": [{"sceneId": "scene-2", "quote": "Whoa."}],
+                    }
+                ],
+            ),
+        ],
+    )
+    mock_llm.set_response("extract_ledger_facts", extraction())
+    mock_llm.set_response("scan_consistency", scan())
+
+    body = client.post(
+        f"/api/v1/projects/{pid}/import", json={"format": "fountain", "content": src}
+    ).json()
+
+    assert mock_llm._invocations.get("infer_story_entities") == 2
+    bible = body["project"]["seriesBible"]
+    by_name = {c["name"]: c for c in bible["characters"]}
+    # Cue mint keeps display name "Doc"; chunk combine folds "Doc Brown"/"DOC"
+    # into that row via alias match (merge never renames existing characters).
+    assert "Doc" in by_name
+    assert "Emmett" in by_name["Doc"]["aliases"]
+    assert "Einstein" in by_name  # non-speaking, from chunk 2 only
+    assert "Marty" in by_name
+    labels = [r["label"] for r in bible["relationships"]]
+    assert any(label.casefold() == "mentor" for label in labels)
+    # Combined evidence should yield a non-empty reallyLike from chunk 2.
+    mentor = next(r for r in bible["relationships"] if r["label"].casefold() == "mentor")
+    assert mentor["reallyLike"] == "father figure"
+
+
 def test_schema_invalid_entities_persists_nothing(unlocked_project, db_session):
     """Rule 9: schema-invalid `infer_story_entities` output (after the
     client's own retry-once is exhausted) fails the import atomically —
