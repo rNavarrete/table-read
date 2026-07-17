@@ -353,9 +353,11 @@ describe('StoryAtlas', () => {
         busy={false}
       />,
     )
-    const chapter = screen.getByTestId('fact-chapter-event')
-    expect(chapter.querySelector('h3')?.className).toContain('font-display')
-    expect(chapter.querySelector('h3')?.className).toContain('text-17')
+    const toggle = screen.getByTestId('fact-chapter-toggle-event')
+    expect(toggle.className).toContain('focus-visible:outline-tr-coral')
+    expect(toggle.querySelector('.font-display')?.className).toContain(
+      'text-17',
+    )
   })
 
   it('creative polish: expanded row uses selected outline and lift', async () => {
@@ -382,6 +384,127 @@ describe('StoryAtlas', () => {
     expect(screen.getByTestId('atlas-row-f1').className).toContain(
       'outline-tr-coral',
     )
+  })
+
+  it('chapters default expanded and collapse via header button', async () => {
+    const user = userEvent.setup()
+    const facts = [
+      fact({
+        id: 'f-event',
+        factType: 'event',
+        fact: 'Dan took cash from the register.',
+      }),
+      fact({
+        id: 'f-knowledge',
+        factType: 'knowledge',
+        fact: 'Marta knows the ledger is short.',
+      }),
+    ]
+
+    render(
+      <StoryAtlas
+        facts={facts}
+        allFacts={facts}
+        project={project()}
+        busy={false}
+      />,
+    )
+
+    const toggle = screen.getByTestId('fact-chapter-toggle-event')
+    expect(toggle.getAttribute('aria-expanded')).toBe('true')
+    expect(screen.getByTestId('atlas-row-f-event')).not.toBeNull()
+
+    await user.click(toggle)
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+    expect(screen.queryByTestId('atlas-row-f-event')).toBeNull()
+    // Other chapters stay open.
+    expect(screen.getByTestId('atlas-row-f-knowledge')).not.toBeNull()
+
+    await user.click(toggle)
+    expect(toggle.getAttribute('aria-expanded')).toBe('true')
+    expect(screen.getByTestId('atlas-row-f-event')).not.toBeNull()
+  })
+
+  it('knower subheads collapse independently within a chapter', async () => {
+    const user = userEvent.setup()
+    const facts = [
+      ...Array.from({ length: 10 }, (_, i) =>
+        fact({
+          id: `aud-${i}`,
+          factType: 'knowledge',
+          fact: `Audience fact ${i}`,
+          knownBy: [],
+        }),
+      ),
+      ...Array.from({ length: 10 }, (_, i) =>
+        fact({
+          id: `marta-${i}`,
+          factType: 'knowledge',
+          fact: `Marta fact ${i}`,
+          knownBy: ['char-marta'],
+        }),
+      ),
+    ]
+
+    render(
+      <StoryAtlas
+        facts={facts}
+        allFacts={facts}
+        project={project()}
+        busy={false}
+      />,
+    )
+
+    const audienceToggle = screen.getByTestId('knower-group-toggle-Audience')
+    expect(audienceToggle.getAttribute('aria-expanded')).toBe('true')
+    expect(screen.getByTestId('atlas-row-aud-0')).not.toBeNull()
+
+    await user.click(audienceToggle)
+    expect(audienceToggle.getAttribute('aria-expanded')).toBe('false')
+    expect(screen.queryByTestId('atlas-row-aud-0')).toBeNull()
+    expect(screen.getByTestId('atlas-row-marta-0')).not.toBeNull()
+  })
+
+  it('re-opens a collapsed chapter when its fact is selected', async () => {
+    const user = userEvent.setup()
+    const facts = [
+      fact({
+        id: 'f-event',
+        factType: 'event',
+        fact: 'Dan took cash from the register.',
+      }),
+    ]
+
+    const { rerender } = render(
+      <StoryAtlas
+        facts={facts}
+        allFacts={facts}
+        project={project()}
+        busy={false}
+        expandedFactId={null}
+      />,
+    )
+
+    await user.click(screen.getByTestId('fact-chapter-toggle-event'))
+    expect(screen.queryByTestId('atlas-row-f-event')).toBeNull()
+
+    rerender(
+      <StoryAtlas
+        facts={facts}
+        allFacts={facts}
+        project={project()}
+        busy={false}
+        expandedFactId="f-event"
+      />,
+    )
+
+    expect(
+      screen.getByTestId('fact-chapter-toggle-event').getAttribute(
+        'aria-expanded',
+      ),
+    ).toBe('true')
+    expect(screen.getByTestId('atlas-row-f-event')).not.toBeNull()
+    expect(screen.getByTestId('fact-card-f-event')).not.toBeNull()
   })
 
 })

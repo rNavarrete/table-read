@@ -189,7 +189,7 @@ Filtered non-queue facts (pending stay in the queue unless status filter is Need
 | Relationships | `relationship` |
 | World rules | `world_rule` |
 
-**Chapter chrome:** display 17px title + muted count; light hairline under the chapter header. Knower subheads (when ≥20 facts): 11px uppercase muted.
+**Chapter chrome:** display 17px title + muted count; light hairline under the chapter header; chevron toggle (button, `aria-expanded`) collapses/expands the chapter body. Default **expanded**; collapsing is session-only. When a fact is selected / expanded, its chapter (and knower subhead, if any) force-open. Knower subheads (when ≥20 facts): 11px uppercase muted, same chevron collapse pattern, default expanded.
 
 **Collapsed row:** discriminating knower/irony cue (not the chapter’s redundant `factType` pill) · fact text (15px primary, 1–2 line clamp, snug leading) · trailing muted knower initials when useful · scene link label. Rows are raised sheets (`--tr-shadow-raised`); hover lifts (`--tr-shadow-lift` + clay fill). Focus-visible: selected outline.
 

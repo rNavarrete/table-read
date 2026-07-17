@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { LedgerFact, Project } from 'contract'
 import { Chip } from '../plan/Chip'
 import {
@@ -48,6 +48,26 @@ function atlasRowClass(expanded: boolean): string {
   return `${base} hover:bg-tr-surface-clay hover:shadow-lift`
 }
 
+/** Match Plan SceneCard chevron — rotate when expanded. */
+function Chevron({ expanded }: { expanded: boolean }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      className={`h-3.5 w-3.5 shrink-0 transition-transform motion-reduce:transition-none${expanded ? ' rotate-90' : ''}`}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      aria-hidden="true"
+    >
+      <path d="M9 6l6 6-6 6" />
+    </svg>
+  )
+}
+
+function knowerCollapseKey(chapterId: string, title: string): string {
+  return `${chapterId}:${title}`
+}
+
 /**
  * Story Atlas — chaptered expandable fact rows (dual-view spec §5;
  * browse clarity: knower/irony cues, knower subheads).
@@ -68,9 +88,43 @@ export function StoryAtlas({
   const [uncontrolledExpandedId, setUncontrolledExpandedId] = useState<
     string | null
   >(null)
+  const [collapsedChapters, setCollapsedChapters] = useState(
+    () => new Set<string>(),
+  )
+  const [collapsedKnowers, setCollapsedKnowers] = useState(
+    () => new Set<string>(),
+  )
   const expandedId =
     expandedFactId === undefined ? uncontrolledExpandedId : expandedFactId
   const chapters = groupFactsIntoChapters(facts)
+
+  // Keep the chapter / knower group that holds the selected fact open so
+  // Browse deep-links and Web→Atlas handoff aren't surprising.
+  useEffect(() => {
+    if (!expandedId) return
+    const chapter = groupFactsIntoChapters(facts).find((c) =>
+      c.facts.some((f) => f.id === expandedId),
+    )
+    if (!chapter) return
+
+    setCollapsedChapters((prev) => {
+      if (!prev.has(chapter.id)) return prev
+      const next = new Set(prev)
+      next.delete(chapter.id)
+      return next
+    })
+
+    const groups = groupChapterFactsByKnower(chapter.facts, project)
+    const group = groups.find((g) => g.facts.some((f) => f.id === expandedId))
+    if (!group?.title) return
+    const key = knowerCollapseKey(chapter.id, group.title)
+    setCollapsedKnowers((prev) => {
+      if (!prev.has(key)) return prev
+      const next = new Set(prev)
+      next.delete(key)
+      return next
+    })
+  }, [expandedId, facts, project])
 
   if (facts.length === 0) {
     return (
@@ -92,6 +146,25 @@ export function StoryAtlas({
     const nextId = expandedId === factId ? null : factId
     if (expandedFactId === undefined) setUncontrolledExpandedId(nextId)
     onExpandedFactIdChange?.(nextId)
+  }
+
+  function toggleChapter(chapterId: string) {
+    setCollapsedChapters((prev) => {
+      const next = new Set(prev)
+      if (next.has(chapterId)) next.delete(chapterId)
+      else next.add(chapterId)
+      return next
+    })
+  }
+
+  function toggleKnower(chapterId: string, title: string) {
+    const key = knowerCollapseKey(chapterId, title)
+    setCollapsedKnowers((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
   }
 
   function renderFactRow(fact: LedgerFact) {
@@ -143,6 +216,7 @@ export function StoryAtlas({
   return (
     <div data-testid="story-atlas" className="flex flex-col gap-8">
       {chapters.map((chapter) => {
+        const chapterOpen = !collapsedChapters.has(chapter.id)
         const groups = groupChapterFactsByKnower(chapter.facts, project)
         return (
           <section
@@ -151,37 +225,69 @@ export function StoryAtlas({
             data-testid={`fact-chapter-${chapter.id}`}
             className="flex flex-col gap-3"
           >
-            <header className="flex items-baseline gap-2 border-b border-tr-border pb-2">
-              <h3 className="font-display text-17 text-tr-text-primary">
-                {chapter.title}
-              </h3>
-              <span className="text-13 text-tr-text-muted">
-                ({chapter.facts.length})
-              </span>
-            </header>
-            {groups.map((group) => (
-              <div
-                key={group.title ?? 'flat'}
-                data-testid={
-                  group.title
-                    ? `knower-group-${group.title}`
-                    : undefined
-                }
-                className="flex flex-col gap-1.5"
+            <h3 className="m-0 border-b border-tr-border pb-2">
+              <button
+                type="button"
+                aria-expanded={chapterOpen}
+                onClick={() => toggleChapter(chapter.id)}
+                data-testid={`fact-chapter-toggle-${chapter.id}`}
+                className="flex w-full items-baseline gap-2 text-left text-tr-text-muted transition-colors duration-standard ease-standard hover:text-tr-text-secondary focus-visible:outline focus-visible:outline-selected focus-visible:outline-offset-2 focus-visible:outline-tr-coral motion-reduce:transition-none"
               >
-                {group.title && (
-                  <h4 className="mt-1 text-11 font-medium uppercase tracking-wide text-tr-text-muted">
-                    {group.title}
-                    <span className="ml-1 normal-case tracking-normal">
-                      ({group.facts.length})
-                    </span>
-                  </h4>
-                )}
-                <ul className="flex flex-col gap-1.5">
-                  {group.facts.map((fact) => renderFactRow(fact))}
-                </ul>
-              </div>
-            ))}
+                <Chevron expanded={chapterOpen} />
+                <span className="font-display text-17 text-tr-text-primary">
+                  {chapter.title}
+                </span>
+                <span className="text-13 text-tr-text-muted">
+                  ({chapter.facts.length})
+                </span>
+              </button>
+            </h3>
+            {chapterOpen &&
+              groups.map((group) => {
+                const knowerOpen =
+                  !group.title ||
+                  !collapsedKnowers.has(
+                    knowerCollapseKey(chapter.id, group.title),
+                  )
+                return (
+                  <div
+                    key={group.title ?? 'flat'}
+                    data-testid={
+                      group.title
+                        ? `knower-group-${group.title}`
+                        : undefined
+                    }
+                    className="flex flex-col gap-1.5"
+                  >
+                    {group.title && (
+                      <h4 className="m-0 mt-1">
+                        <button
+                          type="button"
+                          aria-expanded={knowerOpen}
+                          onClick={() =>
+                            toggleKnower(chapter.id, group.title!)
+                          }
+                          data-testid={`knower-group-toggle-${group.title}`}
+                          className="flex items-baseline gap-1.5 text-left text-11 font-medium uppercase tracking-wide text-tr-text-muted transition-colors duration-standard ease-standard hover:text-tr-text-secondary focus-visible:outline focus-visible:outline-selected focus-visible:outline-offset-2 focus-visible:outline-tr-coral motion-reduce:transition-none"
+                        >
+                          <Chevron expanded={knowerOpen} />
+                          <span>
+                            {group.title}
+                            <span className="ml-1 normal-case tracking-normal">
+                              ({group.facts.length})
+                            </span>
+                          </span>
+                        </button>
+                      </h4>
+                    )}
+                    {knowerOpen && (
+                      <ul className="flex flex-col gap-1.5">
+                        {group.facts.map((fact) => renderFactRow(fact))}
+                      </ul>
+                    )}
+                  </div>
+                )
+              })}
           </section>
         )
       })}
