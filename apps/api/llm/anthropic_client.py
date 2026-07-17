@@ -46,7 +46,7 @@ from schemas import (
     InitialSceneSkeleton,
     InstructionSuggestions,
     LedgerExtraction,
-    NarrativePromises,
+    InferredStoryOverview, NarrativePromises,
     RegeneratedElements,
     SegmentedScene,
     StoryEntities,
@@ -549,6 +549,16 @@ class AnthropicClient:
     ) -> NarrativePromises:
         return self._call(
             "infer_narrative_promises",
+            system=system,
+            user_message=user_message,
+            prompt_version=prompt_version,
+        )
+
+    def infer_story_overview(
+        self, *, system: str, user_message: str, prompt_version: str
+    ) -> InferredStoryOverview:
+        return self._call(
+            "infer_story_overview",
             system=system,
             user_message=user_message,
             prompt_version=prompt_version,

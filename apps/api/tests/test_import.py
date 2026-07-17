@@ -906,6 +906,41 @@ def entities(
     )
 
 
+def overview(
+    logline: str | None = None,
+    outline: list[dict] | None = None,
+    beat_sheet: list[dict] | None = None,
+    summary: str | None = None,
+):
+    from schemas import InferredStoryOverview
+
+    return InferredStoryOverview.model_validate(
+        {
+            "logline": logline
+            or (
+                "When Marty finds an empty lab, he must locate Doc before the "
+                "plan collapses."
+            ),
+            "outline": outline
+            or [{"sceneId": "scene-1", "summary": "Marty calls for Doc."}],
+            "beatSheet": beat_sheet
+            or [
+                {
+                    "beatId": "beat-1-1",
+                    "label": "Hook",
+                    "summary": "Marty arrives to silence.",
+                    "sceneId": "scene-1",
+                }
+            ],
+            "summary": summary
+            or (
+                "Marty rushes into an empty lab looking for Doc.\n\n"
+                "Finding no one, he realizes the plan is already slipping away."
+            ),
+        }
+    )
+
+
 def promises(
     threads: list[dict] | None = None,
     scene_motivations: list[dict] | None = None,
@@ -1664,6 +1699,109 @@ def test_schema_invalid_entities_persists_nothing(unlocked_project, db_session):
 
     llm = _RaisingEntitiesLlm()
     with pytest.raises(SchemaInvalidLlmError, match="infer_story_entities"):
+        run_import(db_session, project, src, llm, instruction="Import test")
+
+    _assert_unchanged(db_session, original_doc, original_head, original_snaps, original_facts)
+
+
+# ── story overview (T7.28) ───────────────────────────────────────────────
+
+
+def test_import_infers_story_overview_after_promises(db_session, mock_llm):
+    """T7.28: mock import fills storyOverview and backfills empty premises."""
+    created = client.post(
+        "/api/v1/projects",
+        json=NEW_PROJECT_BODY,
+        headers={"Idempotency-Key": "00000000-0000-4000-8000-000000000061"},
+    ).json()
+    pid = created["id"]
+    # Create body carries a non-empty project premise by default.
+
+    src = "INT. LAB - NIGHT\n\nMARTY\nDoc, are you there?\n"
+    mock_llm.set_responses("segment_scene", one_beat_per_scene(src))
+    mock_llm.set_response("infer_story_overview", overview())
+    mock_llm.set_response("extract_ledger_facts", extraction())
+    mock_llm.set_response("scan_consistency", scan())
+
+    body = client.post(
+        f"/api/v1/projects/{pid}/import", json={"format": "fountain", "content": src}
+    ).json()
+
+    project = body["project"]
+    episode = project["seasons"][0]["episodes"][0]
+    ov = episode["storyOverview"]
+    assert ov is not None
+    assert ov["logline"]
+    assert ov["outline"][0]["sceneId"] == "scene-1"
+    assert ov["beatSheet"][0]["beatId"] == "beat-1-1"
+    assert "\n\n" in ov["summary"] or ov["summary"].count("\n") >= 1
+    assert project["premise"] == NEW_PROJECT_BODY["premise"]
+    assert episode["premise"] == ov["logline"]
+
+
+def test_import_preserves_locked_story_overview_on_reimport(db_session, mock_llm):
+    created = client.post(
+        "/api/v1/projects",
+        json=NEW_PROJECT_BODY,
+        headers={"Idempotency-Key": "00000000-0000-4000-8000-000000000062"},
+    ).json()
+    pid = created["id"]
+    src = "INT. LAB - NIGHT\n\nMARTY\nDoc, are you there?\n"
+    mock_llm.set_responses("segment_scene", one_beat_per_scene(src))
+    mock_llm.set_response("infer_story_overview", overview())
+    mock_llm.set_response("extract_ledger_facts", extraction())
+    mock_llm.set_response("scan_consistency", scan())
+    first = client.post(
+        f"/api/v1/projects/{pid}/import", json={"format": "fountain", "content": src}
+    ).json()
+    episode = first["project"]["seasons"][0]["episodes"][0]
+    prior_logline = episode["storyOverview"]["logline"]
+    # Persist locked overview on the project doc for re-import.
+    from storage.models import ProjectRow
+
+    from sqlalchemy.orm.attributes import flag_modified
+
+    row = db_session.get(ProjectRow, pid)
+    doc = dict(row.doc)
+    ep = doc["seasons"][0]["episodes"][0]
+    ep["storyOverview"] = dict(episode["storyOverview"])
+    ep["storyOverview"]["locked"] = True
+    row.doc = doc
+    flag_modified(row, "doc")
+    db_session.commit()
+
+    mock_llm.set_responses("segment_scene", one_beat_per_scene(src))
+    mock_llm.set_response(
+        "infer_story_overview",
+        overview(logline="A completely different logline that must not stick."),
+    )
+    mock_llm.set_response("extract_ledger_facts", extraction())
+    mock_llm.set_response("scan_consistency", scan())
+    second = client.post(
+        f"/api/v1/projects/{pid}/import", json={"format": "fountain", "content": src}
+    ).json()
+    ov = second["project"]["seasons"][0]["episodes"][0]["storyOverview"]
+    assert ov["locked"] is True
+    assert ov["logline"] == prior_logline
+
+
+class _RaisingOverviewLlm(MockLlmClient):
+    def infer_story_overview(self, **kwargs):
+        raise SchemaInvalidLlmError("infer_story_overview")
+
+
+def test_schema_invalid_overview_persists_nothing(unlocked_project, db_session):
+    project = db_session.get(ProjectRow, PROJECT_ID)
+    original_doc = project.doc
+    original_head = project.head_snapshot_id
+    original_snaps = db_session.query(SnapshotRow).filter_by(project_id=PROJECT_ID).count()
+    original_facts = db_session.query(LedgerFactRow).filter_by(project_id=PROJECT_ID).count()
+    src = "INT. BAR - DAY\nScene."
+
+    from fountain.pipeline import run_import
+
+    llm = _RaisingOverviewLlm()
+    with pytest.raises(SchemaInvalidLlmError, match="infer_story_overview"):
         run_import(db_session, project, src, llm, instruction="Import test")
 
     _assert_unchanged(db_session, original_doc, original_head, original_snaps, original_facts)

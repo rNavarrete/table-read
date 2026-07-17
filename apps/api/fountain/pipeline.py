@@ -12,7 +12,7 @@ inside `analyze_import`, entirely *before* either caller's single DB write
 `analyze_import` is a generator so a caller that wants named progress (the
 create-and-import SSE stream, data contract §9.3: `parsing_scenes` /
 `segmenting_beats` / `inferring_acts` / `inferring_entities` /
-`inferring_promises` / `extracting_facts` / `checking_consistency`) can
+`inferring_promises` / `inferring_overview` / `extracting_facts` / `checking_consistency`) can
 drive it one stage at a time; `run_import` below, which has no such caller,
 drains it in one call via `run_to_completion`.
 
@@ -34,6 +34,7 @@ from typing import cast
 
 from drama_manager import locks, render
 from drama_manager.ledger_policy import IdMinter
+from drama_manager.overview import merge_story_overview
 from drama_manager.promises import merge_narrative_promises
 from fountain import acts
 from fountain.characters import (
@@ -75,6 +76,7 @@ STAGE_SEGMENTING_BEATS = "segmenting_beats"
 STAGE_INFERRING_ACTS = "inferring_acts"
 STAGE_INFERRING_ENTITIES = "inferring_entities"
 STAGE_INFERRING_PROMISES = "inferring_promises"
+STAGE_INFERRING_OVERVIEW = "inferring_overview"
 STAGE_EXTRACTING_FACTS = "extracting_facts"
 STAGE_CHECKING_CONSISTENCY = "checking_consistency"
 IMPORT_LLM_CONCURRENCY = 4
@@ -355,6 +357,38 @@ def analyze_import(
         len(narrative_promises.threads),
         len(narrative_promises.scene_motivations),
         len(narrative_promises.world_rules),
+        render.PROMPT_VERSION,
+    )
+
+
+    # ── Story overview (T7.28): one classifier call after promises so the
+    # synopsis can reflect thread/motivation tone without depending on the
+    # fact wall. Merges Episode.storyOverview; backfills empty premises from
+    # the logline; preserves locked overview (drama_manager.overview). ─────
+    yield ImportStageStarted(STAGE_INFERRING_OVERVIEW)
+    overview_summaries = _entity_scene_summaries(scene_docs)
+    known_scene_ids = [s["id"] for s in scene_docs]
+    known_beats = [
+        {"beatId": b["id"], "sceneId": s["id"]}
+        for s in scene_docs
+        for b in (s.get("beats") or [])
+        if b.get("id")
+    ]
+    system, user = render.build_overview_prompt(
+        new_doc,
+        overview_summaries,
+        known_scene_ids,
+        known_beats,
+        render.new_nonce(),
+    )
+    story_overview = llm.infer_story_overview(
+        system=system, user_message=user, prompt_version=render.PROMPT_VERSION
+    )
+    merge_story_overview(new_doc, episode_id, story_overview)
+    _logger.info(
+        "import_infer_overview outline=%d beat_sheet=%d prompt_version=%s",
+        len(story_overview.outline),
+        len(story_overview.beat_sheet),
         render.PROMPT_VERSION,
     )
 

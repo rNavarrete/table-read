@@ -29,6 +29,7 @@ from schemas import (
     InitialSceneSkeleton,
     InstructionSuggestions,
     LedgerExtraction,
+    InferredStoryOverview,
     NarrativePromises,
     RegeneratedElements,
     SegmentedScene,
@@ -261,6 +262,32 @@ def _default_responses() -> dict[str, BaseModel]:
                     "evidenceQuote": "Chairs upside-down on tables.",
                 }
             ],
+        ),
+        "infer_story_overview": InferredStoryOverview(
+            logline=(
+                "When a bartender finds an unexplained wire transfer, she must "
+                "confront her co-owner brother before the lie destroys their bar."
+            ),
+            outline=[
+                {
+                    "sceneId": "scene-1",
+                    "summary": "Marta discovers the blank-memo transfer printout.",
+                }
+            ],
+            beatSheet=[
+                {
+                    "beatId": "beat-1-1",
+                    "label": "Inciting Incident",
+                    "summary": "Marta sees the $40,000 transfer.",
+                    "sceneId": "scene-1",
+                }
+            ],
+            summary=(
+                "Marta finds proof of a secret transfer at the Long Pour and "
+                "realizes her brother may be lying.\n\n"
+                "She presses for the truth as the bar's fragile truce threatens "
+                "to collapse around them."
+            ),
         ),
         "segment_scene": SegmentedScene(
             segments=[
@@ -541,6 +568,16 @@ class MockLlmClient:
     ) -> NarrativePromises:
         return self._call(
             "infer_narrative_promises",
+            system=system,
+            user_message=user_message,
+            prompt_version=prompt_version,
+        )
+
+    def infer_story_overview(
+        self, *, system: str, user_message: str, prompt_version: str
+    ) -> InferredStoryOverview:
+        return self._call(
+            "infer_story_overview",
             system=system,
             user_message=user_message,
             prompt_version=prompt_version,

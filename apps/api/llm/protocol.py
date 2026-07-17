@@ -21,7 +21,7 @@ from schemas import (
     InitialSceneSkeleton,
     InstructionSuggestions,
     LedgerExtraction,
-    NarrativePromises,
+    InferredStoryOverview, NarrativePromises,
     RegeneratedElements,
     SegmentedScene,
     StoryEntities,
@@ -85,6 +85,10 @@ class LlmClient(Protocol):
     def infer_narrative_promises(
         self, *, system: str, user_message: str, prompt_version: str
     ) -> NarrativePromises: ...
+
+    def infer_story_overview(
+        self, *, system: str, user_message: str, prompt_version: str
+    ) -> InferredStoryOverview: ...
 
     def segment_scene(
         self, *, system: str, user_message: str, prompt_version: str
