@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import type { HTMLAttributes } from 'react'
 
 export type ChipHue = 'sage' | 'sky' | 'amber' | 'neutral'
 
@@ -9,24 +9,21 @@ const HUE_CLASSES: Record<ChipHue, string> = {
   neutral: 'bg-tr-surface-clay text-tr-text-secondary',
 }
 
+export interface ChipProps extends HTMLAttributes<HTMLSpanElement> {
+  hue?: ChipHue
+}
+
 /**
  * `Chip` — §7's component inventory. Status-hue pill (UI spec §1: "status
  * meaning doubled with text/icon (never color alone)" — callers pass an
  * icon/glyph as a child alongside the label text, this component never
  * conveys meaning by color alone).
  */
-export function Chip({
-  hue = 'neutral',
-  children,
-}: {
-  hue?: ChipHue
-  children: ReactNode
-}) {
+export function Chip({ hue = 'neutral', className = '', ...rest }: ChipProps) {
   return (
     <span
-      className={`inline-flex items-center gap-1 rounded-chip px-2 py-0.5 text-12 ${HUE_CLASSES[hue]}`}
-    >
-      {children}
-    </span>
+      className={`inline-flex items-center gap-1 rounded-chip px-2 py-0.5 text-12 ${HUE_CLASSES[hue]}${className ? ` ${className}` : ''}`}
+      {...rest}
+    />
   )
 }

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { LedgerFact, Project } from 'contract'
+import type { LedgerFact, Project, StoryThread } from 'contract'
 import {
   batchLedgerReview,
   confirmLedgerFact,
@@ -12,12 +12,14 @@ import { ApiError } from '../api/errors'
 import { requireProjectId } from '../projects/projectRouting'
 import { loadResume, saveResume } from '../projects/resumeContext'
 import { AppShell } from '../shell/AppShell'
+import { navigateToWriteScene } from '../shell/modeNavigation'
 import { CastPanel } from './CastPanel'
 import { FactCard } from './FactCard'
 import { FilterRail, type AsOfSceneOption } from './FilterRail'
 import { KnowledgeWeb } from './KnowledgeWeb'
 import { LedgerViewSwitcher } from './LedgerViewSwitcher'
 import { StoryAtlas } from './StoryAtlas'
+import { ThreadsPanel } from './ThreadsPanel'
 import {
   DEFAULT_FILTERS,
   filterFacts,
@@ -68,6 +70,12 @@ function episodeSceneOptions(project: Project): AsOfSceneOption[] {
   return options
 }
 
+/** Threads live on the first (only) episode — design doc "Narrative Promises"
+ * MVP scoping. */
+function firstEpisodeThreads(project: Project): StoryThread[] {
+  return project.seasons[0]?.episodes[0]?.threads ?? []
+}
+
 /**
  * Ledger mode (UI spec §6 / build plan T5.1): filter rail · review queue ·
  * Atlas / Knowledge Web. Server is source of truth; mutations roll back on
@@ -91,6 +99,7 @@ export function LedgerScreen() {
   const [actionError, setActionError] = useState<string | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [castPanelOpen, setCastPanelOpen] = useState(false)
+  const [threadsPanelOpen, setThreadsPanelOpen] = useState(false)
   // Session-only (design spec §UI): no persistence, resets on reload.
   const [asOfScene, setAsOfScene] = useState<string | null>(null)
   const inFlightRef = useRef(false)
@@ -146,6 +155,10 @@ export function LedgerScreen() {
 
   const sceneOptions = useMemo(
     () => (project ? episodeSceneOptions(project) : []),
+    [project],
+  )
+  const threads = useMemo(
+    () => (project ? firstEpisodeThreads(project) : []),
     [project],
   )
   const queue = useMemo(() => pendingReviewFacts(ledger), [ledger])
@@ -338,6 +351,11 @@ export function LedgerScreen() {
     window.location.assign(url.toString())
   }
 
+  function handleJumpToScene(sceneId: string) {
+    if (projectId) saveResume(projectId, { mode: 'Write', sceneId })
+    navigateToWriteScene(sceneId)
+  }
+
   function handleOpenInAtlas(factId: string) {
     setView('atlas')
     saveLedgerView(projectId, 'atlas')
@@ -393,6 +411,8 @@ export function LedgerScreen() {
           filters={filters}
           onChange={setFilters}
           onManageCast={() => setCastPanelOpen(true)}
+          onViewThreads={() => setThreadsPanelOpen(true)}
+          threadCount={threads.length}
           sceneOptions={sceneOptions}
           asOfScene={asOfScene}
           onAsOfSceneChange={setAsOfScene}
@@ -429,6 +449,14 @@ export function LedgerScreen() {
               onProjectChange={setProject}
               onLedgerChange={setLedger}
               onClose={() => setCastPanelOpen(false)}
+            />
+          )}
+          {threadsPanelOpen && (
+            <ThreadsPanel
+              project={project}
+              threads={threads}
+              onJumpToScene={handleJumpToScene}
+              onClose={() => setThreadsPanelOpen(false)}
             />
           )}
           {queue.length > 0 && (

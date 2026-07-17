@@ -48,6 +48,12 @@ export interface FilterRailProps {
   filters: LedgerFilters
   onChange: (next: LedgerFilters) => void
   onManageCast?: () => void
+  /** Opens the Threads panel (T7.21 narrative promises). Omit to hide the
+   * entry point — existing callers that haven't wired threads yet are
+   * unaffected. */
+  onViewThreads?: () => void
+  /** Thread count shown next to the entry point; 0/undefined hides it. */
+  threadCount?: number
   /** Episode scenes for the As-of control (T7.18). Omit/empty hides the
    * section — existing callers that don't wire time-aware filtering are
    * unaffected. */
@@ -66,6 +72,8 @@ export function FilterRail({
   filters,
   onChange,
   onManageCast,
+  onViewThreads,
+  threadCount = 0,
   sceneOptions = [],
   asOfScene = null,
   onAsOfSceneChange,
@@ -184,6 +192,25 @@ export function FilterRail({
           ))}
         </div>
       </fieldset>
+
+      {onViewThreads && (
+        <fieldset className="mb-6">
+          <legend className="mb-2 text-12 uppercase tracking-wide text-tr-text-muted">
+            Threads
+          </legend>
+          <button
+            type="button"
+            onClick={onViewThreads}
+            className="w-full rounded-chip px-3 py-1 text-left text-13 text-tr-text-primary hover:bg-tr-surface-clay"
+            data-testid="view-threads-button"
+          >
+            Setups &amp; payoffs
+            {threadCount > 0 && (
+              <span className="ml-2 text-tr-text-muted">({threadCount})</span>
+            )}
+          </button>
+        </fieldset>
+      )}
 
       <fieldset>
         <legend className="mb-2 text-12 uppercase tracking-wide text-tr-text-muted">
