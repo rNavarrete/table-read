@@ -289,6 +289,20 @@ def analyze_import(
             fact = _to_ledger_fact(ef, fact_minter.mint(), beat_index)
             normalized, characters = normalize_known_by(fact["knownBy"], characters)
             fact["knownBy"] = normalized
+            resolved_events = []
+            for event in fact["knowledgeEvents"]:
+                event_character_ids, characters = normalize_known_by(
+                    event["characterNames"], characters
+                )
+                resolved_events.append(
+                    {
+                        "sceneId": event["sceneId"],
+                        "characterIds": event_character_ids,
+                        "kind": event["kind"],
+                        "quote": event["quote"],
+                    }
+                )
+            fact["knowledgeEvents"] = resolved_events
             new_facts.append(fact)
     bible["characters"] = characters
 
@@ -591,7 +605,14 @@ def _install_scenes(project_doc: dict, scene_docs: list[dict]) -> tuple[dict, st
 def _to_ledger_fact(extracted, fact_id: str, beat_index: dict) -> dict:
     """Convert one model `ExtractedFact` into a persisted `LedgerFact` wire dict:
     server-assigned id, `inferred`/`pending_review` (§4 step 2), and char
-    offsets located verbatim within the referenced beat (§5)."""
+    offsets located verbatim within the referenced beat (§5).
+
+    `knowledgeEvents` is carried through with names still unresolved
+    (`characterNames`, not `characterIds`) — the caller (`analyze_import`)
+    resolves them the same way it resolves `knownBy`, against the same
+    running `characters` list, so a name introduced by one new fact's
+    knownBy can still resolve a later fact's knowledgeEvents in the same
+    import (T7.23)."""
     dump = extracted.model_dump(by_alias=True, mode="json")
     span = dict(dump["sourceSpan"])  # episodeId/sceneId/beatId/startLine/endLine
     beat = beat_index.get(span["beatId"])
@@ -609,6 +630,7 @@ def _to_ledger_fact(extracted, fact_id: str, beat_index: dict) -> dict:
         "sourceSpan": span,
         "sourceText": dump["sourceText"],
         "knownBy": dump["knownBy"],
+        "knowledgeEvents": dump["knowledgeEvents"],
         "audienceKnows": dump["audienceKnows"],
         "provenance": "inferred",
         "confidence": dump["confidence"],

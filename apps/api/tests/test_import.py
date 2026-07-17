@@ -981,6 +981,104 @@ def test_import_merges_inferred_entities_and_resolves_alias_known_by(db_session,
     assert set(known) == {by_name["Doc Brown"]["id"], by_name["Marty"]["id"]}
 
 
+def test_import_resolves_knowledge_event_character_names_to_ids(db_session, mock_llm):
+    """T7.23: an ExtractedFact's optional `knowledgeEvents` names a learner
+    by name (never an id, same convention as `knownBy`); import resolves it
+    against the same running character list and stores `characterIds`."""
+    created = client.post(
+        "/api/v1/projects",
+        json=NEW_PROJECT_BODY,
+        headers={"Idempotency-Key": "00000000-0000-4000-8000-000000000042"},
+    ).json()
+    pid = created["id"]
+
+    src = "INT. LAB - NIGHT\n\nMARTY\nDoc, are you there?\n"
+    mock_llm.set_responses("segment_scene", one_beat_per_scene(src))
+    mock_llm.set_response(
+        "extract_ledger_facts",
+        extraction(
+            [
+                {
+                    **one_fact(),
+                    "knownBy": ["Doc Brown"],
+                    "knowledgeEvents": [
+                        {
+                            "sceneId": "scene-1",
+                            "characterNames": ["Marty"],
+                            "kind": "learns",
+                            "quote": "Doc, are you there?",
+                        }
+                    ],
+                }
+            ]
+        ),
+    )
+    mock_llm.set_response("scan_consistency", scan())
+
+    body = client.post(
+        f"/api/v1/projects/{pid}/import", json={"format": "fountain", "content": src}
+    ).json()
+
+    bible = body["project"]["seriesBible"]
+    by_name = {c["name"]: c for c in bible["characters"]}
+    assert "Doc Brown" in by_name
+    assert "Marty" in by_name
+
+    fact = body["newFacts"][0]
+    assert fact["knownBy"] == [by_name["Doc Brown"]["id"]]
+    assert fact["knowledgeEvents"] == [
+        {
+            "sceneId": "scene-1",
+            "characterIds": [by_name["Marty"]["id"]],
+            "kind": "learns",
+            "quote": "Doc, are you there?",
+        }
+    ]
+
+
+def test_import_drops_audience_token_from_knowledge_event_characters(db_session, mock_llm):
+    """Same audience-token drop rule as `knownBy` (fountain.characters._is_
+    audience_token) applies to knowledgeEvents.characterNames."""
+    created = client.post(
+        "/api/v1/projects",
+        json=NEW_PROJECT_BODY,
+        headers={"Idempotency-Key": "00000000-0000-4000-8000-000000000043"},
+    ).json()
+    pid = created["id"]
+
+    src = "INT. LAB - NIGHT\n\nMARTY\nDoc, are you there?\n"
+    mock_llm.set_responses("segment_scene", one_beat_per_scene(src))
+    mock_llm.set_response(
+        "extract_ledger_facts",
+        extraction(
+            [
+                {
+                    **one_fact(),
+                    "knownBy": ["Marty"],
+                    "knowledgeEvents": [
+                        {
+                            "sceneId": "scene-1",
+                            "characterNames": ["audience"],
+                            "kind": "learns",
+                            "quote": "",
+                        }
+                    ],
+                }
+            ]
+        ),
+    )
+    mock_llm.set_response("scan_consistency", scan())
+
+    body = client.post(
+        f"/api/v1/projects/{pid}/import", json={"format": "fountain", "content": src}
+    ).json()
+
+    fact = body["newFacts"][0]
+    assert fact["knowledgeEvents"] == [
+        {"sceneId": "scene-1", "characterIds": [], "kind": "learns", "quote": ""}
+    ]
+
+
 def test_reimport_never_modifies_locked_character_fields(unlocked_project, db_session, mock_llm):
     project = db_session.get(ProjectRow, PROJECT_ID)
     bible = project.doc["seriesBible"]

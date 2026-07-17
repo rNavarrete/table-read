@@ -26,10 +26,13 @@ from typing import Any
 
 # Prompt spec §8 / hard rule 7: every template carries a PROMPT_VERSION (semver);
 # it is logged with each call and bumped on any template change. Bumped to
-# 0.12.0 for T7.15 (import-continuity-mvp Task 2): added `build_entity_prompt`
-# for the new `infer_story_entities` op (§5a) — a new prompt-changing surface
-# requiring `make evals` sign-off before merge (CLAUDE.md rule 7; not run in
-# this task per the task brief). History: 0.11.0 added act-inference and
+# 0.13.0 for T7.23 (time-aware P1 remainder Task 3): `build_extract_prompt`'s
+# user message now asks the model to optionally note knowledgeEvents
+# (learns/forgets transitions beyond a fact's baseline knownBy) — a new
+# instruction on an existing prompt-changing surface requiring `make evals`
+# sign-off before merge (CLAUDE.md rule 7; not run in this task per the task
+# brief — tracked as eval debt). History: 0.12.0 added `build_entity_prompt`
+# for `infer_story_entities` (§5a, T7.15). 0.11.0 added act-inference and
 # deterministic-retry prompts over compact post-segmentation scene summaries.
 # 0.10.0 replaced import beat ranges with typed segment starts and structured
 # `{lineNumber, text}` source lines. 0.9.0 added lock-aware narrative repair +
@@ -38,7 +41,7 @@ from typing import Any
 # suggest_instructions; 0.7.0 scene skeleton; 0.6.0 continuity constraint;
 # 0.5.0 regenerate; 0.4.0 blast radius; 0.3.0 tune; 0.2.0 candidate + §0
 # system prompt.
-PROMPT_VERSION = "0.12.0"
+PROMPT_VERSION = "0.13.0"
 
 
 def new_nonce() -> str:
@@ -241,7 +244,12 @@ def build_extract_prompt(
         + "\n"
         + source_data("characters", characters, nonce)
         + "\nExtract new continuity facts and flag contradictions. Report line "
-        "ranges into each beat's numbered scriptText; do not transcribe."
+        "ranges into each beat's numbered scriptText; do not transcribe. If "
+        "this scene shows a character learning (or, rarely, forgetting) a "
+        "new fact beyond who already knows it at the moment it's "
+        "established, add a knowledgeEvents entry with this scene's id, "
+        "that character's name (never an id), and a short quote; leave "
+        "knowledgeEvents empty otherwise — it is the common case."
     )
     return build_system_prompt(project, nonce), user
 

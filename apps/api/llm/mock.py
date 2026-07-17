@@ -132,6 +132,10 @@ def _default_responses() -> dict[str, BaseModel]:
             ],
             continuityConflicts=[],
         ),
+        # T7.23: fact-03-shaped example ("Marta saw the transfer" — knownBy
+        # starts as just Marta) plus a knowledgeEvents entry showing Dan
+        # learning it later, by name — exercising the extract-time
+        # knowledge-transition path (design doc T7.23 acceptance #2).
         "extract_ledger_facts": LedgerExtraction(
             newFacts=[
                 {
@@ -145,7 +149,15 @@ def _default_responses() -> dict[str, BaseModel]:
                         "endLine": 4,
                     },
                     "sourceText": "Dan doesn't unfold it. He sets down the glass, very carefully.",
-                    "knownBy": ["char-marta", "char-dan"],
+                    "knownBy": ["char-marta"],
+                    "knowledgeEvents": [
+                        {
+                            "sceneId": "scene-3",
+                            "characterNames": ["Dan"],
+                            "kind": "learns",
+                            "quote": "Dan doesn't unfold it.",
+                        }
+                    ],
                     "audienceKnows": True,
                     "confidence": 0.9,
                 }
