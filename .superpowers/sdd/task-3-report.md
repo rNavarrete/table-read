@@ -115,6 +115,86 @@ implemented):
 - Did not touch any Write-mode file, `PROMPT_VERSION`, or push to remote,
   per constraints.
 
+## Critical review fix: merge_character bypassed scene/episode locks
+
+**Finding:** `merge_character` rewrites scene `motivations`, season
+`characterArcs`, and episode storyline `characterIds`, but the route only
+checked `locks.is_locked` on the source/target *character* ids — not
+`locks.assert_no_locked_writes(old_doc, new_doc)`. A character referenced
+inside a locked scene or episode (via a motivation/storyline/arc) could have
+that reference silently rewritten by a merge, even though neither character
+itself was locked.
+
+**Fix** (`apps/api/routes.py`, `merge_character` route): moved the
+`characters.merge_character` transform call out of the `snapshots.mutate`
+mutator and up to the route layer — computing `new_doc`/`new_ledger` from
+`project.doc` before any write, exactly like `patch_project` already does
+for the generic PATCH path. With the new doc in hand, the route now calls
+`locks.assert_no_locked_writes(project.doc, new_doc)` and maps a
+`LockViolation` to 409 `LOCKED_OBJECT` *before* calling `snapshots.mutate` —
+so a lock violation costs zero writes, same guarantee every other lock
+guard in this module gives. The mutator itself is now a trivial lambda that
+hands the already-built `new_doc`/`new_ledger` through, mirroring
+`patch_project`'s `lambda state: MutationState(doc=new_doc, ...)` pattern.
+
+This protects locked scene `motivations` and locked episode `storylines`
+(both fields are inside the content projection `assert_no_locked_writes`
+checks for a locked scene/episode). It does **not** add season-level lock
+enforcement for `characterArcs` — `assert_no_locked_writes` has no
+season-cascade check at all today (the lock cascade is documented in
+`locks.py` as episode→scene→beat only; seasons aren't part of it), so a
+season lock protects nothing anywhere in the codebase yet, not just here.
+Extending `assert_no_locked_writes` to cover seasons is a broader change to
+the shared write-side guard used by generic PATCH, outside this task's
+scope — flagging it here rather than silently leaving it unaddressed.
+
+### TDD evidence (RED → GREEN)
+
+RED (test written first against the unfixed route):
+
+- Added `test_merge_locked_scene_motivation_returns_409_zero_mutations` to
+  `apps/api/tests/test_characters.py`, plus a `_lock_scene_with_source_
+  motivation` helper that adds a `motivations` entry for `char-luz` to
+  `scene-2` and locks the scene (bypassing the generic PATCH route, same
+  rationale as the existing `_lock_character` helper).
+- Confirmed RED by running the new test against the pre-fix `routes.py`
+  (`git show HEAD:apps/api/routes.py` swapped in temporarily, fix restored
+  immediately after):
+  - Command: `apps/api/.venv/bin/python3 -m pytest apps/api/tests/test_characters.py -q -k locked_scene_motivation`
+  - Result: `1 failed` — `assert response.status_code == 409` /
+    `AssertionError: assert 200 == 409` — the merge succeeded and silently
+    rewrote the locked scene's motivation, exactly the finding described.
+
+GREEN (fix applied):
+
+- Command: `apps/api/.venv/bin/python3 -m pytest apps/api/tests/test_characters.py -q`
+- Result: `20 passed` (19 prior + 1 new).
+- Command: `apps/api/.venv/bin/python3 -m pytest -q` (full API suite, run
+  from `apps/api/` — running from the repo root hits 49 unrelated pytest
+  collection errors, an environment/rootdir issue orthogonal to this fix)
+- Result: `846 passed` (845 prior + 1 new).
+- Command: `apps/api/.venv/bin/python3 -m ruff check .`
+- Result: `All checks passed!`
+- Command: `apps/api/.venv/bin/python3 -m ruff format --check routes.py tests/test_characters.py`
+- Result: `routes.py` would reflow (pre-existing whole-file drift unrelated
+  to this diff — same situation the original T7.16 report noted; confirmed
+  via `ruff format --diff` that every proposed change is outside the lines
+  this fix touched); `test_characters.py` already formatted. `make lint`'s
+  `lint-api` target only runs `ruff check`, not `ruff format --check`, so
+  this is cosmetic, not a lint-gate failure. Did not run `ruff format` on
+  the whole file, to avoid unrelated churn in a review-scoped fix commit.
+- No UI files were touched (CastPanel/FilterRail/LedgerScreen unchanged),
+  so the optional Minor item (disable Rename/Merge/Delete in CastPanel for
+  a locked character) was left undone per the task's own "Critical first"
+  priority — not implemented in this pass.
+- Did not run `make check-contract` or `make evals` — no schema changed, no
+  prompt touched, per constraints.
+
+### Files touched (this fix)
+
+- `apps/api/routes.py` (`merge_character` route: precompute-then-guard-then-mutate)
+- `apps/api/tests/test_characters.py` (+1 lock-violation test, +1 helper)
+
 ## Files touched
 
 - `apps/api/drama_manager/characters.py` (new)

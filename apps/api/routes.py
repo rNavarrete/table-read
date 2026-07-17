@@ -1054,33 +1054,49 @@ def merge_character(
     characterId reference (ledger `knownBy`, relationships, motivations,
     characterArcs, episode storylines) from source to target, and removes
     the source (`drama_manager.characters.merge_character`). Either side
-    locked, or missing, is rejected before any mutation → `{project, ledger}`."""
+    locked, or missing, is rejected before any mutation → `{project, ledger}`.
+
+    A character-level lock only guards the character record itself — the
+    rewrite also touches scene `motivations`, episode `storylines`, and
+    season `characterArcs`, any of which may live inside a locked scene/
+    episode even when neither character is locked. So the merged doc is
+    additionally checked with `locks.assert_no_locked_writes` (the same
+    write-side guard the generic PATCH route uses, rule 2) before anything
+    is persisted — mirroring `patch_project`'s pattern of computing the new
+    doc at the route layer, guarding it, then handing the already-built doc
+    to a mutator that no longer needs to run the transform itself."""
     project = _get_project_or_404(session, pid)
     _character_or_404(project.doc, cid)
     _character_or_404(project.doc, target_id)
     if locks.is_locked(project.doc, cid) or locks.is_locked(project.doc, target_id):
         raise ApiError(409, "LOCKED_OBJECT", "cannot merge a locked character")
 
-    def mutator(state: MutationState) -> MutationState:
-        new_doc, new_ledger = characters.merge_character(
-            state.doc, state.ledger, cid, target_id
-        )
-        return MutationState(doc=new_doc, ledger=new_ledger, flags=state.flags)
+    ledger = [
+        row.to_wire_dict()
+        for row in session.query(LedgerFactRow).filter_by(project_id=pid).all()
+    ]
+    try:
+        new_doc, new_ledger = characters.merge_character(project.doc, ledger, cid, target_id)
+    except characters.ValidationError as exc:
+        raise ApiError(400, "VALIDATION", str(exc)) from exc
+    except characters.CharacterNotFound as exc:
+        raise ApiError(404, "NOT_FOUND", f"character {exc} not found") from exc
+
+    try:
+        locks.assert_no_locked_writes(project.doc, new_doc)
+    except locks.LockViolation as exc:
+        raise ApiError(409, "LOCKED_OBJECT", str(exc)) from exc
 
     try:
         snapshots.mutate(
             session,
             pid,
             "Merged character",
-            mutator,
+            lambda state: MutationState(doc=new_doc, ledger=new_ledger, flags=state.flags),
             expected_head_snapshot_id=_expected_head(if_match),
         )
     except snapshots.StaleHead as exc:
         raise ApiError(409, "CONFLICT_STALE_HEAD", str(exc)) from exc
-    except characters.ValidationError as exc:
-        raise ApiError(400, "VALIDATION", str(exc)) from exc
-    except characters.CharacterNotFound as exc:
-        raise ApiError(404, "NOT_FOUND", f"character {exc} not found") from exc
 
     updated = session.get(ProjectRow, pid)
     ledger_rows = session.query(LedgerFactRow).filter_by(project_id=pid).all()

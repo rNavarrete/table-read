@@ -56,6 +56,36 @@ def _lock_character(session, cid: str) -> None:
     mutate(session, PROJECT_ID, "test: lock character", mutator)
 
 
+def _lock_scene_with_source_motivation(session, scene_id: str, cid: str) -> None:
+    """Add a `motivations` entry for `cid` to `scene_id` and lock the scene
+    (bypassing the generic PATCH route, same rationale as `_lock_character`).
+    Reproduces the shape a real locked scene has once a writer has pinned it
+    with a motivation for the character a merge is about to remove — the
+    scenario the critical-review finding is about: merge only checked
+    character-level locks, not the scene it was about to rewrite."""
+
+    def mutator(state: MutationState) -> MutationState:
+        doc = state.doc
+        for season in doc.get("seasons", []):
+            for episode in season.get("episodes", []):
+                for scene in episode.get("scenes", []):
+                    if scene["id"] != scene_id:
+                        continue
+                    scene["motivations"] = [
+                        *scene.get("motivations", []),
+                        {
+                            "characterId": cid,
+                            "objective": "test objective",
+                            "stakes": "test stakes",
+                            "obstacle": "test obstacle",
+                        },
+                    ]
+                    scene["locked"] = True
+        return MutationState(doc=doc, ledger=state.ledger, flags=state.flags)
+
+    mutate(session, PROJECT_ID, "test: lock scene with source-character motivation", mutator)
+
+
 def _mint_unreferenced_character(session, cid: str, name: str) -> None:
     def mutator(state: MutationState) -> MutationState:
         doc = state.doc
@@ -247,6 +277,24 @@ def test_merge_locked_source_returns_409_zero_mutations(db_session, seeded_proje
 
 def test_merge_locked_target_returns_409_zero_mutations(db_session, seeded_project):
     _lock_character(db_session, "char-dan")
+    before = _project(db_session)
+    before_snaps = _snap_count(db_session)
+
+    response = client.post("/api/v1/projects/proj-longpour/characters/char-luz/merge-into/char-dan")
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "LOCKED_OBJECT"
+    assert _project(db_session) == before
+    assert _snap_count(db_session) == before_snaps
+
+
+def test_merge_locked_scene_motivation_returns_409_zero_mutations(db_session, seeded_project):
+    """Critical review finding: neither char-luz nor char-dan is locked, but
+    scene-2 is locked and holds a motivation for char-luz (the merge source).
+    The merge must not silently rewrite that motivation's characterId to
+    char-dan — it must refuse before any mutation, exactly like a locked
+    character does."""
+    _lock_scene_with_source_motivation(db_session, "scene-2", "char-luz")
     before = _project(db_session)
     before_snaps = _snap_count(db_session)
 
