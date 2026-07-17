@@ -39,6 +39,15 @@ function knownBySummary(fact: LedgerFact, project: Project): string | null {
     .join(' · ')
 }
 
+function atlasRowClass(expanded: boolean): string {
+  const base =
+    'flex w-full items-start gap-3 rounded-card border border-tr-border bg-tr-surface-raised px-3 py-2.5 text-left shadow-raised transition-[box-shadow,background-color,outline-color] duration-standard ease-standard motion-reduce:transition-none focus-visible:outline focus-visible:outline-selected focus-visible:outline-offset-2 focus-visible:outline-tr-coral'
+  if (expanded) {
+    return `${base} outline outline-selected outline-offset-2 outline-tr-coral shadow-lift`
+  }
+  return `${base} hover:bg-tr-surface-clay hover:shadow-lift`
+}
+
 /**
  * Story Atlas — chaptered expandable fact rows (dual-view spec §5;
  * browse clarity: knower/irony cues, knower subheads).
@@ -65,8 +74,16 @@ export function StoryAtlas({
 
   if (facts.length === 0) {
     return (
-      <div data-testid="story-atlas">
-        <p className="text-13 text-tr-text-muted">{emptyMessage}</p>
+      <div
+        data-testid="story-atlas"
+        className="rounded-card border border-tr-border bg-tr-surface-raised px-6 py-10 shadow-raised"
+      >
+        <p className="font-display text-17 text-tr-text-primary">{emptyMessage}</p>
+        {emptyMessage === 'No facts match.' && (
+          <p className="mt-2 text-13 text-tr-text-secondary">
+            Try clearing a filter, or switch Browse to All truths.
+          </p>
+        )}
       </div>
     )
   }
@@ -85,23 +102,25 @@ export function StoryAtlas({
           <button
             type="button"
             onClick={() => toggleExpanded(fact.id)}
-            className="flex w-full items-start gap-2 rounded-card border border-tr-border bg-tr-surface-raised px-3 py-2 text-left"
+            className={atlasRowClass(true)}
             data-testid={`atlas-row-${fact.id}`}
             aria-expanded
           >
             <CollapsedRowContent fact={fact} project={project} />
           </button>
-          <FactCard
-            fact={fact}
-            allFacts={allFacts}
-            project={project}
-            queueActions={fact.status === 'pending_review'}
-            busy={busy}
-            onAccept={onAccept}
-            onReject={onReject}
-            onEdit={onEdit}
-            onSourceSpanClick={onSourceSpanClick}
-          />
+          <div className="tr-ledger-view-enter pl-1">
+            <FactCard
+              fact={fact}
+              allFacts={allFacts}
+              project={project}
+              queueActions={fact.status === 'pending_review'}
+              busy={busy}
+              onAccept={onAccept}
+              onReject={onReject}
+              onEdit={onEdit}
+              onSourceSpanClick={onSourceSpanClick}
+            />
+          </div>
         </li>
       )
     }
@@ -111,7 +130,7 @@ export function StoryAtlas({
         <button
           type="button"
           onClick={() => toggleExpanded(fact.id)}
-          className="flex w-full items-start gap-2 rounded-card border border-tr-border bg-tr-surface-raised px-3 py-2 text-left hover:bg-tr-surface-clay"
+          className={atlasRowClass(false)}
           data-testid={`atlas-row-${fact.id}`}
           aria-expanded={false}
         >
@@ -122,7 +141,7 @@ export function StoryAtlas({
   }
 
   return (
-    <div data-testid="story-atlas" className="flex flex-col gap-6">
+    <div data-testid="story-atlas" className="flex flex-col gap-8">
       {chapters.map((chapter) => {
         const groups = groupChapterFactsByKnower(chapter.facts, project)
         return (
@@ -130,10 +149,10 @@ export function StoryAtlas({
             key={chapter.id}
             id={`fact-chapter-${chapter.id}`}
             data-testid={`fact-chapter-${chapter.id}`}
-            className="flex flex-col gap-2"
+            className="flex flex-col gap-3"
           >
-            <header className="flex items-baseline gap-2">
-              <h3 className="font-display text-15 text-tr-text-secondary">
+            <header className="flex items-baseline gap-2 border-b border-tr-border pb-2">
+              <h3 className="font-display text-17 text-tr-text-primary">
                 {chapter.title}
               </h3>
               <span className="text-13 text-tr-text-muted">
@@ -148,17 +167,17 @@ export function StoryAtlas({
                     ? `knower-group-${group.title}`
                     : undefined
                 }
-                className="flex flex-col gap-1"
+                className="flex flex-col gap-1.5"
               >
                 {group.title && (
-                  <h4 className="mt-1 text-12 uppercase tracking-wide text-tr-text-muted">
+                  <h4 className="mt-1 text-11 font-medium uppercase tracking-wide text-tr-text-muted">
                     {group.title}
                     <span className="ml-1 normal-case tracking-normal">
                       ({group.facts.length})
                     </span>
                   </h4>
                 )}
-                <ul className="flex flex-col gap-1">
+                <ul className="flex flex-col gap-1.5">
                   {group.facts.map((fact) => renderFactRow(fact))}
                 </ul>
               </div>
@@ -182,12 +201,14 @@ function CollapsedRowContent({
   const scene = formatSourceSpanLabel(fact, project)
   return (
     <>
-      <Chip hue={cue.hue}>{cue.label}</Chip>
+      <Chip hue={cue.hue} className="shrink-0">
+        {cue.label}
+      </Chip>
       <span className="min-w-0 flex-1">
-        <span className="line-clamp-2 text-15 text-tr-text-primary">
+        <span className="line-clamp-2 text-15 leading-snug text-tr-text-primary">
           {fact.fact}
         </span>
-        <span className="mt-0.5 block text-12 text-tr-text-muted">
+        <span className="mt-1 block text-12 text-tr-text-muted">
           {knowers ? `${knowers} · ${scene}` : scene}
         </span>
       </span>

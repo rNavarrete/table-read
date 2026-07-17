@@ -279,4 +279,19 @@ describe('FilterRail', () => {
       screen.getByLabelText('Needs review').parentElement?.className,
     ).toContain('text-tr-accent-ink')
   })
+
+  it('creative polish: filter options use standard motion and focus outline', () => {
+    render(
+      <FilterRail
+        project={project}
+        filters={{ status: 'all', characterId: null, factType: 'all' }}
+        onChange={vi.fn()}
+        facts={sampleFacts}
+      />,
+    )
+    const label = screen.getByTestId('ledger-filter-rail').querySelector('label')
+    expect(label?.className).toContain('duration-standard')
+    expect(label?.className).toContain('focus-within:outline-tr-coral')
+  })
+
 })

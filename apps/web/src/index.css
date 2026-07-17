@@ -15,3 +15,26 @@ body {
   position: relative;
   z-index: 40;
 }
+
+/* Ledger creative polish — view enter (UI spec §7a motion). */
+@keyframes tr-ledger-view-enter {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.tr-ledger-view-enter {
+  animation: tr-ledger-view-enter var(--tr-motion-duration-standard)
+    var(--tr-motion-ease-standard) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tr-ledger-view-enter {
+    animation: none;
+  }
+}

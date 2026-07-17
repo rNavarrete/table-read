@@ -13,6 +13,7 @@ const OPTIONS: { value: LedgerViewId; label: string }[] = [
 
 /**
  * Quiet Tool segmented control — Story Atlas vs Knowledge Web.
+ * Matches ModeSwitcher clay track + coral-soft active segment.
  */
 export function LedgerViewSwitcher({
   projectId,
@@ -40,10 +41,10 @@ export function LedgerViewSwitcher({
             aria-pressed={active}
             onClick={() => handleChange(opt.value)}
             className={
-              'rounded-card px-2.5 py-1.5 text-13 transition-colors' +
+              'rounded-card px-3 py-1.5 text-13 transition-colors duration-standard ease-standard motion-reduce:transition-none focus-visible:outline focus-visible:outline-selected focus-visible:outline-offset-2 focus-visible:outline-tr-coral' +
               (active
-                ? ' bg-tr-coral-soft font-medium text-tr-accent-ink'
-                : ' text-tr-text-secondary hover:text-tr-text-primary')
+                ? ' bg-tr-coral-soft font-medium text-tr-accent-ink shadow-raised'
+                : ' text-tr-text-secondary hover:bg-tr-surface-raised hover:text-tr-text-primary')
             }
           >
             {opt.label}

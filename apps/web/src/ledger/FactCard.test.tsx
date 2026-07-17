@@ -183,4 +183,21 @@ describe('FactCard', () => {
       screen.getByTestId('supersede-chain-fact-old').textContent,
     ).toContain('fact-new')
   })
+
+  it('creative polish: raised card surface and queue action motion', () => {
+    render(
+      <FactCard
+        fact={makeFact({ status: 'pending_review' })}
+        allFacts={[makeFact({ status: 'pending_review' })]}
+        project={project}
+        queueActions
+      />,
+    )
+    const card = screen.getByTestId('fact-card-fact-06')
+    expect(card.className).toContain('shadow-raised')
+    expect(screen.getByTestId('accept-fact-06').className).toContain(
+      'duration-standard',
+    )
+  })
+
 })

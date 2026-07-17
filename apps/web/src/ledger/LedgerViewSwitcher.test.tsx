@@ -40,6 +40,9 @@ describe('LedgerViewSwitcher', () => {
     expect(screen.getByRole('button', { name: 'Web' }).className).toContain(
       'text-tr-accent-ink',
     )
+    expect(screen.getByRole('button', { name: 'Web' }).className).toContain(
+      'duration-standard',
+    )
   })
 
   it('calls onChange and persists the view when a segment is clicked', async () => {

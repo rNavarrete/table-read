@@ -46,8 +46,11 @@ function provenanceLabel(provenance: LedgerFact['provenance']): string {
   return 'inferred'
 }
 
+const actionButtonBase =
+  'rounded-card px-3 py-1.5 text-13 transition-colors duration-standard ease-standard focus-visible:outline focus-visible:outline-selected focus-visible:outline-offset-2 focus-visible:outline-tr-coral disabled:opacity-50 motion-reduce:transition-none'
+
 /**
- * `FactCard` — UI spec §6. All fields, source-span link, known-by chips,
+ * `FactCard` — UI spec §7f. All fields, source-span link, known-by chips,
  * confidence bar, provenance + status, supersede chain thread.
  */
 export function FactCard({
@@ -99,27 +102,27 @@ export function FactCard({
   return (
     <Card
       variant="raised"
-      className="flex flex-col gap-2 border border-tr-border"
+      className="flex flex-col gap-3 border border-tr-border p-4 shadow-raised"
       data-testid={`fact-card-${fact.id}`}
     >
       {editing ? (
         <div
-          className="flex flex-col gap-2"
+          className="flex flex-col gap-3"
           data-testid={`fact-edit-${fact.id}`}
         >
-          <label className="flex flex-col gap-1 text-12 text-tr-text-muted">
+          <label className="flex flex-col gap-1.5 text-12 text-tr-text-muted">
             Fact
             <textarea
-              className="rounded-card border border-tr-border bg-tr-surface-page p-2 text-15 text-tr-text-primary"
+              className="rounded-card border border-tr-border bg-tr-surface-page p-3 text-15 text-tr-text-primary focus-visible:outline focus-visible:outline-selected focus-visible:outline-offset-2 focus-visible:outline-tr-coral"
               value={draftText}
               onChange={(e) => setDraftText(e.target.value)}
               rows={3}
               data-testid={`fact-edit-text-${fact.id}`}
             />
           </label>
-          <fieldset className="flex flex-col gap-1">
+          <fieldset className="flex flex-col gap-1.5">
             <legend className="text-12 text-tr-text-muted">Known by</legend>
-            <div className="flex flex-wrap gap-1">
+            <div className="flex flex-wrap gap-1.5">
               {project.seriesBible.characters.map((c) => {
                 const on = draftKnownBy.includes(c.id)
                 return (
@@ -128,10 +131,10 @@ export function FactCard({
                     type="button"
                     onClick={() => toggleKnownBy(c.id)}
                     className={
-                      'rounded-chip px-2 py-0.5 text-12 ' +
+                      'rounded-chip px-2.5 py-1 text-12 transition-colors duration-standard ease-standard focus-visible:outline focus-visible:outline-selected focus-visible:outline-offset-2 focus-visible:outline-tr-coral motion-reduce:transition-none ' +
                       (on
                         ? 'bg-tr-sky-soft text-tr-text-primary'
-                        : 'bg-tr-surface-clay text-tr-text-secondary')
+                        : 'bg-tr-surface-clay text-tr-text-secondary hover:bg-tr-surface-sunken')
                     }
                   >
                     {c.name}
@@ -145,7 +148,7 @@ export function FactCard({
               type="button"
               disabled={busy || !draftText.trim()}
               onClick={saveEdit}
-              className="rounded-card bg-tr-sage-soft px-3 py-1 text-13 text-tr-text-primary disabled:opacity-50"
+              className={`${actionButtonBase} bg-tr-sage-soft text-tr-text-primary hover:bg-tr-sage-soft`}
             >
               Save
             </button>
@@ -153,7 +156,7 @@ export function FactCard({
               type="button"
               disabled={busy}
               onClick={() => setEditing(false)}
-              className="rounded-card px-3 py-1 text-13 text-tr-text-secondary"
+              className={`${actionButtonBase} text-tr-text-secondary hover:bg-tr-surface-clay`}
             >
               Cancel
             </button>
@@ -163,17 +166,17 @@ export function FactCard({
         <>
           <p
             className={
-              'text-15 text-tr-text-primary' +
+              'text-15 leading-snug text-tr-text-primary' +
               (superseded ? ' line-through text-tr-text-muted' : '')
             }
           >
             {fact.fact}
           </p>
-          <div className="flex flex-wrap items-center gap-1.5">
+          <div className="flex flex-wrap items-center gap-2">
             <Chip hue="sky">{fact.factType}</Chip>
             <button
               type="button"
-              className="text-13 text-tr-sky underline-offset-2 hover:underline"
+              className="rounded-chip text-13 text-tr-sky underline-offset-2 transition-colors duration-standard ease-standard hover:underline focus-visible:outline focus-visible:outline-selected focus-visible:outline-offset-2 focus-visible:outline-tr-coral motion-reduce:transition-none"
               onClick={() => onSourceSpanClick?.(fact)}
               data-testid={`source-span-${fact.id}`}
             >
@@ -208,10 +211,10 @@ export function FactCard({
             </Chip>
           </div>
           {fact.supersededBy && (
-            <div className="flex flex-col gap-1">
+            <div className="flex flex-col gap-1.5">
               <button
                 type="button"
-                className="text-left text-13 text-tr-sky"
+                className="rounded-chip text-left text-13 text-tr-sky transition-colors duration-standard ease-standard hover:underline focus-visible:outline focus-visible:outline-selected focus-visible:outline-offset-2 focus-visible:outline-tr-coral motion-reduce:transition-none"
                 onClick={() => setChainOpen((o) => !o)}
                 data-testid={`supersede-link-${fact.id}`}
               >
@@ -219,7 +222,7 @@ export function FactCard({
               </button>
               {chainOpen && chain.length > 0 && (
                 <ol
-                  className="ml-3 flex flex-col gap-1 border-l border-tr-border pl-3"
+                  className="ml-1 flex flex-col gap-1.5 border-l border-tr-border-strong pl-3"
                   data-testid={`supersede-chain-${fact.id}`}
                 >
                   {chain.map((node) => (
@@ -240,12 +243,12 @@ export function FactCard({
             </div>
           )}
           {queueActions && (
-            <div className="mt-1 flex flex-wrap gap-2">
+            <div className="mt-1 flex flex-wrap gap-2 border-t border-tr-border pt-3">
               <button
                 type="button"
                 disabled={busy}
                 onClick={() => onAccept?.(fact.id)}
-                className="rounded-card bg-tr-sage-soft px-3 py-1 text-13 text-tr-text-primary disabled:opacity-50"
+                className={`${actionButtonBase} bg-tr-sage-soft text-tr-text-primary`}
                 data-testid={`accept-${fact.id}`}
               >
                 Accept
@@ -254,7 +257,7 @@ export function FactCard({
                 type="button"
                 disabled={busy}
                 onClick={startEdit}
-                className="rounded-card border border-tr-border px-3 py-1 text-13 text-tr-text-primary disabled:opacity-50"
+                className={`${actionButtonBase} border border-tr-border text-tr-text-primary hover:bg-tr-surface-clay`}
                 data-testid={`edit-${fact.id}`}
               >
                 Edit
@@ -263,7 +266,7 @@ export function FactCard({
                 type="button"
                 disabled={busy}
                 onClick={() => onReject?.(fact.id)}
-                className="rounded-card px-3 py-1 text-13 text-tr-text-muted disabled:opacity-50"
+                className={`${actionButtonBase} text-tr-text-muted hover:bg-tr-surface-clay hover:text-tr-text-secondary`}
                 data-testid={`reject-${fact.id}`}
               >
                 Reject

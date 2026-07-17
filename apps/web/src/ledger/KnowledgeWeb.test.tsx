@@ -398,4 +398,27 @@ describe('KnowledgeWeb', () => {
       screen.getByTestId('knowledge-web-people-nudge').textContent,
     ).toMatch(/pick a person in People/i)
   })
+
+  it('creative polish: list rows use 15px fact text and focus strip legend', () => {
+    const f = fact({
+      id: 'f1',
+      factType: 'knowledge',
+      fact: 'Marta knows the till is short.',
+      knownBy: ['char-reyes'],
+    })
+    render(
+      <KnowledgeWeb
+        facts={[f]}
+        allFacts={[f]}
+        project={project}
+        busy={false}
+        characterId="char-reyes"
+      />,
+    )
+    expect(screen.getByTestId('web-focus-node').textContent).toContain('Focus')
+    const row = screen.getByTestId('web-fact-f1')
+    expect(row.className).toContain('shadow-raised')
+    expect(row.innerHTML).toContain('text-15')
+  })
+
 })

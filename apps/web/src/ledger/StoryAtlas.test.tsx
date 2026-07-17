@@ -329,4 +329,59 @@ describe('StoryAtlas', () => {
 
     expect(screen.getByText('Facts appear as you write.')).not.toBeNull()
   })
+
+  it('creative polish: raised empty state and chapter display title', () => {
+    const { rerender } = render(
+      <StoryAtlas facts={[]} allFacts={[]} project={project()} busy={false} />,
+    )
+    const empty = screen.getByTestId('story-atlas')
+    expect(empty.className).toContain('shadow-raised')
+    expect(empty.textContent).toContain('No facts match.')
+
+    const facts = [
+      fact({
+        id: 'f1',
+        factType: 'event',
+        fact: 'The till is short.',
+      }),
+    ]
+    rerender(
+      <StoryAtlas
+        facts={facts}
+        allFacts={facts}
+        project={project()}
+        busy={false}
+      />,
+    )
+    const chapter = screen.getByTestId('fact-chapter-event')
+    expect(chapter.querySelector('h3')?.className).toContain('font-display')
+    expect(chapter.querySelector('h3')?.className).toContain('text-17')
+  })
+
+  it('creative polish: expanded row uses selected outline and lift', async () => {
+    const user = userEvent.setup()
+    const facts = [
+      fact({
+        id: 'f1',
+        factType: 'event',
+        fact: 'The till is short.',
+      }),
+    ]
+    render(
+      <StoryAtlas
+        facts={facts}
+        allFacts={facts}
+        project={project()}
+        busy={false}
+      />,
+    )
+    const row = screen.getByTestId('atlas-row-f1')
+    expect(row.className).toContain('shadow-raised')
+    await user.click(row)
+    expect(screen.getByTestId('atlas-row-f1').className).toContain('shadow-lift')
+    expect(screen.getByTestId('atlas-row-f1').className).toContain(
+      'outline-tr-coral',
+    )
+  })
+
 })

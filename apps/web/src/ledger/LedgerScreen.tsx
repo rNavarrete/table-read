@@ -410,7 +410,7 @@ export function LedgerScreen() {
       ledgerCount={pendingCount}
       projectId={projectId}
     >
-      <div className="flex min-h-[calc(100vh-3.5rem)]">
+      <div className="flex min-h-[calc(100vh-3.5rem)] bg-tr-surface-page">
         <FilterRail
           project={project}
           filters={filters}
@@ -423,25 +423,32 @@ export function LedgerScreen() {
           onAsOfSceneChange={setAsOfScene}
           facts={ledger}
         />
-        <div className="flex min-w-0 flex-1 flex-col gap-4 p-6">
-          <header className="flex flex-wrap items-center gap-3">
-            <h1 className="font-display text-22 text-tr-text-primary">
-              What&apos;s true in this story
-            </h1>
-            <LedgerViewSwitcher
-              projectId={projectId}
-              value={view}
-              onChange={setView}
-            />
-            {pendingCount > 0 && (
-              <button
-                type="button"
-                onClick={scrollToReviewQueue}
-                className="rounded-chip bg-tr-amber-soft px-2 py-1 text-13 text-tr-text-primary"
-              >
-                {pendingCount} to review
-              </button>
-            )}
+        <div className="flex min-w-0 flex-1 flex-col gap-6 px-8 py-6">
+          <header className="flex flex-wrap items-end justify-between gap-4 border-b border-tr-border pb-4">
+            <div className="flex min-w-0 flex-col gap-1">
+              <h1 className="font-display text-22 text-tr-text-primary">
+                What&apos;s true in this story
+              </h1>
+              <p className="text-13 text-tr-text-secondary">
+                Your story bible — browse truths, or focus who knows what.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <LedgerViewSwitcher
+                projectId={projectId}
+                value={view}
+                onChange={setView}
+              />
+              {pendingCount > 0 && (
+                <button
+                  type="button"
+                  onClick={scrollToReviewQueue}
+                  className="rounded-chip bg-tr-amber-soft px-2.5 py-1.5 text-13 text-tr-amber shadow-raised transition-[box-shadow,background-color] duration-standard ease-standard hover:shadow-lift focus-visible:outline focus-visible:outline-selected focus-visible:outline-offset-2 focus-visible:outline-tr-coral motion-reduce:transition-none"
+                >
+                  {pendingCount} to review
+                </button>
+              )}
+            </div>
           </header>
           {actionError && (
             <p className="text-13 text-tr-danger" role="alert">
@@ -467,12 +474,12 @@ export function LedgerScreen() {
           )}
           {queue.length > 0 && (
             <section
-              className="rounded-card border border-tr-border bg-tr-amber-soft p-4"
+              className="rounded-card border border-tr-border border-l-2 border-l-tr-amber bg-tr-amber-soft p-5 shadow-raised"
               aria-label="Review queue"
               data-testid="review-queue"
             >
-              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                <h2 className="text-15 text-tr-text-primary">
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+                <h2 className="font-display text-17 text-tr-text-primary">
                   {queue.length} fact{queue.length === 1 ? '' : 's'} awaiting
                   review
                 </h2>
@@ -481,7 +488,7 @@ export function LedgerScreen() {
                     type="button"
                     disabled={busyId !== null}
                     onClick={handleBatchAcceptHigh}
-                    className="rounded-card bg-tr-sage-soft px-3 py-1 text-13 text-tr-text-primary disabled:opacity-50"
+                    className="rounded-card bg-tr-sage-soft px-3 py-1.5 text-13 text-tr-text-primary transition-colors duration-standard ease-standard hover:shadow-lift focus-visible:outline focus-visible:outline-selected focus-visible:outline-offset-2 focus-visible:outline-tr-coral disabled:opacity-50 motion-reduce:transition-none"
                     data-testid="batch-accept-high"
                   >
                     Accept all high-confidence ({highConf.length})
@@ -496,9 +503,9 @@ export function LedgerScreen() {
                     className="flex flex-col gap-2"
                   >
                     <div className="flex flex-wrap items-center justify-between gap-2">
-                      <h3 className="text-13 text-tr-text-secondary">
+                      <h3 className="text-13 font-medium text-tr-text-primary">
                         {sceneLabel(project, group.sceneId)}
-                        <span className="ml-2 text-tr-text-muted">
+                        <span className="ml-2 font-normal text-tr-text-muted">
                           ({group.facts.length})
                         </span>
                       </h3>
@@ -509,7 +516,7 @@ export function LedgerScreen() {
                           onClick={() =>
                             handleSceneBatch(group.sceneId, 'accept')
                           }
-                          className="rounded-card bg-tr-sage-soft px-2 py-0.5 text-12 text-tr-text-primary disabled:opacity-50"
+                          className="rounded-card bg-tr-sage-soft px-2.5 py-1 text-12 text-tr-text-primary transition-colors duration-standard ease-standard focus-visible:outline focus-visible:outline-selected focus-visible:outline-offset-2 focus-visible:outline-tr-coral disabled:opacity-50 motion-reduce:transition-none"
                           data-testid={`scene-accept-${group.sceneId}`}
                         >
                           Accept scene
@@ -520,7 +527,7 @@ export function LedgerScreen() {
                           onClick={() =>
                             handleSceneBatch(group.sceneId, 'reject')
                           }
-                          className="rounded-card px-2 py-0.5 text-12 text-tr-text-muted disabled:opacity-50"
+                          className="rounded-card px-2.5 py-1 text-12 text-tr-text-muted transition-colors duration-standard ease-standard hover:bg-tr-surface-raised focus-visible:outline focus-visible:outline-selected focus-visible:outline-offset-2 focus-visible:outline-tr-coral disabled:opacity-50 motion-reduce:transition-none"
                           data-testid={`scene-reject-${group.sceneId}`}
                         >
                           Reject scene
@@ -548,7 +555,12 @@ export function LedgerScreen() {
               </div>
             </section>
           )}
-          <section aria-label="Ledger facts">
+          <section
+            key={view}
+            aria-label="Ledger facts"
+            className="tr-ledger-view-enter min-h-0 flex-1"
+            data-testid="ledger-view-body"
+          >
             {view === 'atlas' ? (
               <StoryAtlas
                 facts={gridFacts}

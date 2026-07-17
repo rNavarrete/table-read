@@ -91,10 +91,13 @@ export function FilterRail({
   facts = [],
 }: FilterRailProps) {
   const optionClass = (active: boolean) =>
-    'flex cursor-pointer items-center gap-2 rounded-chip px-3 py-1 text-13 transition-colors focus-within:outline focus-within:outline-selected focus-within:outline-tr-coral ' +
+    'flex cursor-pointer items-center gap-2 rounded-chip px-3 py-1.5 text-13 transition-colors duration-standard ease-standard motion-reduce:transition-none focus-within:outline focus-within:outline-selected focus-within:outline-offset-2 focus-within:outline-tr-coral ' +
     (active
       ? 'bg-tr-coral-soft text-tr-accent-ink'
       : 'text-tr-text-primary hover:bg-tr-surface-clay')
+
+  const sectionLegend =
+    'text-11 font-medium uppercase tracking-wide text-tr-text-muted'
 
   const pendingCount = facts.filter((f) => f.status === 'pending_review').length
   const statusOpen = filters.status !== 'all'
@@ -135,27 +138,25 @@ export function FilterRail({
 
   return (
     <aside
-      className="w-panel-ledger-filters shrink-0 border-r border-tr-border bg-tr-surface-sunken p-4"
+      className="w-panel-ledger-filters shrink-0 border-r border-tr-border bg-tr-surface-sunken px-3 py-5"
       aria-label="Ledger filters"
       data-testid="ledger-filter-rail"
     >
-      <fieldset className="mb-6">
-        <div className="mb-2 flex items-center justify-between gap-2">
-          <legend className="text-12 uppercase tracking-wide text-tr-text-muted">
-            People
-          </legend>
+      <fieldset className="mb-7">
+        <div className="mb-2.5 flex items-center justify-between gap-2">
+          <legend className={sectionLegend}>People</legend>
           {onManageCast && (
             <button
               type="button"
               onClick={onManageCast}
-              className="text-12 text-tr-sky underline-offset-2 hover:underline"
+              className="rounded-chip px-1 text-12 text-tr-sky underline-offset-2 transition-colors duration-standard ease-standard hover:underline focus-visible:outline focus-visible:outline-selected focus-visible:outline-offset-2 focus-visible:outline-tr-coral motion-reduce:transition-none"
               data-testid="manage-cast-button"
             >
               Manage cast
             </button>
           )}
         </div>
-        <div className="flex flex-col gap-1">
+        <div className="flex flex-col gap-0.5">
           <label className={optionClass(filters.characterId === null)}>
             <input
               className="sr-only"
@@ -175,10 +176,10 @@ export function FilterRail({
               data-testid="filter-rail-people-zero"
               open={zeroCountSelected || undefined}
             >
-              <summary className="cursor-pointer rounded-chip px-3 py-1 text-12 text-tr-text-muted hover:bg-tr-surface-clay">
+              <summary className="cursor-pointer rounded-chip px-3 py-1.5 text-12 text-tr-text-muted transition-colors duration-standard ease-standard hover:bg-tr-surface-clay hover:text-tr-text-secondary motion-reduce:transition-none">
                 No linked facts ({peopleWithoutFacts.length})
               </summary>
-              <div className="mt-1 flex flex-col gap-1">
+              <div className="mt-1 flex flex-col gap-0.5">
                 {peopleWithoutFacts.map(({ character, count }) =>
                   renderPersonOption(character, count),
                 )}
@@ -188,11 +189,9 @@ export function FilterRail({
         </div>
       </fieldset>
 
-      <fieldset className="mb-6">
-        <legend className="mb-2 text-12 uppercase tracking-wide text-tr-text-muted">
-          Browse
-        </legend>
-        <div className="flex flex-col gap-1">
+      <fieldset className="mb-7">
+        <legend className={`mb-2.5 ${sectionLegend}`}>Browse</legend>
+        <div className="flex flex-col gap-0.5">
           {FACT_TYPES.map((factType) => {
             const count = countFactType(facts, factType)
             return (
@@ -220,14 +219,12 @@ export function FilterRail({
       </fieldset>
 
       {onViewThreads && (
-        <fieldset className="mb-6">
-          <legend className="mb-2 text-12 uppercase tracking-wide text-tr-text-muted">
-            Threads
-          </legend>
+        <fieldset className="mb-7">
+          <legend className={`mb-2.5 ${sectionLegend}`}>Threads</legend>
           <button
             type="button"
             onClick={onViewThreads}
-            className="w-full rounded-chip px-3 py-1 text-left text-13 text-tr-text-primary hover:bg-tr-surface-clay"
+            className="w-full rounded-chip px-3 py-1.5 text-left text-13 text-tr-text-primary transition-colors duration-standard ease-standard hover:bg-tr-surface-clay focus-visible:outline focus-visible:outline-selected focus-visible:outline-offset-2 focus-visible:outline-tr-coral motion-reduce:transition-none"
             data-testid="view-threads-button"
           >
             Setups &amp; payoffs
@@ -239,21 +236,23 @@ export function FilterRail({
       )}
 
       <details
-        className="mb-6"
+        className="mb-7"
         data-testid="filter-rail-status"
         open={statusOpen || undefined}
       >
-        <summary className="mb-2 cursor-pointer text-12 uppercase tracking-wide text-tr-text-muted">
+        <summary
+          className={`mb-2.5 cursor-pointer ${sectionLegend} transition-colors duration-standard ease-standard hover:text-tr-text-secondary motion-reduce:transition-none`}
+        >
           Status
           {pendingCount > 0 && (
-            <span className="ml-2 normal-case tracking-normal text-tr-text-secondary">
+            <span className="ml-2 normal-case tracking-normal text-tr-amber">
               {pendingCount} to review
             </span>
           )}
         </summary>
         <fieldset>
           <legend className="sr-only">Status</legend>
-          <div className="flex flex-col gap-1">
+          <div className="flex flex-col gap-0.5">
             {STATUSES.map((status) => (
               <label
                 key={status}
@@ -275,15 +274,12 @@ export function FilterRail({
 
       {sceneOptions.length > 0 && (
         <div className="mb-2">
-          <label
-            htmlFor="ledger-as-of"
-            className="mb-2 block text-12 uppercase tracking-wide text-tr-text-muted"
-          >
+          <label htmlFor="ledger-as-of" className={`mb-2.5 block ${sectionLegend}`}>
             As of
           </label>
           <select
             id="ledger-as-of"
-            className="w-full rounded-chip border border-tr-border bg-tr-surface-raised px-3 py-1.5 text-13 text-tr-text-primary"
+            className="w-full rounded-card border border-tr-border bg-tr-surface-raised px-3 py-2 text-13 text-tr-text-primary shadow-raised transition-[box-shadow,border-color] duration-standard ease-standard focus-visible:outline focus-visible:outline-selected focus-visible:outline-offset-2 focus-visible:outline-tr-coral motion-reduce:transition-none"
             value={asOfScene ?? ''}
             onChange={(e) =>
               onAsOfSceneChange?.(e.target.value === '' ? null : e.target.value)
