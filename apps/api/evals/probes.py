@@ -306,19 +306,30 @@ def _overview_prompt(ctx: FixtureCtx) -> tuple[str, str]:
     scene = ctx.scene("scene-1")
     beats = scene.get("beats") or []
     beat_id = beats[0]["id"] if beats else "beat-1-1"
-    scene_summaries = [
+    what = (
+        beats[0].get("whatHappens", "")
+        if beats
+        else scene.get("whatHappens", "")
+    )
+    scene_spine = [
         {
-            "id": scene["id"],
+            "sceneId": scene["id"],
+            "act": scene.get("act", 0),
             "location": scene.get("location", ""),
-            "whatHappens": scene.get("whatHappens", ""),
-            "scriptText": (beats[0].get("scriptText", "") if beats else "")[:200],
+            "whatHappens": what,
+        }
+    ]
+    known_beats = [
+        {
+            "beatId": beat_id,
+            "sceneId": scene["id"],
+            "whatHappens": what,
         }
     ]
     return render.build_overview_prompt(
         ctx.doc,
-        scene_summaries,
-        [scene["id"]],
-        [{"beatId": beat_id, "sceneId": scene["id"]}],
+        scene_spine,
+        known_beats,
         render.new_nonce(),
     )
 

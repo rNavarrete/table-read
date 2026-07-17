@@ -26,10 +26,12 @@ from typing import Any
 
 # Prompt spec §8 / hard rule 7: every template carries a PROMPT_VERSION (semver);
 # it is logged with each call and bumped on any template change. Bumped to
-# 0.15.0 for T7.28 (story overview): adds `build_overview_prompt` for
-# `infer_story_overview` (design 2026-07-17-import-story-overview) —
-# requires `make evals` sign-off before merge (not run until authorized).
-# History: 0.14.0 for T7.20 (`build_promises_prompt` / narrative promises).
+# 0.16.0 for TV beat-sheet grounding on `infer_story_overview` (design
+# amendment 2026-07-17-import-story-overview): act-ordered spine + beat
+# whatHappens + TV act vocabulary; optional beat-sheet `act`. Requires
+# `make evals` sign-off before merge (not run until authorized).
+# History: 0.15.0 for T7.28 (story overview builder). 0.14.0 for T7.20
+# (`build_promises_prompt` / narrative promises).
 # 0.13.0 for T7.23 (time-aware P1 remainder Task 3):
 # `build_extract_prompt`'s user message now asks the model to optionally note
 # knowledgeEvents (learns/forgets transitions beyond a fact's baseline
@@ -42,7 +44,7 @@ from typing import Any
 # needed `make evals` sign-off. History: 0.8.0 suggest_instructions; 0.7.0
 # scene skeleton; 0.6.0 continuity constraint; 0.5.0 regenerate; 0.4.0 blast
 # radius; 0.3.0 tune; 0.2.0 candidate + §0 system prompt.
-PROMPT_VERSION = "0.15.0"
+PROMPT_VERSION = "0.16.0"
 
 
 def new_nonce() -> str:
@@ -257,34 +259,57 @@ def build_promises_prompt(
 
 def build_overview_prompt(
     project: dict,
-    scene_summaries: list[dict],
-    known_scene_ids: list[str],
+    scene_spine: list[dict],
     known_beats: list[dict],
     nonce: str,
 ) -> tuple[str, str]:
-    """`infer_story_overview` (T7.28 / design
-    `2026-07-17-import-story-overview-design.md`): compact scene summaries
-    plus the grounded scene/beat id inventory from the imported partition.
-    Craft constraints: logline 25–40 words; scene-ordered outline; TV-shaped
-    named beat sheet; exactly two present-tense synopsis paragraphs."""
+    """`infer_story_overview` (T7.28 + TV beat-sheet grounding amendment):
+    act-ordered scene spine and beat inventory (with whatHappens) from the
+    imported partition, plus explicit show format for teleplay density.
+    Craft: logline 25–40 words; scene-ordered outline; TV act-structure beat
+    sheet; exactly two present-tense synopsis paragraphs."""
+    fmt = project.get("format") or {}
+    format_block = {
+        "genre": fmt.get("genre"),
+        "runtimeMinutes": fmt.get("runtimeMinutes"),
+        "actCount": fmt.get("actCount"),
+        "coldOpen": fmt.get("coldOpen"),
+        "tag": fmt.get("tag"),
+        "serialization": fmt.get("serialization"),
+    }
+    modules = (
+        (1 if format_block.get("coldOpen") else 0)
+        + int(format_block.get("actCount") or 0)
+        + (1 if format_block.get("tag") else 0)
+    )
     user = (
-        source_data("import_scene_summaries", scene_summaries, nonce)
+        source_data("show_format", format_block, nonce)
         + "\n"
-        + source_data("known_scene_ids", known_scene_ids, nonce)
+        + source_data("scene_spine", scene_spine, nonce)
         + "\n"
         + source_data("known_beats", known_beats, nonce)
-        + "\nInfer an episode story overview grounded only in these scenes "
-        "and beat ids.\n"
+        + "\nInfer an episode story overview grounded only in show_format, "
+        "scene_spine, and known_beats.\n"
         "- logline: exactly one sentence, prefer 25–40 words; name the "
         "protagonist, their want, and the obstacle; include stakes or irony "
         "when the script supports them. This is an episode logline, not a "
         "series bible essay.\n"
-        "- outline: one short summary per known scene id, in source order "
-        "(scene-by-scene spine). Do not invent scene ids.\n"
-        "- beatSheet: named TV-shaped story turns (e.g. Hook, Inciting "
-        "Incident, Midpoint, Climax, Button) when they fit — do not force a "
-        "15-beat feature template. Each row must use a known beatId; "
-        "optional sceneId from known_scene_ids; short summary of the turn.\n"
+        "- outline: one short summary per scene_spine sceneId, in source "
+        "order (scene-by-scene spine). Do not invent scene ids.\n"
+        "- beatSheet: major TV teleplay turns for THIS format — not a "
+        "Save-the-Cat 15-beat feature template. Prefer labels from teleplay "
+        "grammar: Teaser or Cold Open when coldOpen is true; Act N Turn / "
+        "Act N Out for act boundaries; Climax near the end; Tag only when "
+        "tag is true. Midpoint only if a real mid-episode reversal exists "
+        "in the spine — never invent feature-only labels (Opening Image, "
+        "Theme Stated, Catalyst, Break into Two, Fun and Games, Bad Guys "
+        "Close In, All Is Lost, Dark Night of the Soul, Break into Three, "
+        "Final Image). Target about "
+        f"{max(modules, 1)}–{max(2 * modules, 2)} rows (modules≈"
+        f"{modules}), not one row per scene. Each row MUST use a known "
+        "beatId from known_beats; set sceneId to that beat's sceneId; set "
+        "act to that scene's act from scene_spine. Summarize the dramatic "
+        "turn from whatHappens — do not paste sluglines as labels.\n"
         "- summary: exactly two paragraphs, third person, present tense; "
         "paragraph 1 = setup/world/inciting; paragraph 2 = escalation/"
         "climax/resolution. Spoil the ending when the script has one. "

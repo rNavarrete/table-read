@@ -10,6 +10,14 @@ afterEach(cleanup)
 function project(): Project {
   return {
     id: 'proj-1',
+    format: {
+      genre: 'drama',
+      runtimeMinutes: 60,
+      actCount: 4,
+      coldOpen: true,
+      tag: true,
+      serialization: 0.5,
+    },
     seasons: [
       {
         episodes: [
@@ -47,9 +55,10 @@ function overview(overrides: Partial<StoryOverview> = {}): StoryOverview {
     beatSheet: [
       {
         beatId: 'beat-1-1',
-        label: 'Hook',
+        label: 'Teaser',
         summary: 'Marty arrives to silence.',
         sceneId: 'scene-1',
+        act: 0,
       },
     ],
     summary:
@@ -86,6 +95,9 @@ describe('OverviewPanel', () => {
     )
     expect(screen.getByTestId('overview-logline').textContent).toContain('Marty')
     expect(screen.getByTestId('overview-summary').querySelectorAll('p')).toHaveLength(2)
+    expect(screen.getByTestId('overview-beat-act-beat-1-1').textContent).toContain(
+      'COLD OPEN',
+    )
     await user.click(screen.getByTestId('overview-outline-scene-scene-1'))
     expect(onJumpToScene).toHaveBeenCalledWith('scene-1')
     await user.click(screen.getByTestId('overview-beat-scene-beat-1-1'))

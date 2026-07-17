@@ -366,18 +366,10 @@ def analyze_import(
     # fact wall. Merges Episode.storyOverview; backfills empty premises from
     # the logline; preserves locked overview (drama_manager.overview). ─────
     yield ImportStageStarted(STAGE_INFERRING_OVERVIEW)
-    overview_summaries = _entity_scene_summaries(scene_docs)
-    known_scene_ids = [s["id"] for s in scene_docs]
-    known_beats = [
-        {"beatId": b["id"], "sceneId": s["id"]}
-        for s in scene_docs
-        for b in (s.get("beats") or [])
-        if b.get("id")
-    ]
+    scene_spine, known_beats = _overview_prompt_inputs(scene_docs)
     system, user = render.build_overview_prompt(
         new_doc,
-        overview_summaries,
-        known_scene_ids,
+        scene_spine,
         known_beats,
         render.new_nonce(),
     )
@@ -574,6 +566,41 @@ def _extract_one(
 
 
 _ENTITY_PROMPT_EARLY_LINES = 40
+
+
+
+def _overview_prompt_inputs(scene_docs: list[dict]) -> tuple[list[dict], list[dict]]:
+    """Act-ordered spine + beat inventory for `infer_story_overview`.
+
+    Spine rows omit scriptText (slugline paste drifts labels). Beats carry
+    whatHappens so named turns stay grounded in segmented content.
+    """
+    scene_spine: list[dict] = []
+    known_beats: list[dict] = []
+    for scene in scene_docs:
+        beats = scene.get("beats") or []
+        what_happens = " ".join(
+            b["whatHappens"] for b in beats if b.get("whatHappens")
+        )
+        scene_spine.append(
+            {
+                "sceneId": scene["id"],
+                "act": scene.get("act", 0),
+                "location": scene.get("location", ""),
+                "whatHappens": what_happens,
+            }
+        )
+        for beat in beats:
+            if not beat.get("id"):
+                continue
+            known_beats.append(
+                {
+                    "beatId": beat["id"],
+                    "sceneId": scene["id"],
+                    "whatHappens": beat.get("whatHappens") or "",
+                }
+            )
+    return scene_spine, known_beats
 
 
 def _entity_scene_summaries(scene_docs: list[dict]) -> list[dict]:

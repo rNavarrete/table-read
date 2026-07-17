@@ -91,6 +91,7 @@ export const StoryOverviewOutlineItem = z.object({
 export const StoryOverviewBeatItem = z.object({
   beatId: Id, label: z.string().default(""), summary: z.string(),
   sceneId: Id.nullable().default(null),
+  act: z.number().int().min(0).nullable().default(null),
 });
 export const StoryOverview = z.object({
   logline: z.string(),
@@ -150,6 +151,7 @@ export const InferredStoryOverview = z.object({
   beatSheet: z.array(z.object({
     beatId: Id, label: z.string(), summary: z.string(),
     sceneId: Id.nullable(),
+    act: z.number().int().min(0).nullable(),
   })),
   summary: z.string(),
 });

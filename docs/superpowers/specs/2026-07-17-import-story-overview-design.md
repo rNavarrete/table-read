@@ -97,9 +97,10 @@ Sources:
 StoryOverviewOutlineItem = { sceneId: Id, summary: string }
 StoryOverviewBeatItem = {
   beatId: Id,
-  label: string,          // named turn e.g. "Inciting Incident"; may be ""
+  label: string,          // named turn e.g. "Act Two Out"; may be ""
   summary: string,
-  sceneId: Id | null,     // optional scene anchor
+  sceneId: Id | null,     // resolved from beatId on merge
+  act: number | null,     // coerced from parent scene.act (amendment)
 }
 StoryOverview = {
   logline: string,
@@ -149,3 +150,77 @@ Empty state: “Import a script to generate a story overview.”
 - Outline has no prose twin (documented).  
 - Beat sheet is TV-shaped named turns grounded to ids, not forced STC-15.  
 - Contract package remains executable authority for shapes.
+
+
+## Amendment — TV beat-sheet grounding (2026-07-17, post T7.30)
+
+**Status:** Approved (Approach B + required `beatId`). Implements on `PROMPT_VERSION` 0.15.0 → **0.16.0**.
+
+### Problem (observed)
+
+Writers trust Overview *formatting* but not beat-sheet *content*. A West Wing–style import produced film-shaped turns (Cold Open, Inciting Incident, Midpoint, Climax, Tag) with slugline-flavored summaries — Save-the-Cat / feature vocabulary rather than teleplay act grammar grounded in the imported partition.
+
+### Craft research (TV episodic beat sheet)
+
+Hour drama (network + prestige staffing samples) is modular:
+
+| Module | Role |
+|---|---|
+| **Teaser / Cold Open** | Hook before Act One; question or spike (often 2–5 pages in pilots) |
+| **Acts 1…N** | Pressure chambers; **act outs** are the commercial/narrative turns that retain the audience |
+| **Tag** | Short button after climax; series bridge / sting (when the format uses one) |
+
+Typical network hour: Teaser + 4–5 acts (+ optional Tag). Streaming may drop ads but the page grammar (teaser / acts / tag) still shows up in rooms and coverage. A **TV beat sheet** lists those major emotional/structural turns — leaner than a scene-by-scene outline, denser than a logline — not Blake Snyder’s **15-beat feature** catalog (Opening Image, Theme Stated, Break into Two, Fun and Games, Bad Guys Close In, All Is Lost, Dark Night of the Soul, Break into Three, Final Image, etc.).
+
+“Midpoint” may appear as a *turn inside a middle act* when the script earns it; it is **not** a required film slot. Prefer labels like **Teaser / Cold Open**, **Act N Turn / Act N Out**, **Climax**, **Tag** aligned to `ShowFormat.coldOpen`, `actCount`, and `tag`.
+
+Sources:
+
+- [ScreenWeaver — Broadcast TV act breaks: Teaser, Acts, Tag](https://www.screenweaver.ai/blog/broadcast-tv-act-breaks-teaser-tag-format)
+- [The Script Lab — TV script structure](https://thescriptlab.com/features/screenwriting-101/8930-how-to-structure-and-format-your-television-scripts/)
+- [Daniel Calvisi / Film Courage — mapping TV beats by act](https://medium.com/film-courage/how-to-map-out-the-beats-of-a-television-show-by-daniel-calvisi-8a20d1be1872)
+- [ScreenCraft — five-act TV drama](https://screencraft.org/blog/tv-drama-breakdown-explore-the-act-structure-of-this-is-us/)
+- Contrast: [Save the Cat — feature beats](https://savethecat.com/tips-and-tactics/a-screenwriters-guide-to-beats-and-beat-sheets); prior outline-vs-beat citations in §Craft research above
+
+### Root-cause diagnosis (pre-0.16.0)
+
+| Factor | Finding |
+|---|---|
+| Prompt exemplars | Listed Hook / Inciting / Midpoint / Climax / Button → model defaults to film catalog |
+| Beat inventory | `known_beats` was `{beatId, sceneId}` only — no `whatHappens` |
+| Scene spine | Reused entity summaries (incl. early `scriptText`) — encourages slugline parroting; **scene `act` omitted** |
+| Format | Only in shared system SHOW FORMAT; not reinforced for beat-sheet density |
+| Merge | Dropped unknown `beatId`s only — no scene↔beat verify, no act coerce, no sort/dedupe |
+| Model role | `classifier` @ temp 0 is correct; not the drift source |
+
+### Locked decisions (B)
+
+| # | Decision |
+|---|---|
+| B1 | **Approach B:** keep structured `{beatId, label, summary, sceneId?}` + add optional **`act`** on each beat-sheet row (persisted + inferred). |
+| B2 | **`beatId` remains required.** Server resolves/verifies `sceneId` from that beat’s parent scene (authoritative); mismatches null→resolved or dropped only if beat unknown. |
+| B3 | **`act` coerced from the scene’s imported `act`** when present; LLM-supplied `act` that disagrees with the scene is overwritten (never invent acts). |
+| B4 | Merge **sorts** beat-sheet rows by episode scene order then beat order; **dedupes** duplicate `beatId` (keep first). |
+| B5 | Prompt input: explicit format block + act-ordered scene spine `{sceneId, act, location, whatHappens}` (no full scriptText) + `{beatId, sceneId, whatHappens}`. |
+| B6 | Label vocabulary: TV act grammar (Teaser/Cold Open if `coldOpen`; Act N Turn/Out; Climax; Tag if `tag`). Forbid forcing STC-15 feature labels. Density guide: roughly `modules`…`2×modules` where `modules = (1 if coldOpen else 0) + actCount + (1 if tag else 0)`. |
+| B7 | Ledger Overview **formatting unchanged**; optional subtle act cue when `act` is non-null. |
+| B8 | `PROMPT_VERSION` **0.16.0**; tool schemas regenerated; planted T7.30 evals tightened (forbidden STC labels / act grounding). Real `make evals` only when authorized. |
+
+### Schema delta (conceptual — contract package is executable authority)
+
+```ts
+StoryOverviewBeatItem = {
+  beatId: Id,                 // required; must exist after merge
+  label: string,
+  summary: string,
+  sceneId: Id | null,         // resolved from beatId when possible
+  act: number | null,         // NEW — coerced from scene.act
+}
+```
+
+### Self-review (amendment)
+
+- Research cited; film vs TV contrast explicit.
+- Required `beatId` preserved (option 1); no silent unanchored rows.
+- Outline / logline / summary craft rules unchanged.
+- Contract package remains executable authority.

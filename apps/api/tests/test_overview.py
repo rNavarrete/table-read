@@ -17,10 +17,14 @@ def _doc(
     scenes = scenes or [
         {
             "id": "scene-1",
+            "act": 1,
+            "index": 0,
             "beats": [{"id": "beat-1-1", "whatHappens": "A"}],
         },
         {
             "id": "scene-2",
+            "act": 2,
+            "index": 1,
             "beats": [{"id": "beat-2-1", "whatHappens": "B"}],
         },
     ]
@@ -56,15 +60,17 @@ def overview(**overrides) -> InferredStoryOverview:
         "beatSheet": [
             {
                 "beatId": "beat-1-1",
-                "label": "Inciting Incident",
+                "label": "Act One Turn",
                 "summary": "The letter surfaces.",
                 "sceneId": "scene-1",
+                "act": 1,
             },
             {
                 "beatId": "beat-2-1",
                 "label": "Climax",
                 "summary": "Cass yields the compass.",
                 "sceneId": "scene-2",
+                "act": 2,
             },
         ],
         "summary": (
@@ -73,6 +79,8 @@ def overview(**overrides) -> InferredStoryOverview:
         ),
     }
     base.update(overrides)
+    for row in base.get("beatSheet") or []:
+        row.setdefault("act", None)
     return InferredStoryOverview.model_validate(base)
 
 
@@ -155,3 +163,171 @@ def test_merge_preserves_when_episode_locked():
     doc = _doc(locked=True, story_overview=prior)
     merge_story_overview(doc, "ep-1", overview())
     assert doc["seasons"][0]["episodes"][0]["storyOverview"] == prior
+
+
+def test_merge_resolves_scene_id_from_beat_and_coerces_act():
+    """LLM sceneId/act are not authoritative — parent beat's scene wins."""
+    doc = _doc(
+        scenes=[
+            {
+                "id": "scene-1",
+                "act": 0,
+                "index": 0,
+                "beats": [{"id": "beat-1-1", "whatHappens": "A"}],
+            },
+            {
+                "id": "scene-2",
+                "act": 2,
+                "index": 1,
+                "beats": [{"id": "beat-2-1", "whatHappens": "B"}],
+            },
+        ]
+    )
+    merge_story_overview(
+        doc,
+        "ep-1",
+        overview(
+            beatSheet=[
+                {
+                    "beatId": "beat-2-1",
+                    "label": "Act Two Out",
+                    "summary": "Cass yields.",
+                    "sceneId": "scene-1",  # wrong on purpose
+                    "act": 0,  # wrong on purpose
+                },
+            ],
+            outline=[{"sceneId": "scene-2", "summary": "ok"}],
+        ),
+    )
+    row = doc["seasons"][0]["episodes"][0]["storyOverview"]["beatSheet"][0]
+    assert row["sceneId"] == "scene-2"
+    assert row["act"] == 2
+
+
+def test_merge_sorts_beat_sheet_by_scene_then_beat_order():
+    doc = _doc(
+        scenes=[
+            {
+                "id": "scene-1",
+                "act": 1,
+                "index": 0,
+                "beats": [
+                    {"id": "beat-1-1", "whatHappens": "A"},
+                    {"id": "beat-1-2", "whatHappens": "A2"},
+                ],
+            },
+            {
+                "id": "scene-2",
+                "act": 2,
+                "index": 1,
+                "beats": [{"id": "beat-2-1", "whatHappens": "B"}],
+            },
+        ]
+    )
+    merge_story_overview(
+        doc,
+        "ep-1",
+        overview(
+            beatSheet=[
+                {
+                    "beatId": "beat-2-1",
+                    "label": "Climax",
+                    "summary": "end",
+                    "sceneId": "scene-2",
+                },
+                {
+                    "beatId": "beat-1-2",
+                    "label": "Turn",
+                    "summary": "mid",
+                    "sceneId": "scene-1",
+                },
+                {
+                    "beatId": "beat-1-1",
+                    "label": "Teaser",
+                    "summary": "start",
+                    "sceneId": "scene-1",
+                },
+            ],
+            outline=[
+                {"sceneId": "scene-1", "summary": "a"},
+                {"sceneId": "scene-2", "summary": "b"},
+            ],
+        ),
+    )
+    ids = [
+        r["beatId"]
+        for r in doc["seasons"][0]["episodes"][0]["storyOverview"]["beatSheet"]
+    ]
+    assert ids == ["beat-1-1", "beat-1-2", "beat-2-1"]
+
+
+def test_merge_dedupes_duplicate_beat_ids_keeps_first():
+    doc = _doc()
+    merge_story_overview(
+        doc,
+        "ep-1",
+        overview(
+            beatSheet=[
+                {
+                    "beatId": "beat-1-1",
+                    "label": "Teaser",
+                    "summary": "first",
+                    "sceneId": "scene-1",
+                },
+                {
+                    "beatId": "beat-1-1",
+                    "label": "Hook",
+                    "summary": "duplicate",
+                    "sceneId": "scene-1",
+                },
+                {
+                    "beatId": "beat-2-1",
+                    "label": "Climax",
+                    "summary": "end",
+                    "sceneId": "scene-2",
+                },
+            ],
+        ),
+    )
+    rows = doc["seasons"][0]["episodes"][0]["storyOverview"]["beatSheet"]
+    assert [r["beatId"] for r in rows] == ["beat-1-1", "beat-2-1"]
+    assert rows[0]["summary"] == "first"
+    assert rows[0]["label"] == "Teaser"
+
+
+def test_overview_prompt_uses_tv_act_grammar_and_spine():
+    from drama_manager.render import build_overview_prompt, new_nonce
+
+    project = {
+        "title": "West Wing Sample",
+        "format": {
+            "genre": "drama",
+            "runtimeMinutes": 60,
+            "actCount": 5,
+            "coldOpen": True,
+            "tag": True,
+            "serialization": 0.8,
+        },
+    }
+    spine = [
+        {
+            "sceneId": "scene-1",
+            "act": 0,
+            "location": "THE OVAL OFFICE",
+            "whatHappens": "Bartlet pivots the briefing.",
+        }
+    ]
+    beats = [
+        {
+            "beatId": "beat-1-1",
+            "sceneId": "scene-1",
+            "whatHappens": "Bartlet pivots the briefing.",
+        }
+    ]
+    _system, user = build_overview_prompt(project, spine, beats, new_nonce())
+    assert "scene_spine" in user
+    assert "show_format" in user
+    assert "Act N Turn" in user or "Act N Out" in user
+    assert "Save-the-Cat" in user or "Save the Cat" in user or "feature-only" in user
+    assert "Hook, Inciting" not in user
+    assert "whatHappens" in user

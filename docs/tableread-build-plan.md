@@ -177,6 +177,10 @@ Replaces the hardcoded seeded entry point with a project dashboard, idea/import 
 **T7.30 Story-overview evals.** Planted fountain + JSON; soft gates for logline presence, outline scene-coverage, beat-sheet coverage, two-paragraph shape; dry-run wired; real `make evals` only when authorized. Plan Task 4. — implemented (dry-run path; real evals not run).
 *Accept:* families in `--full` / `--only`; dry-run green; test-plan rows added; **`make evals` not run**.
 
+**T7.30a TV beat-sheet grounding.** Optional `act` on overview beat rows; prompt feeds format + act-ordered spine + beat `whatHappens`; merge resolves `sceneId`/coerces `act`/sorts/dedupes; `PROMPT_VERSION` 0.15.0 → **0.16.0**; planted STC-label + act checks. Spec amendment on `2026-07-17-import-story-overview-design.md`. — implemented (dry-run OK; **`make evals` not run** until authorized).
+*Accept:* mock/unit/import tests green; `make check-contract` green; Overview formatting preserved; real evals deferred.
+
+
 ## Milestone 8 — Fabula adoption (P-MVP slices)
 
 See `docs/tableread-adoption-prd.md` for full A1–A10 requirements. Sequencing table there maps items onto earlier milestones; remaining P-MVP work lands here as explicit tasks.

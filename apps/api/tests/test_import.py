@@ -927,9 +927,10 @@ def overview(
             or [
                 {
                     "beatId": "beat-1-1",
-                    "label": "Hook",
+                    "label": "Act One Turn",
                     "summary": "Marty arrives to silence.",
                     "sceneId": "scene-1",
+                    "act": 1,
                 }
             ],
             "summary": summary

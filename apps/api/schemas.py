@@ -237,6 +237,7 @@ class StoryOverviewBeatItem(_Base):
     label: str = ""
     summary: str
     scene_id: Id | None = None
+    act: int | None = Field(default=None, ge=0)
 
 
 class StoryOverviewProvenance(StrEnum):
@@ -862,6 +863,9 @@ class InferredBeatSheetItem(_Base):
     label: str
     summary: str
     scene_id: Id | None
+    # Required nullable (mirrors Zod InferredStoryOverview.beatSheet.act) —
+    # model must emit act or null; merge coerces from the parent scene.
+    act: int | None = Field(ge=0)
 
 
 class InferredStoryOverview(_Base):

@@ -210,6 +210,9 @@ export const StoryOverviewBeatItem = z.object({
   label: z.string().default(''),
   summary: z.string(),
   sceneId: Id.nullable().default(null),
+  // Teleplay section (0 = cold open when format.coldOpen). Coerced from the
+  // parent scene's act on merge; null when the beat cannot be placed.
+  act: z.number().int().min(0).nullable().default(null),
 })
 export type StoryOverviewBeatItem = z.infer<typeof StoryOverviewBeatItem>
 
@@ -810,6 +813,7 @@ export const InferredStoryOverview = z.object({
       label: z.string(),
       summary: z.string(),
       sceneId: Id.nullable(),
+      act: z.number().int().min(0).nullable(),
     }),
   ),
   summary: z.string(),

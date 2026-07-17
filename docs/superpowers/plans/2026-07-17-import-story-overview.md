@@ -114,3 +114,8 @@ export const InferredStoryOverview = z.object({
 
 - Spec coverage: four artifacts, premise backfill, locks, Ledger, evals
 - Deferred: PATCH edit UI, idea-path Generate, Plan inspector glimpse
+
+## Follow-up — T7.30a TV beat-sheet grounding (2026-07-17)
+
+Implemented on main after T7.30: optional `act` on beat-sheet rows; prompt 0.16.0 with format + act-ordered spine + beat `whatHappens`; merge resolve/coerce/sort/dedupe; planted STC-label + act checks; Overview keeps formatting with muted act cue. Real `make evals` still deferred until authorized.
+

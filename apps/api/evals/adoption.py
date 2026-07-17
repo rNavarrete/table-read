@@ -1089,23 +1089,34 @@ def _overview_planted_spec() -> dict:
     return json.loads(_OVERVIEW_PLANTED.read_text())
 
 
-def _overview_fixture_context() -> tuple[dict, list[dict], list[str], list[dict]]:
+def _overview_fixture_context() -> tuple[dict, list[dict], list[dict]]:
     source = _OVERVIEW_FOUNTAIN.read_text()
     spans = [s for s in fountain_parse.split_into_scenes(source) if s.location]
-    scene_summaries = []
+    scene_spine: list[dict] = []
     known_beats: list[dict] = []
     for i, span in enumerate(spans):
         sid = f"scene-overview-{i + 1}"
         bid = f"beat-overview-{i + 1}-1"
-        scene_summaries.append(
+        # Compact, non-slugline summary for planted grounding (not full script).
+        action_bits = [
+            ln.strip()
+            for ln in span.lines
+            if ln.strip()
+            and not ln.strip().startswith(("INT.", "EXT.", "I/E."))
+            and ln.strip() != span.location
+        ]
+        what = " ".join(action_bits[:2])[:240]
+        scene_spine.append(
             {
-                "id": sid,
+                "sceneId": sid,
+                "act": i,  # simple increasing acts for density checks
                 "location": span.location,
-                "whatHappens": "",
-                "scriptText": "\n".join(span.lines),
+                "whatHappens": what,
             }
         )
-        known_beats.append({"beatId": bid, "sceneId": sid})
+        known_beats.append(
+            {"beatId": bid, "sceneId": sid, "whatHappens": what}
+        )
     project = {
         "title": "The Tide Ledger",
         "format": {
@@ -1117,8 +1128,7 @@ def _overview_fixture_context() -> tuple[dict, list[dict], list[str], list[dict]
             "serialization": 0.5,
         },
     }
-    known_scene_ids = [s["id"] for s in scene_summaries]
-    return project, scene_summaries, known_scene_ids, known_beats
+    return project, scene_spine, known_beats
 
 
 def _seed_overview_response() -> InferredStoryOverview:
@@ -1140,15 +1150,17 @@ def _seed_overview_response() -> InferredStoryOverview:
         beatSheet=[
             {
                 "beatId": "beat-overview-1-1",
-                "label": "Inciting Incident",
+                "label": "Act One Turn",
                 "summary": "Nora names the debt and the compass.",
                 "sceneId": "scene-overview-1",
+                "act": 0,
             },
             {
                 "beatId": "beat-overview-2-1",
                 "label": "Climax",
                 "summary": "Nora presses the compass into Cass's palm.",
                 "sceneId": "scene-overview-2",
+                "act": 1,
             },
         ],
         summary=(
@@ -1188,9 +1200,10 @@ def story_overview_eval(
     from llm.mock import MockLlmClient
 
     if isinstance(client, MockLlmClient):
-        client.set_responses("infer_story_overview", [_seed_overview_response()])
+        client.set_response("infer_story_overview", _seed_overview_response())
 
-    project, summaries, scene_ids, beats = _overview_fixture_context()
+    project, summaries, beats = _overview_fixture_context()
+    scene_ids = [s["sceneId"] for s in summaries]
     planted_scenes = set(planted["plantedSceneIds"])
     planted_beats = set(planted["plantedBeatIds"])
     logline_needles = planted["loglineMatchAny"]
@@ -1201,7 +1214,7 @@ def story_overview_eval(
         emit_attempt(on_progress, family="story-overview", run=i + 1, runs=runs)
         t0 = time.monotonic()
         system, user = render.build_overview_prompt(
-            project, summaries, scene_ids, beats, render.new_nonce()
+            project, summaries, beats, render.new_nonce()
         )
         try:
             result: InferredStoryOverview = client.infer_story_overview(
@@ -1235,6 +1248,25 @@ def story_overview_eval(
         checks += 1
         paras = [p for p in result.summary.split("\n\n") if p.strip()]
         if len(paras) == planted.get("summaryParagraphs", 2):
+            hits += 1
+        checks += 1
+        # TV label hygiene: penalize Save-the-Cat feature-only catalog labels.
+        stc_forbidden = planted.get("forbiddenStcLabels") or []
+        labels = " ".join(r.label for r in result.beat_sheet)
+        if not stc_forbidden or not _matches_any(labels, stc_forbidden):
+            hits += 1
+        checks += 1
+        # Act grounding: when the model supplies act, it must match the spine.
+        act_by_scene = {s["sceneId"]: s["act"] for s in summaries}
+        act_ok = True
+        for row in result.beat_sheet:
+            if row.act is None:
+                continue
+            expected = act_by_scene.get(row.scene_id)
+            if expected is not None and row.act != expected:
+                act_ok = False
+                break
+        if act_ok:
             hits += 1
         scores.append(hits / max(1, checks))
 
@@ -1275,16 +1307,17 @@ def story_overview_merge_eval(
     from llm.mock import MockLlmClient
 
     if isinstance(client, MockLlmClient):
-        client.set_responses("infer_story_overview", [_seed_overview_response()])
+        client.set_response("infer_story_overview", _seed_overview_response())
 
-    project, summaries, scene_ids, beats = _overview_fixture_context()
+    project, summaries, beats = _overview_fixture_context()
+    scene_ids = [s["sceneId"] for s in summaries]
     planted = _overview_planted_spec()
     rates: list[float] = []
     for i in range(runs):
         emit_attempt(on_progress, family="story-overview-merge", run=i + 1, runs=runs)
         t0 = time.monotonic()
         system, user = render.build_overview_prompt(
-            project, summaries, scene_ids, beats, render.new_nonce()
+            project, summaries, beats, render.new_nonce()
         )
         try:
             result = client.infer_story_overview(
@@ -1315,13 +1348,13 @@ def story_overview_merge_eval(
                             "scenes": [
                                 {
                                     "id": sid,
+                                    "act": n,
+                                    "index": n,
                                     "beats": [
                                         {"id": f"beat-overview-{n + 1}-1"}
-                                        for n, s in enumerate(scene_ids)
-                                        if s == sid
                                     ],
                                 }
-                                for sid in scene_ids
+                                for n, sid in enumerate(scene_ids)
                             ],
                             "storyOverview": None,
                         }

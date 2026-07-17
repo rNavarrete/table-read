@@ -1,5 +1,6 @@
 import type { Project, StoryOverview } from 'contract'
 import { Card } from '../plan/Card'
+import { actLabel } from '../plan/planTree'
 
 export interface OverviewPanelProps {
   project: Project
@@ -147,6 +148,14 @@ export function OverviewPanel({
                             {row.label}
                           </span>
                         )}
+                        {row.act != null && project.format ? (
+                          <span
+                            className="text-12 text-tr-text-muted"
+                            data-testid={`overview-beat-act-${row.beatId}`}
+                          >
+                            {actLabel(row.act, project.format)}
+                          </span>
+                        ) : null}
                         {jumpScene ? (
                           <button
                             type="button"

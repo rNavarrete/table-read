@@ -5,6 +5,16 @@
       "items": {
         "additionalProperties": false,
         "properties": {
+          "act": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "beatId": {
             "type": "string"
           },
@@ -29,7 +39,8 @@
           "beatId",
           "label",
           "summary",
-          "sceneId"
+          "sceneId",
+          "act"
         ],
         "type": "object"
       },

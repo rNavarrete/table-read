@@ -277,9 +277,10 @@ def _default_responses() -> dict[str, BaseModel]:
             beatSheet=[
                 {
                     "beatId": "beat-1-1",
-                    "label": "Inciting Incident",
+                    "label": "Act One Turn",
                     "summary": "Marta sees the $40,000 transfer.",
                     "sceneId": "scene-1",
+                    "act": 1,
                 }
             ],
             summary=(
