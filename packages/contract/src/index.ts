@@ -130,6 +130,21 @@ export const TimelineAnchor = z.object({
 })
 export type TimelineAnchor = z.infer<typeof TimelineAnchor>
 
+// T7.25 — a scene-anchored relationship snapshot (design doc "Scene-anchored
+// rows"). `seriesBible.relationships` stays the single current/baseline
+// label per pair; `relationshipStates` is the timeline of when/where that
+// (or an earlier) label was evidenced, one row per `InferredRelationship`
+// evidence citation (fountain.characters.merge_inferred_entities) — no
+// separate classifier call. "Latest state with sceneId <= k" is the as-of
+// read (design doc); MVP has no dedicated as-of endpoint yet.
+export const RelationshipState = z.object({
+  between: z.tuple([Id, Id]),
+  label: z.string(),
+  sceneId: Id,
+  quote: z.string().default(''),
+})
+export type RelationshipState = z.infer<typeof RelationshipState>
+
 export const Episode = z.object({
   id: Id,
   index: z.number().int().min(0),
@@ -148,6 +163,8 @@ export const Episode = z.object({
   // T7.24 timeline anchors, ordered by scene order. Defaults to [] so
   // pre-existing docs validate.
   timelineAnchors: z.array(TimelineAnchor).default([]),
+  // T7.25 relationship state history. Defaults to [] so pre-existing docs validate.
+  relationshipStates: z.array(RelationshipState).default([]),
 })
 export type Episode = z.infer<typeof Episode>
 

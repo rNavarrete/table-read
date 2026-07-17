@@ -65,6 +65,7 @@ function episode(scenes: Scene[]): Episode {
     storylines: [],
     scenes,
     timelineAnchors: [],
+    relationshipStates: [],
   }
 }
 

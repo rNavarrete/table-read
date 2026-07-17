@@ -1112,6 +1112,63 @@ def test_import_infers_timeline_anchors_from_scene_sluglines(db_session, mock_ll
     ]
 
 
+def test_import_infers_relationship_states_from_entity_evidence(db_session, mock_llm):
+    """T7.25: each resolved relationship's own evidence citations become
+    scene-anchored relationshipStates on the episode -- no new classifier
+    call, reusing infer_story_entities output."""
+    created = client.post(
+        "/api/v1/projects",
+        json=NEW_PROJECT_BODY,
+        headers={"Idempotency-Key": "00000000-0000-4000-8000-000000000045"},
+    ).json()
+    pid = created["id"]
+
+    src = "INT. LAB - NIGHT\n\nMARTY\nDoc, are you there?\n"
+    mock_llm.set_responses("segment_scene", one_beat_per_scene(src))
+    mock_llm.set_response(
+        "infer_story_entities",
+        entities(
+            characters=[
+                {
+                    "name": "Doc Brown",
+                    "aliases": [],
+                    "role": "principal",
+                    "traits": "",
+                    "evidence": [{"sceneId": "scene-1", "quote": "Doc, are you there?"}],
+                },
+            ],
+            relationships=[
+                {
+                    "betweenNames": ["Doc Brown", "Marty"],
+                    "label": "mentor and protégé",
+                    "reallyLike": "",
+                    "evidence": [
+                        {"sceneId": "scene-1", "quote": "Doc, are you there?"}
+                    ],
+                }
+            ],
+        ),
+    )
+    mock_llm.set_response("extract_ledger_facts", extraction())
+    mock_llm.set_response("scan_consistency", scan())
+
+    body = client.post(
+        f"/api/v1/projects/{pid}/import", json={"format": "fountain", "content": src}
+    ).json()
+
+    bible = body["project"]["seriesBible"]
+    by_name = {c["name"]: c for c in bible["characters"]}
+    episode = body["project"]["seasons"][0]["episodes"][0]
+    assert episode["relationshipStates"] == [
+        {
+            "between": [by_name["Doc Brown"]["id"], by_name["Marty"]["id"]],
+            "label": "mentor and protégé",
+            "sceneId": "scene-1",
+            "quote": "Doc, are you there?",
+        }
+    ]
+
+
 def test_reimport_never_modifies_locked_character_fields(unlocked_project, db_session, mock_llm):
     project = db_session.get(ProjectRow, PROJECT_ID)
     bible = project.doc["seriesBible"]

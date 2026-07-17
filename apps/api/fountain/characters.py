@@ -316,7 +316,9 @@ def _dedupe_aliases(aliases: Iterable[str]) -> list[str]:
 _WORLD_ELEMENT_QUESTION_PREFIX = {"location": "Where", "object": "What"}
 
 
-def merge_inferred_entities(bible: dict, entities: StoryEntities) -> list[dict]:
+def merge_inferred_entities(
+    bible: dict, entities: StoryEntities
+) -> tuple[list[dict], list[dict]]:
     """Fold `infer_story_entities` output into `bible` (T7.15).
 
     - Characters: resolved names (exact/casefold/alias, `_find_character`)
@@ -330,9 +332,17 @@ def merge_inferred_entities(bible: dict, entities: StoryEntities) -> list[dict]:
       the log (never logged by name/quote -- ids/counts only, rule 5).
     - World elements: appended to `worldQA` as `{q: "Where/What is
       <name>?", a: note}`.
+    - Relationship states (T7.25, design doc "Scene-anchored rows"): one
+      `{between, label, sceneId, quote}` per resolved relationship's own
+      `evidence` entry -- the same evidence the model already cites for the
+      bible-level relationship, reused as a scene-anchored timeline rather
+      than a second classifier call. Dropped alongside its relationship
+      when either side is unresolved.
 
     Mutates and returns `bible["characters"]`; `bible["relationships"]` and
-    `bible["worldQA"]` are updated in place too.
+    `bible["worldQA"]` are updated in place too. Returns
+    `(characters, relationship_states)` -- the latter is not stored on
+    `bible` (it belongs on the episode; the caller assigns it there).
     """
     characters = list(bible.get("characters") or [])
 
@@ -351,6 +361,7 @@ def merge_inferred_entities(bible: dict, entities: StoryEntities) -> list[dict]:
             )
 
     relationships = list(bible.get("relationships") or [])
+    relationship_states: list[dict] = []
     dropped_relationships = 0
     for rel in entities.relationships:
         left_id = _resolve_to_id(rel.between_names[0], characters)
@@ -366,6 +377,15 @@ def merge_inferred_entities(bible: dict, entities: StoryEntities) -> list[dict]:
                 "locked": False,
             }
         )
+        for evidence in rel.evidence:
+            relationship_states.append(
+                {
+                    "between": [left_id, right_id],
+                    "label": rel.label,
+                    "sceneId": evidence.scene_id,
+                    "quote": evidence.quote,
+                }
+            )
 
     world_qa = list(bible.get("worldQA") or [])
     for element in entities.world_elements:
@@ -381,4 +401,4 @@ def merge_inferred_entities(bible: dict, entities: StoryEntities) -> list[dict]:
         _logger.info(
             "merge_inferred_entities relationships_dropped=%d", dropped_relationships
         )
-    return characters
+    return characters, relationship_states

@@ -74,6 +74,7 @@ function project(scenes: Scene[]): Project {
             storylines: [],
             scenes,
             timelineAnchors: [],
+            relationshipStates: [],
           },
         ],
       },

@@ -75,7 +75,7 @@ def test_alias_resolution_seeded_response_resolves_both_pairs():
     from fountain.characters import merge_inferred_entities
 
     entities = adoption._seed_entity_response()
-    merged = merge_inferred_entities({"characters": []}, entities)
+    merged, _relationship_states = merge_inferred_entities({"characters": []}, entities)
     planted = adoption._entity_planted_spec()
     for pair in planted["plantedAliasPairs"]:
         assert adoption._alias_pair_resolved(merged, pair)

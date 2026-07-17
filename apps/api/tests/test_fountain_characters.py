@@ -206,11 +206,12 @@ def test_merge_mints_character_with_aliases_and_non_speaking_character():
             },
         ]
     )
-    characters = merge_inferred_entities(bible, entities)
+    characters, relationship_states = merge_inferred_entities(bible, entities)
     by_name = {c["name"]: c for c in characters}
     assert set(by_name) == {"Doc Brown", "Einstein"}
     assert by_name["Doc Brown"]["aliases"] == ["Doc"]
     assert by_name["Einstein"]["locked"] is False
+    assert relationship_states == []  # no relationships in this fixture
 
 
 def test_merge_appends_resolved_relationship_and_drops_unresolvable():
@@ -256,11 +257,16 @@ def test_merge_appends_resolved_relationship_and_drops_unresolvable():
             },
         ],
     )
-    characters = merge_inferred_entities(bible, entities)
+    characters, relationship_states = merge_inferred_entities(bible, entities)
     doc_id = next(c["id"] for c in characters if c["name"] == "Doc Brown")
     marty_id = next(c["id"] for c in characters if c["name"] == "Marty")
     assert bible["relationships"] == [
         {"between": [doc_id, marty_id], "label": "friends", "reallyLike": "", "locked": False}
+    ]
+    # T7.25: the resolved relationship's own evidence becomes a scene-anchored
+    # relationshipState; the dropped (unresolvable) relationship contributes none.
+    assert relationship_states == [
+        {"between": [doc_id, marty_id], "label": "friends", "sceneId": "scene-1", "quote": "x"}
     ]
 
 
@@ -311,7 +317,7 @@ def test_merge_never_touches_locked_character_fields():
             }
         ]
     )
-    characters = merge_inferred_entities(bible, entities)
+    characters, _relationship_states = merge_inferred_entities(bible, entities)
     assert characters == [
         {
             "id": "char-locked-doc",

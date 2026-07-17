@@ -65,6 +65,7 @@ function episode(overrides: Partial<Episode> = {}): Episode {
     storylines: [],
     scenes: [scene()],
     timelineAnchors: [],
+    relationshipStates: [],
     ...overrides,
   }
 }

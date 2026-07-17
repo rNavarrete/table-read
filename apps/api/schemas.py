@@ -167,6 +167,15 @@ class TimelineAnchor(_Base):
     quote: str = ""
 
 
+class RelationshipState(_Base):
+    """T7.25 — see packages/contract/src/index.ts's `RelationshipState` docstring."""
+
+    between: tuple[Id, Id]
+    label: str
+    scene_id: Id
+    quote: str = ""
+
+
 class Episode(_Base):
     id: Id
     index: int = Field(ge=0)
@@ -177,6 +186,7 @@ class Episode(_Base):
     storylines: list[EpisodeStoryline]
     scenes: list[Scene]
     timeline_anchors: list[TimelineAnchor] = []
+    relationship_states: list[RelationshipState] = []
 
 
 class CharacterArc(_Base):

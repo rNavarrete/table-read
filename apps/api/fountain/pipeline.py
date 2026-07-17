@@ -265,7 +265,8 @@ def analyze_import(
     entities = llm.infer_story_entities(
         system=system, user_message=user, prompt_version=render.PROMPT_VERSION
     )
-    characters = merge_inferred_entities(bible, entities)
+    characters, relationship_states = merge_inferred_entities(bible, entities)
+    _episode_ref(new_doc, episode_id)["relationshipStates"] = relationship_states
     _logger.info(
         "import_infer_entities characters=%d relationships=%d world_elements=%d prompt_version=%s",
         len(entities.characters),
@@ -609,6 +610,17 @@ def _install_scenes(project_doc: dict, scene_docs: list[dict]) -> tuple[dict, st
             }
         ]
     return doc, episode["id"]
+
+
+def _episode_ref(doc: dict, episode_id: str) -> dict:
+    """The (mutable, in-place) episode dict with id `episode_id` in `doc`.
+    MVP: exactly one season/episode, so this always finds the one
+    `_install_scenes` just installed into."""
+    for season in doc.get("seasons") or []:
+        for episode in season.get("episodes") or []:
+            if episode["id"] == episode_id:
+                return episode
+    raise KeyError(episode_id)
 
 
 def _to_ledger_fact(extracted, fact_id: str, beat_index: dict) -> dict:
