@@ -569,3 +569,103 @@ def _fixture_valid_input_for(op_name: str) -> dict:
         "scan_consistency": {"flags": []},
         "generate_scene_skeleton": {"label": "x", "scenes": []},
     }[op_name]
+
+
+# ---------------------------------------------------------------------------
+# infer_story_entities: large-cast imports need more than DEFAULT_MAX_TOKENS
+# (4096). Truncation mid-tool-input surfaces as SCHEMA_INVALID_LLM after the
+# rule-9 retry — see import failures with ~100+ speakers.
+# ---------------------------------------------------------------------------
+
+
+_VALID_STORY_ENTITIES_INPUT = {
+    "characters": [
+        {
+            "name": "Marta",
+            "aliases": [],
+            "role": "principal",
+            "traits": "",
+            "evidence": [{"sceneId": "scene-1", "quote": "hi"}],
+        }
+    ],
+    "relationships": [],
+    "worldElements": [],
+}
+
+
+def test_infer_story_entities_requests_elevated_max_tokens():
+    sdk = FakeSdkClient(
+        [
+            FakeMessage(
+                content=[
+                    FakeToolUseBlock(
+                        input=_VALID_STORY_ENTITIES_INPUT,
+                        name="infer_story_entities",
+                    )
+                ]
+            )
+        ]
+    )
+    client = AnthropicClient(sdk_client=sdk, models=_MODELS)
+
+    client.infer_story_entities(system="sys", user_message="hi", prompt_version="0.1.0")
+
+    assert sdk.messages.calls[0]["max_tokens"] > 4096
+
+
+def test_default_ops_still_use_default_max_tokens():
+    sdk = FakeSdkClient([_valid_response()])
+    client = AnthropicClient(sdk_client=sdk, models=_MODELS)
+
+    client.generate_beat_candidates(system="sys", user_message="hi", prompt_version="0.1.0")
+
+    assert sdk.messages.calls[0]["max_tokens"] == 4096
+
+
+def test_schema_invalid_logs_field_paths_not_values(caplog):
+    """Hard rule 5: log path + error type only — never quote/script text."""
+    secret = "SECRET_SCRIPT_LINE_SHOULD_NOT_APPEAR_IN_LOGS"
+    bad = {
+        "characters": [],
+        "relationships": [
+            {
+                "betweenNames": ["OnlyOne"],
+                "label": "friends",
+                "reallyLike": "",
+                "evidence": [{"sceneId": "scene-1", "quote": secret}],
+            }
+        ],
+        "worldElements": [],
+    }
+    sdk = FakeSdkClient(
+        [
+            FakeMessage(
+                content=[
+                    FakeToolUseBlock(input=bad, name="infer_story_entities", id="toolu_a")
+                ],
+                stop_reason="max_tokens",
+            ),
+            FakeMessage(
+                content=[
+                    FakeToolUseBlock(input=bad, name="infer_story_entities", id="toolu_b")
+                ],
+                stop_reason="max_tokens",
+            ),
+        ]
+    )
+    client = AnthropicClient(sdk_client=sdk, models=_MODELS)
+
+    with caplog.at_level(logging.WARNING, logger="llm.anthropic_client"):
+        with pytest.raises(SchemaInvalidLlmError):
+            client.infer_story_entities(system="sys", user_message="hi", prompt_version="0.1.0")
+
+    joined = "\n".join(r.message for r in caplog.records)
+    assert "llm_schema_invalid" in joined
+    assert "betweenNames" in joined
+    assert "stop_reason=max_tokens" in joined
+    assert secret not in joined
+    # Retry tool_result must also stay privacy-safe
+    retry_messages = sdk.messages.calls[1]["messages"]
+    tool_result = retry_messages[2]["content"][0]["content"]
+    assert secret not in tool_result
+    assert "betweenNames" in tool_result

@@ -39,26 +39,36 @@ API_DIR = REPO_ROOT / "apps" / "api"
 TOOL_SCHEMAS_DIR = REPO_ROOT / "config" / "tool_schemas"
 
 # JSON Schema keywords the Anthropic strict-tool-schema decoder does not
-# support (see docs/tableread-prompt-spec.md §8 and the claude-api skill's
-# "Structured Outputs > JSON Schema Limitations": no numeric bounds, no
-# string-length bounds, no array-length bounds), plus the draft-URL key Zod
-# adds for readability. `additionalProperties`, `required`, `enum`, `type`,
-# `properties`, `items`, and `anyOf` all pass through unchanged.
+# support (see docs/tableread-prompt-spec.md §8 and Anthropic structured-
+# outputs docs: no numeric bounds, no string-length bounds, no array-length
+# bounds except `minItems` of 0 or 1), plus the draft-URL key Zod adds for
+# readability. `additionalProperties`, `required`, `enum`, `type`,
+# `properties`, `items`, `anyOf`, and `minItems` ∈ {0, 1} pass through.
 #
 # Zod `z.tuple([...])` emits draft-2020-12 `prefixItems`; Haiku/Sonnet
 # strict tools reject that keyword with 400 invalid_request_error
 # ("For 'array' type, property 'prefixItems' is not supported"). Collapse
-# tuples to plain `items` here — Pydantic still enforces exact arity on
-# `tool_use.input` (e.g. `between_names: tuple[str, str]`).
+# tuples to plain `items` here and record the exact arity in `description`
+# (Anthropic strips `minItems`/`maxItems` > 1). Pydantic still enforces
+# exact arity on `tool_use.input` (e.g. `between_names: tuple[str, str]`).
 #
-# Stripping these does not weaken validation end to end: Pydantic
-# (apps/api/schemas.py) still enforces every one of these bounds on the
-# `tool_use.input` the model returns, same as every other piece of LLM
-# output (prompt spec §8: "schema conformance alone never implies
+# Stripping unsupported bounds does not weaken validation end to end:
+# Pydantic (apps/api/schemas.py) still enforces them on the returned
+# `tool_use.input` (prompt spec §8: "schema conformance alone never implies
 # acceptance").
-_UNSUPPORTED_KEYS = frozenset(
-    {"minLength", "maxLength", "minimum", "maximum", "minItems", "maxItems", "$schema"}
+_ALWAYS_STRIP_KEYS = frozenset(
+    {"minLength", "maxLength", "minimum", "maximum", "maxItems", "$schema"}
 )
+
+
+def _append_description(node: dict[str, Any], note: str) -> None:
+    existing = node.get("description")
+    if isinstance(existing, str) and existing.strip():
+        if note in existing:
+            return
+        node["description"] = f"{existing.rstrip()} ({note})"
+    else:
+        node["description"] = note
 
 
 def _unify_prefix_items(prefix: list[Any]) -> Any:
@@ -80,19 +90,39 @@ def _strictify(node: Any) -> Any:
         return [_strictify(item) for item in node]
     if not isinstance(node, dict):
         return node
-    out = {
-        key: _strictify(value)
-        for key, value in node.items()
-        if key not in _UNSUPPORTED_KEYS
-    }
-    if "prefixItems" in out:
-        prefix = out.pop("prefixItems")
-        if not isinstance(prefix, list) or not prefix:
-            raise ValueError("prefixItems must be a non-empty list after strictify")
+
+    # Capture arity hints before stripping unsupported keys.
+    min_items = node.get("minItems")
+    max_items = node.get("maxItems")
+    prefix_raw = node.get("prefixItems")
+
+    out: dict[str, Any] = {}
+    for key, value in node.items():
+        if key in _ALWAYS_STRIP_KEYS:
+            continue
+        if key == "minItems":
+            # Anthropic supports minItems of 0 or 1 only.
+            if isinstance(value, int) and value in (0, 1):
+                out[key] = value
+            continue
+        if key == "prefixItems":
+            continue
+        out[key] = _strictify(value)
+
+    if isinstance(prefix_raw, list) and prefix_raw:
         # `items: false` means "no additional items" beside the tuple slots.
         if out.get("items") is False:
             out.pop("items", None)
-        out["items"] = _unify_prefix_items(prefix)
+        out["items"] = _unify_prefix_items([_strictify(item) for item in prefix_raw])
+        _append_description(out, f"exactly {len(prefix_raw)} items")
+    elif isinstance(min_items, int) and min_items > 1:
+        if isinstance(max_items, int) and max_items == min_items:
+            _append_description(out, f"exactly {min_items} items")
+        else:
+            _append_description(out, f"at least {min_items} items")
+    elif isinstance(max_items, int) and max_items >= 0 and "minItems" not in out:
+        _append_description(out, f"at most {max_items} items")
+
     return out
 
 

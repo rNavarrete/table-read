@@ -31,7 +31,12 @@ from typing import Any
 
 from pydantic import BaseModel, ValidationError
 
-from llm.errors import LlmTimeoutError, SchemaInvalidLlmError, log_llm_unavailable
+from llm.errors import (
+    LlmTimeoutError,
+    SchemaInvalidLlmError,
+    log_llm_unavailable,
+    validation_error_paths,
+)
 from llm.ops import OP_REGISTRY, LlmOp
 from schemas import (
     BeatCandidate,
@@ -126,9 +131,14 @@ def _find_tool_use(response: Any, op_name: str) -> Any:
 
 
 def _validate_tool_response(response: Any, op: LlmOp) -> BaseModel:
+    stop_reason = getattr(response, "stop_reason", None)
     tool_use = _find_tool_use(response, op.name)
     if tool_use is None:
-        stop_reason = getattr(response, "stop_reason", None)
+        _logger.warning(
+            "llm_schema_invalid op=%s stop_reason=%s errors=no_tool_use",
+            op.name,
+            stop_reason,
+        )
         raise _RecoverableLlmError(
             f"no {op.name!r} tool_use block in response (stop_reason={stop_reason!r})",
             tool_use_id=None,
@@ -136,7 +146,18 @@ def _validate_tool_response(response: Any, op: LlmOp) -> BaseModel:
     try:
         return op.model.model_validate(tool_use.input)
     except ValidationError as exc:
-        raise _RecoverableLlmError(str(exc), tool_use_id=tool_use.id) from exc
+        paths = validation_error_paths(exc)
+        _logger.warning(
+            "llm_schema_invalid op=%s stop_reason=%s errors=%s",
+            op.name,
+            stop_reason,
+            ",".join(paths[:20]),
+        )
+        # Privacy-safe retry hint (paths + types only — never input values).
+        raise _RecoverableLlmError(
+            "schema validation failed: " + "; ".join(paths[:10]),
+            tool_use_id=tool_use.id,
+        ) from None
 
 
 class AnthropicClient:
@@ -198,7 +219,7 @@ class AnthropicClient:
         messages: list[dict[str, Any]] = [{"role": "user", "content": user_message}]
         kwargs: dict[str, Any] = {
             "model": model,
-            "max_tokens": self._max_tokens,
+            "max_tokens": op.max_tokens if op.max_tokens is not None else self._max_tokens,
             "system": system,
             "tools": [tool],
             "tool_choice": {"type": "tool", "name": op.name},
@@ -216,7 +237,12 @@ class AnthropicClient:
         if op.role == "classifier":
             kwargs["temperature"] = 0
 
-        response = _create_with_timeout(self._sdk, self._call_timeout_seconds, op.name, **kwargs)
+        timeout = (
+            op.call_timeout_seconds
+            if op.call_timeout_seconds is not None
+            else self._call_timeout_seconds
+        )
+        response = _create_with_timeout(self._sdk, timeout, op.name, **kwargs)
         try:
             result = _validate_tool_response(response, op)
         except _RecoverableLlmError as first_error:
@@ -289,8 +315,13 @@ class AnthropicClient:
                 }
             )
         retry_kwargs = {**kwargs, "messages": retry_messages}
+        retry_timeout = (
+            op.call_timeout_seconds
+            if op.call_timeout_seconds is not None
+            else self._call_timeout_seconds
+        )
         response2 = _create_with_timeout(
-            self._sdk, self._call_timeout_seconds, op.name, **retry_kwargs
+            self._sdk, retry_timeout, op.name, **retry_kwargs
         )
         try:
             result = _validate_tool_response(response2, op)
@@ -358,7 +389,7 @@ class AnthropicClient:
         input_hash = self._input_hash(user_message)
         kwargs: dict[str, Any] = {
             "model": model,
-            "max_tokens": self._max_tokens,
+            "max_tokens": op.max_tokens if op.max_tokens is not None else self._max_tokens,
             "system": system,
             "tools": [tool],
             "tool_choice": {"type": "tool", "name": op.name},
@@ -378,7 +409,12 @@ class AnthropicClient:
         # Only the call that opens the stream is timed: once events start
         # arriving, iterating them is a caller-visible incremental process,
         # not a single blocking `create()` this helper wraps.
-        stream = _create_with_timeout(self._sdk, self._call_timeout_seconds, op.name, **kwargs)
+        stream_timeout = (
+            op.call_timeout_seconds
+            if op.call_timeout_seconds is not None
+            else self._call_timeout_seconds
+        )
+        stream = _create_with_timeout(self._sdk, stream_timeout, op.name, **kwargs)
         try:
             for event in stream:
                 etype = getattr(event, "type", None)

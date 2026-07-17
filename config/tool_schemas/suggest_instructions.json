@@ -2,6 +2,7 @@
   "additionalProperties": false,
   "properties": {
     "suggestions": {
+      "description": "exactly 3 items",
       "items": {
         "type": "string"
       },

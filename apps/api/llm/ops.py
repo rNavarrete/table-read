@@ -57,6 +57,14 @@ class LlmOp:
     model: type[BaseModel]
     role: Role
     description: str  # short, non-creative: the Anthropic tool `description` field
+    # Optional per-op ceiling. Import entity/promise reads return large
+    # structured payloads (100+ characters × evidence); DEFAULT_MAX_TOKENS
+    # (4096) truncates mid-tool-input and surfaces as SCHEMA_INVALID_LLM.
+    max_tokens: int | None = None
+    # Optional wall-clock ceiling for `messages.create` (defaults to the
+    # client's DEFAULT_LLM_CALL_TIMEOUT_SECONDS). Large max_tokens ops need
+    # more headroom than beat-sized calls.
+    call_timeout_seconds: float | None = None
 
 
 _OPS: tuple[LlmOp, ...] = (
@@ -128,7 +136,10 @@ _OPS: tuple[LlmOp, ...] = (
         "classifier",
         "Identify characters (including non-speaking ones), relationships, and "
         "world elements (locations/objects) implied by the imported script, "
-        "each with source evidence.",
+        "each with source evidence. betweenNames must be exactly two name "
+        "strings; every entity needs at least one evidence item.",
+        max_tokens=16_384,
+        call_timeout_seconds=300.0,
     ),
     # T7.19 narrative-promises P2 (design doc 2026-07-16-narrative-promises-design):
     # Task 1 of that plan adds schema/registry only -- Task 2 (T7.20) owns the
@@ -144,6 +155,8 @@ _OPS: tuple[LlmOp, ...] = (
         "Identify setup/payoff story threads, fill scene motivations, and "
         "extract structured world rules (limit/cost/exception) from the "
         "imported script, each with source evidence.",
+        max_tokens=16_384,
+        call_timeout_seconds=300.0,
     ),
     # T6.1 escalation EXECUTED: prompt spec §7 mandates temperature 0 for stage-2
     # segmentation, but the writer tier rejects sampling params, so under the

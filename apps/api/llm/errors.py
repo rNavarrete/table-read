@@ -16,6 +16,8 @@ import logging
 import re
 from typing import Any
 
+from pydantic import ValidationError
+
 # Boilerplate substrings safe to echo (truncated). Never used as a gateway for
 # free-form Anthropic messages that may echo request/prompt fragments.
 _SAFE_REASON_EXCERPT_RE = re.compile(
@@ -79,6 +81,22 @@ class SchemaInvalidLlmError(Exception):
         # model-produced field value (e.g. a wrong-typed string). Whoever
         # eventually logs this exception at the route layer must log only
         # `.op` / `.code`, never `.__context__` or `.__cause__`.
+
+
+def validation_error_paths(exc: ValidationError) -> list[str]:
+    """Field path + error type only — never `input` values (hard rule 5).
+
+    Used for llm_schema_invalid logs and rule-9 retry tool_result text so
+    quote/script fragments from a failed tool_use.input never leave the
+    validation boundary.
+    """
+    out: list[str] = []
+    for err in exc.errors():
+        loc = err.get("loc") or ()
+        path = ".".join(str(p) for p in loc)
+        typ = err.get("type") or "unknown"
+        out.append(f"{path}:{typ}" if path else str(typ))
+    return out
 
 
 def _anthropic_error_type(exc: BaseException) -> Any:
