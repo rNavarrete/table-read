@@ -1,0 +1,94 @@
+// @vitest-environment jsdom
+import { cleanup, render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import type { Project, StoryOverview } from 'contract'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { OverviewPanel } from './OverviewPanel'
+
+afterEach(cleanup)
+
+function project(): Project {
+  return {
+    id: 'proj-1',
+    seasons: [
+      {
+        episodes: [
+          {
+            id: 'ep-1',
+            index: 0,
+            scenes: [
+              {
+                id: 'scene-1',
+                index: 0,
+                location: 'THE LAB',
+                beats: [{ id: 'beat-1-1' }],
+              },
+              {
+                id: 'scene-2',
+                index: 1,
+                location: '',
+                beats: [{ id: 'beat-2-1' }],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  } as unknown as Project
+}
+
+function overview(overrides: Partial<StoryOverview> = {}): StoryOverview {
+  return {
+    logline: 'When Marty finds an empty lab, he must locate Doc before the plan collapses.',
+    outline: [
+      { sceneId: 'scene-1', summary: 'Marty calls for Doc.' },
+      { sceneId: 'scene-2', summary: 'The chase begins.' },
+    ],
+    beatSheet: [
+      {
+        beatId: 'beat-1-1',
+        label: 'Hook',
+        summary: 'Marty arrives to silence.',
+        sceneId: 'scene-1',
+      },
+    ],
+    summary:
+      'Marty rushes into an empty lab looking for Doc.\n\nFinding no one, he realizes the plan is already slipping away.',
+    provenance: 'inferred',
+    locked: false,
+    ...overrides,
+  }
+}
+
+describe('OverviewPanel', () => {
+  it('shows an empty state when overview is absent', () => {
+    render(
+      <OverviewPanel
+        project={project()}
+        overview={null}
+        onJumpToScene={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    )
+    expect(screen.getByTestId('overview-panel-empty')).not.toBeNull()
+  })
+
+  it('renders logline, summary paragraphs, outline jump, and beat jump', async () => {
+    const user = userEvent.setup()
+    const onJumpToScene = vi.fn()
+    render(
+      <OverviewPanel
+        project={project()}
+        overview={overview()}
+        onJumpToScene={onJumpToScene}
+        onClose={vi.fn()}
+      />,
+    )
+    expect(screen.getByTestId('overview-logline').textContent).toContain('Marty')
+    expect(screen.getByTestId('overview-summary').querySelectorAll('p')).toHaveLength(2)
+    await user.click(screen.getByTestId('overview-outline-scene-scene-1'))
+    expect(onJumpToScene).toHaveBeenCalledWith('scene-1')
+    await user.click(screen.getByTestId('overview-beat-scene-beat-1-1'))
+    expect(onJumpToScene).toHaveBeenCalledWith('scene-1')
+  })
+})

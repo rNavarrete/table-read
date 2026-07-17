@@ -171,7 +171,7 @@ Replaces the hardcoded seeded entry point with a project dashboard, idea/import 
 **T7.28 Import `infer_story_overview`.** Classifier op after narrative promises; merge onto episode; backfill empty `Project.premise` / `Episode.premise` from logline; preserve locked overview on re-import; `PROMPT_VERSION` 0.14.0 → **0.15.0** — **requires `make evals` sign-off before remote merge** (do not run until authorized). Plan Task 2. — implemented.
 *Accept:* mock import fills logline/outline/beatSheet/summary; empty premises gain the logline; locked overview preserved; schema-invalid after retry fails import with zero rows; unit + import tests.
 
-**T7.29 Ledger Overview panel.** FilterRail Overview entry + `OverviewPanel` (logline, summary, outline, beat sheet) with scene/beat jumps; optional header logline teaser; tokens only; Vitest. Plan Task 3.
+**T7.29 Ledger Overview panel.** FilterRail Overview entry + `OverviewPanel` (logline, summary, outline, beat sheet) with scene/beat jumps; optional header logline teaser; tokens only; Vitest. Plan Task 3. — implemented.
 *Accept:* imported project shows overview; empty state when absent; jumps land in Write; no contract change beyond display.
 
 **T7.30 Story-overview evals.** Planted fountain + JSON; soft gates for logline presence, outline scene-coverage, beat-sheet coverage, two-paragraph shape; dry-run wired; real `make evals` only when authorized. Plan Task 4.

@@ -54,6 +54,10 @@ export interface FilterRailProps {
   onViewThreads?: () => void
   /** Thread count shown next to the entry point; 0/undefined hides it. */
   threadCount?: number
+  /** Opens the Overview panel (T7.29 story overview). Omit to hide. */
+  onViewOverview?: () => void
+  /** When true, show a present cue next to the Overview entry. */
+  overviewPresent?: boolean
   /** Episode scenes for the As-of control (T7.18). Omit/empty hides the
    * section — existing callers that don't wire time-aware filtering are
    * unaffected. */
@@ -76,7 +80,7 @@ function countFactType(facts: LedgerFact[], factType: FactTypeFilter): number {
 
 /**
  * Left filter rail (UI spec §7b) — browse-first: People · Browse · Threads ·
- * Status (collapsed) · compact As-of.
+ * Overview · Status (collapsed) · compact As-of.
  */
 export function FilterRail({
   project,
@@ -85,6 +89,8 @@ export function FilterRail({
   onManageCast,
   onViewThreads,
   threadCount = 0,
+  onViewOverview,
+  overviewPresent = false,
   sceneOptions = [],
   asOfScene = null,
   onAsOfSceneChange,
@@ -230,6 +236,23 @@ export function FilterRail({
             Setups &amp; payoffs
             {threadCount > 0 && (
               <span className="ml-2 text-tr-text-muted">({threadCount})</span>
+            )}
+          </button>
+        </fieldset>
+      )}
+
+      {onViewOverview && (
+        <fieldset className="mb-7">
+          <legend className={`mb-2.5 ${sectionLegend}`}>Overview</legend>
+          <button
+            type="button"
+            onClick={onViewOverview}
+            className="w-full rounded-chip px-3 py-1.5 text-left text-13 text-tr-text-primary transition-colors duration-standard ease-standard hover:bg-tr-surface-clay focus-visible:outline focus-visible:outline-selected focus-visible:outline-offset-2 focus-visible:outline-tr-coral motion-reduce:transition-none"
+            data-testid="view-overview-button"
+          >
+            Story overview
+            {overviewPresent && (
+              <span className="ml-2 text-tr-text-muted">(ready)</span>
             )}
           </button>
         </fieldset>

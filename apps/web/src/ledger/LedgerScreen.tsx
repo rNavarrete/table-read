@@ -19,6 +19,7 @@ import { FilterRail, type AsOfSceneOption } from './FilterRail'
 import { KnowledgeWeb } from './KnowledgeWeb'
 import { LedgerViewSwitcher } from './LedgerViewSwitcher'
 import { StoryAtlas } from './StoryAtlas'
+import { OverviewPanel } from './OverviewPanel'
 import { ThreadsPanel } from './ThreadsPanel'
 import {
   DEFAULT_FILTERS,
@@ -100,6 +101,7 @@ export function LedgerScreen() {
   const [busyId, setBusyId] = useState<string | null>(null)
   const [castPanelOpen, setCastPanelOpen] = useState(false)
   const [threadsPanelOpen, setThreadsPanelOpen] = useState(false)
+  const [overviewPanelOpen, setOverviewPanelOpen] = useState(false)
   // Session-only (design spec §UI): no persistence, resets on reload.
   const [asOfScene, setAsOfScene] = useState<string | null>(null)
   const inFlightRef = useRef(false)
@@ -161,6 +163,9 @@ export function LedgerScreen() {
     () => (project ? firstEpisodeThreads(project) : []),
     [project],
   )
+
+  const storyOverview =
+    project?.seasons[0]?.episodes[0]?.storyOverview ?? null
   const queue = useMemo(() => pendingReviewFacts(ledger), [ledger])
   const highConf = useMemo(() => highConfidencePending(ledger), [ledger])
   const sceneGroups = useMemo(() => groupPendingByScene(ledger), [ledger])
@@ -418,6 +423,8 @@ export function LedgerScreen() {
           onManageCast={() => setCastPanelOpen(true)}
           onViewThreads={() => setThreadsPanelOpen(true)}
           threadCount={threads.length}
+          onViewOverview={() => setOverviewPanelOpen(true)}
+          overviewPresent={Boolean(storyOverview)}
           sceneOptions={sceneOptions}
           asOfScene={asOfScene}
           onAsOfSceneChange={setAsOfScene}
@@ -432,6 +439,16 @@ export function LedgerScreen() {
               <p className="text-13 text-tr-text-secondary">
                 Your story bible — browse truths, or focus who knows what.
               </p>
+              {storyOverview?.logline && (
+                <button
+                  type="button"
+                  onClick={() => setOverviewPanelOpen(true)}
+                  className="mt-1 max-w-prose text-left text-13 text-tr-text-primary underline-offset-2 hover:underline"
+                  data-testid="overview-header-teaser"
+                >
+                  {storyOverview.logline}
+                </button>
+              )}
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <LedgerViewSwitcher
@@ -470,6 +487,14 @@ export function LedgerScreen() {
               threads={threads}
               onJumpToScene={handleJumpToScene}
               onClose={() => setThreadsPanelOpen(false)}
+            />
+          )}
+          {overviewPanelOpen && (
+            <OverviewPanel
+              project={project}
+              overview={storyOverview}
+              onJumpToScene={handleJumpToScene}
+              onClose={() => setOverviewPanelOpen(false)}
             />
           )}
           {queue.length > 0 && (
