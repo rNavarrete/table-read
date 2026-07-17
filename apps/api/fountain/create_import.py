@@ -37,7 +37,7 @@ from sqlalchemy.orm import Session
 from drama_manager import locks
 from fountain.parse import CoverageError
 from fountain.pipeline import ImportStageProgress, ImportStageStarted, analyze_import
-from llm.errors import LlmTimeoutError, SchemaInvalidLlmError
+from llm.errors import LlmTimeoutError, SchemaInvalidLlmError, log_llm_unavailable
 from llm.protocol import LlmClient
 from sse import format_sse
 from storage import snapshots
@@ -167,7 +167,10 @@ def create_and_import_events(
     except SchemaInvalidLlmError as exc:
         yield _failed_frame("SCHEMA_INVALID_LLM", str(exc))
         return
-    except (anthropic.APIError, LlmTimeoutError):
+    except (anthropic.APIError, LlmTimeoutError) as exc:
+        # SSE already started (HTTP 200): surface LLM_UNAVAILABLE as a terminal
+        # event. Log class/status/op only — never message/body (hard rule 5).
+        log_llm_unavailable(_logger, exc, where="create_and_import")
         yield _failed_frame("LLM_UNAVAILABLE", "the language model is unavailable")
         return
     except snapshots.IdempotencyConflict as exc:

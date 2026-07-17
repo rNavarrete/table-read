@@ -31,7 +31,7 @@ from typing import Any
 
 from pydantic import BaseModel, ValidationError
 
-from llm.errors import LlmTimeoutError, SchemaInvalidLlmError
+from llm.errors import LlmTimeoutError, SchemaInvalidLlmError, log_llm_unavailable
 from llm.ops import OP_REGISTRY, LlmOp
 from schemas import (
     BeatCandidate,
@@ -67,17 +67,30 @@ def _create_with_timeout(sdk_client: Any, timeout: float, op: str, **kwargs: Any
     the SDK call has actually started -- the underlying HTTP request has no
     cooperative cancellation hook here) and raise `LlmTimeoutError(op)`. Does
     not wait for the executor to shut down: a genuinely hung call must not
-    also hang the caller during teardown."""
+    also hang the caller during teardown.
+
+    Anthropic SDK transport/status failures are logged here (class, status,
+    op — never message/body text) before re-raise so SSE/route mapping to
+    `LLM_UNAVAILABLE` is diagnosable in prod/dev logs."""
     executor = ThreadPoolExecutor(max_workers=1)
     future = executor.submit(sdk_client.messages.create, **kwargs)
     try:
-        result = future.result(timeout=timeout)
-    except FuturesTimeoutError:
-        future.cancel()
+        try:
+            return future.result(timeout=timeout)
+        except FuturesTimeoutError:
+            future.cancel()
+            timeout_exc = LlmTimeoutError(op)
+            log_llm_unavailable(
+                _logger, timeout_exc, where="anthropic_client", op=op
+            )
+            raise timeout_exc from None
+        except Exception as exc:
+            mod = getattr(type(exc), "__module__", "") or ""
+            if mod.startswith("anthropic"):
+                log_llm_unavailable(_logger, exc, where="anthropic_client", op=op)
+            raise
+    finally:
         executor.shutdown(wait=False)
-        raise LlmTimeoutError(op) from None
-    executor.shutdown(wait=False)
-    return result
 
 
 class _RecoverableLlmError(Exception):

@@ -7,14 +7,17 @@ never be treated as a rule-9 schema-invalid retry target -- the eval loops
 
 from __future__ import annotations
 
+import logging
 import time
 from dataclasses import dataclass, field
 from typing import Any
 
+import anthropic
+import httpx
 import pytest
 
 from llm.anthropic_client import DEFAULT_LLM_CALL_TIMEOUT_SECONDS, AnthropicClient
-from llm.errors import LlmTimeoutError, SchemaInvalidLlmError
+from llm.errors import LlmTimeoutError, SchemaInvalidLlmError, log_llm_unavailable
 
 _MODELS = {"writer": "m", "classifier": "m"}
 
@@ -34,18 +37,52 @@ def test_default_timeout_constant_is_120_seconds():
     assert DEFAULT_LLM_CALL_TIMEOUT_SECONDS == 120
 
 
-def test_anthropic_client_times_out_hung_create():
+def test_anthropic_client_times_out_hung_create(caplog):
     client = AnthropicClient(
         _HangSdk(),
         _MODELS,
         call_timeout_seconds=0.2,
     )
     t0 = time.monotonic()
-    with pytest.raises(LlmTimeoutError) as exc_info:
-        client.generate_beat_candidates(system="s", user_message="u", prompt_version="0.0.0-test")
+    with caplog.at_level(logging.WARNING, logger="llm.anthropic_client"):
+        with pytest.raises(LlmTimeoutError) as exc_info:
+            client.generate_beat_candidates(
+                system="s", user_message="u", prompt_version="0.0.0-test"
+            )
 
     assert exc_info.value.op == "generate_beat_candidates"
     assert time.monotonic() - t0 < 2.0
+    joined = " ".join(r.getMessage() for r in caplog.records)
+    assert "llm_unavailable" in joined
+    assert "LlmTimeoutError" in joined
+    assert "generate_beat_candidates" in joined
+
+
+def test_log_llm_unavailable_rate_limit_metadata_not_message(caplog):
+    """429 body `error.type` is logged; human message text is not."""
+    resp = httpx.Response(
+        429,
+        request=httpx.Request("POST", "https://api.anthropic.com/v1/messages"),
+        json={
+            "type": "error",
+            "error": {
+                "type": "rate_limit_error",
+                "message": "SECRET_SCRIPT_FRAGMENT should not leak",
+            },
+        },
+    )
+    exc = anthropic.RateLimitError(
+        message="rate limited", response=resp, body=resp.json()
+    )
+    logger = logging.getLogger("llm.errors.test")
+    with caplog.at_level(logging.WARNING, logger="llm.errors.test"):
+        log_llm_unavailable(logger, exc, where="unit", op="infer_story_entities")
+    joined = " ".join(r.getMessage() for r in caplog.records)
+    assert "RateLimitError" in joined
+    assert "status=429" in joined
+    assert "error_type=rate_limit_error" in joined
+    assert "infer_story_entities" in joined
+    assert "SECRET_SCRIPT_FRAGMENT" not in joined
 
 
 def test_hung_retry_call_also_times_out_without_a_third_attempt():
