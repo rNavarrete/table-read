@@ -135,6 +135,9 @@ Replaces the hardcoded seeded entry point with a project dashboard, idea/import 
 **T7.17 Entity-inference evals.** `fixtures/entity-inference.fountain` with planted aliases, non-speaking character, implied relationships, locations, object; soft gates: entity recall ≥ 0.8, alias resolution ≥ 0.9, zero basis-free entities. Plan: same doc, Task 4. — implemented; `make evals-dry --full` green (both soft families WARN on the seeded Mock, as expected, and never block); **real `make evals` sign-off (0.12.0) still pending explicit authorization**, which also covers T7.15's pending sign-off above.
 *Accept:* eval family wired into `make evals` (`entity-inference` + `alias-resolution`, both soft, in `SOFT_EVAL_KEYS`); non-billable dry-run green; test-plan §1/§3 rows added; real-eval run only on explicit authorization.
 
+**T7.18 Time-aware ledger (as-of scene).** Filter ledger facts to those in force as of a chosen scene using existing `sourceSpan` + supersede semantics — first P1 cut of the continuity-layer roadmap. Spec/plan: `docs/superpowers/specs/2026-07-16-time-aware-ledger-design.md`, `docs/superpowers/plans/2026-07-16-time-aware-ledger.md`. No new LLM op / no `PROMPT_VERSION` bump. — in progress.
+*Accept:* `facts_as_of` unit-tested (later-established out; superseded-after still in; superseded-before out); `GET /ledger?asOfScene=` filters accordingly (unknown scene → 400 `VALIDATION`); Ledger UI As-of control refetches with the param; data-contract + test-plan updated.
+
 ## Milestone 8 — Fabula adoption (P-MVP slices)
 
 See `docs/tableread-adoption-prd.md` for full A1–A10 requirements. Sequencing table there maps items onto earlier milestones; remaining P-MVP work lands here as explicit tasks.
