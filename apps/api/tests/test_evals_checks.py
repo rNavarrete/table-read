@@ -419,6 +419,8 @@ def test_run_suite_full_includes_soft_families(session_factory):
         "act-boundary-quality",
         "entity-inference",
         "alias-resolution",
+        "narrative-promises",
+        "narrative-promises-merge",
     ]
 
 
@@ -440,6 +442,8 @@ def test_default_run_map_tiers_hard_and_soft():
     assert m["actBoundaryQuality"] == 5
     assert m["entityInference"] == 5
     assert m["aliasResolution"] == 5
+    assert m["narrativePromises"] == 5
+    assert m["narrativePromisesMerge"] == 5
 
 
 def test_resolve_run_map_override_is_uniform():
@@ -447,7 +451,7 @@ def test_resolve_run_map_override_is_uniform():
 
     m = resolve_run_map(1)
     assert set(m.values()) == {1}
-    assert len(m) == 11
+    assert len(m) == 13
 
 
 def test_nominal_call_estimate_core_defaults():

@@ -1,0 +1,37 @@
+{
+  "description": "T7.22 golden narrative-promises fixture. Plants exactly one setup/payoff thread (Nora's compass promise, closed in scene 2), one open thread with no payoff on the page (Cass's unsent letter to her sister), one clear scene-1 motivation (Nora: return the compass / her father's dying request / Cass won't let go), and one structured world rule with an explicit limit (Cass's three-flashes rule).",
+  "source": "fixtures/narrative-promises.fountain",
+  "plantedThreads": [
+    {
+      "id": "planted-thread-compass",
+      "status": "paid_off",
+      "ownerNameMatchAny": ["Nora"],
+      "labelOrSummaryMatchAny": ["compass", "promise", "debt", "tide"],
+      "setupQuoteMatchAny": ["tide turns", "not keeping what isn't mine", "isn't mine"],
+      "payoffQuoteMatchAny": ["paid in full", "paid"]
+    },
+    {
+      "id": "planted-thread-letter",
+      "status": "open",
+      "ownerNameMatchAny": ["Cass"],
+      "labelOrSummaryMatchAny": ["letter", "sister", "unsent", "unsealed"]
+    }
+  ],
+  "plantedMotivations": [
+    {
+      "id": "planted-motivation-nora",
+      "characterNameMatchAny": ["Nora"],
+      "fieldsMatchAny": ["compass", "promise", "debt", "father", "papa", "tide", "let go"]
+    }
+  ],
+  "plantedWorldRules": [
+    {
+      "id": "planted-rule-three-flashes",
+      "textMatchAny": ["flash", "lamp", "lighthouse", "harbor board"],
+      "limitMatchAny": ["three", "fourth"]
+    }
+  ],
+  "hallucinationGuard": {
+    "forbiddenWithoutBasis": ["shipwreck", "murder", "affair", "smuggling", "coast guard arrest", "drowned"]
+  }
+}

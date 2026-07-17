@@ -35,6 +35,8 @@ EVAL_KEYS: dict[str, str] = {
     "act-boundaries": "actBoundaryQuality",
     "entity-inference": "entityInference",
     "alias-resolution": "aliasResolution",
+    "narrative-promises": "narrativePromises",
+    "narrative-promises-merge": "narrativePromisesMerge",
 }
 
 HARD_RUNS = 5
@@ -59,6 +61,8 @@ SOFT_EVAL_KEYS: tuple[str, ...] = (
     "act-boundaries",
     "entity-inference",
     "alias-resolution",
+    "narrative-promises",
+    "narrative-promises-merge",
 )
 
 # `--only`/checkpoint short key → the `EvalResult.name` that family produces.
@@ -77,6 +81,8 @@ FAMILY_RESULT_NAME: dict[str, str] = {
     "act-boundaries": "act-boundary-quality",
     "entity-inference": "entity-inference",
     "alias-resolution": "alias-resolution",
+    "narrative-promises": "narrative-promises",
+    "narrative-promises-merge": "narrative-promises-merge",
 }
 
 
@@ -112,10 +118,12 @@ def nominal_call_estimate(runs: dict[str, int]) -> dict:
     that family's runs. Act-boundary validity and quality each have two labeled
     probes, so each is 2 × that family's runs. `entityInference` and
     `aliasResolution` each call `infer_story_entities` once per run, same as
-    the other single-probe soft families. Rule-9 retries can add up to one
-    extra call per product call (observed-worst budget ≈ 1.5× total). Core
-    defaults (schema/act-validity/lock/continuity, N=5): ≈88 nominal; `--full`
-    adds soft families (≈+40); `--runs 1` core ≈20."""
+    the other single-probe soft families; `narrativePromises` and
+    `narrativePromisesMerge` (T7.22) each call `infer_narrative_promises`
+    once per run, same shape. Rule-9 retries can add up to one extra call
+    per product call (observed-worst budget ≈ 1.5× total). Core defaults
+    (schema/act-validity/lock/continuity, N=5): ≈88 nominal; `--full` adds
+    soft families (≈+50); `--runs 1` core ≈20."""
     schema = len(probes.SCHEMA_PROBES) * runs["schemaValidity"]
     act_validity = 2 * runs["actBoundaryValidity"]
     lock = 4 * runs["lockViolation"]
@@ -127,6 +135,8 @@ def nominal_call_estimate(runs: dict[str, int]) -> dict:
     act_boundaries = 2 * runs["actBoundaryQuality"]
     entity_inference = runs["entityInference"]
     alias_resolution = runs["aliasResolution"]
+    narrative_promises = runs["narrativePromises"]
+    narrative_promises_merge = runs["narrativePromisesMerge"]
     return {
         "schemaValidity": schema,
         "actBoundaryValidity": act_validity,
@@ -139,6 +149,8 @@ def nominal_call_estimate(runs: dict[str, int]) -> dict:
         "actBoundaryQuality": act_boundaries,
         "entityInference": entity_inference,
         "aliasResolution": alias_resolution,
+        "narrativePromises": narrative_promises,
+        "narrativePromisesMerge": narrative_promises_merge,
         "totalNominal": (
             schema
             + act_validity
@@ -151,6 +163,8 @@ def nominal_call_estimate(runs: dict[str, int]) -> dict:
             + act_boundaries
             + entity_inference
             + alias_resolution
+            + narrative_promises
+            + narrative_promises_merge
         ),
     }
 
@@ -328,6 +342,18 @@ def run_suite(
         "alias-resolution",
         lambda: adoption.alias_resolution_eval(
             client, runs=runs[EVAL_KEYS["alias-resolution"]], on_progress=on_progress
+        ),
+    )
+    run_family(
+        "narrative-promises",
+        lambda: adoption.narrative_promises_eval(
+            client, runs=runs[EVAL_KEYS["narrative-promises"]], on_progress=on_progress
+        ),
+    )
+    run_family(
+        "narrative-promises-merge",
+        lambda: adoption.narrative_promises_merge_eval(
+            client, runs=runs[EVAL_KEYS["narrative-promises-merge"]], on_progress=on_progress
         ),
     )
 

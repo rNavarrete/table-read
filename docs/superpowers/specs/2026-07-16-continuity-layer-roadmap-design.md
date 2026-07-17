@@ -75,16 +75,28 @@ UI beyond the Knowledge Web `knownByAsOf` change; a Ledger/Plan surface for
 them is future work, not blocking P1 exit. Plan/spec:
 `docs/superpowers/plans/2026-07-16-time-aware-p1-remainder.md`,
 `docs/superpowers/specs/2026-07-16-time-aware-p1-remainder-design.md`.
-P2 (narrative promises, below) stays parked on its own branch
-(`narrative-promises-p2`) until picked up next.
+P2 (narrative promises, below) — **complete** (T7.19–T7.22).
 
-### P2 — Narrative promises
+### P2 — Narrative promises — **complete**
 
 - Thread entity: setup → escalation → reveal → payoff/abandoned lifecycle,
   with owner, establishing span, and status. Powers honest "unresolved setup"
-  and "weak payoff" reporting (design doc §4.4 connector lines land here).
-- Motivation/arc extraction on import (schema fields exist; fill them).
-- Structured world rules: rule + limit + cost + exception + evidence.
+  and "weak payoff" reporting (design doc §4.4 connector lines land here). —
+  shipped as T7.19 (`Episode.threads`) + T7.20 (`infer_narrative_promises`
+  mints/merges them); Plan canvas connector lines remain a UI follow-up
+  (design doc non-goal), not blocking.
+- Motivation/arc extraction on import (schema fields exist; fill them). —
+  shipped as T7.20 (`infer_narrative_promises` fills `Scene.motivations`
+  when cast resolves).
+- Structured world rules: rule + limit + cost + exception + evidence. —
+  shipped as T7.19 (`WorldRule` structured fields) + T7.20 (merge appends new
+  rules, never overwrites `locked: true` text).
+- Ledger surface: T7.21 (`ThreadsPanel` — open/paid_off/abandoned list with a
+  setup/payoff scene jump).
+- Eval fixture + soft recall gates: T7.22 (`fixtures/narrative-promises.*`;
+  `narrative-promises`/`narrative-promises-merge` dry-run families; real
+  `make evals` sign-off on `PROMPT_VERSION` 0.14.0 outstanding pending
+  authorization).
 
 ### P3 — Story compiler
 

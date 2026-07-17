@@ -16,6 +16,7 @@ import time
 from pathlib import Path
 
 from drama_manager import candidates, render
+from drama_manager.promises import merge_narrative_promises
 from evals.harness import EvalResult
 from evals.probes import FixtureCtx
 from evals.progress import ProgressFn, emit_attempt
@@ -23,19 +24,23 @@ from fountain import characters as fountain_characters
 from fountain import parse as fountain_parse
 from llm.errors import LlmTimeoutError, SchemaInvalidLlmError
 from llm.protocol import LlmClient
-from schemas import BeatCandidate, LedgerExtraction, StoryEntities
+from schemas import BeatCandidate, LedgerExtraction, NarrativePromises, StoryEntities
 
 _REPO = Path(__file__).resolve().parents[3]
 _FOUNTAIN = _REPO / "fixtures" / "import-inference.fountain"
 _PLANTED = _REPO / "fixtures" / "import-inference.planted.json"
 _ENTITY_FOUNTAIN = _REPO / "fixtures" / "entity-inference.fountain"
 _ENTITY_PLANTED = _REPO / "fixtures" / "entity-inference.planted.json"
+_PROMISES_FOUNTAIN = _REPO / "fixtures" / "narrative-promises.fountain"
+_PROMISES_PLANTED = _REPO / "fixtures" / "narrative-promises.planted.json"
 
 LOCK_REPAIR_GATE = 0.80
 IMPORT_INFERENCE_GATE = 0.80
 SUBTEXT_GATE = 0.80
 ENTITY_INFERENCE_GATE = 0.80
 ALIAS_RESOLUTION_GATE = 0.90
+NARRATIVE_PROMISES_GATE = 0.80
+NARRATIVE_PROMISES_MERGE_GATE = 0.90
 
 _LOCK_REPAIR_SCENE = "scene-4"
 _LOCK_REPAIR_INSTRUCTION = (
@@ -690,5 +695,383 @@ def alias_resolution_eval(
         gate=ALIAS_RESOLUTION_GATE,
         hard=False,
         detail={"resolved": resolved, "attempts": attempts, "pairs": len(pairs)},
+        notes=[note],
+    )
+
+
+# ── T7.22 narrative-promises evals (P2 continuity-layer roadmap) ───────────
+
+
+def _promises_planted_spec() -> dict:
+    return json.loads(_PROMISES_PLANTED.read_text())
+
+
+def _promises_fixture_context() -> tuple[dict, list[dict], list[str]]:
+    """Minimal project/scene-summary/cast shell for
+    `render.build_promises_prompt`, built from the real Fountain fixture via
+    the production scene splitter and cue extractor -- same minimal-shell
+    approach `_entity_fixture_context` uses instead of running the full
+    import pipeline."""
+    source = _PROMISES_FOUNTAIN.read_text()
+    spans = [s for s in fountain_parse.split_into_scenes(source) if s.location]
+    known_cast = fountain_characters.extract_character_cues(
+        line for span in spans for line in span.lines
+    )
+    scene_summaries = [
+        {
+            "id": f"scene-promises-{i + 1}",
+            "location": span.location,
+            "whatHappens": "",
+            "scriptText": "\n".join(span.lines),
+        }
+        for i, span in enumerate(spans)
+    ]
+    project = {
+        "title": "The Tide Ledger",
+        "format": {
+            "genre": "drama",
+            "runtimeMinutes": 30,
+            "actCount": 3,
+            "coldOpen": False,
+            "tag": False,
+            "serialization": 0.5,
+        },
+    }
+    return project, scene_summaries, known_cast
+
+
+def _seed_promises_response() -> NarrativePromises:
+    """Planted-shaped `NarrativePromises` for dry-run seeding (Mock's first
+    call only, per `MockLlmClient.set_responses`) -- exercises the
+    recall/merge code paths without claiming real model quality."""
+    return NarrativePromises(
+        threads=[
+            {
+                "label": "The compass debt",
+                "summary": (
+                    "Nora returns the brass compass she borrowed from Cass, "
+                    "paying off her promise to her father."
+                ),
+                "status": "paid_off",
+                "ownerNames": ["Nora", "Cass"],
+                "setupSceneId": "scene-promises-1",
+                "payoffSceneId": "scene-promises-2",
+                "setupQuote": "Take it back when the tide turns. I'm not keeping what isn't mine.",
+                "payoffQuote": "There. Paid in full.",
+            },
+            {
+                "label": "Cass's unsent letter",
+                "summary": "Cass keeps writing a letter to her sister but hasn't sent it.",
+                "status": "open",
+                "ownerNames": ["Cass"],
+                "setupSceneId": "scene-promises-1",
+                "payoffSceneId": None,
+                "setupQuote": "Maybe I'll send this one to my sister. Maybe I won't.",
+                "payoffQuote": "",
+            },
+        ],
+        sceneMotivations=[
+            {
+                "sceneId": "scene-promises-1",
+                "motivations": [
+                    {
+                        "characterName": "Nora",
+                        "objective": "Return the brass compass to Cass.",
+                        "stakes": "Honoring her father's dying request.",
+                        "obstacle": "Cass won't let go of the compass.",
+                    }
+                ],
+            }
+        ],
+        worldRules=[
+            {
+                "text": "The lighthouse lamp goes dark after the fourth warning flash.",
+                "limit": "Only three warning flashes before the lamp goes dark.",
+                "cost": "The harbor board doesn't forgive a fourth flash.",
+                "exception": "",
+                "evidenceSceneId": "scene-promises-1",
+                "evidenceQuote": "Three flashes, that's the rule.",
+            }
+        ],
+    )
+
+
+def _promises_text_blob(result: NarrativePromises) -> str:
+    parts: list[str] = []
+    for t in result.threads:
+        parts.append(t.label)
+        parts.append(t.summary)
+        parts.extend(t.owner_names)
+        parts.append(t.setup_quote)
+        parts.append(t.payoff_quote)
+    for sm in result.scene_motivations:
+        for m in sm.motivations:
+            parts.append(m.character_name)
+            parts.append(m.objective)
+            parts.append(m.stakes)
+            parts.append(m.obstacle)
+    for r in result.world_rules:
+        parts.append(r.text)
+        parts.append(r.limit)
+        parts.append(r.cost)
+        parts.append(r.exception)
+    return " ".join(p for p in parts if p)
+
+
+def _thread_found(threads: list, planted: dict) -> bool:
+    owner_needles = [n.lower() for n in planted.get("ownerNameMatchAny", [])]
+    label_needles = planted.get("labelOrSummaryMatchAny", [])
+    setup_needles = planted.get("setupQuoteMatchAny", [])
+    payoff_needles = planted.get("payoffQuoteMatchAny", [])
+    for t in threads:
+        owners = " ".join(t.owner_names).lower()
+        if owner_needles and not any(n in owners for n in owner_needles):
+            continue
+        if label_needles and not _matches_any(f"{t.label} {t.summary}", label_needles):
+            continue
+        if setup_needles and not _matches_any(t.setup_quote, setup_needles):
+            continue
+        if payoff_needles and not _matches_any(t.payoff_quote, payoff_needles):
+            continue
+        return True
+    return False
+
+
+def _motivation_found(scene_motivations: list, planted: dict) -> bool:
+    name_needles = [n.lower() for n in planted.get("characterNameMatchAny", [])]
+    field_needles = planted.get("fieldsMatchAny", [])
+    for sm in scene_motivations:
+        for m in sm.motivations:
+            if name_needles and not any(n in m.character_name.lower() for n in name_needles):
+                continue
+            blob = f"{m.objective} {m.stakes} {m.obstacle}"
+            if field_needles and not _matches_any(blob, field_needles):
+                continue
+            return True
+    return False
+
+
+def _world_rule_found(world_rules: list, planted: dict) -> bool:
+    text_needles = planted.get("textMatchAny", [])
+    limit_needles = planted.get("limitMatchAny", [])
+    for r in world_rules:
+        if text_needles and not _matches_any(f"{r.text} {r.cost} {r.exception}", text_needles):
+            continue
+        if limit_needles and not _matches_any(r.limit, limit_needles):
+            continue
+        return True
+    return False
+
+
+def narrative_promises_eval(
+    client: LlmClient, *, runs: int, on_progress: ProgressFn | None = None
+) -> EvalResult:
+    """T7.22: `infer_narrative_promises` on the golden narrative-promises
+    fixture -- recall of the planted setup/payoff thread, the planted open
+    thread, the planted scene motivation, and the planted world rule (with
+    its `limit` field), hallucination-penalized like A2/T7.17."""
+    planted = _promises_planted_spec()
+    if not _PROMISES_FOUNTAIN.read_text().strip():
+        return EvalResult(
+            name="narrative-promises",
+            metric="planted thread/motivation/world-rule recall",
+            score=0.0,
+            gate=NARRATIVE_PROMISES_GATE,
+            hard=False,
+            detail={},
+            notes=["fixture missing"],
+        )
+
+    from llm.mock import MockLlmClient
+
+    if isinstance(client, MockLlmClient):
+        client.set_responses("infer_narrative_promises", [_seed_promises_response()])
+
+    project, scene_summaries, known_cast = _promises_fixture_context()
+    planted_threads = planted["plantedThreads"]
+    planted_motivations = planted["plantedMotivations"]
+    planted_world_rules = planted["plantedWorldRules"]
+    total_planted = len(planted_threads) + len(planted_motivations) + len(planted_world_rules)
+
+    recalls: list[float] = []
+    halluc_hits = 0
+    for i in range(runs):
+        emit_attempt(on_progress, family="narrative-promises", run=i + 1, runs=runs)
+        t0 = time.monotonic()
+        system, user = render.build_promises_prompt(
+            project, scene_summaries, known_cast, [], render.new_nonce()
+        )
+        try:
+            result: NarrativePromises = client.infer_narrative_promises(
+                system=system, user_message=user, prompt_version=render.PROMPT_VERSION
+            )
+        except (SchemaInvalidLlmError, LlmTimeoutError):
+            recalls.append(0.0)
+            emit_attempt(
+                on_progress,
+                family="narrative-promises",
+                run=i + 1,
+                runs=runs,
+                status="done",
+                elapsed=time.monotonic() - t0,
+            )
+            continue
+
+        found = 0
+        found += sum(1 for p in planted_threads if _thread_found(result.threads, p))
+        found += sum(
+            1 for p in planted_motivations if _motivation_found(result.scene_motivations, p)
+        )
+        found += sum(1 for p in planted_world_rules if _world_rule_found(result.world_rules, p))
+        recalls.append(found / max(1, total_planted))
+
+        blob = _promises_text_blob(result)
+        forbidden = planted.get("hallucinationGuard", {}).get("forbiddenWithoutBasis", [])
+        if _matches_any(blob, forbidden) and found == 0:
+            halluc_hits += 1
+        emit_attempt(
+            on_progress,
+            family="narrative-promises",
+            run=i + 1,
+            runs=runs,
+            status="done",
+            elapsed=time.monotonic() - t0,
+        )
+
+    mean_recall = sum(recalls) / len(recalls) if recalls else 0.0
+    score = mean_recall * (0.0 if halluc_hits == runs else 1.0)
+    note = "soft gate (T7.22)"
+    if isinstance(client, MockLlmClient):
+        note = "soft gate (T7.22); Mock seeded with planted-shaped promises for dry-run"
+
+    return EvalResult(
+        name="narrative-promises",
+        metric="planted thread/motivation/world-rule recall (hallucination-penalized)",
+        score=score,
+        gate=NARRATIVE_PROMISES_GATE,
+        hard=False,
+        detail={
+            "meanRecall": round(mean_recall, 4),
+            "hallucinationRuns": halluc_hits,
+            "plantedCount": total_planted,
+        },
+        notes=[note],
+    )
+
+
+def _promises_doc_scaffold(scene_ids: list[str]) -> dict:
+    return {
+        "seasons": [
+            {
+                "id": "season-1",
+                "episodes": [
+                    {
+                        "id": "ep-promises-1",
+                        "scenes": [{"id": sid, "motivations": []} for sid in scene_ids],
+                        "threads": [],
+                    }
+                ],
+            }
+        ],
+        "seriesBible": {
+            "characters": [
+                {"id": "char-nora", "name": "Nora", "aliases": []},
+                {"id": "char-cass", "name": "Cass", "aliases": []},
+            ],
+            "worldRules": [],
+        },
+    }
+
+
+def narrative_promises_merge_eval(
+    client: LlmClient, *, runs: int, on_progress: ProgressFn | None = None
+) -> EvalResult:
+    """T7.22: the planted thread/motivation/world-rule set run through the
+    real `merge_narrative_promises` path (T7.20), not just prompt output
+    shape -- the setup/payoff pair's payoff scene resolves, the open thread
+    stays open, the planted motivation lands on its scene, and the planted
+    world rule's `limit` field persists non-empty."""
+    from llm.mock import MockLlmClient
+
+    if isinstance(client, MockLlmClient):
+        client.set_responses("infer_narrative_promises", [_seed_promises_response()])
+
+    project, scene_summaries, known_cast = _promises_fixture_context()
+    scene_ids = [s["id"] for s in scene_summaries]
+
+    checks_per_run = 4
+    resolved = 0
+    attempts = 0
+    for i in range(runs):
+        emit_attempt(on_progress, family="narrative-promises-merge", run=i + 1, runs=runs)
+        t0 = time.monotonic()
+        system, user = render.build_promises_prompt(
+            project, scene_summaries, known_cast, [], render.new_nonce()
+        )
+        try:
+            result: NarrativePromises = client.infer_narrative_promises(
+                system=system, user_message=user, prompt_version=render.PROMPT_VERSION
+            )
+        except (SchemaInvalidLlmError, LlmTimeoutError):
+            attempts += checks_per_run
+            emit_attempt(
+                on_progress,
+                family="narrative-promises-merge",
+                run=i + 1,
+                runs=runs,
+                status="done",
+                elapsed=time.monotonic() - t0,
+            )
+            continue
+
+        doc = merge_narrative_promises(
+            _promises_doc_scaffold(scene_ids), "ep-promises-1", result
+        )
+        episode = doc["seasons"][0]["episodes"][0]
+        paid_off = next(
+            (t for t in episode["threads"] if t["status"] == "paid_off"), None
+        )
+        still_open = next(
+            (t for t in episode["threads"] if t["status"] == "open"), None
+        )
+        motivated_scene = next(
+            (s for s in episode["scenes"] if s["motivations"]), None
+        )
+        rules_with_limit = [
+            r for r in doc["seriesBible"]["worldRules"] if (r.get("limit") or "").strip()
+        ]
+
+        assertions = [
+            paid_off is not None and paid_off.get("payoffSceneId") is not None,
+            still_open is not None and still_open.get("payoffSceneId") is None,
+            motivated_scene is not None,
+            len(rules_with_limit) > 0,
+        ]
+        attempts += checks_per_run
+        resolved += sum(1 for a in assertions if a)
+        emit_attempt(
+            on_progress,
+            family="narrative-promises-merge",
+            run=i + 1,
+            runs=runs,
+            status="done",
+            elapsed=time.monotonic() - t0,
+        )
+
+    rate = resolved / attempts if attempts else 0.0
+    note = "soft gate (T7.22)"
+    if isinstance(client, MockLlmClient):
+        note = "soft gate (T7.22); Mock seeded with planted-shaped promises for dry-run"
+
+    return EvalResult(
+        name="narrative-promises-merge",
+        metric=(
+            "planted thread/motivation/world-rule merge resolution rate "
+            "(via merge_narrative_promises)"
+        ),
+        score=rate,
+        gate=NARRATIVE_PROMISES_MERGE_GATE,
+        hard=False,
+        detail={"resolved": resolved, "attempts": attempts, "checksPerRun": checks_per_run},
         notes=[note],
     )

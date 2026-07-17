@@ -75,11 +75,11 @@ export const NarrativePromises = z.object({
 // ProjectImportStageName inserts "inferring_promises" after "inferring_entities"
 ```
 
-- [ ] Add schemas + Pydantic mirrors + stage enum
-- [ ] Register minimal op; regenerate tool schema
-- [ ] Update fixture episode(s) with `threads: []`; worldRules defaults validate
-- [ ] `make check-contract` green
-- [ ] Commit: `contract: NarrativePromises op, StoryThread, structured WorldRule (T7.19)`
+- [x] Add schemas + Pydantic mirrors + stage enum
+- [x] Register minimal op; regenerate tool schema
+- [x] Update fixture episode(s) with `threads: []`; worldRules defaults validate
+- [x] `make check-contract` green
+- [x] Commit: `contract: NarrativePromises op, StoryThread, structured WorldRule (T7.19)`
 
 ---
 
@@ -100,9 +100,9 @@ export const NarrativePromises = z.object({
 - Patch scene motivations when sceneId matches and character resolves
 - Append world rules whose `text` casefold not already present; skip if colliding with locked rule text
 
-- [ ] Failing import test with mock NarrativePromises
-- [ ] Implement prompt, merge, pipeline, SSE stage
-- [ ] Commit: `import: infer narrative promises before fact extraction (T7.20)`
+- [x] Failing import test with mock NarrativePromises
+- [x] Implement prompt, merge, pipeline, SSE stage
+- [x] Commit: `import: infer narrative promises before fact extraction (T7.20)`
 
 ---
 
@@ -113,9 +113,9 @@ export const NarrativePromises = z.object({
 - Wire into `LedgerScreen` / FilterRail lens **Threads** or Atlas chapter
 - Jump: setup/payoff scene → Plan or Write `?scene=`
 
-- [ ] List threads by status; empty state
-- [ ] Vitest: renders open thread + scene link
-- [ ] Commit: `ledger: Threads panel for narrative promises (T7.21)`
+- [x] List threads by status; empty state
+- [x] Vitest: renders open thread + scene link
+- [x] Commit: `ledger: Threads panel for narrative promises (T7.21)`
 
 ---
 
@@ -126,8 +126,8 @@ export const NarrativePromises = z.object({
 - Wire soft family in evals suite
 - `docs/tableread-build-plan.md` T7.19–T7.22, test-plan, roadmap P2 note
 
-- [ ] Dry-run green; **do not** run real evals
-- [ ] Commit: `evals: narrative-promises fixture and gates (T7.22)`
+- [x] Dry-run green; **do not** run real evals
+- [x] Commit: `evals: narrative-promises fixture and gates (T7.22)`
 
 ## Self-review
 

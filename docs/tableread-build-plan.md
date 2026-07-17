@@ -150,19 +150,20 @@ Replaces the hardcoded seeded entry point with a project dashboard, idea/import 
 **T7.26 Object custody (P1).** Episode `objectStates[]` + conflict flags. — implemented ("simpler MVP" path from the design doc).
 *Accept:* `fountain.object_states.infer_object_states` is a deterministic, no-new-LLM text scan over already-extracted state/event ledger facts for one narrow custody phrasing ("X is hidden/kept/stored/located in/at/under/behind Y"); `holderCharacterId` stays null in this cut (location-only signal). `detect_object_conflicts` flags a later scene whose location for the same object (case/article-insensitive name match) disagrees with its most recent earlier state, in scene order — surfaced as an open `tension` `ConsistencyFlag` after import, same source-of-flags convention as the consistency scan and segmentation-repair flags. Unit + import-integration tests; `make check-contract` green.
 
-**P1 exit (continuity-layer roadmap):** with T7.18 (as-of scene) + T7.23 (who knew it, as of scene N) landed, the ledger now answers the roadmap's stated exit criterion — *"what was true, and who knew it, as of scene N"* — and T7.24–T7.26 round out the remaining P1 bullets (timeline anchors, relationship states, object custody) at MVP/display-only scope. P1 is closed; P2 narrative-promises (T7.19–T7.22 below) remains parked on its own branch until picked up next.
+**P1 exit (continuity-layer roadmap):** with T7.18 (as-of scene) + T7.23 (who knew it, as of scene N) landed, the ledger now answers the roadmap's stated exit criterion — *"what was true, and who knew it, as of scene N"* — and T7.24–T7.26 round out the remaining P1 bullets (timeline anchors, relationship states, object custody) at MVP/display-only scope. P1 is closed; P2 narrative-promises (T7.19–T7.22 below) is now implemented end to end (contract → inference → UI → evals), with real `make evals` sign-off on `PROMPT_VERSION` 0.14.0 still outstanding pending authorization (eval debt).
 
 
-**T7.19 Narrative promises contract (P2).** `StoryThread` on `Episode`, structured `WorldRule` fields, §2a `NarrativePromises`, import stage `inferring_promises`. Spec/plan: `docs/superpowers/specs/2026-07-16-narrative-promises-design.md`, `docs/superpowers/plans/2026-07-16-narrative-promises.md`. — in progress.
+**T7.19 Narrative promises contract (P2).** `StoryThread` on `Episode`, structured `WorldRule` fields, §2a `NarrativePromises`, import stage `inferring_promises`. Spec/plan: `docs/superpowers/specs/2026-07-16-narrative-promises-design.md`, `docs/superpowers/plans/2026-07-16-narrative-promises.md`. — implemented.
 *Accept:* Zod/Pydantic/data-contract/prompt-spec/tool schemas agree; fixture validates with `threads: []` and worldRule defaults; `make check-contract` green.
 
-**T7.20 Import narrative-promises inference.** Classifier op after entity inference; merge threads/motivations/world rules; `PROMPT_VERSION` 0.13.0 — **requires `make evals` sign-off before remote merge**. Plan Tasks 2.
+**T7.20 Import narrative-promises inference.** Classifier op after entity inference; merge threads/motivations/world rules; `PROMPT_VERSION` 0.13.0 → **0.14.0** — **requires `make evals` sign-off before remote merge** (eval debt, not run per task brief). Plan Task 2. — implemented.
 *Accept:* mock import yields threads with resolved owners + setup scenes; motivations land on scenes; locked world rules untouched; atomic fail on schema-invalid after one retry.
 
-**T7.21 Ledger Threads panel.** List open/paid_off/abandoned with setup/payoff scene jump. Plan Task 3.
+**T7.21 Ledger Threads panel.** List open/paid_off/abandoned with setup/payoff scene jump. Plan Task 3. — implemented.
 *Accept:* Vitest covers render + navigation affordance; tokens only.
 
-**T7.22 Narrative-promises evals.** Planted fixture + soft recall gates; dry-run only until authorized. Plan Task 4.
+**T7.22 Narrative-promises evals.** Planted fixture + soft recall gates; dry-run only until authorized. Plan Task 4. — implemented.
+*Accept:* `fixtures/narrative-promises.fountain`/`.planted.json` plant exactly one setup/payoff thread, one open thread, one scene motivation, and one world rule with a `limit`; `narrative-promises` (prompt-level recall, hallucination-penalized) and `narrative-promises-merge` (real `merge_narrative_promises` resolution) soft families wired into `evals/suite.py`/`run.py`'s `--full`/`--only`; `make evals-dry` (`python -m evals.run --dry-run --full`) exits 0. Real `make evals` sign-off remains outstanding — **not run** per task brief; tracked as eval debt alongside T7.20's `PROMPT_VERSION` 0.14.0 bump.
 
 ## Milestone 8 — Fabula adoption (P-MVP slices)
 

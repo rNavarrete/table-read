@@ -92,7 +92,8 @@ e2e: $(VENV_BIN)/activate $(NODE_MARKER)
 # failure (lock-violation = 0, schema-validity, act-validity, continuity). Gates every
 # PROMPT_VERSION / model-id change (hard rules 3 & 7). **Never run without being
 # asked; costs money.** Default = core hard gates only (schema/act-validity/
-# lock/continuity, N=5) ≈88 nominal calls; `--full` adds soft families (~+30);
+# lock/continuity, N=5) ≈88 nominal calls; `--full` adds soft families (~+50,
+# incl. T7.22's narrative-promises + narrative-promises-merge);
 # `--runs 1` smoke ≈20. `make evals-dry` runs the full harness offline on
 # MockLlmClient.
 evals: $(VENV_BIN)/activate

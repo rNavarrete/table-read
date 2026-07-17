@@ -52,6 +52,8 @@ def _complete_results() -> list[EvalResult]:
         _result(name="act-boundary-quality", hard=False),
         _result(name="entity-inference", hard=False),
         _result(name="alias-resolution", hard=False),
+        _result(name="narrative-promises", hard=False),
+        _result(name="narrative-promises-merge", hard=False),
     ]
 
 
@@ -180,6 +182,8 @@ def test_resume_skips_completed_family(tmp_path, session_factory, monkeypatch):
         "act-boundary-quality",
         "entity-inference",
         "alias-resolution",
+        "narrative-promises",
+        "narrative-promises-merge",
     ]
     # the resumed family is the exact prior object, not recomputed
     assert report.results[0] is prior[0]
@@ -268,6 +272,8 @@ def test_resume_merges_prior_and_new_in_stable_suite_order(session_factory, monk
         "act-boundary-quality",
         "entity-inference",
         "alias-resolution",
+        "narrative-promises",
+        "narrative-promises-merge",
     ]
     assert report.results[0].score == 0.42
     assert report.results[2].score == 0.99

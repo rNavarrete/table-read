@@ -43,6 +43,8 @@ _ONLY_CHOICES = (
     "act-boundaries",
     "entity-inference",
     "alias-resolution",
+    "narrative-promises",
+    "narrative-promises-merge",
 )
 
 
