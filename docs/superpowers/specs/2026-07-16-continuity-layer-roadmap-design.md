@@ -46,18 +46,37 @@ Make character identity and core entities trustworthy on every import.
 Exit: an imported script yields a reviewable cast with aliases, relationship
 rows, and ≥90% of extracted facts attached to resolved character ids.
 
-### P1 — Time-aware story state
+### P1 — Time-aware story state — **complete**
 
 - Facts gain temporal anchors: `establishedAt` (already implicit via
   `sourceSpan`) plus `validFrom`/`invalidatedBy` semantics via the existing
   supersede chain; relative time markers ("three days later") extracted as
-  timeline anchors.
+  timeline anchors. — `sourceSpan`/supersede-chain temporal semantics and
+  the `asOfScene` filter shipped as T7.18 (`facts_as_of`); timeline anchors
+  shipped as T7.24 (`Episode.timelineAnchors`, `fountain.timeline.
+  merge_timeline_anchors` — deterministic slugline scan, no LLM).
 - Knowledge transitions: who learns what, when (scene-anchored `knownBy`
-  changes rather than a single flat list).
-- Relationship state history (scene-anchored state rows, not one label).
-- Object custody / location continuity checks.
+  changes rather than a single flat list). — shipped as T7.23
+  (`LedgerFact.knowledgeEvents` + `knowers_as_of` / `GET /ledger?asOfScene=`
+  `knownByAsOf`; Knowledge Web prefers it when set).
+- Relationship state history (scene-anchored state rows, not one label). —
+  shipped as T7.25 (`Episode.relationshipStates`, sourced from
+  `infer_story_entities`'s own evidence citations — no new classifier call;
+  `latest_relationship_state` as-of helper for a later Ledger/Web surface).
+- Object custody / location continuity checks. — shipped as T7.26
+  (`Episode.objectStates` + a deterministic conflict pass surfacing open
+  `tension` `ConsistencyFlag`s — "simpler MVP" path, no new LLM call).
 
-Exit: the ledger can answer "what was true, and who knew it, as of scene N."
+Exit: the ledger can answer "what was true, and who knew it, as of scene N"
+— **met** (T7.18 + T7.23). T7.24–T7.26 round out the remaining P1 bullets at
+MVP/display-only scope: `timelineAnchors`/`relationshipStates`/
+`objectStates` store + `GET /projects/{pid}` only, no dedicated endpoint or
+UI beyond the Knowledge Web `knownByAsOf` change; a Ledger/Plan surface for
+them is future work, not blocking P1 exit. Plan/spec:
+`docs/superpowers/plans/2026-07-16-time-aware-p1-remainder.md`,
+`docs/superpowers/specs/2026-07-16-time-aware-p1-remainder-design.md`.
+P2 (narrative promises, below) stays parked on its own branch
+(`narrative-promises-p2`) until picked up next.
 
 ### P2 — Narrative promises
 

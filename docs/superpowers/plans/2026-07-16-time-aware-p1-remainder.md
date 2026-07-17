@@ -36,9 +36,9 @@ export const KnowledgeEvent = z.object({
 // Ledger GET items may include knownByAsOf?: Id[] when asOfScene set (document in §4; can be response-only enrichment not stored)
 ```
 
-- [ ] Schemas + defaults so fixture validates
-- [ ] `make check-contract` green
-- [ ] Commit: `contract: LedgerFact.knowledgeEvents (T7.23)`
+- [x] Schemas + defaults so fixture validates
+- [x] `make check-contract` green
+- [x] Commit: `contract: LedgerFact.knowledgeEvents (T7.23)`
 
 ---
 
@@ -46,9 +46,9 @@ export const KnowledgeEvent = z.object({
 
 **Files:** `apps/api/drama_manager/ledger_as_of.py`, `routes.py` get_ledger, tests
 
-- [ ] `knowers_as_of(fact, scenes, as_of_scene_id) -> list[str]`
-- [ ] When `asOfScene` set, each returned fact includes `knownByAsOf`
-- [ ] Commit: `ledger: knownByAsOf for as-of-scene queries (T7.23)`
+- [x] `knowers_as_of(fact, scenes, as_of_scene_id) -> list[str]`
+- [x] When `asOfScene` set, each returned fact includes `knownByAsOf`
+- [x] Commit: `ledger: knownByAsOf for as-of-scene queries (T7.23)`
 
 ---
 
@@ -56,8 +56,8 @@ export const KnowledgeEvent = z.object({
 
 **Files:** render extract prompt (bump PROMPT_VERSION 0.12→0.13), pipeline `_to_ledger_fact` / normalize, mock defaults, tests
 
-- [ ] Optional events on extract; resolve names→ids; drop audience
-- [ ] Commit: `import: extract knowledge events onto ledger facts (T7.23)`
+- [x] Optional events on extract; resolve names→ids; drop audience
+- [x] Commit: `import: extract knowledge events onto ledger facts (T7.23)`
 
 ---
 
@@ -65,8 +65,8 @@ export const KnowledgeEvent = z.object({
 
 **Files:** KnowledgeWeb / fact detail / LedgerScreen
 
-- [ ] Web focus + detail prefer `knownByAsOf` ?? `knownBy`
-- [ ] Commit: `ledger: Knowledge Web respects knownByAsOf (T7.23)`
+- [x] Web focus + detail prefer `knownByAsOf` ?? `knownBy`
+- [x] Commit: `ledger: Knowledge Web respects knownByAsOf (T7.23)`
 
 ---
 
@@ -74,8 +74,8 @@ export const KnowledgeEvent = z.object({
 
 Episode `timelineAnchors[]`; infer in import (extend entities or small merge from scene time text + optional LLM fields); list in Ledger or Plan later — MVP: store + GET via project doc only, unit tests on merge.
 
-- [ ] Contract + merge + tests
-- [ ] Commit: `import: episode timelineAnchors (T7.24)`
+- [x] Contract + merge + tests
+- [x] Commit: `import: episode timelineAnchors (T7.24)`
 
 ---
 
@@ -83,7 +83,7 @@ Episode `timelineAnchors[]`; infer in import (extend entities or small merge fro
 
 Episode `relationshipStates[]`; import merge; as-of helper for latest state ≤ scene
 
-- [ ] Commit: `import: relationship state history (T7.25)`
+- [x] Commit: `import: relationship state history (T7.25)`
 
 ---
 
@@ -91,7 +91,7 @@ Episode `relationshipStates[]`; import merge; as-of helper for latest state ≤ 
 
 Episode `objectStates[]` + deterministic conflict → open flags after import
 
-- [ ] Commit: `import: object custody states and conflict flags (T7.26)`
+- [x] Commit: `import: object custody states and conflict flags (T7.26)`
 
 ---
 
@@ -99,4 +99,4 @@ Episode `objectStates[]` + deterministic conflict → open flags after import
 
 Build plan T7.23–T7.26, test plan, roadmap P1 exit note; FF-merge branch to local main.
 
-- [ ] Commit docs; merge `--ff-only` to main
+- [x] Commit docs; merge `--ff-only` to main
