@@ -57,9 +57,10 @@ class LlmOp:
     model: type[BaseModel]
     role: Role
     description: str  # short, non-creative: the Anthropic tool `description` field
-    # Optional per-op ceiling. Import entity/promise reads return large
-    # structured payloads (100+ characters × evidence); DEFAULT_MAX_TOKENS
-    # (4096) truncates mid-tool-input and surfaces as SCHEMA_INVALID_LLM.
+    # Optional per-op ceiling. Import classifier reads (entities, promises,
+    # fact extract, segmentation, consistency scan) return large structured
+    # payloads; DEFAULT_MAX_TOKENS (4096) truncates mid-tool-input and
+    # surfaces as SCHEMA_INVALID_LLM.
     max_tokens: int | None = None
     # Optional wall-clock ceiling for `messages.create` (defaults to the
     # client's DEFAULT_LLM_CALL_TIMEOUT_SECONDS). Large max_tokens ops need
@@ -106,6 +107,10 @@ _OPS: tuple[LlmOp, ...] = (
         "classifier",
         "Extract new continuity facts and flag contradictions with existing facts "
         "from an accepted script delta.",
+        # Dense import scenes (many beats × facts × knowledgeEvents) truncate
+        # at DEFAULT_MAX_TOKENS mid-tool-input → SCHEMA_INVALID_LLM.
+        max_tokens=16_384,
+        call_timeout_seconds=300.0,
     ),
     LlmOp(
         "suggest_instructions",
@@ -174,6 +179,9 @@ _OPS: tuple[LlmOp, ...] = (
         "classifier",
         "Segment one scene's numbered source objects into typed segment starts "
         "with inferred beat-plan fields; the server derives end lines.",
+        # Long scenes with many beats truncate mid-tool-input at 4096.
+        max_tokens=16_384,
+        call_timeout_seconds=300.0,
     ),
     LlmOp(
         "scan_consistency",
@@ -182,6 +190,9 @@ _OPS: tuple[LlmOp, ...] = (
         "classifier",
         "Scan untouched scenes and beats for contradictions or tensions introduced "
         "by a recent change.",
+        # Post-import scans over large scripts can emit many flags.
+        max_tokens=16_384,
+        call_timeout_seconds=300.0,
     ),
     # §9.4 guided-setup scene skeleton (new-project-flow design spec §6/§9.4):
     # writer-role, one diverse candidate per call, driven 3x by

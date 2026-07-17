@@ -572,9 +572,9 @@ def _fixture_valid_input_for(op_name: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# infer_story_entities: large-cast imports need more than DEFAULT_MAX_TOKENS
+# Import classifier ops: large scripts need more than DEFAULT_MAX_TOKENS
 # (4096). Truncation mid-tool-input surfaces as SCHEMA_INVALID_LLM after the
-# rule-9 retry — see import failures with ~100+ speakers.
+# rule-9 retry — entities (~100+ speakers) and dense per-scene fact extracts.
 # ---------------------------------------------------------------------------
 
 
@@ -609,6 +609,26 @@ def test_infer_story_entities_requests_elevated_max_tokens():
     client = AnthropicClient(sdk_client=sdk, models=_MODELS)
 
     client.infer_story_entities(system="sys", user_message="hi", prompt_version="0.1.0")
+
+    assert sdk.messages.calls[0]["max_tokens"] > 4096
+
+
+def test_extract_ledger_facts_requests_elevated_max_tokens():
+    sdk = FakeSdkClient(
+        [
+            FakeMessage(
+                content=[
+                    FakeToolUseBlock(
+                        input={"newFacts": [], "contradictions": []},
+                        name="extract_ledger_facts",
+                    )
+                ]
+            )
+        ]
+    )
+    client = AnthropicClient(sdk_client=sdk, models=_MODELS)
+
+    client.extract_ledger_facts(system="sys", user_message="hi", prompt_version="0.1.0")
 
     assert sdk.messages.calls[0]["max_tokens"] > 4096
 
