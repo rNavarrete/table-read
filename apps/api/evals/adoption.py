@@ -16,6 +16,7 @@ import time
 from pathlib import Path
 
 from drama_manager import candidates, render
+from drama_manager.overview import merge_story_overview
 from drama_manager.promises import merge_narrative_promises
 from evals.harness import EvalResult
 from evals.probes import FixtureCtx
@@ -24,7 +25,7 @@ from fountain import characters as fountain_characters
 from fountain import parse as fountain_parse
 from llm.errors import LlmTimeoutError, SchemaInvalidLlmError
 from llm.protocol import LlmClient
-from schemas import BeatCandidate, LedgerExtraction, NarrativePromises, StoryEntities
+from schemas import InferredStoryOverview, BeatCandidate, LedgerExtraction, NarrativePromises, StoryEntities
 
 _REPO = Path(__file__).resolve().parents[3]
 _FOUNTAIN = _REPO / "fixtures" / "import-inference.fountain"
@@ -33,6 +34,8 @@ _ENTITY_FOUNTAIN = _REPO / "fixtures" / "entity-inference.fountain"
 _ENTITY_PLANTED = _REPO / "fixtures" / "entity-inference.planted.json"
 _PROMISES_FOUNTAIN = _REPO / "fixtures" / "narrative-promises.fountain"
 _PROMISES_PLANTED = _REPO / "fixtures" / "narrative-promises.planted.json"
+_OVERVIEW_FOUNTAIN = _REPO / "fixtures" / "story-overview.fountain"
+_OVERVIEW_PLANTED = _REPO / "fixtures" / "story-overview.planted.json"
 
 LOCK_REPAIR_GATE = 0.80
 IMPORT_INFERENCE_GATE = 0.80
@@ -40,6 +43,8 @@ SUBTEXT_GATE = 0.80
 ENTITY_INFERENCE_GATE = 0.80
 ALIAS_RESOLUTION_GATE = 0.90
 NARRATIVE_PROMISES_GATE = 0.80
+STORY_OVERVIEW_GATE = 0.8
+STORY_OVERVIEW_MERGE_GATE = 0.9
 NARRATIVE_PROMISES_MERGE_GATE = 0.90
 
 _LOCK_REPAIR_SCENE = "scene-4"
@@ -1073,5 +1078,299 @@ def narrative_promises_merge_eval(
         gate=NARRATIVE_PROMISES_MERGE_GATE,
         hard=False,
         detail={"resolved": resolved, "attempts": attempts, "checksPerRun": checks_per_run},
+        notes=[note],
+    )
+
+
+# ── T7.30 story-overview evals ─────────────────────────────────────────────
+
+
+def _overview_planted_spec() -> dict:
+    return json.loads(_OVERVIEW_PLANTED.read_text())
+
+
+def _overview_fixture_context() -> tuple[dict, list[dict], list[str], list[dict]]:
+    source = _OVERVIEW_FOUNTAIN.read_text()
+    spans = [s for s in fountain_parse.split_into_scenes(source) if s.location]
+    scene_summaries = []
+    known_beats: list[dict] = []
+    for i, span in enumerate(spans):
+        sid = f"scene-overview-{i + 1}"
+        bid = f"beat-overview-{i + 1}-1"
+        scene_summaries.append(
+            {
+                "id": sid,
+                "location": span.location,
+                "whatHappens": "",
+                "scriptText": "\n".join(span.lines),
+            }
+        )
+        known_beats.append({"beatId": bid, "sceneId": sid})
+    project = {
+        "title": "The Tide Ledger",
+        "format": {
+            "genre": "drama",
+            "runtimeMinutes": 30,
+            "actCount": 3,
+            "coldOpen": False,
+            "tag": False,
+            "serialization": 0.5,
+        },
+    }
+    known_scene_ids = [s["id"] for s in scene_summaries]
+    return project, scene_summaries, known_scene_ids, known_beats
+
+
+def _seed_overview_response() -> InferredStoryOverview:
+    return InferredStoryOverview(
+        logline=(
+            "When Nora tries to return a brass compass and repay a debt to Cass, "
+            "she must finish the promise before the tide turns."
+        ),
+        outline=[
+            {
+                "sceneId": "scene-overview-1",
+                "summary": "Nora insists on returning Cass's compass.",
+            },
+            {
+                "sceneId": "scene-overview-2",
+                "summary": "At dawn Nora pays the debt in full.",
+            },
+        ],
+        beatSheet=[
+            {
+                "beatId": "beat-overview-1-1",
+                "label": "Inciting Incident",
+                "summary": "Nora names the debt and the compass.",
+                "sceneId": "scene-overview-1",
+            },
+            {
+                "beatId": "beat-overview-2-1",
+                "label": "Climax",
+                "summary": "Nora presses the compass into Cass's palm.",
+                "sceneId": "scene-overview-2",
+            },
+        ],
+        summary=(
+            "Nora confronts Cass in the lighthouse cottage, determined to return "
+            "the brass compass and clear a debt her father left behind.\n\n"
+            "At dawn on the harbor dock she places the compass in Cass's hand "
+            "and declares the promise paid in full."
+        ),
+    )
+
+
+def _overview_text_blob(result: InferredStoryOverview) -> str:
+    parts = [result.logline, result.summary]
+    parts.extend(i.summary for i in result.outline)
+    parts.extend(i.summary for i in result.beat_sheet)
+    parts.extend(i.label for i in result.beat_sheet)
+    return " ".join(parts)
+
+
+def story_overview_eval(
+    client: LlmClient, *, runs: int, on_progress: ProgressFn | None = None
+) -> EvalResult:
+    """T7.30: `infer_story_overview` soft recall — logline keywords, outline
+    scene coverage, beat-sheet coverage, two-paragraph shape."""
+    planted = _overview_planted_spec()
+    if not _OVERVIEW_FOUNTAIN.read_text().strip():
+        return EvalResult(
+            name="story-overview",
+            metric="planted overview shape recall",
+            score=0.0,
+            gate=STORY_OVERVIEW_GATE,
+            hard=False,
+            detail={},
+            notes=["fixture missing"],
+        )
+
+    from llm.mock import MockLlmClient
+
+    if isinstance(client, MockLlmClient):
+        client.set_responses("infer_story_overview", [_seed_overview_response()])
+
+    project, summaries, scene_ids, beats = _overview_fixture_context()
+    planted_scenes = set(planted["plantedSceneIds"])
+    planted_beats = set(planted["plantedBeatIds"])
+    logline_needles = planted["loglineMatchAny"]
+
+    scores: list[float] = []
+    halluc_hits = 0
+    for i in range(runs):
+        emit_attempt(on_progress, family="story-overview", run=i + 1, runs=runs)
+        t0 = time.monotonic()
+        system, user = render.build_overview_prompt(
+            project, summaries, scene_ids, beats, render.new_nonce()
+        )
+        try:
+            result: InferredStoryOverview = client.infer_story_overview(
+                system=system, user_message=user, prompt_version=render.PROMPT_VERSION
+            )
+        except (SchemaInvalidLlmError, LlmTimeoutError):
+            scores.append(0.0)
+            emit_attempt(
+                on_progress,
+                family="story-overview",
+                run=i + 1,
+                runs=runs,
+                status="done",
+                elapsed=time.monotonic() - t0,
+            )
+            continue
+
+        checks = 0
+        hits = 0
+        checks += 1
+        if result.logline.strip() and _matches_any(result.logline, logline_needles):
+            hits += 1
+        checks += 1
+        outline_ids = {r.scene_id for r in result.outline}
+        if planted_scenes and len(outline_ids & planted_scenes) / len(planted_scenes) >= 0.8:
+            hits += 1
+        checks += 1
+        beat_ids = {r.beat_id for r in result.beat_sheet if r.summary.strip()}
+        if planted_beats and len(beat_ids & planted_beats) / len(planted_beats) >= 0.5:
+            hits += 1
+        checks += 1
+        paras = [p for p in result.summary.split("\n\n") if p.strip()]
+        if len(paras) == planted.get("summaryParagraphs", 2):
+            hits += 1
+        scores.append(hits / max(1, checks))
+
+        blob = _overview_text_blob(result)
+        forbidden = planted.get("hallucinationGuard", {}).get("forbiddenWithoutBasis", [])
+        if _matches_any(blob, forbidden) and hits == 0:
+            halluc_hits += 1
+        emit_attempt(
+            on_progress,
+            family="story-overview",
+            run=i + 1,
+            runs=runs,
+            status="done",
+            elapsed=time.monotonic() - t0,
+        )
+
+    mean = sum(scores) / len(scores) if scores else 0.0
+    score = mean * (0.0 if halluc_hits == runs else 1.0)
+    note = "soft gate (T7.30)"
+    if isinstance(client, MockLlmClient):
+        note = "soft gate (T7.30); Mock seeded with planted-shaped overview for dry-run"
+
+    return EvalResult(
+        name="story-overview",
+        metric="logline/outline/beat-sheet/summary shape (hallucination-penalized)",
+        score=score,
+        gate=STORY_OVERVIEW_GATE,
+        hard=False,
+        detail={"meanScore": round(mean, 4), "hallucinationRuns": halluc_hits},
+        notes=[note],
+    )
+
+
+def story_overview_merge_eval(
+    client: LlmClient, *, runs: int, on_progress: ProgressFn | None = None
+) -> EvalResult:
+    """T7.30: planted overview through real `merge_story_overview`."""
+    from llm.mock import MockLlmClient
+
+    if isinstance(client, MockLlmClient):
+        client.set_responses("infer_story_overview", [_seed_overview_response()])
+
+    project, summaries, scene_ids, beats = _overview_fixture_context()
+    planted = _overview_planted_spec()
+    rates: list[float] = []
+    for i in range(runs):
+        emit_attempt(on_progress, family="story-overview-merge", run=i + 1, runs=runs)
+        t0 = time.monotonic()
+        system, user = render.build_overview_prompt(
+            project, summaries, scene_ids, beats, render.new_nonce()
+        )
+        try:
+            result = client.infer_story_overview(
+                system=system, user_message=user, prompt_version=render.PROMPT_VERSION
+            )
+        except (SchemaInvalidLlmError, LlmTimeoutError):
+            rates.append(0.0)
+            emit_attempt(
+                on_progress,
+                family="story-overview-merge",
+                run=i + 1,
+                runs=runs,
+                status="done",
+                elapsed=time.monotonic() - t0,
+            )
+            continue
+
+        doc = {
+            "premise": "",
+            "seasons": [
+                {
+                    "id": "season-1",
+                    "episodes": [
+                        {
+                            "id": "ep-overview-1",
+                            "locked": False,
+                            "premise": "",
+                            "scenes": [
+                                {
+                                    "id": sid,
+                                    "beats": [
+                                        {"id": f"beat-overview-{n + 1}-1"}
+                                        for n, s in enumerate(scene_ids)
+                                        if s == sid
+                                    ],
+                                }
+                                for sid in scene_ids
+                            ],
+                            "storyOverview": None,
+                        }
+                    ],
+                }
+            ],
+        }
+        # ensure each scene has its beat
+        for n, sid in enumerate(scene_ids):
+            doc["seasons"][0]["episodes"][0]["scenes"][n]["beats"] = [
+                {"id": f"beat-overview-{n + 1}-1"}
+            ]
+        merge_story_overview(doc, "ep-overview-1", result)
+        ep = doc["seasons"][0]["episodes"][0]
+        ov = ep.get("storyOverview") or {}
+        checks = 0
+        hits = 0
+        checks += 1
+        if ov.get("outline"):
+            hits += 1
+        checks += 1
+        if ov.get("beatSheet"):
+            hits += 1
+        checks += 1
+        if doc.get("premise") == ov.get("logline") and ep.get("premise") == ov.get("logline"):
+            hits += 1
+        checks += 1
+        if ov.get("provenance") == "inferred":
+            hits += 1
+        rates.append(hits / max(1, checks))
+        emit_attempt(
+            on_progress,
+            family="story-overview-merge",
+            run=i + 1,
+            runs=runs,
+            status="done",
+            elapsed=time.monotonic() - t0,
+        )
+
+    mean = sum(rates) / len(rates) if rates else 0.0
+    note = "soft gate (T7.30 merge)"
+    if isinstance(client, MockLlmClient):
+        note = "soft gate (T7.30 merge); Mock seeded for dry-run"
+    return EvalResult(
+        name="story-overview-merge",
+        metric="merge resolution / premise backfill",
+        score=mean,
+        gate=STORY_OVERVIEW_MERGE_GATE,
+        hard=False,
+        detail={"meanResolution": round(mean, 4), "plantedScenes": len(planted["plantedSceneIds"])},
         notes=[note],
     )

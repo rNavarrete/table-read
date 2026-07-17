@@ -1,0 +1,11 @@
+{
+  "description": "T7.30 golden story-overview fixture. Plants logline keyword expectations (Nora/compass/debt/Cass), two scene ids for outline coverage, two beat ids for beat-sheet coverage, and a two-paragraph synopsis shape.",
+  "source": "fixtures/story-overview.fountain",
+  "loglineMatchAny": ["Nora", "compass", "debt", "Cass", "tide", "promise"],
+  "plantedSceneIds": ["scene-overview-1", "scene-overview-2"],
+  "plantedBeatIds": ["beat-overview-1-1", "beat-overview-2-1"],
+  "summaryParagraphs": 2,
+  "hallucinationGuard": {
+    "forbiddenWithoutBasis": ["shipwreck", "murder", "affair", "smuggling", "coast guard arrest", "drowned"]
+  }
+}

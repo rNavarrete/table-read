@@ -45,6 +45,8 @@ _ONLY_CHOICES = (
     "alias-resolution",
     "narrative-promises",
     "narrative-promises-merge",
+    "story-overview",
+    "story-overview-merge",
 )
 
 

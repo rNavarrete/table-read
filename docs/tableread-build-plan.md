@@ -174,7 +174,7 @@ Replaces the hardcoded seeded entry point with a project dashboard, idea/import 
 **T7.29 Ledger Overview panel.** FilterRail Overview entry + `OverviewPanel` (logline, summary, outline, beat sheet) with scene/beat jumps; optional header logline teaser; tokens only; Vitest. Plan Task 3. — implemented.
 *Accept:* imported project shows overview; empty state when absent; jumps land in Write; no contract change beyond display.
 
-**T7.30 Story-overview evals.** Planted fountain + JSON; soft gates for logline presence, outline scene-coverage, beat-sheet coverage, two-paragraph shape; dry-run wired; real `make evals` only when authorized. Plan Task 4.
+**T7.30 Story-overview evals.** Planted fountain + JSON; soft gates for logline presence, outline scene-coverage, beat-sheet coverage, two-paragraph shape; dry-run wired; real `make evals` only when authorized. Plan Task 4. — implemented (dry-run path; real evals not run).
 *Accept:* families in `--full` / `--only`; dry-run green; test-plan rows added; **`make evals` not run**.
 
 ## Milestone 8 — Fabula adoption (P-MVP slices)

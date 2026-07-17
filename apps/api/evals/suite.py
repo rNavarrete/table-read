@@ -37,6 +37,8 @@ EVAL_KEYS: dict[str, str] = {
     "alias-resolution": "aliasResolution",
     "narrative-promises": "narrativePromises",
     "narrative-promises-merge": "narrativePromisesMerge",
+    "story-overview": "storyOverview",
+    "story-overview-merge": "storyOverviewMerge",
 }
 
 HARD_RUNS = 5
@@ -63,6 +65,8 @@ SOFT_EVAL_KEYS: tuple[str, ...] = (
     "alias-resolution",
     "narrative-promises",
     "narrative-promises-merge",
+    "story-overview",
+    "story-overview-merge",
 )
 
 # `--only`/checkpoint short key → the `EvalResult.name` that family produces.
@@ -83,6 +87,8 @@ FAMILY_RESULT_NAME: dict[str, str] = {
     "alias-resolution": "alias-resolution",
     "narrative-promises": "narrative-promises",
     "narrative-promises-merge": "narrative-promises-merge",
+    "story-overview": "story-overview",
+    "story-overview-merge": "story-overview-merge",
 }
 
 
@@ -120,7 +126,8 @@ def nominal_call_estimate(runs: dict[str, int]) -> dict:
     `aliasResolution` each call `infer_story_entities` once per run, same as
     the other single-probe soft families; `narrativePromises` and
     `narrativePromisesMerge` (T7.22) each call `infer_narrative_promises`
-    once per run, same shape. Rule-9 retries can add up to one extra call
+    once per run, same shape; `storyOverview` / `storyOverviewMerge`
+    (T7.30) each call `infer_story_overview` once per run. Rule-9 retries can add up to one extra call
     per product call (observed-worst budget ≈ 1.5× total). Core defaults
     (schema/act-validity/lock/continuity, N=5): ≈88 nominal; `--full` adds
     soft families (≈+50); `--runs 1` core ≈20."""
@@ -137,6 +144,8 @@ def nominal_call_estimate(runs: dict[str, int]) -> dict:
     alias_resolution = runs["aliasResolution"]
     narrative_promises = runs["narrativePromises"]
     narrative_promises_merge = runs["narrativePromisesMerge"]
+    story_overview = runs["storyOverview"]
+    story_overview_merge = runs["storyOverviewMerge"]
     return {
         "schemaValidity": schema,
         "actBoundaryValidity": act_validity,
@@ -151,6 +160,8 @@ def nominal_call_estimate(runs: dict[str, int]) -> dict:
         "aliasResolution": alias_resolution,
         "narrativePromises": narrative_promises,
         "narrativePromisesMerge": narrative_promises_merge,
+        "storyOverview": story_overview,
+        "storyOverviewMerge": story_overview_merge,
         "totalNominal": (
             schema
             + act_validity
@@ -165,6 +176,8 @@ def nominal_call_estimate(runs: dict[str, int]) -> dict:
             + alias_resolution
             + narrative_promises
             + narrative_promises_merge
+            + story_overview
+            + story_overview_merge
         ),
     }
 
@@ -354,6 +367,18 @@ def run_suite(
         "narrative-promises-merge",
         lambda: adoption.narrative_promises_merge_eval(
             client, runs=runs[EVAL_KEYS["narrative-promises-merge"]], on_progress=on_progress
+        ),
+    )
+    run_family(
+        "story-overview",
+        lambda: adoption.story_overview_eval(
+            client, runs=runs[EVAL_KEYS["story-overview"]], on_progress=on_progress
+        ),
+    )
+    run_family(
+        "story-overview-merge",
+        lambda: adoption.story_overview_merge_eval(
+            client, runs=runs[EVAL_KEYS["story-overview-merge"]], on_progress=on_progress
         ),
     )
 

@@ -301,6 +301,28 @@ def _suggest_prompt(ctx: FixtureCtx) -> tuple[str, str]:
     )
 
 
+
+def _overview_prompt(ctx: FixtureCtx) -> tuple[str, str]:
+    scene = ctx.scene("scene-1")
+    beats = scene.get("beats") or []
+    beat_id = beats[0]["id"] if beats else "beat-1-1"
+    scene_summaries = [
+        {
+            "id": scene["id"],
+            "location": scene.get("location", ""),
+            "whatHappens": scene.get("whatHappens", ""),
+            "scriptText": (beats[0].get("scriptText", "") if beats else "")[:200],
+        }
+    ]
+    return render.build_overview_prompt(
+        ctx.doc,
+        scene_summaries,
+        [scene["id"]],
+        [{"beatId": beat_id, "sceneId": scene["id"]}],
+        render.new_nonce(),
+    )
+
+
 # op name -> prompt builder. Every op here has a real render builder + call site
 # in the product code.
 SCHEMA_PROBES: dict[str, PromptBuilder] = {
@@ -313,4 +335,5 @@ SCHEMA_PROBES: dict[str, PromptBuilder] = {
     "segment_scene": _segment_prompt,
     "scan_consistency": _scan_prompt,
     "suggest_instructions": _suggest_prompt,
+    "infer_story_overview": _overview_prompt,
 }
