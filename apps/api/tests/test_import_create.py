@@ -18,6 +18,7 @@ Two test styles, matching test_import.py's own split:
 from __future__ import annotations
 
 import json
+import logging
 import threading
 from types import SimpleNamespace
 
@@ -451,7 +452,7 @@ def test_failing_scene_worker_fails_fast_with_zero_rows(db_session, monkeypatch)
     _assert_no_new_rows(db_session, baseline)
 
 
-def test_llm_transport_error_maps_to_failed_zero_rows(db_session, mock_llm):
+def test_llm_transport_error_maps_to_failed_zero_rows(db_session, mock_llm, caplog):
     exc = anthropic.APIConnectionError(request=httpx.Request("POST", "https://api.anthropic.com"))
 
     class _Raising(MockLlmClient):
@@ -461,11 +462,12 @@ def test_llm_transport_error_maps_to_failed_zero_rows(db_session, mock_llm):
     app.dependency_overrides[get_llm_client] = lambda: _Raising()
     try:
         before = db_session.query(ProjectRow).count()
-        resp = client.post(
-            URL,
-            json=_body("INT. BAR\nx"),
-            headers=_headers("00000000-0000-4000-8000-000000000106"),
-        )
+        with caplog.at_level(logging.WARNING, logger="fountain.create_import"):
+            resp = client.post(
+                URL,
+                json=_body("INT. BAR\nx"),
+                headers=_headers("00000000-0000-4000-8000-000000000106"),
+            )
     finally:
         app.dependency_overrides[get_llm_client] = lambda: mock_llm
 
@@ -473,6 +475,10 @@ def test_llm_transport_error_maps_to_failed_zero_rows(db_session, mock_llm):
     assert events[-1][0] == "failed"
     assert events[-1][1]["error"]["code"] == "LLM_UNAVAILABLE"
     assert db_session.query(ProjectRow).count() == before
+    joined = " ".join(r.getMessage() for r in caplog.records)
+    assert "llm_unavailable" in joined
+    assert "APIConnectionError" in joined
+    assert "create_and_import" in joined
 
 
 # ── idempotency (T4 semantics, over SSE) ─────────────────────────────────────

@@ -38,6 +38,11 @@ $(NODE_MARKER): package.json $(WEB_DIR)/package.json $(CONTRACT_DIR)/package.jso
 # ANTHROPIC_API_KEY is exported (llm/dependency.py) — dev works keyless, but
 # a real key in the environment still wins and selects the real client.
 dev: $(VENV_BIN)/activate $(NODE_MARKER)
+	@if [ -n "$$ANTHROPIC_API_KEY" ]; then \
+		echo "note: ANTHROPIC_API_KEY is set — real Anthropic client (mock flag ignored). For mock smoke: env -u ANTHROPIC_API_KEY make dev"; \
+	else \
+		echo "note: no ANTHROPIC_API_KEY — serving MockLlmClient"; \
+	fi
 	@trap 'kill 0' EXIT INT TERM; \
 	TABLEREAD_ALLOW_MOCK_LLM=1 $(VENV_BIN)/uvicorn --app-dir $(API_DIR) main:app --reload --port 8000 & \
 	npm run dev --workspace=$(WEB_DIR) & \

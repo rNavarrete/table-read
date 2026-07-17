@@ -265,6 +265,18 @@ def analyze_import(
     system, user = render.build_entity_prompt(
         new_doc, _entity_scene_summaries(scene_docs), speaker_names, render.new_nonce()
     )
+    # Counts/hashes only (hard rule 5) — entity inference is one classifier
+    # call over the whole import; size + prior concurrency often explain
+    # LLM_UNAVAILABLE here after per-scene segmentation succeeded.
+    _logger.info(
+        "import_infer_entities_start scenes=%d speakers=%d user_chars=%d "
+        "system_chars=%d prompt_version=%s",
+        len(scene_docs),
+        len(speaker_names),
+        len(user),
+        len(system),
+        render.PROMPT_VERSION,
+    )
     entities = llm.infer_story_entities(
         system=system, user_message=user, prompt_version=render.PROMPT_VERSION
     )

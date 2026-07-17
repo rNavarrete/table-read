@@ -10,6 +10,9 @@ until T2.1 (the first LLM-backed endpoint)."""
 
 from __future__ import annotations
 
+import logging
+from typing import Any
+
 
 class LlmTimeoutError(Exception):
     """Raised when `messages.create` exceeds its wall-clock timeout (task 3's
@@ -42,3 +45,37 @@ class SchemaInvalidLlmError(Exception):
         # model-produced field value (e.g. a wrong-typed string). Whoever
         # eventually logs this exception at the route layer must log only
         # `.op` / `.code`, never `.__context__` or `.__cause__`.
+
+
+def _anthropic_error_type(exc: BaseException) -> Any:
+    """Pull `error.type` from an Anthropic SDK body when present — never the
+    human `message` field (hard rule 5: may theoretically echo fragments)."""
+    body = getattr(exc, "body", None)
+    if not isinstance(body, dict):
+        return None
+    inner = body.get("error")
+    if isinstance(inner, dict):
+        return inner.get("type")
+    return body.get("type")
+
+
+def log_llm_unavailable(
+    logger: logging.Logger,
+    exc: BaseException,
+    *,
+    where: str,
+    op: str | None = None,
+) -> None:
+    """Log structured metadata when mapping a transport/timeout failure to
+    `LLM_UNAVAILABLE`. Logs class name, HTTP status, Anthropic error type,
+    request id, and op — never exception message, body text, or prompts."""
+    resolved_op = op if op is not None else getattr(exc, "op", None)
+    logger.warning(
+        "llm_unavailable where=%s cause=%s op=%s status=%s error_type=%s request_id=%s",
+        where,
+        type(exc).__name__,
+        resolved_op,
+        getattr(exc, "status_code", None),
+        _anthropic_error_type(exc),
+        getattr(exc, "request_id", None),
+    )
