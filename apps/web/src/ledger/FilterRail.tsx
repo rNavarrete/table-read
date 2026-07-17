@@ -99,6 +99,40 @@ export function FilterRail({
   const pendingCount = facts.filter((f) => f.status === 'pending_review').length
   const statusOpen = filters.status !== 'all'
 
+  const charactersWithCounts = project.seriesBible.characters.map((c) => ({
+    character: c,
+    count: countKnownBy(facts, c.id),
+  }))
+  const peopleWithFacts = charactersWithCounts.filter((c) => c.count > 0)
+  const peopleWithoutFacts = charactersWithCounts.filter((c) => c.count === 0)
+  const zeroCountSelected = peopleWithoutFacts.some(
+    (c) => c.character.id === filters.characterId,
+  )
+
+  const renderPersonOption = (
+    character: { id: string; name: string },
+    count: number,
+  ) => (
+    <label
+      key={character.id}
+      className={optionClass(filters.characterId === character.id)}
+    >
+      <input
+        className="sr-only"
+        type="radio"
+        name="ledger-character"
+        checked={filters.characterId === character.id}
+        onChange={() => onChange({ ...filters, characterId: character.id })}
+      />
+      <span>
+        {character.name}
+        {facts.length > 0 && (
+          <span className="ml-1 text-tr-text-muted">({count})</span>
+        )}
+      </span>
+    </label>
+  )
+
   return (
     <aside
       className="w-panel-ledger-filters shrink-0 border-r border-tr-border bg-tr-surface-sunken p-4"
@@ -132,29 +166,25 @@ export function FilterRail({
             />
             All
           </label>
-          {project.seriesBible.characters.map((c) => {
-            const count = countKnownBy(facts, c.id)
-            return (
-              <label
-                key={c.id}
-                className={optionClass(filters.characterId === c.id)}
-              >
-                <input
-                  className="sr-only"
-                  type="radio"
-                  name="ledger-character"
-                  checked={filters.characterId === c.id}
-                  onChange={() => onChange({ ...filters, characterId: c.id })}
-                />
-                <span>
-                  {c.name}
-                  {facts.length > 0 && (
-                    <span className="ml-1 text-tr-text-muted">({count})</span>
-                  )}
-                </span>
-              </label>
-            )
-          })}
+          {peopleWithFacts.map(({ character, count }) =>
+            renderPersonOption(character, count),
+          )}
+          {peopleWithoutFacts.length > 0 && (
+            <details
+              className="mt-1"
+              data-testid="filter-rail-people-zero"
+              open={zeroCountSelected || undefined}
+            >
+              <summary className="cursor-pointer rounded-chip px-3 py-1 text-12 text-tr-text-muted hover:bg-tr-surface-clay">
+                No linked facts ({peopleWithoutFacts.length})
+              </summary>
+              <div className="mt-1 flex flex-col gap-1">
+                {peopleWithoutFacts.map(({ character, count }) =>
+                  renderPersonOption(character, count),
+                )}
+              </div>
+            </details>
+          )}
         </div>
       </fieldset>
 

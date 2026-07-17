@@ -159,7 +159,7 @@ Same `LedgerFilters` model (`status`, `characterId`, `factType`); writer-facing 
 
 | Control | Options / chrome |
 |---|---|
-| **People** | All · character names with `(n)` knownBy counts (also sets Knowledge Web focus when Web is active); Manage cast link |
+| **People** | All · characters with knownBy count `> 0` and `(n)` badges (also sets Knowledge Web focus when Web is active). Zero-count cast (unused / slugline junk) lives under a collapsed **No linked facts (N)** disclosure — expandable, not removed. Manage cast link |
 | **Browse** | All truths · Events · States · Knowledge · Relationships · World rules — chapter/`factType` filter with `(n)` counts (replaces the former “Lenses” label) |
 | **Threads** | Setups & payoffs entry (when wired) |
 | **Status** | Collapsed by default when All; summary shows pending “N to review”. Expand for All · Needs review · Active · Superseded · Stale · Rejected |

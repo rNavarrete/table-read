@@ -12,6 +12,8 @@ const project = {
     characters: [
       { id: 'char-marta', name: 'Marta Vega' },
       { id: 'char-dan', name: 'Dan Vega' },
+      { id: 'char-slug', name: 'INT. KITCHEN - DAY' },
+      { id: 'char-extra', name: 'Waiter' },
     ],
   },
 } as Project
@@ -119,6 +121,86 @@ describe('FilterRail', () => {
     expect(screen.getByText(/Dan Vega/).textContent).toContain('(2)')
     expect(screen.getByText(/Knowledge/).textContent).toContain('(2)')
     expect(screen.getByText(/Events/).textContent).toContain('(1)')
+  })
+
+  it('keeps zero-count people under a collapsed disclosure', () => {
+    render(
+      <FilterRail
+        project={project}
+        filters={{
+          status: 'all',
+          characterId: null,
+          factType: 'all',
+        }}
+        onChange={vi.fn()}
+        facts={sampleFacts}
+      />,
+    )
+
+    const rail = screen.getByTestId('ledger-filter-rail')
+    const primaryPeople = rail.querySelector('fieldset')
+    expect(primaryPeople?.textContent).toMatch(/Marta Vega/)
+    expect(primaryPeople?.textContent).toMatch(/Dan Vega/)
+
+    const zero = screen.getByTestId('filter-rail-people-zero')
+    expect(zero.hasAttribute('open')).toBe(false)
+    expect(zero.textContent).toMatch(/No linked facts \(2\)/)
+    expect(zero.textContent).toMatch(/INT\. KITCHEN - DAY/)
+    expect(zero.textContent).toMatch(/Waiter/)
+
+    // Zero-count names are not in the primary radio list above the disclosure.
+    const primaryLabels = Array.from(
+      primaryPeople?.querySelectorAll(':scope > div > label') ?? [],
+    ).map((el) => el.textContent ?? '')
+    expect(primaryLabels.some((t) => t.includes('Waiter'))).toBe(false)
+    expect(primaryLabels.some((t) => t.includes('INT. KITCHEN'))).toBe(false)
+  })
+
+  it('expands zero-count people when one of them is selected', () => {
+    render(
+      <FilterRail
+        project={project}
+        filters={{
+          status: 'all',
+          characterId: 'char-extra',
+          factType: 'all',
+        }}
+        onChange={vi.fn()}
+        facts={sampleFacts}
+      />,
+    )
+
+    const zero = screen.getByTestId('filter-rail-people-zero')
+    expect(zero.hasAttribute('open')).toBe(true)
+    expect(screen.getByLabelText(/Waiter/).parentElement?.className).toContain(
+      'bg-tr-coral-soft',
+    )
+  })
+
+  it('still allows selecting a zero-count person from the disclosure', async () => {
+    const user = userEvent.setup()
+    const onChange = vi.fn()
+    render(
+      <FilterRail
+        project={project}
+        filters={{
+          status: 'all',
+          characterId: null,
+          factType: 'all',
+        }}
+        onChange={onChange}
+        facts={sampleFacts}
+      />,
+    )
+
+    const zero = screen.getByTestId('filter-rail-people-zero')
+    await user.click(screen.getByText(/No linked facts \(2\)/))
+    expect(zero.hasAttribute('open')).toBe(true)
+
+    await user.click(screen.getByLabelText(/Waiter/))
+    expect(onChange).toHaveBeenCalledWith(
+      expect.objectContaining({ characterId: 'char-extra' }),
+    )
   })
 
   it('collapses Status by default and shows pending count in summary', () => {
