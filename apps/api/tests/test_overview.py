@@ -335,9 +335,13 @@ def test_overview_prompt_uses_tv_act_grammar_and_spine():
     assert "scene_spine" in user
     assert "show_format" in user
     assert "known_cast" in user
-    assert "Act N Turn" in user or "Act N Out" in user
-    assert "Save-the-Cat" in user or "Save the Cat" in user or "feature-only" in user
-    assert "Hook, Inciting" not in user
+    assert "Act One Turn" in user
+    assert "HARD BAN" in user
+    assert "Inciting Incident" in user
+    assert "Climactic Reversal" in user
+    assert "Act Two Opening" in user
+    assert "never emit" in user or "HARD BAN" in user
+    assert "Tag (ONLY when tag is true" in user
     assert "whatHappens" in user
     assert "location-theater" in user or "becomes a space for" in user
     assert "scriptExcerpt" in user
@@ -450,3 +454,118 @@ def test_overview_prompt_inputs_include_learns_feels_and_excerpt():
     assert spine[0]["audienceFeels"] == "Tension"
     assert "Cancel it." in spine[0]["scriptExcerpt"]
     assert beats[0]["audienceLearns"] == "The stall is deliberate."
+
+
+def test_merge_rewrites_banned_film_labels_and_coerces_tag_act():
+    from drama_manager.overview import coerce_beat_label_and_act, is_banned_film_label
+
+    assert is_banned_film_label("Inciting Incident")
+    assert is_banned_film_label("Midpoint")
+    assert is_banned_film_label("Climactic Reversal")
+    assert is_banned_film_label("Act Two Opening")
+    assert not is_banned_film_label("Act Two Turn")
+
+    fmt = {
+        "genre": "drama",
+        "runtimeMinutes": 60,
+        "actCount": 4,
+        "coldOpen": True,
+        "tag": True,
+        "serialization": 0.5,
+    }
+    assert coerce_beat_label_and_act("Inciting Incident", 1, fmt) == (
+        "Act One Turn",
+        1,
+    )
+    assert coerce_beat_label_and_act("Midpoint", 2, fmt) == ("Act Two Turn", 2)
+    assert coerce_beat_label_and_act("Tag", 4, fmt) == ("Tag", None)
+    assert coerce_beat_label_and_act("Cold Open", 2, fmt) == ("Cold Open", 0)
+
+    doc = _doc(
+        scenes=[
+            {
+                "id": "scene-1",
+                "act": 1,
+                "index": 0,
+                "location": "INT. OVAL OFFICE",
+                "beats": [{"id": "beat-1-1", "whatHappens": "Bartlet cancels."}],
+            },
+            {
+                "id": "scene-hall",
+                "act": 3,
+                "index": 1,
+                "location": "INT. MAIN HALL",
+                "beats": [
+                    {
+                        "id": "beat-hall-1",
+                        "whatHappens": "Staff walk the Main Hall after the vote.",
+                    }
+                ],
+            },
+            {
+                "id": "scene-2",
+                "act": 4,
+                "index": 2,
+                "location": "INT. MAP ROOM",
+                "beats": [
+                    {
+                        "id": "beat-2-1",
+                        "whatHappens": "CJ closes the night in the Map Room.",
+                    }
+                ],
+            },
+        ]
+    )
+    doc["format"] = fmt
+    merge_story_overview(
+        doc,
+        "ep-1",
+        overview(
+            beatSheet=[
+                {
+                    "beatId": "beat-1-1",
+                    "label": "Inciting Incident",
+                    "summary": "Bartlet cancels Meet the Press.",
+                    "sceneId": "scene-1",
+                    "act": 1,
+                },
+                {
+                    "beatId": "beat-2-1",
+                    "label": "Tag",
+                    "summary": "Staff walk the Main Hall after the vote.",
+                    "sceneId": "scene-2",
+                    "act": 4,
+                },
+            ],
+            outline=[
+                {"sceneId": "scene-1", "summary": "Bartlet cancels."},
+                {"sceneId": "scene-2", "summary": "Map Room close."},
+            ],
+        ),
+    )
+    rows = doc["seasons"][0]["episodes"][0]["storyOverview"]["beatSheet"]
+    by_id = {r["beatId"]: r for r in rows}
+    assert by_id["beat-1-1"]["label"] == "Act One Turn"
+    assert by_id["beat-1-1"]["act"] == 1
+    assert by_id["beat-2-1"]["label"] == "Tag"
+    assert by_id["beat-2-1"]["act"] is None
+    # Tag prose drifted to Main Hall; prefer Map Room beat whatHappens.
+    assert by_id["beat-2-1"]["summary"] == "CJ closes the night in the Map Room."
+
+
+def test_merge_normalizes_literal_backslash_n_in_summary():
+    doc = _doc()
+    merge_story_overview(
+        doc,
+        "ep-1",
+        overview(
+            summary=(
+                "Nora finds the letter and weighs the cost.\\n\\n"
+                "She confronts Cass as the tide turns."
+            )
+        ),
+    )
+    summary = doc["seasons"][0]["episodes"][0]["storyOverview"]["summary"]
+    assert "\\n" not in summary
+    assert "\n\n" in summary
+    assert len([p for p in summary.split("\n\n") if p.strip()]) == 2

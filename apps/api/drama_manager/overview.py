@@ -1,13 +1,14 @@
-"""`merge_story_overview` (T7.28 / content-quality amendment): fold
+"""`merge_story_overview` (T7.28 / content-quality + TV-label harden): fold
 `infer_story_overview` (InferredStoryOverview) into a project doc — see
 `docs/superpowers/specs/2026-07-17-import-story-overview-design.md`.
 
 Grounds outline/beat-sheet rows to real scene/beat ids (unknown ids dropped),
-resolves `sceneId` and coerces `act` from the beat's parent scene, sorts and
-dedupes the beat sheet, soft-replaces location-theater outline/beat summaries
-with segmented beat text when available (never invents anchors), sets
-provenance inferred, and backfills empty premises from the logline. Locked
-overview or locked episode → no-op.
+resolves `sceneId` and coerces `act` from the beat's parent scene, normalizes
+Tag/Cold Open acts and banned film labels to TV act vocabulary, sorts and
+dedupes the beat sheet, soft-replaces location-theater or scene-mismatched
+outline/beat summaries with segmented beat text when available (never invents
+anchors), sets provenance inferred, and backfills empty premises from the
+logline. Locked overview or locked episode → no-op.
 
 No writer/import text is logged here (hard rule 5) — only ids and counts.
 """
@@ -34,6 +35,35 @@ _LOCATION_THEATER_PHRASES = (
     "final reversal or commitment",
     "final reversal",
     "character dynamics",
+)
+
+# Film / STC labels that must never ship as beat-sheet vocabulary.
+_BANNED_FILM_LABELS = (
+    "inciting incident",
+    "midpoint",
+    "climactic reversal",
+    "act two opening",
+    "opening image",
+    "theme stated",
+    "catalyst",
+    "break into two",
+    "fun and games",
+    "bad guys close in",
+    "all is lost",
+    "dark night of the soul",
+    "break into three",
+    "final image",
+)
+
+_ACT_ORDINAL_WORDS = (
+    "One",
+    "Two",
+    "Three",
+    "Four",
+    "Five",
+    "Six",
+    "Seven",
+    "Eight",
 )
 
 
@@ -144,6 +174,37 @@ def is_location_theater(summary: str, location: str = "") -> bool:
     return False
 
 
+def summary_mismatches_scene(
+    summary: str, scene_id: str, locations: dict[str, str]
+) -> bool:
+    """True when summary clearly names another scene's location over its own.
+
+    Used to catch Tag (etc.) rows whose prose drifted to a different room
+    than the beat's parent scene — prefer segmented whatHappens instead.
+    """
+    summary_n = _norm_text(summary)
+    if not summary_n:
+        return False
+    own_n = _norm_text(locations.get(scene_id, ""))
+    own_tokens = {t for t in own_n.split() if len(t) > 3}
+    for other_id, other_loc in locations.items():
+        if other_id == scene_id:
+            continue
+        other_n = _norm_text(other_loc)
+        if not other_n or len(other_n) < 5:
+            continue
+        other_tokens = {t for t in other_n.split() if len(t) > 3} - own_tokens
+        if not other_tokens:
+            continue
+        hits_other = sum(1 for t in other_tokens if t in summary_n.split())
+        hits_own = sum(1 for t in own_tokens if t in summary_n.split())
+        if other_n in summary_n and (not own_n or own_n not in summary_n):
+            return True
+        if hits_other >= 2 and hits_other > hits_own:
+            return True
+    return False
+
+
 def _prefer_concrete(summary: str, fallback: str, location: str = "") -> str:
     """Keep LLM summary unless it is location theater and fallback is concrete."""
     fallback = (fallback or "").strip()
@@ -152,6 +213,87 @@ def _prefer_concrete(summary: str, fallback: str, location: str = "") -> str:
     if fallback and not is_location_theater(fallback, location):
         return fallback
     return summary
+
+
+def _prefer_aligned(
+    summary: str,
+    fallback: str,
+    *,
+    scene_id: str,
+    locations: dict[str, str],
+    location: str,
+) -> str:
+    """Location-theater first, then scene-alignment vs other locations."""
+    chosen = _prefer_concrete(summary, fallback, location)
+    fallback = (fallback or "").strip()
+    if (
+        summary_mismatches_scene(chosen, scene_id, locations)
+        and fallback
+        and not summary_mismatches_scene(fallback, scene_id, locations)
+    ):
+        return fallback
+    return chosen
+
+
+def normalize_overview_newlines(text: str) -> str:
+    """Collapse double-escaped newlines so synopsis paragraphs render."""
+    if "\\" not in text:
+        return text
+    return (
+        text.replace("\\r\\n", "\n")
+        .replace("\\n", "\n")
+        .replace("\\r", "\n")
+        .replace("\\t", "\t")
+    )
+
+
+def is_banned_film_label(label: str) -> bool:
+    norm = _norm_text(label)
+    if not norm:
+        return False
+    return any(banned in norm for banned in _BANNED_FILM_LABELS)
+
+
+def _is_tag_label(label: str) -> bool:
+    return bool(re.search(r"\btag\b", label or "", flags=re.IGNORECASE))
+
+
+def _is_cold_open_label(label: str) -> bool:
+    return bool(
+        re.search(r"\b(cold\s*open|teaser)\b", label or "", flags=re.IGNORECASE)
+    )
+
+
+def _act_turn_label(act: int | None, format_dict: dict) -> str:
+    if act is None:
+        return "Act Turn"
+    if format_dict.get("coldOpen") and act == 0:
+        return "Cold Open"
+    ordinal = act if format_dict.get("coldOpen") else act + 1
+    if 1 <= ordinal <= len(_ACT_ORDINAL_WORDS):
+        return f"Act {_ACT_ORDINAL_WORDS[ordinal - 1]} Turn"
+    return f"Act {ordinal} Turn"
+
+
+def coerce_beat_label_and_act(
+    label: str, act: int | None, format_dict: dict | None
+) -> tuple[str, int | None]:
+    """Normalize Tag/Cold Open acts and rewrite banned film labels.
+
+    Tag (when format.tag): keep/force label \"Tag\", clear act so UI shows TAG
+    rather than the last numeric act (e.g. ACT FOUR). Cold Open/Teaser (when
+    coldOpen): force act 0. Banned film labels → Act N Turn when act known.
+    """
+    fmt = format_dict or {}
+    cleaned = (label or "").strip() or "Act Turn"
+
+    if _is_tag_label(cleaned) and fmt.get("tag"):
+        return "Tag", None
+    if _is_cold_open_label(cleaned) and fmt.get("coldOpen"):
+        return cleaned, 0
+    if is_banned_film_label(cleaned):
+        return _act_turn_label(act, fmt), act
+    return cleaned, act
 
 
 def merge_story_overview(
@@ -174,6 +316,7 @@ def merge_story_overview(
     locations = _scene_location_map(episode)
     scene_whats = _scene_beat_what_happens(episode)
     beat_whats = _beat_what_happens_map(episode)
+    format_dict = doc.get("format") if isinstance(doc.get("format"), dict) else {}
 
     outline: list[dict] = []
     dropped_outline = 0
@@ -183,8 +326,12 @@ def merge_story_overview(
             dropped_outline += 1
             continue
         location = locations.get(item.scene_id, "")
-        summary = _prefer_concrete(
-            item.summary, scene_whats.get(item.scene_id, ""), location
+        summary = _prefer_aligned(
+            item.summary,
+            scene_whats.get(item.scene_id, ""),
+            scene_id=item.scene_id,
+            locations=locations,
+            location=location,
         )
         if summary != item.summary:
             replaced_outline += 1
@@ -193,6 +340,7 @@ def merge_story_overview(
     beat_sheet: list[dict] = []
     dropped_beats = 0
     replaced_beats = 0
+    rewritten_labels = 0
     seen_beat_ids: set[str] = set()
     for item in result.beat_sheet:
         place = placement.get(item.beat_id)
@@ -204,18 +352,29 @@ def merge_story_overview(
             continue
         seen_beat_ids.add(item.beat_id)
         location = locations.get(place["sceneId"], "")
-        summary = _prefer_concrete(
-            item.summary, beat_whats.get(item.beat_id, ""), location
+        summary = _prefer_aligned(
+            item.summary,
+            beat_whats.get(item.beat_id, ""),
+            scene_id=place["sceneId"],
+            locations=locations,
+            location=location,
         )
         if summary != item.summary:
             replaced_beats += 1
+        label, act = coerce_beat_label_and_act(
+            item.label, place["act"], format_dict
+        )
+        if label != (item.label or "").strip() or act != place["act"]:
+            # Count only vocabulary / module coercions (not mere act-from-scene).
+            if label != (item.label or "").strip() or _is_tag_label(label):
+                rewritten_labels += 1
         beat_sheet.append(
             {
                 "beatId": item.beat_id,
-                "label": item.label,
+                "label": label,
                 "summary": summary,
                 "sceneId": place["sceneId"],
-                "act": place["act"],
+                "act": act,
                 "_sceneOrder": place["sceneOrder"],
                 "_beatOrder": place["beatOrder"],
             }
@@ -230,7 +389,7 @@ def merge_story_overview(
         "logline": result.logline,
         "outline": outline,
         "beatSheet": beat_sheet,
-        "summary": result.summary,
+        "summary": normalize_overview_newlines(result.summary or ""),
         "provenance": "inferred",
         "locked": False,
     }
@@ -246,14 +405,21 @@ def merge_story_overview(
             episode["premise"] = logline
             premise_filled += 1
 
-    if dropped_outline or dropped_beats or replaced_outline or replaced_beats:
+    if (
+        dropped_outline
+        or dropped_beats
+        or replaced_outline
+        or replaced_beats
+        or rewritten_labels
+    ):
         _logger.info(
             "merge_story_overview outline_dropped=%d beat_sheet_dropped=%d "
-            "outline_replaced=%d beat_sheet_replaced=%d",
+            "outline_replaced=%d beat_sheet_replaced=%d labels_rewritten=%d",
             dropped_outline,
             dropped_beats,
             replaced_outline,
             replaced_beats,
+            rewritten_labels,
         )
     _logger.info(
         "merge_story_overview outline=%d beat_sheet=%d premise_filled=%d",

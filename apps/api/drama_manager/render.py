@@ -26,17 +26,17 @@ from typing import Any
 
 # Prompt spec §8 / hard rule 7: every template carries a PROMPT_VERSION (semver);
 # it is logged with each call and bumped on any template change. Bumped to
-# 0.17.0 for story-overview *content quality* (design amendment
-# 2026-07-17-import-story-overview): richer spine/beat inputs, ban
-# location-theater boilerplate, require concrete names/events. Requires
-# `make evals` sign-off before merge (not run until authorized).
-# History: 0.16.0 TV beat-sheet grounding; 0.15.0 T7.28 overview builder;
-# 0.14.0 T7.20 (`build_promises_prompt`); 0.13.0 T7.23 knowledgeEvents;
-# 0.12.0 `build_entity_prompt`; 0.11.0 act-inference; 0.10.0 typed segment
-# starts; 0.9.0 lock-aware narrative repair. Earlier: 0.8.0 suggest;
-# 0.7.0 scene skeleton; 0.6.0 continuity; 0.5.0 regenerate; 0.4.0 blast;
-# 0.3.0 tune; 0.2.0 candidate + §0 system prompt.
-PROMPT_VERSION = "0.17.0"
+# 0.18.0 for story-overview *TV label harden* (post-0.17.0 West Wing): stronger
+# ban on film/STC beat labels, positive TV-only exemplars, Tag = last module
+# when format.tag (not Act Four). Requires `make evals` sign-off before merge
+# (not run until authorized).
+# History: 0.17.0 content quality; 0.16.0 TV beat-sheet grounding; 0.15.0
+# T7.28 overview builder; 0.14.0 T7.20 (`build_promises_prompt`); 0.13.0
+# T7.23 knowledgeEvents; 0.12.0 `build_entity_prompt`; 0.11.0 act-inference;
+# 0.10.0 typed segment starts; 0.9.0 lock-aware narrative repair. Earlier:
+# 0.8.0 suggest; 0.7.0 scene skeleton; 0.6.0 continuity; 0.5.0 regenerate;
+# 0.4.0 blast; 0.3.0 tune; 0.2.0 candidate + §0 system prompt.
+PROMPT_VERSION = "0.18.0"
 
 
 def new_nonce() -> str:
@@ -310,27 +310,33 @@ def build_overview_prompt(
         "order. Each summary is the story action of that scene "
         "(who does what / what changes) — not a paraphrase of location or "
         "slugline. Do not invent scene ids.\n"
-        "- beatSheet: major TV teleplay turns for THIS format — not a "
-        "Save-the-Cat 15-beat feature template. Prefer labels from teleplay "
-        "grammar: Teaser or Cold Open when coldOpen is true; Act N Turn / "
-        "Act N Out for act boundaries; Climax near the end; Tag only when "
-        "tag is true. Midpoint only if a real mid-episode reversal exists "
-        "in the spine — never invent feature-only labels (Opening Image, "
+        "- beatSheet: major TV teleplay turns for THIS format — TV act "
+        "grammar ONLY. Allowed label examples (use only what the format "
+        "supports): Cold Open or Teaser (when coldOpen); Act One Turn, "
+        "Act One Out, Act Two Turn, Act Two Out, Act Three Turn, Act Three "
+        "Out, Act Four Out (match actCount); Climax (near the end of the "
+        "final act); Tag (ONLY when tag is true — the last module after "
+        "climax, never labeled Act Four / Act Five). HARD BAN — never emit "
+        "these film/STC labels even as synonyms: Inciting Incident, "
+        "Midpoint, Climactic Reversal, Act Two Opening, Opening Image, "
         "Theme Stated, Catalyst, Break into Two, Fun and Games, Bad Guys "
         "Close In, All Is Lost, Dark Night of the Soul, Break into Three, "
-        "Final Image). Target about "
+        "Final Image. If a turn feels like a midpoint, label it Act N Turn "
+        "for that act instead. Target about "
         f"{max(modules, 1)}–{max(2 * modules, 2)} rows (modules≈"
         f"{modules}), not one row per scene. Each row MUST use a known "
         "beatId from known_beats; set sceneId to that beat's sceneId; set "
-        "act to that scene's act from scene_spine. Each summary is the "
-        "dramatic TURN (what changes for whom) — not the room, not "
-        "\"stakes rise at the White House\". Do not paste sluglines as "
-        "labels.\n"
-        "- summary: exactly two paragraphs, third person, present tense; "
-        "paragraph 1 = setup/world/inciting with names and concrete "
-        "incidents; paragraph 2 = escalation/climax/resolution with the "
-        "same specificity. Spoil the ending when the script has one. "
-        "No scene-by-scene laundry list and no vague crisis filler."
+        "act to that scene's act from scene_spine (Tag rows use the Tag "
+        "scene's act — do not invent a higher act number). Each summary "
+        "must describe the TURN that happens in THAT beat's scene "
+        "(names/events from that beat's whatHappens / script) — never a "
+        "different room's walk-and-talk. Do not paste sluglines as labels.\n"
+        "- summary: exactly two paragraphs separated by a blank line "
+        "(real newlines, not the characters backslash-n), third person, "
+        "present tense; paragraph 1 = setup/world/inciting with names and "
+        "concrete incidents; paragraph 2 = escalation/climax/resolution "
+        "with the same specificity. Spoil the ending when the script has "
+        "one. No scene-by-scene laundry list and no vague crisis filler."
     )
     return build_system_prompt(project, nonce), user
 

@@ -33,6 +33,28 @@ function beatSceneId(project: Project, beatId: string): string | null {
   return null
 }
 
+/** Collapse double-escaped `\\n` (backslash+n) into real newlines, then split. */
+export function summaryParagraphs(summary: string): string[] {
+  const normalized = summary
+    .replace(/\\r\\n/g, '\n')
+    .replace(/\\n/g, '\n')
+    .replace(/\\r/g, '\n')
+  return normalized
+    .split(/\n\s*\n/)
+    .map((p) => p.trim())
+    .filter(Boolean)
+}
+
+/** Act/module cue for a beat-sheet row — Tag wins over a numeric last-act label. */
+export function beatModuleCue(
+  row: { label: string; act: number | null },
+  format: Project['format'] | undefined,
+): string | null {
+  if (format?.tag && /\btag\b/i.test(row.label)) return 'TAG'
+  if (row.act != null && format) return actLabel(row.act, format)
+  return null
+}
+
 /**
  * Ledger Overview surface (T7.29): episode logline, two-paragraph synopsis,
  * scene outline, and named beat sheet with Write jumps. Read-only for v1.
@@ -43,9 +65,7 @@ export function OverviewPanel({
   onJumpToScene,
   onClose,
 }: OverviewPanelProps) {
-  const summaryParagraphs = overview?.summary
-    ? overview.summary.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean)
-    : []
+  const paragraphs = overview?.summary ? summaryParagraphs(overview.summary) : []
 
   return (
     <Card
@@ -88,7 +108,7 @@ export function OverviewPanel({
             <h3 className="text-12 uppercase tracking-wide text-tr-text-muted">
               Summary
             </h3>
-            {summaryParagraphs.map((para, i) => (
+            {paragraphs.map((para, i) => (
               <p key={i} className="text-13 text-tr-text-secondary">
                 {para}
               </p>
@@ -144,6 +164,7 @@ export function OverviewPanel({
               <ul className="flex flex-col gap-2">
                 {overview.beatSheet.map((row) => {
                   const jumpScene = row.sceneId ?? beatSceneId(project, row.beatId)
+                  const moduleCue = beatModuleCue(row, project.format)
                   return (
                     <li
                       key={row.beatId}
@@ -156,12 +177,12 @@ export function OverviewPanel({
                             {row.label}
                           </span>
                         )}
-                        {row.act != null && project.format ? (
+                        {moduleCue ? (
                           <span
                             className="text-12 text-tr-text-muted"
                             data-testid={`overview-beat-act-${row.beatId}`}
                           >
-                            {actLabel(row.act, project.format)}
+                            {moduleCue}
                           </span>
                         ) : null}
                         {jumpScene ? (

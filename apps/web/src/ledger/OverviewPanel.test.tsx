@@ -110,4 +110,45 @@ describe('OverviewPanel', () => {
     await user.click(screen.getByTestId('overview-beat-scene-beat-1-1'))
     expect(onJumpToScene).toHaveBeenCalledWith('scene-1')
   })
+
+  it('renders real paragraphs when summary has literal \\n\\n escapes', () => {
+    render(
+      <OverviewPanel
+        project={project()}
+        overview={overview({
+          summary:
+            'Marty rushes into an empty lab looking for Doc.\\n\\nFinding no one, he realizes the plan is already slipping away.',
+        })}
+        onJumpToScene={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    )
+    const paras = screen.getByTestId('overview-summary').querySelectorAll('p')
+    expect(paras).toHaveLength(2)
+    expect(paras[0].textContent).toContain('Marty rushes')
+    expect(paras[1].textContent).toContain('Finding no one')
+    expect(screen.getByTestId('overview-summary').textContent).not.toContain('\\n')
+  })
+
+  it('shows TAG cue for Tag rows even when act is a numeric last act', () => {
+    render(
+      <OverviewPanel
+        project={project()}
+        overview={overview({
+          beatSheet: [
+            {
+              beatId: 'beat-2-1',
+              label: 'Tag',
+              summary: 'A quiet button.',
+              sceneId: 'scene-2',
+              act: 4,
+            },
+          ],
+        })}
+        onJumpToScene={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    )
+    expect(screen.getByTestId('overview-beat-act-beat-2-1').textContent).toBe('TAG')
+  })
 })
