@@ -107,6 +107,8 @@ def empty_character(name: str, *, character_id: str | None = None) -> dict:
         "hiding": "",
         "traits": "",
         "seriesArc": "",
+        "summary": "",
+        "bio": "",
     }
 
 
@@ -334,9 +336,10 @@ def merge_inferred_entities(
     - Characters: resolved names (exact/casefold/alias, `_find_character`)
       extend the matched row's `aliases` (deduped, union of old+new); an
       unresolved name mints a new shell (`empty_character`) with `aliases`
-      set from the inferred row. A `locked: true` matched row's fields are
-      never modified -- only its id is used for relationship resolution.
-      Never renames or deletes any existing character.
+      set from the inferred row. When unlocked and empty, copy inferred
+      `traits` into `traits` and `summary` (T7.31 profile). A `locked: true`
+      matched row's fields are never modified -- only its id is used for
+      relationship resolution. Never renames or deletes any existing character.
     - Relationships: appended only when both `betweenNames` resolve to a
       character (post-mint); unresolvable rows are dropped and counted in
       the log (never logged by name/quote -- ids/counts only, rule 5).
@@ -360,15 +363,24 @@ def merge_inferred_entities(
         name = (inferred.name or "").strip()
         if not name:
             continue
+        traits = (inferred.traits or "").strip()
         existing = _find_character(name, characters)
         if existing is None:
             minted = empty_character(name)
             minted["aliases"] = _dedupe_aliases(inferred.aliases)
+            if traits:
+                minted["traits"] = traits
+                minted["summary"] = traits
             characters.append(minted)
         elif not existing.get("locked"):
             existing["aliases"] = _dedupe_aliases(
                 [*(existing.get("aliases") or []), *inferred.aliases]
             )
+            if traits:
+                if not (existing.get("traits") or "").strip():
+                    existing["traits"] = traits
+                if not (existing.get("summary") or "").strip():
+                    existing["summary"] = traits
 
     relationships = list(bible.get("relationships") or [])
     relationship_states: list[dict] = []

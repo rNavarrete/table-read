@@ -47,6 +47,10 @@ export const Character = z.object({
   hiding: z.string(),
   traits: z.string(),
   seriesArc: z.string(),
+  // T7.31 — Ledger People profile prose (separate from craft fields above).
+  // Defaults keep pre-existing docs / fixture validating without migration.
+  summary: z.string().default(''),
+  bio: z.string().default(''),
 })
 export type Character = z.infer<typeof Character>
 

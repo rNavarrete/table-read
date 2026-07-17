@@ -220,7 +220,18 @@ Hybrid **focus strip + ranked fact list + detail** (research note `docs/superpow
 - **Interaction:** click / keyboard-activate row → detail panel (`FactCard`, same fields/actions as Atlas expanded row) with enter motion. **Open in Atlas** switches to Atlas and expands that fact.
 - **Empty / All-people cliff:** raised quiet panel — "No knowledge facts for {name} yet" (or Audience) + nudge to pick a person from People when focus is Audience / All yields little; Atlas switcher hint remains.
 
-### 7f. Fact detail (shared)
+### 7f. Character profile (People filter)
+
+When the People rail has a specific `characterId` selected (not All), a raised **profile card** appears above the Atlas / Web body (`CharacterProfile`, T7.31):
+
+- **Chrome:** 11px “Profile” legend · display 17px character name · optional “Also known as …” aliases line (13px secondary).
+- **Summary:** one-line brief (15px primary). Prefer stored `Character.summary`; else craft `traits`; else a short line derived from motivations / linked facts.
+- **Bio:** short dossier (13px secondary, paragraph breaks preserved). Prefer stored `Character.bio`; else `presentation` / `hiding` / `embodiment`; else synthesized from that character’s knownBy facts + scene motivations.
+- **Empty:** quiet secondary copy — “No profile yet — facts below are what we know so far.” Never invent biography when there is no evidence.
+- **All people:** no profile card (Atlas/Web unchanged).
+
+### 7g. Fact detail (shared)
+
 
 Hairline-border raised card (`--tr-shadow-raised`, comfortable padding) with fact text (15px primary, snug leading) · type chip (sky) · `establishedIn` + source-span link ("ep 1 · sc 3 · beat 2" → jumps to beat in Write mode, highlighted 2s) · **Known by** avatars/initials chips (empty = "audience only", italic) · confidence bar (2px, sage fill on cool-paper track; muted fill when superseded) · provenance chip (`inferred` amber / `confirmed` sage / `writer-authored` sky) · status. Superseded facts: strikethrough text + "superseded by →" link; chain view expands inline as a vertical thread. Interactive controls use focus-visible selected outline.
 
@@ -231,7 +242,7 @@ Hairline-border raised card (`--tr-shadow-raised`, comfortable padding) with fac
 
 ## 8. Component inventory (build once, reuse)
 
-`ModeSwitcher` · `Card` (raised/sunken variants) · `Chip` (status hues) · `LockToggle` · `ConfidenceBar` · `DiffPane` (plan + script variants) · `CandidateCard` · `CommandBar` · `InspectorField` (read-only-when-locked behavior built in) · `FactCard` · `LedgerViewSwitcher` · `StoryAtlas` · `KnowledgeWeb` · `ChangeSetRow` · `SsePane` (streaming text region) · `Toast`. Storybook story per component per state is part of each UI task's definition of done.
+`ModeSwitcher` · `Card` (raised/sunken variants) · `Chip` (status hues) · `LockToggle` · `ConfidenceBar` · `DiffPane` (plan + script variants) · `CandidateCard` · `CommandBar` · `InspectorField` (read-only-when-locked behavior built in) · `FactCard` · `CharacterProfile` · `LedgerViewSwitcher` · `StoryAtlas` · `KnowledgeWeb` · `ChangeSetRow` · `SsePane` (streaming text region) · `Toast`. Storybook story per component per state is part of each UI task's definition of done.
 
 ## 9. Workflow recipes (adoption A9)
 

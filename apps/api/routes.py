@@ -119,6 +119,8 @@ def _series_bible_from_foundation(body: ProjectCreateRequest) -> dict:
             "hiding": "",
             "traits": seed.traits or "",
             "seriesArc": "",
+            "summary": seed.traits or "",
+            "bio": "",
         }
         for seed in foundation.characters or []
     ]

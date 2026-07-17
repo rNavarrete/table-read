@@ -14,6 +14,7 @@ import { loadResume, saveResume } from '../projects/resumeContext'
 import { AppShell } from '../shell/AppShell'
 import { navigateToWriteScene } from '../shell/modeNavigation'
 import { CastPanel } from './CastPanel'
+import { CharacterProfile } from './CharacterProfile'
 import { FactCard } from './FactCard'
 import { FilterRail, type AsOfSceneOption } from './FilterRail'
 import { KnowledgeWeb } from './KnowledgeWeb'
@@ -169,6 +170,14 @@ export function LedgerScreen() {
   const queue = useMemo(() => pendingReviewFacts(ledger), [ledger])
   const highConf = useMemo(() => highConfidencePending(ledger), [ledger])
   const sceneGroups = useMemo(() => groupPendingByScene(ledger), [ledger])
+  const selectedCharacter = useMemo(() => {
+    if (!project || filters.characterId == null) return null
+    return (
+      project.seriesBible.characters.find(
+        (c) => c.id === filters.characterId,
+      ) ?? null
+    )
+  }, [project, filters.characterId])
   const gridFacts = useMemo(() => {
     const filtered = filterFacts(ledger, filters)
     // Pending facts live in the review-queue section; don't duplicate them
@@ -579,6 +588,13 @@ export function LedgerScreen() {
                 ))}
               </div>
             </section>
+          )}
+          {selectedCharacter && (
+            <CharacterProfile
+              character={selectedCharacter}
+              project={project}
+              facts={ledger}
+            />
           )}
           <section
             key={view}

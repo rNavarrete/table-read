@@ -81,7 +81,7 @@ def fixture_text_fragments(min_length: int = 20) -> list[str]:
 
     add(doc.get("premise"))
     for c in doc.get("seriesBible", {}).get("characters", []):
-        for key in ("embodiment", "presentation", "hiding", "traits", "seriesArc"):
+        for key in ("embodiment", "presentation", "hiding", "traits", "seriesArc", "summary", "bio"):
             add(c.get(key))
     for _e, scene in _iter_scenes(doc):
         for key in ("whatHappens", "audienceLearns", "audienceFeels", "socialSituation"):

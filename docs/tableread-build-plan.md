@@ -184,6 +184,10 @@ Replaces the hardcoded seeded entry point with a project dashboard, idea/import 
 **T7.30c Overview TV-label harden + Tag module.** Prompt **0.17.0 → 0.18.0**: stronger film/STC ban list (Inciting Incident / Midpoint / Climactic Reversal / Act Two Opening + STC-15); positive TV-only exemplars; Tag = last module. Merge rewrites banned labels → Act N Turn, clears Tag act for TAG cue, Cold Open → act 0, soft-replaces cross-scene location drift with beat `whatHappens`; OverviewPanel renders real summary paragraphs (incl. literal `\\n\\n`) and TAG cue. — implemented (**`make evals` not run** until authorized).
 *Accept:* mock/unit/import tests green; `make check-contract` green; Overview formatting preserved; real evals deferred.
 
+**T7.31 Ledger character profile (People).** `Character.summary` + `Character.bio` (defaults `""`); import merge copies inferred `traits` into empty `traits`/`summary`; Ledger shows profile header (name, aliases, summary, bio) above Atlas/Web when a person is selected, with deterministic fallback from craft fields then knownBy facts + motivations (no second LLM call; no tool-schema / `PROMPT_VERSION` change). Spec: `docs/superpowers/specs/2026-07-17-ledger-character-profile-design.md`.
+*Accept:* People selection shows summary + bio (stored, bible, or derived); empty state when none; existing imports work without re-import via derive; `make check-contract` green; Vitest + API merge tests; no `make evals`.
+
+
 
 ## Milestone 8 — Fabula adoption (P-MVP slices)
 

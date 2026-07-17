@@ -210,6 +210,10 @@ def test_merge_mints_character_with_aliases_and_non_speaking_character():
     by_name = {c["name"]: c for c in characters}
     assert set(by_name) == {"Doc Brown", "Einstein"}
     assert by_name["Doc Brown"]["aliases"] == ["Doc"]
+    assert by_name["Doc Brown"]["traits"] == "eccentric inventor"
+    assert by_name["Doc Brown"]["summary"] == "eccentric inventor"
+    assert by_name["Einstein"]["traits"] == "a dog"
+    assert by_name["Einstein"]["summary"] == "a dog"
     assert by_name["Einstein"]["locked"] is False
     assert relationship_states == []  # no relationships in this fixture
 
@@ -331,3 +335,41 @@ def test_merge_never_touches_locked_character_fields():
             "seriesArc": "",
         }
     ]
+
+
+def test_merge_does_not_overwrite_locked_traits_or_summary():
+    bible: dict = {
+        "characters": [
+            {
+                "id": "char-doc",
+                "name": "Doc Brown",
+                "locked": True,
+                "aliases": [],
+                "embodiment": "",
+                "presentation": "",
+                "hiding": "",
+                "traits": "original",
+                "seriesArc": "",
+                "summary": "original summary",
+                "bio": "",
+            }
+        ],
+        "relationships": [],
+        "worldQA": [],
+    }
+    entities = _entities(
+        characters=[
+            {
+                "name": "Doc Brown",
+                "aliases": ["Doc"],
+                "role": "principal",
+                "traits": "should never overwrite",
+                "evidence": _evidence(),
+            }
+        ]
+    )
+    characters, _ = merge_inferred_entities(bible, entities)
+    doc = characters[0]
+    assert doc["traits"] == "original"
+    assert doc["summary"] == "original summary"
+    assert doc["aliases"] == []  # locked: aliases untouched too

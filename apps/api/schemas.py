@@ -74,6 +74,10 @@ class Character(_Base):
     hiding: str
     traits: str
     series_arc: str
+    # T7.31 — Ledger People profile prose (separate from craft fields).
+    # Defaults keep pre-existing docs / fixture validating without migration.
+    summary: str = ""
+    bio: str = "" 
 
 
 class Relationship(_Base):

@@ -322,6 +322,10 @@ def test_create_project_foundation_assigns_character_ids_and_snapshots(db_sessio
         "guarded, precise",
         "",
     ]
+    assert [character["summary"] for character in bible["characters"]] == [
+        "guarded, precise",
+        "",
+    ]
     for character in bible["characters"]:
         assert character["id"].startswith("char-")
         assert character["locked"] is False
@@ -329,6 +333,7 @@ def test_create_project_foundation_assigns_character_ids_and_snapshots(db_sessio
         assert character["presentation"] == ""
         assert character["hiding"] == ""
         assert character["seriesArc"] == ""
+        assert character["bio"] == ""
 
     root = db_session.get(SnapshotRow, project["headSnapshotId"])
     assert root.doc["seriesBible"] == bible
