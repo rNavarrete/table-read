@@ -91,6 +91,18 @@ export const SourceSpan = z.object({
   charEnd: z.number().int().min(0).nullable().default(null),
 });
 
+// T7.23 — a knowledge-state transition after a fact's establishing scene
+// (baseline knowers live on knownBy). "learns" adds characterIds to the
+// knower set as of sceneId; "forgets" removes them. knowers_as_of
+// (drama_manager/ledger_as_of.py) starts from baseline knownBy and folds in
+// every event with sceneId index <= the queried scene, in scene order.
+export const KnowledgeEvent = z.object({
+  sceneId: Id,
+  characterIds: z.array(Id).default([]),
+  kind: z.enum(["learns", "forgets"]),
+  quote: z.string().default(""), // <=200 chars evidence
+});
+
 export const LedgerFact = z.object({
   id: Id,
   fact: z.string(),
@@ -98,11 +110,18 @@ export const LedgerFact = z.object({
   sourceSpan: SourceSpan,
   sourceText: z.string().default(""), // verbatim quote from the establishing beat; server-verified
   knownBy: z.array(Id),
+  // T7.23 knowledge-transition history beyond the baseline knownBy set.
+  knowledgeEvents: z.array(KnowledgeEvent).default([]),
   audienceKnows: z.boolean().default(true), // distinct from knownBy — dramatic irony lives in the gap
   provenance: z.enum(["inferred", "writer_confirmed", "writer_authored"]),
   confidence: z.number().min(0).max(1),
   status: z.enum(["active", "superseded", "stale", "pending_review", "rejected"]),
   supersedes: Id.nullable(), supersededBy: Id.nullable(),
+  // T7.23 response-only enrichment: GET /ledger?asOfScene= fills this with
+  // knowers_as_of's result so the UI can show who knew a fact at that scene
+  // without rewriting canonical knownBy. Always null outside that query
+  // param — never persisted, never settable by clients.
+  knownByAsOf: z.array(Id).nullable().default(null),
 });
 
 export const Project = z.object({
@@ -357,6 +376,17 @@ export const InitialSceneSkeleton = z.object({
   })),
 });
 
+// T7.23 extract-time counterpart to KnowledgeEvent: the model names
+// characters, never ids (same convention as knownBy) — the server resolves
+// each name the same way knownBy names are resolved
+// (fountain.characters.normalize_known_by) before storing.
+export const ExtractedKnowledgeEvent = z.object({
+  sceneId: Id,
+  characterNames: z.array(z.string()).default([]),
+  kind: z.enum(["learns", "forgets"]),
+  quote: z.string().default(""),
+});
+
 // §5 extract_ledger_facts — model span has lines only; char offsets are computed server-side.
 export const ExtractedFact = z.object({
   fact: z.string(),
@@ -367,6 +397,9 @@ export const ExtractedFact = z.object({
   }),
   sourceText: z.string(),
   knownBy: z.array(Id),
+  // T7.23: optional knowledge-transition notes for this fact beyond the
+  // baseline knownBy — empty array is the common case (first cut).
+  knowledgeEvents: z.array(ExtractedKnowledgeEvent).default([]),
   audienceKnows: z.boolean(),
   confidence: z.number().min(0).max(1),
 });
@@ -531,7 +564,7 @@ Defined transactions:
 
 **Ledger mode**
 
-- `GET /projects/{pid}/ledger?status=&characterId=&asOfScene=` → `LedgerFact[]` — `asOfScene` (T7.18) filters to facts in force as of that scene (established at or before it in the project's scene order, and not superseded by a fact established at or before it — `drama_manager/ledger_as_of.facts_as_of`), applied *before* `status`/`characterId`. Unknown scene id → 400 `VALIDATION`. Omit → no temporal filter (today's behavior). No `LedgerFact` schema change.
+- `GET /projects/{pid}/ledger?status=&characterId=&asOfScene=` → `LedgerFact[]` — `asOfScene` (T7.18) filters to facts in force as of that scene (established at or before it in the project's scene order, and not superseded by a fact established at or before it — `drama_manager/ledger_as_of.facts_as_of`), applied *before* `status`/`characterId`. Unknown scene id → 400 `VALIDATION`. Omit → no temporal filter (today's behavior). When `asOfScene` is set, each returned fact's `knownByAsOf` (T7.23) is filled with `drama_manager/ledger_as_of.knowers_as_of`'s result — baseline `knownBy` plus every `knowledgeEvents` entry with `sceneId` at or before `asOfScene`, in scene order (`learns` unions, `forgets` removes). `knownByAsOf` is `null` on every other response (no `asOfScene`, or any other endpoint); it is a response-only enrichment, never stored, never writer-editable.
 - `POST /ledger/{factId}/confirm` | `/reject` | `PATCH /ledger/{factId}` (edit text and/or knownBy → provenance becomes `writer_authored`; if the fact was `pending_review`, status also becomes `active` so it leaves the review queue)
 - `POST /projects/{pid}/ledger/batch` `{confirmIds: [], rejectIds: []}` → `{ledger}` — batch review (import queue); supersede-proposal semantics apply per id; **one snapshot for the whole batch**; any invalid id fails the entire batch (400, nothing applied)
 

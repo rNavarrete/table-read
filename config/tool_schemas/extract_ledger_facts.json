@@ -54,6 +54,43 @@
             ],
             "type": "string"
           },
+          "knowledgeEvents": {
+            "default": [],
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "characterNames": {
+                  "default": [],
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "kind": {
+                  "enum": [
+                    "learns",
+                    "forgets"
+                  ],
+                  "type": "string"
+                },
+                "quote": {
+                  "default": "",
+                  "type": "string"
+                },
+                "sceneId": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "sceneId",
+                "characterNames",
+                "kind",
+                "quote"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
           "knownBy": {
             "items": {
               "type": "string"
@@ -98,6 +135,7 @@
           "sourceSpan",
           "sourceText",
           "knownBy",
+          "knowledgeEvents",
           "audienceKnows",
           "confidence"
         ],

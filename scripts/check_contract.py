@@ -60,6 +60,7 @@ SCHEMA_NAMES = [
     "Episode",
     "Season",
     "SourceSpan",
+    "KnowledgeEvent",
     "LedgerFact",
     "Project",
     "ProjectSummary",
@@ -84,6 +85,7 @@ SCHEMA_NAMES = [
     # §2a
     "BlastRadius",
     "RegeneratedElements",
+    "ExtractedKnowledgeEvent",
     "ExtractedFact",
     "LedgerExtraction",
     "InstructionSuggestions",

@@ -191,6 +191,10 @@ Purpose: continuity extraction after each accepted change. Model: `classifier` r
     },
     "sourceText": "verbatim quote from the beat that establishes the fact",
     "knownBy": ["characterId"],
+    "knowledgeEvents": [{
+      "sceneId": "", "characterNames": ["string"],
+      "kind": "learns | forgets", "quote": "may be empty"
+    }],
     "audienceKnows": true,
     "confidence": 0.0
   }],
@@ -203,6 +207,8 @@ Purpose: continuity extraction after each accepted change. Model: `classifier` r
 ```
 
 `audienceKnows` is separate from `knownBy`: dramatic irony is precisely the gap between them (fixture fact-02: audience knows the money is in the ice machine; only Dan does).
+
+`knowledgeEvents` (T7.23, optional, empty array is the common case) lets the model note a knowledge-state change for *this* new fact beyond its baseline `knownBy` — e.g. a character learning it later in the same batch of scene beats. Names, not ids, same convention as `knownBy`; the server resolves each name the same way (`fountain.characters.normalize_known_by`) and drops unresolvable/audience tokens. First cut: this is the only extraction-time surface for knowledge transitions — a dedicated `infer_knowledge_events` classifier op is deferred until this proves insufficient (design doc T7.23).
 
 Server-side policy (not the model's job): `confidence < 0.8` → review queue, excluded from prompts; each contradiction becomes a **supersede proposal** — a new `pending_review` fact with `supersedes` set — the existing fact keeps `status: active` until the writer resolves it; `provenance`, `status`, and supersede links are always assigned server-side, never by the model.
 

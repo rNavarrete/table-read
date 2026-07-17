@@ -214,6 +214,21 @@ class FactStatus(StrEnum):
     rejected = "rejected"
 
 
+class KnowledgeEventKind(StrEnum):
+    learns = "learns"
+    forgets = "forgets"
+
+
+class KnowledgeEvent(_Base):
+    """T7.23 — a knowledge-state transition after a fact's establishing scene.
+    See packages/contract/src/index.ts's `KnowledgeEvent` docstring."""
+
+    scene_id: Id
+    character_ids: list[Id] = []
+    kind: KnowledgeEventKind
+    quote: str = ""  # <=200 chars evidence
+
+
 class LedgerFact(_Base):
     id: Id
     fact: str
@@ -221,12 +236,18 @@ class LedgerFact(_Base):
     source_span: SourceSpan
     source_text: str = ""  # verbatim quote from the establishing beat; server-verified
     known_by: list[Id]
+    # T7.23 knowledge-transition history beyond the baseline `knownBy` set.
+    knowledge_events: list[KnowledgeEvent] = []
     audience_knows: bool = True  # distinct from knownBy — dramatic irony lives in the gap
     provenance: Provenance
     confidence: float = Field(ge=0, le=1)
     status: FactStatus
     supersedes: Id | None
     superseded_by: Id | None
+    # T7.23 response-only enrichment: GET /ledger?asOfScene= fills this with
+    # knowers_as_of's result. Always null outside that query param — never
+    # persisted, never settable by clients.
+    known_by_as_of: list[Id] | None = None
 
 
 class CraftLevel(StrEnum):
@@ -689,6 +710,16 @@ class ExtractedFactSourceSpan(_Base):
     end_line: int = Field(ge=0)
 
 
+# T7.23 extract-time counterpart to `KnowledgeEvent`: the model names
+# characters, never ids (same convention as `knownBy`) -- resolved
+# server-side (fountain.characters.normalize_known_by), same as knownBy.
+class ExtractedKnowledgeEvent(_Base):
+    scene_id: Id
+    character_names: list[str] = []
+    kind: KnowledgeEventKind
+    quote: str = ""
+
+
 # §5 extract_ledger_facts — model span has lines only; char offsets are computed server-side.
 class ExtractedFact(_Base):
     fact: str
@@ -696,6 +727,9 @@ class ExtractedFact(_Base):
     source_span: ExtractedFactSourceSpan
     source_text: str
     known_by: list[Id]
+    # T7.23: optional knowledge-transition notes for this fact beyond the
+    # baseline knownBy -- empty array is the common case (first cut).
+    knowledge_events: list[ExtractedKnowledgeEvent] = []
     audience_knows: bool
     confidence: float = Field(ge=0, le=1)
 

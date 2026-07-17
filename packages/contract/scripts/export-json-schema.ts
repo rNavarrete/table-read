@@ -20,6 +20,7 @@ const SCHEMA_NAMES = [
   'Episode',
   'Season',
   'SourceSpan',
+  'KnowledgeEvent',
   'LedgerFact',
   'Project',
   'ProjectSummary',
@@ -44,6 +45,7 @@ const SCHEMA_NAMES = [
   // §2a
   'BlastRadius',
   'RegeneratedElements',
+  'ExtractedKnowledgeEvent',
   'ExtractedFact',
   'LedgerExtraction',
   'InstructionSuggestions',

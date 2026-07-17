@@ -166,6 +166,20 @@ export const SourceSpan = z.object({
 })
 export type SourceSpan = z.infer<typeof SourceSpan>
 
+// T7.23 — a knowledge-state transition after a fact's establishing scene
+// (baseline knowers live on `LedgerFact.knownBy`). `kind: "learns"` adds
+// `characterIds` to the knower set as of `sceneId`; `"forgets"` removes them.
+// `knowers_as_of` (apps/api/drama_manager/ledger_as_of.py) starts from
+// baseline `knownBy` and folds in every event with `sceneId` index <= the
+// queried scene, in scene order.
+export const KnowledgeEvent = z.object({
+  sceneId: Id,
+  characterIds: z.array(Id).default([]),
+  kind: z.enum(['learns', 'forgets']),
+  quote: z.string().default(''), // <=200 chars evidence
+})
+export type KnowledgeEvent = z.infer<typeof KnowledgeEvent>
+
 export const LedgerFact = z.object({
   id: Id,
   fact: z.string(),
@@ -179,6 +193,9 @@ export const LedgerFact = z.object({
   sourceSpan: SourceSpan,
   sourceText: z.string().default(''), // verbatim quote from the establishing beat; server-verified
   knownBy: z.array(Id),
+  // T7.23 knowledge-transition history beyond the baseline `knownBy` set —
+  // see `KnowledgeEvent` above. Defaults to [] so pre-existing docs validate.
+  knowledgeEvents: z.array(KnowledgeEvent).default([]),
   audienceKnows: z.boolean().default(true), // distinct from knownBy — dramatic irony lives in the gap
   provenance: z.enum(['inferred', 'writer_confirmed', 'writer_authored']),
   confidence: z.number().min(0).max(1),
@@ -191,6 +208,11 @@ export const LedgerFact = z.object({
   ]),
   supersedes: Id.nullable(),
   supersededBy: Id.nullable(),
+  // T7.23 response-only enrichment: `GET /ledger?asOfScene=` fills this with
+  // `knowers_as_of`'s result so the UI can show who knew a fact at that
+  // scene without rewriting canonical `knownBy`. Always null outside that
+  // query param — never persisted, never settable by clients.
+  knownByAsOf: z.array(Id).nullable().default(null),
 })
 export type LedgerFact = z.infer<typeof LedgerFact>
 
@@ -594,6 +616,18 @@ export const StoryEntities = z.object({
 })
 export type StoryEntities = z.infer<typeof StoryEntities>
 
+// T7.23 extract-time counterpart to `KnowledgeEvent`: the model names
+// characters, never ids (same convention as `knownBy`/`InferredCharacter`);
+// the server resolves each name the same way `knownBy` names are resolved
+// (`fountain.characters.normalize_known_by`) before storing.
+export const ExtractedKnowledgeEvent = z.object({
+  sceneId: Id,
+  characterNames: z.array(z.string()).default([]),
+  kind: z.enum(['learns', 'forgets']),
+  quote: z.string().default(''),
+})
+export type ExtractedKnowledgeEvent = z.infer<typeof ExtractedKnowledgeEvent>
+
 // §5 extract_ledger_facts — model span has lines only; char offsets are computed server-side.
 export const ExtractedFact = z.object({
   fact: z.string(),
@@ -613,6 +647,10 @@ export const ExtractedFact = z.object({
   }),
   sourceText: z.string(),
   knownBy: z.array(Id),
+  // T7.23: optional knowledge-transition notes for this fact beyond the
+  // baseline `knownBy` — empty array is the common case (first cut; see
+  // design doc T7.23 "Import"). Names resolved server-side, same as `knownBy`.
+  knowledgeEvents: z.array(ExtractedKnowledgeEvent).default([]),
   audienceKnows: z.boolean(),
   confidence: z.number().min(0).max(1),
 })
