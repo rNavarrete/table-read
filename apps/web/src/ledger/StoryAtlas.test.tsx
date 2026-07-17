@@ -179,13 +179,26 @@ describe('StoryAtlas', () => {
     expect(screen.queryByTestId('fact-card-f-knowledge')).toBeNull()
   })
 
-  it('shows collapsed scene cue and known-by summary', () => {
+  it('omits redundant chapter type cue and shows knower/irony cue', () => {
     const facts = [
       fact({
         id: 'f-knowledge',
         factType: 'knowledge',
         fact: 'Marta knows the ledger is short.',
         knownBy: ['char-marta', 'char-dan'],
+      }),
+      fact({
+        id: 'f-audience',
+        factType: 'knowledge',
+        fact: 'The ledger is short.',
+        knownBy: [],
+      }),
+      fact({
+        id: 'f-secret',
+        factType: 'knowledge',
+        fact: 'Dan stole the cash.',
+        knownBy: ['char-dan'],
+        audienceKnows: false,
       }),
     ]
 
@@ -198,9 +211,73 @@ describe('StoryAtlas', () => {
       />,
     )
 
-    expect(screen.getByText('KNOWS')).not.toBeNull()
-    expect(screen.getByText(/MV.*DV/)).not.toBeNull()
-    expect(screen.getByText(/ep 1 · sc 3 · beat 2/)).not.toBeNull()
+    expect(screen.queryByText('KNOWS')).toBeNull()
+    expect(screen.getByText('2 knowers')).not.toBeNull()
+    expect(screen.getByText('Audience')).not.toBeNull()
+    expect(screen.getByText('Secret')).not.toBeNull()
+    expect(screen.getAllByText(/ep 1 · sc 3 · beat 2/).length).toBeGreaterThan(0)
+  })
+
+  it('groups large knowledge chapters under knower subheads', () => {
+    const facts = [
+      ...Array.from({ length: 10 }, (_, i) =>
+        fact({
+          id: `aud-${i}`,
+          factType: 'knowledge',
+          fact: `Audience fact ${i}`,
+          knownBy: [],
+        }),
+      ),
+      ...Array.from({ length: 10 }, (_, i) =>
+        fact({
+          id: `marta-${i}`,
+          factType: 'knowledge',
+          fact: `Marta fact ${i}`,
+          knownBy: ['char-marta'],
+        }),
+      ),
+    ]
+
+    render(
+      <StoryAtlas
+        facts={facts}
+        allFacts={facts}
+        project={project()}
+        busy={false}
+      />,
+    )
+
+    const chapter = screen.getByTestId('fact-chapter-knowledge')
+    expect(chapter.querySelector('[data-testid="knower-group-Audience"]')).not.toBeNull()
+    expect(
+      chapter.querySelector('[data-testid="knower-group-Marta Vega"]'),
+    ).not.toBeNull()
+  })
+
+  it('keeps full factType on expanded FactCard', async () => {
+    const user = userEvent.setup()
+    const facts = [
+      fact({
+        id: 'f-knowledge',
+        factType: 'knowledge',
+        fact: 'Marta knows the ledger is short.',
+        knownBy: ['char-marta'],
+      }),
+    ]
+
+    render(
+      <StoryAtlas
+        facts={facts}
+        allFacts={facts}
+        project={project()}
+        busy={false}
+      />,
+    )
+
+    await user.click(screen.getByTestId('atlas-row-f-knowledge'))
+    expect(screen.getByTestId('fact-card-f-knowledge').textContent).toContain(
+      'knowledge',
+    )
   })
 
   it('shows queue actions on expanded pending facts', async () => {

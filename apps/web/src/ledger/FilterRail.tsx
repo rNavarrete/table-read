@@ -1,4 +1,4 @@
-import type { Project } from 'contract'
+import type { LedgerFact, Project } from 'contract'
 import type { FactStatusFilter, FactTypeFilter, LedgerFilters } from './filters'
 
 const STATUSES: FactStatusFilter[] = [
@@ -61,11 +61,22 @@ export interface FilterRailProps {
   /** Currently selected as-of scene, or `null` for "Latest (all)". */
   asOfScene?: string | null
   onAsOfSceneChange?: (sceneId: string | null) => void
+  /** Facts for People / Browse counts (browse-clarity rail). */
+  facts?: LedgerFact[]
+}
+
+function countKnownBy(facts: LedgerFact[], characterId: string): number {
+  return facts.filter((f) => f.knownBy.includes(characterId)).length
+}
+
+function countFactType(facts: LedgerFact[], factType: FactTypeFilter): number {
+  if (factType === 'all') return facts.length
+  return facts.filter((f) => f.factType === factType).length
 }
 
 /**
- * Left filter rail (UI spec §6: 198px — status, character, fact type, and
- * the T7.18 As-of scene control).
+ * Left filter rail (UI spec §7b) — browse-first: People · Browse · Threads ·
+ * Status (collapsed) · compact As-of.
  */
 export function FilterRail({
   project,
@@ -77,6 +88,7 @@ export function FilterRail({
   sceneOptions = [],
   asOfScene = null,
   onAsOfSceneChange,
+  facts = [],
 }: FilterRailProps) {
   const optionClass = (active: boolean) =>
     'flex cursor-pointer items-center gap-2 rounded-chip px-3 py-1 text-13 transition-colors focus-within:outline focus-within:outline-selected focus-within:outline-tr-coral ' +
@@ -84,70 +96,15 @@ export function FilterRail({
       ? 'bg-tr-coral-soft text-tr-accent-ink'
       : 'text-tr-text-primary hover:bg-tr-surface-clay')
 
+  const pendingCount = facts.filter((f) => f.status === 'pending_review').length
+  const statusOpen = filters.status !== 'all'
+
   return (
     <aside
       className="w-panel-ledger-filters shrink-0 border-r border-tr-border bg-tr-surface-sunken p-4"
       aria-label="Ledger filters"
       data-testid="ledger-filter-rail"
     >
-      <fieldset className="mb-6">
-        <legend className="mb-2 text-12 uppercase tracking-wide text-tr-text-muted">
-          Status
-        </legend>
-        <div className="flex flex-col gap-1">
-          {STATUSES.map((status) => (
-            <label
-              key={status}
-              className={optionClass(filters.status === status)}
-            >
-              <input
-                className="sr-only"
-                type="radio"
-                name="ledger-status"
-                checked={filters.status === status}
-                onChange={() => onChange({ ...filters, status })}
-              />
-              {STATUS_LABELS[status]}
-            </label>
-          ))}
-        </div>
-      </fieldset>
-
-      {sceneOptions.length > 0 && (
-        <fieldset className="mb-6">
-          <legend className="mb-2 text-12 uppercase tracking-wide text-tr-text-muted">
-            As of
-          </legend>
-          <div className="flex flex-col gap-1">
-            <label className={optionClass(asOfScene === null)}>
-              <input
-                className="sr-only"
-                type="radio"
-                name="ledger-as-of"
-                checked={asOfScene === null}
-                onChange={() => onAsOfSceneChange?.(null)}
-              />
-              Latest (all)
-            </label>
-            {sceneOptions.map((scene) => (
-              <label
-                key={scene.id}
-                className={optionClass(asOfScene === scene.id)}
-              >
-                <input
-                  className="sr-only"
-                  type="radio"
-                  name="ledger-as-of"
-                  checked={asOfScene === scene.id}
-                  onChange={() => onAsOfSceneChange?.(scene.id)}
-                />
-                {scene.label}
-              </label>
-            ))}
-          </div>
-        </fieldset>
-      )}
-
       <fieldset className="mb-6">
         <div className="mb-2 flex items-center justify-between gap-2">
           <legend className="text-12 uppercase tracking-wide text-tr-text-muted">
@@ -175,21 +132,60 @@ export function FilterRail({
             />
             All
           </label>
-          {project.seriesBible.characters.map((c) => (
-            <label
-              key={c.id}
-              className={optionClass(filters.characterId === c.id)}
-            >
-              <input
-                className="sr-only"
-                type="radio"
-                name="ledger-character"
-                checked={filters.characterId === c.id}
-                onChange={() => onChange({ ...filters, characterId: c.id })}
-              />
-              {c.name}
-            </label>
-          ))}
+          {project.seriesBible.characters.map((c) => {
+            const count = countKnownBy(facts, c.id)
+            return (
+              <label
+                key={c.id}
+                className={optionClass(filters.characterId === c.id)}
+              >
+                <input
+                  className="sr-only"
+                  type="radio"
+                  name="ledger-character"
+                  checked={filters.characterId === c.id}
+                  onChange={() => onChange({ ...filters, characterId: c.id })}
+                />
+                <span>
+                  {c.name}
+                  {facts.length > 0 && (
+                    <span className="ml-1 text-tr-text-muted">({count})</span>
+                  )}
+                </span>
+              </label>
+            )
+          })}
+        </div>
+      </fieldset>
+
+      <fieldset className="mb-6">
+        <legend className="mb-2 text-12 uppercase tracking-wide text-tr-text-muted">
+          Browse
+        </legend>
+        <div className="flex flex-col gap-1">
+          {FACT_TYPES.map((factType) => {
+            const count = countFactType(facts, factType)
+            return (
+              <label
+                key={factType}
+                className={optionClass(filters.factType === factType)}
+              >
+                <input
+                  className="sr-only"
+                  type="radio"
+                  name="ledger-fact-type"
+                  checked={filters.factType === factType}
+                  onChange={() => onChange({ ...filters, factType })}
+                />
+                <span>
+                  {FACT_TYPE_LABELS[factType]}
+                  {facts.length > 0 && factType !== 'all' && (
+                    <span className="ml-1 text-tr-text-muted">({count})</span>
+                  )}
+                </span>
+              </label>
+            )
+          })}
         </div>
       </fieldset>
 
@@ -212,28 +208,67 @@ export function FilterRail({
         </fieldset>
       )}
 
-      <fieldset>
-        <legend className="mb-2 text-12 uppercase tracking-wide text-tr-text-muted">
-          Lenses
-        </legend>
-        <div className="flex flex-col gap-1">
-          {FACT_TYPES.map((factType) => (
-            <label
-              key={factType}
-              className={optionClass(filters.factType === factType)}
-            >
-              <input
-                className="sr-only"
-                type="radio"
-                name="ledger-fact-type"
-                checked={filters.factType === factType}
-                onChange={() => onChange({ ...filters, factType })}
-              />
-              {FACT_TYPE_LABELS[factType]}
-            </label>
-          ))}
+      <details
+        className="mb-6"
+        data-testid="filter-rail-status"
+        open={statusOpen || undefined}
+      >
+        <summary className="mb-2 cursor-pointer text-12 uppercase tracking-wide text-tr-text-muted">
+          Status
+          {pendingCount > 0 && (
+            <span className="ml-2 normal-case tracking-normal text-tr-text-secondary">
+              {pendingCount} to review
+            </span>
+          )}
+        </summary>
+        <fieldset>
+          <legend className="sr-only">Status</legend>
+          <div className="flex flex-col gap-1">
+            {STATUSES.map((status) => (
+              <label
+                key={status}
+                className={optionClass(filters.status === status)}
+              >
+                <input
+                  className="sr-only"
+                  type="radio"
+                  name="ledger-status"
+                  checked={filters.status === status}
+                  onChange={() => onChange({ ...filters, status })}
+                />
+                {STATUS_LABELS[status]}
+              </label>
+            ))}
+          </div>
+        </fieldset>
+      </details>
+
+      {sceneOptions.length > 0 && (
+        <div className="mb-2">
+          <label
+            htmlFor="ledger-as-of"
+            className="mb-2 block text-12 uppercase tracking-wide text-tr-text-muted"
+          >
+            As of
+          </label>
+          <select
+            id="ledger-as-of"
+            className="w-full rounded-chip border border-tr-border bg-tr-surface-raised px-3 py-1.5 text-13 text-tr-text-primary"
+            value={asOfScene ?? ''}
+            onChange={(e) =>
+              onAsOfSceneChange?.(e.target.value === '' ? null : e.target.value)
+            }
+            data-testid="ledger-as-of-select"
+          >
+            <option value="">Latest (all)</option>
+            {sceneOptions.map((scene) => (
+              <option key={scene.id} value={scene.id}>
+                {scene.label}
+              </option>
+            ))}
+          </select>
         </div>
-      </fieldset>
+      )}
     </aside>
   )
 }

@@ -95,10 +95,15 @@ describe('LedgerScreen As-of scene filter (T7.18)', () => {
     window.history.pushState({}, '', '/ledger?project=proj-1')
     render(<LedgerScreen />)
 
-    expect(await screen.findByLabelText('Latest (all)')).not.toBeNull()
-    expect(screen.getByLabelText('Kitchen')).not.toBeNull()
+    const select = await screen.findByLabelText('As of')
+    expect(select.tagName).toBe('SELECT')
+    const labels = Array.from(select.querySelectorAll('option')).map(
+      (o) => o.textContent,
+    )
+    expect(labels[0]).toBe('Latest (all)')
+    expect(labels).toContain('Kitchen')
     // Scene with no location yet falls back to a 1-based "Scene N" label.
-    expect(screen.getByLabelText('Scene 11')).not.toBeNull()
+    expect(labels).toContain('Scene 11')
   })
 
   it('selecting a scene calls the client with asOfScene', async () => {
@@ -113,7 +118,8 @@ describe('LedgerScreen As-of scene filter (T7.18)', () => {
       expect(getLedger).toHaveBeenCalledWith('proj-1', undefined)
     })
 
-    await user.click(await screen.findByLabelText('Kitchen'))
+    const select = await screen.findByLabelText('As of')
+    await user.selectOptions(select, 'scene-3')
 
     await waitFor(() => {
       expect(getLedger).toHaveBeenLastCalledWith('proj-1', {
@@ -130,14 +136,15 @@ describe('LedgerScreen As-of scene filter (T7.18)', () => {
     window.history.pushState({}, '', '/ledger?project=proj-1')
     render(<LedgerScreen />)
 
-    await user.click(await screen.findByLabelText('Kitchen'))
+    const select = await screen.findByLabelText('As of')
+    await user.selectOptions(select, 'scene-3')
     await waitFor(() => {
       expect(getLedger).toHaveBeenLastCalledWith('proj-1', {
         asOfScene: 'scene-3',
       })
     })
 
-    await user.click(screen.getByLabelText('Latest (all)'))
+    await user.selectOptions(select, '')
     await waitFor(() => {
       expect(getLedger).toHaveBeenLastCalledWith('proj-1', undefined)
     })

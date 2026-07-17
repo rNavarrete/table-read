@@ -145,7 +145,7 @@ Ledger is a **story bible** — writers open it to understand what is true in th
 | **Story Atlas** (default) | Compact expandable rows grouped by storytelling meaning |
 | **Knowledge Web** | Character- or Audience-focused who-knows-what (ranked list + detail) |
 
-Layout: left **Lenses** rail (198px, `--tr-panel-ledger-filters`) · main column with page header + active view body · **review queue** pinned at top when non-empty in **both** views.
+Layout: left **filter rail** (198px, `--tr-panel-ledger-filters`) · main column with page header + active view body · **review queue** pinned at top when non-empty in **both** views.
 
 ### 7a. Page chrome
 
@@ -153,15 +153,17 @@ Layout: left **Lenses** rail (198px, `--tr-panel-ledger-filters`) · main column
 - **View switcher:** segmented control **Atlas · Web** in the header (`LedgerViewSwitcher`); active segment `--tr-coral-soft` fill + `--tr-accent-ink` text (match mode switcher). Choice persists per project in `localStorage` (`tr.ledger.view.{projectId}`).
 - **Pending chip:** amber when `pending_review` count > 0 ("N to review"); click scrolls to / focuses the review queue.
 
-### 7b. Lenses rail (shared filters)
+### 7b. Filter rail (shared filters)
 
-Same `LedgerFilters` model (`status`, `characterId`, `factType`); writer-facing labels only:
+Same `LedgerFilters` model (`status`, `characterId`, `factType`); writer-facing labels only. Browse-first order (Atlas organization research 2026-07-17):
 
-| Control | Options |
+| Control | Options / chrome |
 |---|---|
-| **Status** | All · Needs review · Active · Superseded · Stale · Rejected |
-| **People** | All · character names (also sets Knowledge Web focus when Web is active) |
-| **Lenses** | All truths · Events · States · Knowledge · Relationships · World rules |
+| **People** | All · character names with `(n)` knownBy counts (also sets Knowledge Web focus when Web is active); Manage cast link |
+| **Browse** | All truths · Events · States · Knowledge · Relationships · World rules — chapter/`factType` filter with `(n)` counts (replaces the former “Lenses” label) |
+| **Threads** | Setups & payoffs entry (when wired) |
+| **Status** | Collapsed by default when All; summary shows pending “N to review”. Expand for All · Needs review · Active · Superseded · Stale · Rejected |
+| **As of** | Compact `<select>`: Latest (all) · episode scenes in doc order (not a full radio list) |
 
 Accent-tint active pills on a warm sunken panel. Filters affect both Atlas and Web.
 
@@ -186,7 +188,18 @@ Filtered non-queue facts (pending stay in the queue unless status filter is Need
 | Relationships | `relationship` |
 | World rules | `world_rule` |
 
-**Collapsed row:** type cue chip (EVENT / STATE / KNOWS / REL / RULE) · fact text (15px primary, 1–2 line clamp) · trailing muted known-by initials or "audience" · scene link label.
+**Collapsed row:** discriminating knower/irony cue (not the chapter’s redundant `factType` pill) · fact text (15px primary, 1–2 line clamp) · trailing muted knower initials when useful · scene link label.
+
+Cue mapping (existing fields only — no parallel tag taxonomy):
+
+| Condition | Collapsed chip |
+|---|---|
+| `knownBy` empty | **Audience** (sky) |
+| knowers + `audienceKnows === false` | **Secret** (amber) |
+| single knower, audience knows | knower initials (neutral) |
+| multiple knowers, audience knows | **N knowers** (neutral) |
+
+Full `factType` remains on expanded detail. Inside a chapter with ≥20 facts, rows group under knower subheads: **Audience** (empty `knownBy`), each single knower (cast order), **Shared** (multi-knower — no card duplication).
 
 **Expanded row:** full fact text · type · source-span link · known-by chips · confidence bar · provenance · status · supersede chain · queue actions when `pending_review`. Click toggles expand; **one row expanded globally** at a time. Expanded detail reuses `FactCard`.
 

@@ -421,6 +421,7 @@ export function LedgerScreen() {
           sceneOptions={sceneOptions}
           asOfScene={asOfScene}
           onAsOfSceneChange={setAsOfScene}
+          facts={ledger}
         />
         <div className="flex min-w-0 flex-1 flex-col gap-4 p-6">
           <header className="flex flex-wrap items-center gap-3">

@@ -1,6 +1,10 @@
 import { useState } from 'react'
 import type { LedgerFact, Project } from 'contract'
 import { Chip } from '../plan/Chip'
+import {
+  atlasCollapsedCue,
+  groupChapterFactsByKnower,
+} from './atlasRowCue'
 import { FactCard } from './FactCard'
 import { groupFactsIntoChapters } from './factChapters'
 import { formatSourceSpanLabel } from './sourceSpanLabel'
@@ -19,29 +23,25 @@ export interface StoryAtlasProps {
   emptyMessage?: string
 }
 
-const TYPE_CUE: Record<LedgerFact['factType'], string> = {
-  event: 'EVENT',
-  state: 'STATE',
-  knowledge: 'KNOWS',
-  relationship: 'REL',
-  world_rule: 'RULE',
-}
-
-function characterLabel(project: Project, id: string): string {
-  const found = project.seriesBible.characters.find((c) => c.id === id)
-  if (!found) return id.slice(0, 2).toUpperCase()
-  const parts = found.name.trim().split(/\s+/)
-  if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase()
-  return (parts[0]![0]! + parts[parts.length - 1]![0]!).toUpperCase()
-}
-
-function knownBySummary(fact: LedgerFact, project: Project): string {
-  if (fact.knownBy.length === 0) return 'audience'
-  return fact.knownBy.map((id) => characterLabel(project, id)).join(' · ')
+function knownBySummary(fact: LedgerFact, project: Project): string | null {
+  // Audience / Secret / knower count already live on the cue chip — only
+  // echo multi-knower initials when the chip says "N knowers" / Secret.
+  if (fact.knownBy.length === 0) return null
+  if (fact.knownBy.length === 1 && fact.audienceKnows) return null
+  return fact.knownBy
+    .map((id) => {
+      const found = project.seriesBible.characters.find((c) => c.id === id)
+      if (!found) return id.slice(0, 2).toUpperCase()
+      const parts = found.name.trim().split(/\s+/)
+      if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase()
+      return (parts[0]![0]! + parts[parts.length - 1]![0]!).toUpperCase()
+    })
+    .join(' · ')
 }
 
 /**
- * Story Atlas — chaptered expandable fact rows (dual-view spec §5).
+ * Story Atlas — chaptered expandable fact rows (dual-view spec §5;
+ * browse clarity: knower/irony cues, knower subheads).
  */
 export function StoryAtlas({
   facts,
@@ -77,69 +77,95 @@ export function StoryAtlas({
     onExpandedFactIdChange?.(nextId)
   }
 
+  function renderFactRow(fact: LedgerFact) {
+    const expanded = expandedId === fact.id
+    if (expanded) {
+      return (
+        <li key={fact.id} className="flex flex-col gap-2">
+          <button
+            type="button"
+            onClick={() => toggleExpanded(fact.id)}
+            className="flex w-full items-start gap-2 rounded-card border border-tr-border bg-tr-surface-raised px-3 py-2 text-left"
+            data-testid={`atlas-row-${fact.id}`}
+            aria-expanded
+          >
+            <CollapsedRowContent fact={fact} project={project} />
+          </button>
+          <FactCard
+            fact={fact}
+            allFacts={allFacts}
+            project={project}
+            queueActions={fact.status === 'pending_review'}
+            busy={busy}
+            onAccept={onAccept}
+            onReject={onReject}
+            onEdit={onEdit}
+            onSourceSpanClick={onSourceSpanClick}
+          />
+        </li>
+      )
+    }
+
+    return (
+      <li key={fact.id}>
+        <button
+          type="button"
+          onClick={() => toggleExpanded(fact.id)}
+          className="flex w-full items-start gap-2 rounded-card border border-tr-border bg-tr-surface-raised px-3 py-2 text-left hover:bg-tr-surface-clay"
+          data-testid={`atlas-row-${fact.id}`}
+          aria-expanded={false}
+        >
+          <CollapsedRowContent fact={fact} project={project} />
+        </button>
+      </li>
+    )
+  }
+
   return (
     <div data-testid="story-atlas" className="flex flex-col gap-6">
-      {chapters.map((chapter) => (
-        <section
-          key={chapter.id}
-          data-testid={`fact-chapter-${chapter.id}`}
-          className="flex flex-col gap-2"
-        >
-          <header className="flex items-baseline gap-2">
-            <h3 className="font-display text-15 text-tr-text-secondary">
-              {chapter.title}
-            </h3>
-            <span className="text-13 text-tr-text-muted">
-              ({chapter.facts.length})
-            </span>
-          </header>
-          <ul className="flex flex-col gap-1">
-            {chapter.facts.map((fact) => {
-              const expanded = expandedId === fact.id
-              if (expanded) {
-                return (
-                  <li key={fact.id} className="flex flex-col gap-2">
-                    <button
-                      type="button"
-                      onClick={() => toggleExpanded(fact.id)}
-                      className="flex w-full items-start gap-2 rounded-card border border-tr-border bg-tr-surface-raised px-3 py-2 text-left"
-                      data-testid={`atlas-row-${fact.id}`}
-                      aria-expanded
-                    >
-                      <CollapsedRowContent fact={fact} project={project} />
-                    </button>
-                    <FactCard
-                      fact={fact}
-                      allFacts={allFacts}
-                      project={project}
-                      queueActions={fact.status === 'pending_review'}
-                      busy={busy}
-                      onAccept={onAccept}
-                      onReject={onReject}
-                      onEdit={onEdit}
-                      onSourceSpanClick={onSourceSpanClick}
-                    />
-                  </li>
-                )
-              }
-
-              return (
-                <li key={fact.id}>
-                  <button
-                    type="button"
-                    onClick={() => toggleExpanded(fact.id)}
-                    className="flex w-full items-start gap-2 rounded-card border border-tr-border bg-tr-surface-raised px-3 py-2 text-left hover:bg-tr-surface-clay"
-                    data-testid={`atlas-row-${fact.id}`}
-                    aria-expanded={false}
-                  >
-                    <CollapsedRowContent fact={fact} project={project} />
-                  </button>
-                </li>
-              )
-            })}
-          </ul>
-        </section>
-      ))}
+      {chapters.map((chapter) => {
+        const groups = groupChapterFactsByKnower(chapter.facts, project)
+        return (
+          <section
+            key={chapter.id}
+            id={`fact-chapter-${chapter.id}`}
+            data-testid={`fact-chapter-${chapter.id}`}
+            className="flex flex-col gap-2"
+          >
+            <header className="flex items-baseline gap-2">
+              <h3 className="font-display text-15 text-tr-text-secondary">
+                {chapter.title}
+              </h3>
+              <span className="text-13 text-tr-text-muted">
+                ({chapter.facts.length})
+              </span>
+            </header>
+            {groups.map((group) => (
+              <div
+                key={group.title ?? 'flat'}
+                data-testid={
+                  group.title
+                    ? `knower-group-${group.title}`
+                    : undefined
+                }
+                className="flex flex-col gap-1"
+              >
+                {group.title && (
+                  <h4 className="mt-1 text-12 uppercase tracking-wide text-tr-text-muted">
+                    {group.title}
+                    <span className="ml-1 normal-case tracking-normal">
+                      ({group.facts.length})
+                    </span>
+                  </h4>
+                )}
+                <ul className="flex flex-col gap-1">
+                  {group.facts.map((fact) => renderFactRow(fact))}
+                </ul>
+              </div>
+            ))}
+          </section>
+        )
+      })}
     </div>
   )
 }
@@ -151,16 +177,18 @@ function CollapsedRowContent({
   fact: LedgerFact
   project: Project
 }) {
+  const cue = atlasCollapsedCue(fact, project)
+  const knowers = knownBySummary(fact, project)
+  const scene = formatSourceSpanLabel(fact, project)
   return (
     <>
-      <Chip hue="neutral">{TYPE_CUE[fact.factType]}</Chip>
+      <Chip hue={cue.hue}>{cue.label}</Chip>
       <span className="min-w-0 flex-1">
         <span className="line-clamp-2 text-15 text-tr-text-primary">
           {fact.fact}
         </span>
         <span className="mt-0.5 block text-12 text-tr-text-muted">
-          {knownBySummary(fact, project)} ·{' '}
-          {formatSourceSpanLabel(fact, project)}
+          {knowers ? `${knowers} · ${scene}` : scene}
         </span>
       </span>
     </>
