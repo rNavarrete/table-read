@@ -181,13 +181,15 @@ export function FactCard({
             </button>
           </div>
           <div className="flex flex-wrap items-center gap-1.5">
-            <span className="text-12 text-tr-text-muted">Known by</span>
-            {fact.knownBy.length === 0 ? (
+            <span className="text-12 text-tr-text-muted">
+              {fact.knownByAsOf ? 'Known by (as of this scene)' : 'Known by'}
+            </span>
+            {(fact.knownByAsOf ?? fact.knownBy).length === 0 ? (
               <span className="text-13 italic text-tr-text-muted">
                 audience only
               </span>
             ) : (
-              fact.knownBy.map((id) => (
+              (fact.knownByAsOf ?? fact.knownBy).map((id) => (
                 <Chip key={id} hue="neutral">
                   <span title={characterName(project, id)}>
                     {characterLabel(project, id)}

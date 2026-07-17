@@ -30,12 +30,14 @@ function fact(
     },
     sourceText: '',
     knownBy: [],
+    knowledgeEvents: [],
     audienceKnows: true,
     provenance: 'inferred',
     confidence: 0.5,
     status: 'active',
     supersedes: null,
     supersededBy: null,
+    knownByAsOf: null,
     ...partial,
   }
 }
@@ -102,6 +104,39 @@ describe('buildKnowledgeGraph', () => {
     expect(model.factNodes.map((entry) => entry.id)).toEqual([
       'mentioned-reyes',
     ])
+  })
+
+  it('T7.23: prefers knownByAsOf over knownBy when set, for character focus', () => {
+    const asOfFacts = [
+      fact({
+        id: 'reyes-learns-later',
+        knownBy: ['char-marta'],
+        knownByAsOf: ['char-marta', 'char-reyes'],
+        factType: 'knowledge',
+      }),
+    ]
+
+    const model = buildKnowledgeGraph(asOfFacts, project, 'char-reyes')
+
+    expect(model.factNodes.map((f) => f.id)).toEqual(['reyes-learns-later'])
+  })
+
+  it('T7.23: prefers knownByAsOf over knownBy when set, for audience focus', () => {
+    const asOfFacts = [
+      // Baseline knownBy is non-empty, but knownByAsOf says nobody knows it
+      // yet as of this scene — audience focus (knownBy.length === 0) must
+      // follow knownByAsOf, not baseline knownBy.
+      fact({
+        id: 'not-yet-known',
+        knownBy: ['char-marta'],
+        knownByAsOf: [],
+        factType: 'knowledge',
+      }),
+    ]
+
+    const model = buildKnowledgeGraph(asOfFacts, project, null)
+
+    expect(model.factNodes.map((f) => f.id)).toEqual(['not-yet-known'])
   })
 
   it('caps visible fact nodes at 24 by default', () => {

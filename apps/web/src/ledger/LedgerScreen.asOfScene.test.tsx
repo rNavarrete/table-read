@@ -76,12 +76,14 @@ function activeFact(id: string): LedgerFact {
     },
     sourceText: 'source',
     knownBy: [],
+    knowledgeEvents: [],
     audienceKnows: true,
     provenance: 'inferred',
     confidence: 0.9,
     status: 'active',
     supersedes: null,
     supersededBy: null,
+    knownByAsOf: null,
   }
 }
 

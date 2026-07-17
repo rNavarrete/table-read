@@ -51,12 +51,14 @@ function makeFact(partial: Partial<LedgerFact> = {}): LedgerFact {
     },
     sourceText: 'eyes on the dark marina gate',
     knownBy: ['char-reyes'],
+    knowledgeEvents: [],
     audienceKnows: true,
     provenance: 'inferred',
     confidence: 0.72,
     status: 'pending_review',
     supersedes: null,
     supersededBy: null,
+    knownByAsOf: null,
     ...partial,
   }
 }
@@ -78,6 +80,26 @@ describe('FactCard', () => {
     expect(screen.getByTestId('source-span-fact-06').textContent).toMatch(
       /ep 1 · sc 4 · beat 1/,
     )
+  })
+
+  it('T7.23: prefers knownByAsOf chips + label over baseline knownBy when set', () => {
+    const fact = makeFact({
+      knownBy: ['char-reyes'],
+      knownByAsOf: ['char-reyes', 'char-marta'],
+    })
+    render(<FactCard fact={fact} allFacts={[fact]} project={project} />)
+
+    expect(screen.getByText('Known by (as of this scene)')).toBeTruthy()
+    expect(screen.getByText('DR')).toBeTruthy()
+    expect(screen.getByText('MV')).toBeTruthy() // Marta Vega → M+V
+  })
+
+  it('falls back to baseline knownBy label/chips when knownByAsOf is null', () => {
+    const fact = makeFact({ knownBy: ['char-reyes'], knownByAsOf: null })
+    render(<FactCard fact={fact} allFacts={[fact]} project={project} />)
+
+    expect(screen.getByText('Known by')).toBeTruthy()
+    expect(screen.queryByText('Known by (as of this scene)')).toBeNull()
   })
 
   it('uses Quiet Tool fact-card chrome and confidence colors', () => {

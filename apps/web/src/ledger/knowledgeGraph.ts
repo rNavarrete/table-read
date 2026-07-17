@@ -24,13 +24,21 @@ function focusLabel(project: Project, characterId: string | null): string {
   return character?.name ?? characterId
 }
 
+/** T7.23: `knownByAsOf` (when the ledger was fetched with an as-of scene)
+ * takes precedence over baseline `knownBy` for who currently "knows" a
+ * fact — the Knowledge Web should reflect the scene the writer is looking
+ * at, not just the fact's establishing moment. */
+function knownByForFocus(fact: LedgerFact): string[] {
+  return fact.knownByAsOf ?? fact.knownBy
+}
+
 function matchesFocus(
   fact: LedgerFact,
   project: Project,
   characterId: string | null,
 ): boolean {
   if (characterId) {
-    if (fact.knownBy.includes(characterId)) return true
+    if (knownByForFocus(fact).includes(characterId)) return true
     const characterName = project.seriesBible.characters
       .find((entry) => entry.id === characterId)
       ?.name.trim()
@@ -39,7 +47,7 @@ function matchesFocus(
       fact.fact.toLocaleLowerCase().includes(characterName.toLocaleLowerCase()),
     )
   }
-  return fact.knownBy.length === 0
+  return knownByForFocus(fact).length === 0
 }
 
 function compareFactPriority(a: LedgerFact, b: LedgerFact): number {

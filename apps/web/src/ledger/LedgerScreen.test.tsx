@@ -78,12 +78,14 @@ function pendingFact(id: string, sceneId: string, beatId: string): LedgerFact {
     },
     sourceText: 'source',
     knownBy: [],
+    knowledgeEvents: [],
     audienceKnows: true,
     provenance: 'inferred',
     confidence: 0.9,
     status: 'pending_review',
     supersedes: null,
     supersededBy: null,
+    knownByAsOf: null,
   }
 }
 

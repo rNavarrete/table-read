@@ -134,12 +134,14 @@ function fact(overrides: Partial<LedgerFact> = {}): LedgerFact {
     },
     sourceText: '',
     knownBy: [],
+    knowledgeEvents: [],
     audienceKnows: true,
     provenance: 'writer_confirmed',
     confidence: 0.9,
     status: 'active',
     supersedes: null,
     supersededBy: null,
+    knownByAsOf: null,
     ...overrides,
   }
 }

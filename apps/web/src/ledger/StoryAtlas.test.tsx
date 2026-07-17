@@ -55,12 +55,14 @@ function fact(
     },
     sourceText: '',
     knownBy: [],
+    knowledgeEvents: [],
     audienceKnows: true,
     provenance: 'inferred',
     confidence: 0.8,
     status: 'active',
     supersedes: null,
     supersededBy: null,
+    knownByAsOf: null,
     ...partial,
   }
 }
