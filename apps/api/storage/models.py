@@ -72,6 +72,8 @@ class LedgerFactRow(Base):
     source_span: Mapped[dict] = mapped_column(JSON)
     source_text: Mapped[str]
     known_by: Mapped[list] = mapped_column(JSON)
+    # T7.23 knowledge-transition history beyond the baseline known_by set.
+    knowledge_events: Mapped[list] = mapped_column(JSON, default=list)
     audience_knows: Mapped[bool]
     provenance: Mapped[str]
     confidence: Mapped[float]
@@ -88,6 +90,7 @@ class LedgerFactRow(Base):
             "sourceSpan": self.source_span,
             "sourceText": self.source_text,
             "knownBy": self.known_by,
+            "knowledgeEvents": self.knowledge_events,
             "audienceKnows": self.audience_knows,
             "provenance": self.provenance,
             "confidence": self.confidence,
@@ -107,6 +110,8 @@ class LedgerFactRow(Base):
             source_span=data["sourceSpan"],
             source_text=data["sourceText"],
             known_by=data["knownBy"],
+            # T7.23: default [] for wire dicts predating this field.
+            knowledge_events=data.get("knowledgeEvents", []),
             audience_knows=data["audienceKnows"],
             provenance=data["provenance"],
             confidence=data["confidence"],

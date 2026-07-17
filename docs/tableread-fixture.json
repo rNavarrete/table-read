@@ -435,6 +435,7 @@
         "char-dan",
         "char-luz"
       ],
+      "knowledgeEvents": [],
       "audienceKnows": true,
       "provenance": "writer_confirmed",
       "confidence": 0.96,
@@ -459,6 +460,7 @@
       "knownBy": [
         "char-dan"
       ],
+      "knowledgeEvents": [],
       "audienceKnows": true,
       "provenance": "writer_confirmed",
       "confidence": 0.94,
@@ -483,6 +485,7 @@
       "knownBy": [
         "char-marta"
       ],
+      "knowledgeEvents": [],
       "audienceKnows": true,
       "provenance": "writer_confirmed",
       "confidence": 0.95,
@@ -507,6 +510,7 @@
       "knownBy": [
         "char-marta"
       ],
+      "knowledgeEvents": [],
       "audienceKnows": true,
       "provenance": "writer_confirmed",
       "confidence": 0.86,
@@ -534,6 +538,7 @@
         "char-luz",
         "char-reyes"
       ],
+      "knowledgeEvents": [],
       "audienceKnows": true,
       "provenance": "writer_authored",
       "confidence": 1.0,
@@ -558,6 +563,7 @@
       "knownBy": [
         "char-reyes"
       ],
+      "knowledgeEvents": [],
       "audienceKnows": true,
       "provenance": "inferred",
       "confidence": 0.72,
@@ -583,6 +589,7 @@
         "char-marta",
         "char-luz"
       ],
+      "knowledgeEvents": [],
       "audienceKnows": true,
       "provenance": "writer_authored",
       "confidence": 1.0,
@@ -608,6 +615,7 @@
         "char-marta",
         "char-dan"
       ],
+      "knowledgeEvents": [],
       "audienceKnows": true,
       "provenance": "writer_confirmed",
       "confidence": 0.92,
@@ -1057,6 +1065,7 @@
             "char-dan",
             "char-luz"
           ],
+          "knowledgeEvents": [],
           "audienceKnows": true,
           "provenance": "writer_confirmed",
           "confidence": 0.96,
@@ -1081,6 +1090,7 @@
           "knownBy": [
             "char-dan"
           ],
+          "knowledgeEvents": [],
           "audienceKnows": true,
           "provenance": "writer_confirmed",
           "confidence": 0.94,
@@ -1105,6 +1115,7 @@
           "knownBy": [
             "char-marta"
           ],
+          "knowledgeEvents": [],
           "audienceKnows": true,
           "provenance": "writer_confirmed",
           "confidence": 0.95,
@@ -1129,6 +1140,7 @@
           "knownBy": [
             "char-marta"
           ],
+          "knowledgeEvents": [],
           "audienceKnows": true,
           "provenance": "writer_confirmed",
           "confidence": 0.86,
@@ -1156,6 +1168,7 @@
             "char-luz",
             "char-reyes"
           ],
+          "knowledgeEvents": [],
           "audienceKnows": true,
           "provenance": "writer_authored",
           "confidence": 1.0,
@@ -1180,6 +1193,7 @@
           "knownBy": [
             "char-reyes"
           ],
+          "knowledgeEvents": [],
           "audienceKnows": true,
           "provenance": "inferred",
           "confidence": 0.72,
@@ -1205,6 +1219,7 @@
             "char-marta",
             "char-luz"
           ],
+          "knowledgeEvents": [],
           "audienceKnows": true,
           "provenance": "writer_authored",
           "confidence": 1.0,
@@ -1230,6 +1245,7 @@
             "char-marta",
             "char-dan"
           ],
+          "knowledgeEvents": [],
           "audienceKnows": true,
           "provenance": "writer_confirmed",
           "confidence": 0.92,

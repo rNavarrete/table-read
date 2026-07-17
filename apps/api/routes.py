@@ -398,7 +398,10 @@ def get_ledger(
     contract §4). `asOfScene` applies the T7.18 temporal filter
     (`ledger_as_of.facts_as_of`) first — using this (MVP: single-episode)
     project's ordered scene list — then `status`/`characterId` apply on the
-    narrowed set, exactly like today's filters (design doc semantic 2)."""
+    narrowed set, exactly like today's filters (design doc semantic 2).
+    `asOfScene` also fills each returned fact's `knownByAsOf` (T7.23) via
+    `ledger_as_of.knowers_as_of` — a response-only enrichment; canonical
+    `knownBy` is never rewritten."""
     project = _get_project_or_404(session, pid)
     facts = session.query(LedgerFactRow).filter_by(project_id=pid).order_by(LedgerFactRow.id).all()
     fact_dicts = [f.to_wire_dict() for f in facts]
@@ -410,6 +413,10 @@ def get_ledger(
             raise ApiError(
                 400, "VALIDATION", f"asOfScene {as_of_scene!r} not found"
             ) from exc
+        fact_dicts = [
+            {**f, "knownByAsOf": ledger_as_of.knowers_as_of(f, scenes, as_of_scene)}
+            for f in fact_dicts
+        ]
     if status is not None:
         fact_dicts = [f for f in fact_dicts if f["status"] == status]
     if character_id is not None:

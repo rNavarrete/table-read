@@ -207,6 +207,45 @@ def test_get_ledger_as_of_scene_unknown_id_returns_400(seeded_project):
     assert response.json()["error"]["code"] == "VALIDATION"
 
 
+def test_get_ledger_without_as_of_scene_leaves_known_by_as_of_null(seeded_project):
+    """T7.23: knownByAsOf is a response-only enrichment — null whenever
+    asOfScene isn't set (design doc "Semantics for as-of")."""
+    response = client.get(f"/api/v1/projects/{PROJECT_ID}/ledger")
+
+    assert response.status_code == 200
+    facts = response.json()
+    assert all(f["knownByAsOf"] is None for f in facts)
+
+
+def test_get_ledger_as_of_scene_fills_known_by_as_of(seeded_project, db_session):
+    """fact-03 ("Marta saw the transfer") baseline knownBy is just Marta; a
+    knowledgeEvent has Dan learn it as of scene-4. knownByAsOf must reflect
+    the baseline before that scene and the expanded set at/after it, while
+    canonical knownBy on the same response never changes."""
+    fact = db_session.get(LedgerFactRow, "fact-03")
+    fact.knowledge_events = [
+        {
+            "sceneId": "scene-4",
+            "characterIds": ["char-dan"],
+            "kind": "learns",
+            "quote": "",
+        }
+    ]
+    db_session.commit()
+
+    url = f"/api/v1/projects/{PROJECT_ID}/ledger"
+
+    before = client.get(url, params={"asOfScene": "scene-3"}).json()
+    fact_before = next(f for f in before if f["id"] == "fact-03")
+    assert fact_before["knownBy"] == ["char-marta"]
+    assert fact_before["knownByAsOf"] == ["char-marta"]
+
+    at_or_after = client.get(url, params={"asOfScene": "scene-4"}).json()
+    fact_after = next(f for f in at_or_after if f["id"] == "fact-03")
+    assert fact_after["knownBy"] == ["char-marta"]
+    assert fact_after["knownByAsOf"] == ["char-marta", "char-dan"]
+
+
 def test_undo_at_root_returns_409(seeded_project):
     response = client.post(f"/api/v1/projects/{PROJECT_ID}/undo")
 
