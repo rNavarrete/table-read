@@ -323,9 +323,25 @@ Schema-invalid tool output follows the client's standard one-retry rule. Separat
 
 This operation shipped with `PROMPT_VERSION 0.11.0`; prompt/tool-schema changes remain pending real-eval sign-off until the explicitly authorized full suite passes.
 
+
+### Import story overview (T7.27/T7.28)
+
+The synchronized `infer_story_overview` operation uses the `classifier` role at temperature 0. It runs after `infer_narrative_promises` and before ledger fact extraction. Input is compact ordered scene summaries (heading/location + beat whatHappens/learns/feels) plus the list of known scene and beat ids — all freeform text enters only through `drama_manager/render.py` nonce-wrapped `<source_data>` blocks.
+
+Craft constraints for the model (see design research citations):
+
+- **logline:** one sentence, prefer 25–40 words; protagonist + want + obstacle; stakes/irony when supported.
+- **outline:** one short summary per imported scene id (scene-ordered spine), not freeform prose.
+- **beatSheet:** named TV-shaped story turns (hook / inciting / midpoint / climax / etc. when they fit — not a forced Save-the-Cat 15-beat feature template), each anchored to an existing `beatId` (optional `sceneId`).
+- **summary:** exactly two paragraphs, third person, present tense; ¶1 setup/inciting; ¶2 escalation/resolution; spoil the ending when the script has one.
+
+Output schema: `InferredStoryOverview`. Server drops unknown scene/beat ids, sets `provenance: "inferred"`, and may backfill empty project/episode `premise` from the logline. Schema-invalid tool output follows the client's standard one-retry rule; a second failure surfaces `SCHEMA_INVALID_LLM` with zero persisted rows.
+
+This operation ships with `PROMPT_VERSION 0.15.0` (T7.28); real-eval sign-off is required before remote merge but is not run until authorized.
+
 ## 8. Cross-cutting conventions
 
-- **Model pinning:** prompts reference model *roles* (`writer`, `classifier`), resolved via `config/models.toml`, which pins exact model IDs (e.g., `writer = "claude-sonnet-4-5-20250929"`) per PROMPT_VERSION. Every call logs both the role and the resolved model ID; changing a pinned ID is a versioned change requiring `make evals`, same as a prompt edit. Role assignments: `writer` = §1 candidates, §2 tune (tuning dialogue is still creative writing), §4 regenerate, §9 scene skeleton; `classifier` = §3 blast radius, §5 extraction, §5a entity inference, §5b narrative-promise inference, §6 suggestions, §7 segmentation and act inference, §8c consistency scan. (§7 segmentation was reassigned writer→classifier per the T6.1 escalation so it can run at temperature 0 as §7 requires — see build plan T6.1; the writer tier rejects sampling params.)
+- **Model pinning:** prompts reference model *roles* (`writer`, `classifier`), resolved via `config/models.toml`, which pins exact model IDs (e.g., `writer = "claude-sonnet-4-5-20250929"`) per PROMPT_VERSION. Every call logs both the role and the resolved model ID; changing a pinned ID is a versioned change requiring `make evals`, same as a prompt edit. Role assignments: `writer` = §1 candidates, §2 tune (tuning dialogue is still creative writing), §4 regenerate, §9 scene skeleton; `classifier` = §3 blast radius, §5 extraction, §5a entity inference, §5b narrative-promise inference, §5c story-overview inference, §6 suggestions, §7 segmentation and act inference, §8c consistency scan. (§7 segmentation was reassigned writer→classifier per the T6.1 escalation so it can run at temperature 0 as §7 requires — see build plan T6.1; the writer tier rejects sampling params.)
 - **Strict tool use:** every tool definition sets `strict: true`; candidate cards are actionable only after full tool-input validation (header policy + §8a).
 - **Real schemas, one source:** the canonical `input_schema` for every op is **generated from the Zod definitions in the data contract §2a** (`packages/contract`, via `z.toJSONSchema`) with `additionalProperties: false`, explicit `required` arrays, enums, and nullable fields — every operation type in this doc (`BeatCandidate`, `BlastRadius`, `RegeneratedElements`, `LedgerExtraction`, `InstructionSuggestions`, `InferredActBreaks`, `SegmentedScene`, `ConsistencyScan`) is defined there and CI-diffed; the JSON blocks in this doc are readable summaries, not the artifact. Example of the real thing, `BeatCandidate`:
 

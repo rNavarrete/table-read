@@ -222,6 +222,39 @@ class StoryThread(_Base):
     locked: bool = False
 
 
+
+class StoryOverviewOutlineItem(_Base):
+    """T7.27 — one scene row in the episode outline."""
+
+    scene_id: Id
+    summary: str
+
+
+class StoryOverviewBeatItem(_Base):
+    """T7.27 — one named turn in the episode beat sheet."""
+
+    beat_id: Id
+    label: str = ""
+    summary: str
+    scene_id: Id | None = None
+
+
+class StoryOverviewProvenance(StrEnum):
+    inferred = "inferred"
+    writer_authored = "writer_authored"
+
+
+class StoryOverview(_Base):
+    """T7.27 — episode story overview. See packages/contract StoryOverview."""
+
+    logline: str
+    outline: list[StoryOverviewOutlineItem]
+    beat_sheet: list[StoryOverviewBeatItem]
+    summary: str
+    provenance: StoryOverviewProvenance = StoryOverviewProvenance.inferred
+    locked: bool = False
+
+
 class Episode(_Base):
     id: Id
     index: int = Field(ge=0)
@@ -235,6 +268,7 @@ class Episode(_Base):
     relationship_states: list[RelationshipState] = []
     object_states: list[ObjectState] = []
     threads: list[StoryThread] = []
+    story_overview: StoryOverview | None = None
 
 
 class CharacterArc(_Base):
@@ -516,6 +550,7 @@ class ImportProgressStageName(StrEnum):
     inferring_acts = "inferring_acts"
     inferring_entities = "inferring_entities"
     inferring_promises = "inferring_promises"
+    inferring_overview = "inferring_overview"
     extracting_facts = "extracting_facts"
     checking_consistency = "checking_consistency"
     saving = "saving"
@@ -814,6 +849,29 @@ class NarrativePromises(_Base):
     threads: list[InferredThread]
     scene_motivations: list[InferredSceneMotivations]
     world_rules: list[InferredWorldRule]
+
+
+
+class InferredOutlineItem(_Base):
+    scene_id: Id
+    summary: str
+
+
+class InferredBeatSheetItem(_Base):
+    beat_id: Id
+    label: str
+    summary: str
+    scene_id: Id | None
+
+
+class InferredStoryOverview(_Base):
+    """T7.27 infer_story_overview — see packages/contract InferredStoryOverview."""
+
+    logline: str
+    outline: list[InferredOutlineItem]
+    beat_sheet: list[InferredBeatSheetItem]
+    summary: str
+
 
 
 class ExtractedFactSourceSpan(_Base):

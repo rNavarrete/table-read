@@ -194,6 +194,36 @@ export const StoryThread = z.object({
 })
 export type StoryThread = z.infer<typeof StoryThread>
 
+
+// T7.27 — episode-level story overview (logline, scene outline, named beat
+// sheet, two-paragraph synopsis). Import mints no ids; outline/beatSheet
+// rows must reference scene/beat ids from the imported partition. Defaults
+// to null so pre-existing docs validate.
+export const StoryOverviewOutlineItem = z.object({
+  sceneId: Id,
+  summary: z.string(),
+})
+export type StoryOverviewOutlineItem = z.infer<typeof StoryOverviewOutlineItem>
+
+export const StoryOverviewBeatItem = z.object({
+  beatId: Id,
+  label: z.string().default(''),
+  summary: z.string(),
+  sceneId: Id.nullable().default(null),
+})
+export type StoryOverviewBeatItem = z.infer<typeof StoryOverviewBeatItem>
+
+export const StoryOverview = z.object({
+  logline: z.string(),
+  outline: z.array(StoryOverviewOutlineItem),
+  beatSheet: z.array(StoryOverviewBeatItem),
+  summary: z.string(),
+  provenance: z.enum(['inferred', 'writer_authored']).default('inferred'),
+  locked: z.boolean().default(false),
+})
+export type StoryOverview = z.infer<typeof StoryOverview>
+
+
 export const Episode = z.object({
   id: Id,
   index: z.number().int().min(0),
@@ -220,6 +250,9 @@ export const Episode = z.object({
   // T7.19 narrative-promise threads (design doc "MVP stores threads on the
   // first (only) episode"). Defaults to [] so pre-existing docs validate.
   threads: z.array(StoryThread).default([]),
+  // T7.27 episode story overview (import-inferred logline/outline/beat sheet/
+  // synopsis). Defaults to null so pre-existing docs validate.
+  storyOverview: StoryOverview.nullable().default(null),
 })
 export type Episode = z.infer<typeof Episode>
 
@@ -460,6 +493,9 @@ export const ProjectImportStageName = z.enum([
   // T7.19 — infer_narrative_promises runs after entities (so motivations
   // see the resolved cast) and before fact extraction (design doc "P2").
   'inferring_promises',
+  // T7.27 — infer_story_overview runs after promises (motivations/threads
+  // available for synopsis tone) and before fact extraction.
+  'inferring_overview',
   'extracting_facts',
   'checking_consistency',
   'saving',
@@ -756,6 +792,30 @@ export const NarrativePromises = z.object({
   ),
 })
 export type NarrativePromises = z.infer<typeof NarrativePromises>
+
+// T7.27 infer_story_overview — import-time episode logline / outline /
+// beat sheet / two-paragraph synopsis. Model references existing sceneId /
+// beatId values only; server drops unknown ids and sets provenance/locked.
+export const InferredStoryOverview = z.object({
+  logline: z.string(),
+  outline: z.array(
+    z.object({
+      sceneId: Id,
+      summary: z.string(),
+    }),
+  ),
+  beatSheet: z.array(
+    z.object({
+      beatId: Id,
+      label: z.string(),
+      summary: z.string(),
+      sceneId: Id.nullable(),
+    }),
+  ),
+  summary: z.string(),
+})
+export type InferredStoryOverview = z.infer<typeof InferredStoryOverview>
+
 
 // T7.23 extract-time counterpart to `KnowledgeEvent`: the model names
 // characters, never ids (same convention as `knownBy`/`InferredCharacter`);

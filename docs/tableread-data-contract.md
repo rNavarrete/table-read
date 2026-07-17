@@ -81,6 +81,26 @@ export const Scene = z.object({
 // label, not step tracking — an "open" thread may have only a setup;
 // "paid_off" has a payoff span. Import mints ids and resolves ownerNames
 // (see infer_narrative_promises §2a) to ownerCharacterIds server-side.
+
+// T7.27 — episode story overview (logline, scene outline, named beat sheet,
+// two-paragraph synopsis). Import fills via infer_story_overview; model never
+// mints ids. Defaults to null so pre-existing docs validate.
+export const StoryOverviewOutlineItem = z.object({
+  sceneId: Id, summary: z.string(),
+});
+export const StoryOverviewBeatItem = z.object({
+  beatId: Id, label: z.string().default(""), summary: z.string(),
+  sceneId: Id.nullable().default(null),
+});
+export const StoryOverview = z.object({
+  logline: z.string(),
+  outline: z.array(StoryOverviewOutlineItem),
+  beatSheet: z.array(StoryOverviewBeatItem),
+  summary: z.string(),
+  provenance: z.enum(["inferred", "writer_authored"]).default("inferred"),
+  locked: z.boolean().default(false),
+});
+
 export const StoryThread = z.object({
   id: Id, label: z.string(), summary: z.string(),
   status: z.enum(["open", "paid_off", "abandoned"]),
@@ -98,6 +118,8 @@ export const Episode = z.object({
   // T7.19 narrative-promise threads — MVP stores threads on the first
   // (only) episode. Defaults to [] so pre-existing docs validate.
   threads: z.array(StoryThread).default([]),
+  // T7.27 episode story overview — null when not yet inferred.
+  storyOverview: StoryOverview.nullable().default(null),
 });
 
 export const Season = z.object({
@@ -117,6 +139,21 @@ export const SourceSpan = z.object({
   charStart: z.number().int().min(0).nullable().default(null),
   charEnd: z.number().int().min(0).nullable().default(null),
 });
+
+// §5c infer_story_overview (T7.27) — episode logline / outline / beat sheet /
+// two-paragraph synopsis. outline.sceneId and beatSheet.beatId must name
+// ids from the imported partition; server drops unknowns and sets
+// provenance/locked on Episode.storyOverview.
+export const InferredStoryOverview = z.object({
+  logline: z.string(),
+  outline: z.array(z.object({ sceneId: Id, summary: z.string() })),
+  beatSheet: z.array(z.object({
+    beatId: Id, label: z.string(), summary: z.string(),
+    sceneId: Id.nullable(),
+  })),
+  summary: z.string(),
+});
+
 
 // T7.23 — a knowledge-state transition after a fact's establishing scene
 // (baseline knowers live on knownBy). "learns" adds characterIds to the
@@ -262,7 +299,7 @@ export const ProjectImportResult = z.object({
 
 // Named import progress stages (§7 step 4), in emission order. `inferring_entities`
 // (§2a infer_story_entities/§5a) runs between act inference and fact extraction;
-// `inferring_promises` (§2a infer_narrative_promises/§5b, T7.19) runs right after
+// `inferring_promises` / `inferring_overview` (§2a infer_narrative_promises/§5b, T7.19) runs right after
 // it, still before fact extraction, so motivations see the resolved cast.
 export const ProjectImportStageName = z.enum([
   "parsing_scenes", "segmenting_beats", "inferring_acts", "inferring_entities",

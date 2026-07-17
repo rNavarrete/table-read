@@ -1,0 +1,71 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "beatSheet": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "beatId": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "sceneId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "summary": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "beatId",
+          "label",
+          "summary",
+          "sceneId"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "logline": {
+      "type": "string"
+    },
+    "outline": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "sceneId": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "sceneId",
+          "summary"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "summary": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "logline",
+    "outline",
+    "beatSheet",
+    "summary"
+  ],
+  "type": "object"
+}

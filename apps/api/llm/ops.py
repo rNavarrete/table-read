@@ -22,8 +22,9 @@ produce, plus `generate_beat_candidates` and `tune_beat`, which both return
 `infer_story_entities` (§5a, StoryEntities) -- schema/registry only here;
 Task 2 owns its prompt/pipeline wiring. Narrative-promises (P2) Task 1 (T7.19)
 adds a 10th, `infer_narrative_promises` (NarrativePromises) -- again
-schema/registry only; T7.20 owns its prompt/pipeline wiring. All 10 are
-implemented here; see the task report for this reconciliation.
+schema/registry only; T7.20 owns its prompt/pipeline wiring. T7.27 adds
+an 11th, `infer_story_overview` (InferredStoryOverview) -- schema/
+registry only here; T7.28 owns its prompt/pipeline wiring.
 """
 
 from __future__ import annotations
@@ -38,6 +39,7 @@ from schemas import (
     BlastRadius,
     ConsistencyScan,
     InferredActBreaks,
+    InferredStoryOverview,
     InitialSceneSkeleton,
     InstructionSuggestions,
     LedgerExtraction,
@@ -172,6 +174,20 @@ _OPS: tuple[LlmOp, ...] = (
     # anthropic_client sends temperature=0 (prompt spec §7), and §7's temperature
     # requirement is honored. (The gate threshold itself is still chosen-not-pinned;
     # that ratification remains DESIGN-GAP(T6.1) at the eval's gate constant.)
+    # T7.27 story overview (design 2026-07-17-import-story-overview): Task 1
+    # adds schema/registry only — T7.28 owns prompt, pipeline, PROMPT_VERSION.
+    # Runs after infer_narrative_promises and before extract_ledger_facts.
+    LlmOp(
+        "infer_story_overview",
+        "InferredStoryOverview",
+        InferredStoryOverview,
+        "classifier",
+        "Infer an episode logline, scene-ordered outline, named beat sheet "
+        "anchored to existing beat ids, and a two-paragraph present-tense "
+        "synopsis from the imported script.",
+        max_tokens=8_192,
+        call_timeout_seconds=180.0,
+    ),
     LlmOp(
         "segment_scene",
         "SegmentedScene",

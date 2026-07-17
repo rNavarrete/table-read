@@ -21,6 +21,9 @@ const SCHEMA_NAMES = [
   'RelationshipState',
   'ObjectState',
   'StoryThread',
+  'StoryOverviewOutlineItem',
+  'StoryOverviewBeatItem',
+  'StoryOverview',
   'WorldRule',
   'Episode',
   'Season',
@@ -65,6 +68,7 @@ const SCHEMA_NAMES = [
   'InferredWorldElement',
   'StoryEntities',
   'NarrativePromises',
+  'InferredStoryOverview',
 ] as const
 
 const { z } = await import('zod')
