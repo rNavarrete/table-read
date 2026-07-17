@@ -138,6 +138,17 @@ Replaces the hardcoded seeded entry point with a project dashboard, idea/import 
 **T7.18 Time-aware ledger (as-of scene).** Filter ledger facts to those in force as of a chosen scene using existing `sourceSpan` + supersede semantics — first P1 cut of the continuity-layer roadmap. Spec/plan: `docs/superpowers/specs/2026-07-16-time-aware-ledger-design.md`, `docs/superpowers/plans/2026-07-16-time-aware-ledger.md`. No new LLM op / no `PROMPT_VERSION` bump. — implemented.
 *Accept:* `facts_as_of` unit-tested (later-established out; superseded-after still in; superseded-before out); `GET /ledger?asOfScene=` filters accordingly (unknown scene → 400 `VALIDATION`); Ledger UI As-of control refetches with the param; data-contract + test-plan updated.
 
+**T7.19 Narrative promises contract (P2).** `StoryThread` on `Episode`, structured `WorldRule` fields, §2a `NarrativePromises`, import stage `inferring_promises`. Spec/plan: `docs/superpowers/specs/2026-07-16-narrative-promises-design.md`, `docs/superpowers/plans/2026-07-16-narrative-promises.md`. — in progress.
+*Accept:* Zod/Pydantic/data-contract/prompt-spec/tool schemas agree; fixture validates with `threads: []` and worldRule defaults; `make check-contract` green.
+
+**T7.20 Import narrative-promises inference.** Classifier op after entity inference; merge threads/motivations/world rules; `PROMPT_VERSION` 0.13.0 — **requires `make evals` sign-off before remote merge**. Plan Tasks 2.
+*Accept:* mock import yields threads with resolved owners + setup scenes; motivations land on scenes; locked world rules untouched; atomic fail on schema-invalid after one retry.
+
+**T7.21 Ledger Threads panel.** List open/paid_off/abandoned with setup/payoff scene jump. Plan Task 3.
+*Accept:* Vitest covers render + navigation affordance; tokens only.
+
+**T7.22 Narrative-promises evals.** Planted fixture + soft recall gates; dry-run only until authorized. Plan Task 4.
+
 ## Milestone 8 — Fabula adoption (P-MVP slices)
 
 See `docs/tableread-adoption-prd.md` for full A1–A10 requirements. Sequencing table there maps items onto earlier milestones; remaining P-MVP work lands here as explicit tasks.
