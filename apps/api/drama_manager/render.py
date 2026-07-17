@@ -26,22 +26,24 @@ from typing import Any
 
 # Prompt spec §8 / hard rule 7: every template carries a PROMPT_VERSION (semver);
 # it is logged with each call and bumped on any template change. Bumped to
-# 0.13.0 for T7.23 (time-aware P1 remainder Task 3): `build_extract_prompt`'s
-# user message now asks the model to optionally note knowledgeEvents
-# (learns/forgets transitions beyond a fact's baseline knownBy) — a new
-# instruction on an existing prompt-changing surface requiring `make evals`
-# sign-off before merge (CLAUDE.md rule 7; not run in this task per the task
-# brief — tracked as eval debt). History: 0.12.0 added `build_entity_prompt`
-# for `infer_story_entities` (§5a, T7.15). 0.11.0 added act-inference and
-# deterministic-retry prompts over compact post-segmentation scene summaries.
-# 0.10.0 replaced import beat ranges with typed segment starts and structured
-# `{lineNumber, text}` source lines. 0.9.0 added lock-aware narrative repair +
-# subtext-fidelity HARD RULES (adoption A1 / A10) on the shared system prompt
-# — prompt-changing; needed `make evals` sign-off. History: 0.8.0
-# suggest_instructions; 0.7.0 scene skeleton; 0.6.0 continuity constraint;
-# 0.5.0 regenerate; 0.4.0 blast radius; 0.3.0 tune; 0.2.0 candidate + §0
-# system prompt.
-PROMPT_VERSION = "0.13.0"
+# 0.14.0 for T7.20 (narrative-promises P2 Task 2): adds `build_promises_prompt`
+# for the new `infer_narrative_promises` classifier op (design doc
+# 2026-07-16-narrative-promises-design.md) — a new prompt-changing surface
+# requiring `make evals` sign-off before merge (CLAUDE.md rule 7; blocked
+# pending user authorization per the task brief — tracked as eval debt).
+# History: 0.13.0 for T7.23 (time-aware P1 remainder Task 3):
+# `build_extract_prompt`'s user message now asks the model to optionally note
+# knowledgeEvents (learns/forgets transitions beyond a fact's baseline
+# knownBy). 0.12.0 added `build_entity_prompt` for `infer_story_entities`
+# (§5a, T7.15). 0.11.0 added act-inference and deterministic-retry prompts
+# over compact post-segmentation scene summaries. 0.10.0 replaced import beat
+# ranges with typed segment starts and structured `{lineNumber, text}` source
+# lines. 0.9.0 added lock-aware narrative repair + subtext-fidelity HARD
+# RULES (adoption A1 / A10) on the shared system prompt — prompt-changing;
+# needed `make evals` sign-off. History: 0.8.0 suggest_instructions; 0.7.0
+# scene skeleton; 0.6.0 continuity constraint; 0.5.0 regenerate; 0.4.0 blast
+# radius; 0.3.0 tune; 0.2.0 candidate + §0 system prompt.
+PROMPT_VERSION = "0.14.0"
 
 
 def new_nonce() -> str:
@@ -214,6 +216,41 @@ def build_entity_prompt(
         "by a name string, never an id — the server resolves and mints "
         "ids, not you. Give every entity at least one scene id and a "
         "short, verbatim-ish quote as evidence."
+    )
+    return build_system_prompt(project, nonce), user
+
+
+def build_promises_prompt(
+    project: dict,
+    scene_summaries: list[dict],
+    known_cast: list[str],
+    existing_world_rule_texts: list[str],
+    nonce: str,
+) -> tuple[str, str]:
+    """`infer_narrative_promises` (design doc
+    `2026-07-16-narrative-promises-design.md`, T7.20): the same compact
+    per-scene summaries `build_entity_prompt` uses, plus the cast already
+    resolved by entity inference (names only — the model never mints or
+    knows ids) and the bible's existing world-rule text (so the model
+    extends the rule set rather than re-deriving rules it already covers).
+    Runs after `infer_story_entities` so motivations/thread owners can
+    resolve against the fuller cast."""
+    user = (
+        source_data("import_scene_summaries", scene_summaries, nonce)
+        + "\n"
+        + source_data("known_cast", known_cast, nonce)
+        + "\n"
+        + source_data("existing_world_rules", existing_world_rule_texts, nonce)
+        + "\nIdentify narrative setup/payoff story threads across these "
+        "scenes in source order (a thread may be open with only a setup — "
+        "do not invent a payoff that isn't on the page), fill each "
+        "character's scene-level motivations where the script supports it, "
+        "and extract structured world rules — a stated limit, its cost, "
+        "and any exception — each with one short source-evidence quote. "
+        "Do not repeat a rule already present in existing_world_rules; "
+        "only report new ones. Refer to every character only by a name "
+        "string from known_cast, never an id — the server resolves and "
+        "mints ids, not you."
     )
     return build_system_prompt(project, nonce), user
 

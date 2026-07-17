@@ -298,6 +298,16 @@ def _resolve_to_id(token: str, characters: list[dict]) -> str | None:
     return found["id"] if found else None
 
 
+def resolve_character_id(token: str, characters: list[dict]) -> str | None:
+    """Public alias-aware name/id -> character id lookup that never mints
+    (T7.20 `drama_manager.promises`, and any other read-only resolution of
+    a model-supplied name against the already-resolved cast). Unlike
+    `normalize_known_by`, an unresolved name is simply returned as `None`
+    for the caller to drop -- the narrative-promises design doc's rule is
+    "drop unresolvable owners/motivations", not mint a stand-in character."""
+    return _resolve_to_id(token, characters)
+
+
 def _dedupe_aliases(aliases: Iterable[str]) -> list[str]:
     seen: set[str] = set()
     out: list[str] = []

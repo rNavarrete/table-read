@@ -24,6 +24,7 @@ from schemas import (
     ConsistencyScan,
     InferredActBreaks,
     LedgerExtraction,
+    NarrativePromises,
     SegmentedScene,
     StoryEntities,
 )
@@ -905,6 +906,20 @@ def entities(
     )
 
 
+def promises(
+    threads: list[dict] | None = None,
+    scene_motivations: list[dict] | None = None,
+    world_rules: list[dict] | None = None,
+) -> NarrativePromises:
+    return NarrativePromises.model_validate(
+        {
+            "threads": threads or [],
+            "sceneMotivations": scene_motivations or [],
+            "worldRules": world_rules or [],
+        }
+    )
+
+
 def test_import_merges_inferred_entities_and_resolves_alias_known_by(db_session, mock_llm):
     """T7.15: a non-speaking character and an alias-bearing character minted
     entirely from `infer_story_entities` (not from a script cue) both land in
@@ -1167,6 +1182,243 @@ def test_import_infers_relationship_states_from_entity_evidence(db_session, mock
             "quote": "Doc, are you there?",
         }
     ]
+
+
+# ── narrative promises merge (T7.20) ─────────────────────────────────────
+
+
+def test_import_infers_thread_and_scene_motivations_after_entities(db_session, mock_llm):
+    """T7.20 acceptance: a planted setup yields an open thread with a
+    resolved owner and setup scene, and a planted scene's motivations
+    fill in once the cast (from entity inference) resolves."""
+    created = client.post(
+        "/api/v1/projects",
+        json=NEW_PROJECT_BODY,
+        headers={"Idempotency-Key": "00000000-0000-4000-8000-000000000047"},
+    ).json()
+    pid = created["id"]
+
+    src = "INT. LAB - NIGHT\n\nMARTY\nDoc, are you there?\n"
+    mock_llm.set_responses("segment_scene", one_beat_per_scene(src))
+    mock_llm.set_response(
+        "infer_narrative_promises",
+        promises(
+            threads=[
+                {
+                    "label": "The vanished inventor",
+                    "summary": "Marty is looking for Doc.",
+                    "status": "open",
+                    "ownerNames": ["Marty", "Doc Brown"],
+                    "setupSceneId": "scene-1",
+                    "payoffSceneId": None,
+                    "setupQuote": "Doc, are you there?",
+                    "payoffQuote": "",
+                }
+            ],
+            scene_motivations=[
+                {
+                    "sceneId": "scene-1",
+                    "motivations": [
+                        {
+                            "characterName": "Marty",
+                            "objective": "Find Doc.",
+                            "stakes": "The plan falls apart without him.",
+                            "obstacle": "The lab is empty.",
+                        }
+                    ],
+                }
+            ],
+        ),
+    )
+    mock_llm.set_response("extract_ledger_facts", extraction())
+    mock_llm.set_response("scan_consistency", scan())
+
+    body = client.post(
+        f"/api/v1/projects/{pid}/import", json={"format": "fountain", "content": src}
+    ).json()
+
+    bible = body["project"]["seriesBible"]
+    by_name = {c["name"]: c["id"] for c in bible["characters"]}
+    episode = body["project"]["seasons"][0]["episodes"][0]
+
+    assert len(episode["threads"]) == 1
+    thread = episode["threads"][0]
+    assert thread["id"].startswith("thread-")
+    assert thread["status"] == "open"
+    assert set(thread["ownerCharacterIds"]) == {by_name["Marty"]}
+    assert thread["setupSceneId"] == "scene-1"
+    assert thread["payoffSceneId"] is None
+
+    scene = episode["scenes"][0]
+    assert scene["motivations"] == [
+        {
+            "characterId": by_name["Marty"],
+            "objective": "Find Doc.",
+            "stakes": "The plan falls apart without him.",
+            "obstacle": "The lab is empty.",
+        }
+    ]
+
+
+def test_import_drops_unresolvable_thread_owner_and_keeps_resolved(db_session, mock_llm):
+    """Design doc: unresolvable owners/motivations are dropped (never mint a
+    stand-in character), unlike `knownBy` normalization."""
+    created = client.post(
+        "/api/v1/projects",
+        json=NEW_PROJECT_BODY,
+        headers={"Idempotency-Key": "00000000-0000-4000-8000-000000000048"},
+    ).json()
+    pid = created["id"]
+
+    src = "INT. LAB - NIGHT\n\nMARTY\nDoc, are you there?\n"
+    mock_llm.set_responses("segment_scene", one_beat_per_scene(src))
+    mock_llm.set_response(
+        "infer_narrative_promises",
+        promises(
+            threads=[
+                {
+                    "label": "The vanished inventor",
+                    "summary": "Marty is looking for Doc.",
+                    "status": "open",
+                    "ownerNames": ["Marty", "Einstein the dog"],
+                    "setupSceneId": "scene-1",
+                    "payoffSceneId": None,
+                    "setupQuote": "Doc, are you there?",
+                    "payoffQuote": "",
+                }
+            ]
+        ),
+    )
+    mock_llm.set_response("extract_ledger_facts", extraction())
+    mock_llm.set_response("scan_consistency", scan())
+
+    body = client.post(
+        f"/api/v1/projects/{pid}/import", json={"format": "fountain", "content": src}
+    ).json()
+
+    bible = body["project"]["seriesBible"]
+    by_name = {c["name"]: c["id"] for c in bible["characters"]}
+    episode = body["project"]["seasons"][0]["episodes"][0]
+    assert episode["threads"][0]["ownerCharacterIds"] == [by_name["Marty"]]
+
+
+def test_import_appends_structured_world_rule_with_evidence(db_session, mock_llm):
+    created = client.post(
+        "/api/v1/projects",
+        json=NEW_PROJECT_BODY,
+        headers={"Idempotency-Key": "00000000-0000-4000-8000-000000000049"},
+    ).json()
+    pid = created["id"]
+
+    src = "INT. LAB - NIGHT\n\nMARTY\nDoc, are you there?\n"
+    mock_llm.set_responses("segment_scene", one_beat_per_scene(src))
+    mock_llm.set_response(
+        "infer_narrative_promises",
+        promises(
+            world_rules=[
+                {
+                    "text": "Time travel requires exactly 1.21 gigawatts.",
+                    "limit": "Only the DeLorean can generate it.",
+                    "cost": "Burns through the flux capacitor.",
+                    "exception": "Lightning strikes can substitute.",
+                    "evidenceSceneId": "scene-1",
+                    "evidenceQuote": "Great Scott!",
+                }
+            ]
+        ),
+    )
+    mock_llm.set_response("extract_ledger_facts", extraction())
+    mock_llm.set_response("scan_consistency", scan())
+
+    body = client.post(
+        f"/api/v1/projects/{pid}/import", json={"format": "fountain", "content": src}
+    ).json()
+
+    rules = body["project"]["seriesBible"]["worldRules"]
+    assert rules == [
+        {
+            "text": "Time travel requires exactly 1.21 gigawatts.",
+            "locked": False,
+            "limit": "Only the DeLorean can generate it.",
+            "cost": "Burns through the flux capacitor.",
+            "exception": "Lightning strikes can substitute.",
+            "evidenceSceneId": "scene-1",
+            "evidenceQuote": "Great Scott!",
+        }
+    ]
+
+
+def test_reimport_never_duplicates_locked_world_rule_text(
+    unlocked_project, db_session, mock_llm
+):
+    """Locks are sacred (CLAUDE.md rule 2): a re-import inferring a rule
+    whose text matches an existing *locked* rule must not append a
+    duplicate row underneath it."""
+    project = db_session.get(ProjectRow, PROJECT_ID)
+    bible = project.doc["seriesBible"]
+    locked_rule = {"text": "Debts in Harbor's End are never spoken aloud.", "locked": True}
+    project.doc = {
+        **project.doc,
+        "seriesBible": {**bible, "worldRules": [*bible["worldRules"], locked_rule]},
+    }
+    db_session.commit()
+
+    src = "INT. LAB - NIGHT\n\nDOC\nGreat Scott!\n"
+    mock_llm.set_responses("segment_scene", one_beat_per_scene(src))
+    mock_llm.set_response(
+        "infer_narrative_promises",
+        promises(
+            world_rules=[
+                {
+                    "text": "Debts in Harbor's End are never spoken aloud.",
+                    "limit": "should not overwrite the locked row",
+                    "cost": "",
+                    "exception": "",
+                    "evidenceSceneId": "scene-1",
+                    "evidenceQuote": "",
+                }
+            ]
+        ),
+    )
+    mock_llm.set_response("extract_ledger_facts", extraction())
+    mock_llm.set_response("scan_consistency", scan())
+
+    from fountain.pipeline import run_import
+
+    project = db_session.get(ProjectRow, PROJECT_ID)
+    result = run_import(db_session, project, src, mock_llm, instruction="Import test")
+
+    matching = [
+        r
+        for r in result["project"]["seriesBible"]["worldRules"]
+        if r["text"] == "Debts in Harbor's End are never spoken aloud."
+    ]
+    assert matching == [locked_rule]
+
+
+class _RaisingPromisesLlm(MockLlmClient):
+    def infer_narrative_promises(self, **kwargs):
+        raise SchemaInvalidLlmError("infer_narrative_promises")
+
+
+def test_schema_invalid_promises_persists_nothing(unlocked_project, db_session):
+    """Rule 9: schema-invalid `infer_narrative_promises` output (after the
+    client's own retry-once is exhausted) fails the import atomically —
+    zero rows changed, same contract as segmentation/act/entity inference."""
+    project = db_session.get(ProjectRow, PROJECT_ID)
+    original_doc = project.doc
+    original_head = project.head_snapshot_id
+    original_snaps = db_session.query(SnapshotRow).filter_by(project_id=PROJECT_ID).count()
+    original_facts = db_session.query(LedgerFactRow).filter_by(project_id=PROJECT_ID).count()
+    src = "INT. BAR - DAY\nScene."
+
+    from fountain.pipeline import run_import
+
+    llm = _RaisingPromisesLlm()
+    with pytest.raises(SchemaInvalidLlmError, match="infer_narrative_promises"):
+        run_import(db_session, project, src, llm, instruction="Import test")
+
+    _assert_unchanged(db_session, original_doc, original_head, original_snaps, original_facts)
 
 
 def test_import_infers_object_states_and_flags_location_conflict(

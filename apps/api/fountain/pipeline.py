@@ -12,9 +12,9 @@ inside `analyze_import`, entirely *before* either caller's single DB write
 `analyze_import` is a generator so a caller that wants named progress (the
 create-and-import SSE stream, data contract §9.3: `parsing_scenes` /
 `segmenting_beats` / `inferring_acts` / `inferring_entities` /
-`extracting_facts` / `checking_consistency`) can drive it one stage at a
-time; `run_import` below, which has no such caller, drains it in one call
-via `run_to_completion`.
+`inferring_promises` / `extracting_facts` / `checking_consistency`) can
+drive it one stage at a time; `run_import` below, which has no such caller,
+drains it in one call via `run_to_completion`.
 
 The LLM never controls text coverage (§7): `scriptText` is sliced verbatim
 from the server-derived partition returned by `parse.normalize_and_slice`,
@@ -34,6 +34,7 @@ from typing import cast
 
 from drama_manager import locks, render
 from drama_manager.ledger_policy import IdMinter
+from drama_manager.promises import merge_narrative_promises
 from fountain import acts
 from fountain.characters import (
     cues_from_scenes,
@@ -68,6 +69,7 @@ STAGE_PARSING_SCENES = "parsing_scenes"
 STAGE_SEGMENTING_BEATS = "segmenting_beats"
 STAGE_INFERRING_ACTS = "inferring_acts"
 STAGE_INFERRING_ENTITIES = "inferring_entities"
+STAGE_INFERRING_PROMISES = "inferring_promises"
 STAGE_EXTRACTING_FACTS = "extracting_facts"
 STAGE_CHECKING_CONSISTENCY = "checking_consistency"
 IMPORT_LLM_CONCURRENCY = 4
@@ -273,6 +275,38 @@ def analyze_import(
         len(entities.characters),
         len(entities.relationships),
         len(entities.world_elements),
+        render.PROMPT_VERSION,
+    )
+
+    # ── Narrative promises (P2, T7.20): one classifier call over the same
+    # scene summaries, now with the fuller cast resolved, so thread owners
+    # and scene motivations can name any character entities just minted.
+    # Merges threads onto the episode, motivations onto matching scenes, and
+    # new (non-duplicate) world rules onto the bible — never overwriting or
+    # duplicating a locked rule's text (drama_manager.promises). Same
+    # schema-invalid-after-retry atomic-failure contract as every other
+    # import LLM stage. ───────────────────────────────────────────────────
+    yield ImportStageStarted(STAGE_INFERRING_PROMISES)
+    known_cast = [c["name"] for c in characters if c.get("name")]
+    existing_world_rule_texts = [
+        r["text"] for r in bible.get("worldRules") or [] if r.get("text")
+    ]
+    system, user = render.build_promises_prompt(
+        new_doc,
+        _entity_scene_summaries(scene_docs),
+        known_cast,
+        existing_world_rule_texts,
+        render.new_nonce(),
+    )
+    narrative_promises = llm.infer_narrative_promises(
+        system=system, user_message=user, prompt_version=render.PROMPT_VERSION
+    )
+    merge_narrative_promises(new_doc, episode_id, narrative_promises)
+    _logger.info(
+        "import_infer_promises threads=%d scene_motivations=%d world_rules=%d prompt_version=%s",
+        len(narrative_promises.threads),
+        len(narrative_promises.scene_motivations),
+        len(narrative_promises.world_rules),
         render.PROMPT_VERSION,
     )
 
