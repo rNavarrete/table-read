@@ -274,7 +274,9 @@ def analyze_import(
     summary_chunks = chunk_entity_scene_summaries(
         scene_summaries, speaker_names, budget=ENTITY_INFER_USER_CHAR_BUDGET
     )
-    _logger.info(
+    # WARNING (not INFO): uvicorn's default app log level often hides INFO,
+    # and these lines are the only signal that chunking ran on a large import.
+    _logger.warning(
         "import_infer_entities_start scenes=%d chunks=%d speakers=%d "
         "budget=%d prompt_version=%s",
         len(scene_docs),
@@ -288,7 +290,7 @@ def analyze_import(
         system, user = render.build_entity_prompt(
             new_doc, chunk, speaker_names, render.new_nonce()
         )
-        _logger.info(
+        _logger.warning(
             "import_infer_entities_chunk chunk=%d/%d scenes=%d "
             "user_chars=%d system_chars=%d",
             chunk_index + 1,

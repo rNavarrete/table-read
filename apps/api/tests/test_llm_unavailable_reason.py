@@ -87,6 +87,43 @@ def test_classify_invalid_temperature():
     assert reason_class == "invalid_temperature"
 
 
+def test_classify_invalid_tool_schema_prefix_items():
+    """Live Haiku 400 for StoryEntities tuple field — must classify + excerpt."""
+    exc = _api_error(
+        status=400,
+        error_type="invalid_request_error",
+        message="tools.0.custom: For 'array' type, property 'prefixItems' is not supported",
+        cls=anthropic.BadRequestError,
+    )
+    reason_class, reason = classify_llm_unavailable_reason(exc)
+    assert reason_class == "invalid_tool_schema"
+    assert reason is not None
+    assert "prefixItems" in reason
+    assert len(reason) <= 120
+
+
+def test_classify_from_sdk_message_when_body_missing():
+    """Fallback: parse Error code: 400 - {...} when body lacks error.message."""
+    resp = httpx.Response(
+        400,
+        request=httpx.Request("POST", "https://api.anthropic.com/v1/messages"),
+        json={"type": "error"},
+    )
+    exc = anthropic.BadRequestError(
+        message=(
+            "Error code: 400 - "
+            '{"type":"error","error":{"type":"invalid_request_error",'
+            '"message":"tools.0.custom: For \'array\' type, property \'prefixItems\' is not supported"}}'
+        ),
+        response=resp,
+        body={"type": "error"},
+    )
+    reason_class, reason = classify_llm_unavailable_reason(exc)
+    assert reason_class == "invalid_tool_schema"
+    assert reason is not None
+    assert "prefixItems" in reason
+
+
 def test_classify_other_invalid_request():
     exc = _api_error(
         status=400,

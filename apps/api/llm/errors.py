@@ -10,6 +10,8 @@ until T2.1 (the first LLM-backed endpoint)."""
 
 from __future__ import annotations
 
+import ast
+import json
 import logging
 import re
 from typing import Any
@@ -22,7 +24,13 @@ _SAFE_REASON_EXCERPT_RE = re.compile(
     r"|overloaded[^.!?\n]{0,40}"
     r"|(?:maximum\s+)?(?:context|input)\s+length[^.!?\n]{0,80}"
     r"|\d[\d,]*\s*(?:input\s+)?tokens?[^.!?\n]{0,60}"
-    r"|temperature[^.!?\n]{0,60})",
+    r"|temperature[^.!?\n]{0,60}"
+    # Tool/schema 400s are Anthropic request boilerplate (never writer text).
+    r"|tools?\.[^\n]{0,180}"
+    r"|input_schema[^.!?\n]{0,100}"
+    r"|prefixItems[^.!?\n]{0,80}"
+    r"|JSON\s+[Ss]chema[^.!?\n]{0,100}"
+    r"|property\s+'[^']+'\s+is\s+not\s+supported[^.!?\n]{0,40})",
     re.IGNORECASE,
 )
 
@@ -33,6 +41,11 @@ _PROMPT_TOO_LONG_RE = re.compile(
 _RATE_LIMIT_RE = re.compile(r"rate\s*limit", re.I)
 _OVERLOADED_RE = re.compile(r"overloaded", re.I)
 _TEMPERATURE_RE = re.compile(r"temperature", re.I)
+_TOOL_SCHEMA_RE = re.compile(
+    r"input_schema|prefixItems|tools?\.\d|JSON\s+[Ss]chema|"
+    r"property\s+'[^']+'\s+is\s+not\s+supported",
+    re.I,
+)
 
 
 class LlmTimeoutError(Exception):
@@ -80,16 +93,65 @@ def _anthropic_error_type(exc: BaseException) -> Any:
     return body.get("type")
 
 
-def _anthropic_error_message(exc: BaseException) -> str | None:
-    """Pull `error.message` from an Anthropic body for classification only.
-    Callers must not log this string unless `_safe_reason_excerpt` accepts it."""
-    body = getattr(exc, "body", None)
-    if not isinstance(body, dict):
+def _message_from_sdk_text(raw: str) -> str | None:
+    """Best-effort extract of `error.message` from an SDK exception string."""
+    marker = " - "
+    if marker not in raw:
         return None
-    inner = body.get("error")
+    tail = raw.split(marker, 1)[1].strip()
+    parsed: Any = None
+    if tail.startswith("{"):
+        try:
+            parsed = json.loads(tail)
+        except json.JSONDecodeError:
+            try:
+                parsed = ast.literal_eval(tail)
+            except (ValueError, SyntaxError):
+                return None
+    elif tail.startswith("'") or tail.startswith('"'):
+        try:
+            parsed = ast.literal_eval(tail)
+        except (ValueError, SyntaxError):
+            return None
+    else:
+        return None
+    if not isinstance(parsed, dict):
+        return None
+    inner = parsed.get("error")
     if isinstance(inner, dict):
         message = inner.get("message")
-        return message if isinstance(message, str) else None
+        if isinstance(message, str) and message.strip():
+            return message
+    return None
+
+
+def _anthropic_error_message(exc: BaseException) -> str | None:
+    """Pull Anthropic's human error message for classification only.
+
+    Prefers `exc.body["error"]["message"]`. Falls back to parsing the SDK's
+    `exc.message` / `str(exc)` form (`Error code: 400 - {...}`) when the body
+    is missing or oddly shaped. Callers must not log this string unless
+    `_safe_reason_excerpt` accepts it.
+    """
+    body = getattr(exc, "body", None)
+    if isinstance(body, dict):
+        inner = body.get("error")
+        if isinstance(inner, dict):
+            message = inner.get("message")
+            if isinstance(message, str) and message.strip():
+                return message
+        top = body.get("message")
+        if isinstance(top, str) and top.strip():
+            return top
+
+    raw = getattr(exc, "message", None)
+    if isinstance(raw, str) and raw.strip():
+        extracted = _message_from_sdk_text(raw)
+        if extracted:
+            return extracted
+    as_text = str(exc) if getattr(exc, "args", None) else None
+    if isinstance(as_text, str) and as_text.strip():
+        return _message_from_sdk_text(as_text)
     return None
 
 
@@ -125,6 +187,8 @@ def classify_llm_unavailable_reason(exc: BaseException) -> tuple[str, str | None
         return "prompt_too_long", excerpt
     if message and _TEMPERATURE_RE.search(message):
         return "invalid_temperature", excerpt
+    if message and _TOOL_SCHEMA_RE.search(message):
+        return "invalid_tool_schema", excerpt
     if error_type == "invalid_request_error":
         return "other_invalid_request", excerpt
     if error_type:

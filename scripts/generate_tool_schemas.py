@@ -45,6 +45,12 @@ TOOL_SCHEMAS_DIR = REPO_ROOT / "config" / "tool_schemas"
 # adds for readability. `additionalProperties`, `required`, `enum`, `type`,
 # `properties`, `items`, and `anyOf` all pass through unchanged.
 #
+# Zod `z.tuple([...])` emits draft-2020-12 `prefixItems`; Haiku/Sonnet
+# strict tools reject that keyword with 400 invalid_request_error
+# ("For 'array' type, property 'prefixItems' is not supported"). Collapse
+# tuples to plain `items` here — Pydantic still enforces exact arity on
+# `tool_use.input` (e.g. `between_names: tuple[str, str]`).
+#
 # Stripping these does not weaken validation end to end: Pydantic
 # (apps/api/schemas.py) still enforces every one of these bounds on the
 # `tool_use.input` the model returns, same as every other piece of LLM
@@ -55,12 +61,39 @@ _UNSUPPORTED_KEYS = frozenset(
 )
 
 
+def _unify_prefix_items(prefix: list[Any]) -> Any:
+    """Collapse a Zod tuple's prefixItems into a single items schema."""
+    first = prefix[0]
+    if all(item == first for item in prefix[1:]):
+        return first
+    unique: list[Any] = []
+    for item in prefix:
+        if item not in unique:
+            unique.append(item)
+    if len(unique) == 1:
+        return unique[0]
+    return {"anyOf": unique}
+
+
 def _strictify(node: Any) -> Any:
     if isinstance(node, list):
         return [_strictify(item) for item in node]
     if not isinstance(node, dict):
         return node
-    return {key: _strictify(value) for key, value in node.items() if key not in _UNSUPPORTED_KEYS}
+    out = {
+        key: _strictify(value)
+        for key, value in node.items()
+        if key not in _UNSUPPORTED_KEYS
+    }
+    if "prefixItems" in out:
+        prefix = out.pop("prefixItems")
+        if not isinstance(prefix, list) or not prefix:
+            raise ValueError("prefixItems must be a non-empty list after strictify")
+        # `items: false` means "no additional items" beside the tuple slots.
+        if out.get("items") is False:
+            out.pop("items", None)
+        out["items"] = _unify_prefix_items(prefix)
+    return out
 
 
 def _export_zod_schemas() -> dict[str, Any]:
