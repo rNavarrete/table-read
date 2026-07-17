@@ -49,6 +49,7 @@ from fountain.parse import (
     normalize_and_slice,
     split_into_scenes,
 )
+from fountain.timeline import merge_timeline_anchors
 from llm.errors import SchemaInvalidLlmError
 from llm.protocol import LlmClient
 from schemas import LedgerExtraction
@@ -568,12 +569,19 @@ def run_import(
 def _install_scenes(project_doc: dict, scene_docs: list[dict]) -> tuple[dict, str]:
     """Install the imported scenes as the project's single episode (MVP),
     preserving an existing season/episode's metadata or scaffolding one.
-    Returns the new doc and the episode id the scenes now live under."""
+    Returns the new doc and the episode id the scenes now live under.
+
+    Also (re)computes `timelineAnchors` (T7.24) from the new scene set via
+    `fountain.timeline.merge_timeline_anchors` -- deterministic, no LLM.
+    A re-import replaces them along with `scenes` since scene ids are
+    reminted each import; there is nothing to preserve from the old set."""
     doc = copy.deepcopy(project_doc)
+    timeline_anchors = merge_timeline_anchors(scene_docs)
     seasons = doc.get("seasons") or []
     if seasons and seasons[0].get("episodes"):
         episode = seasons[0]["episodes"][0]
         episode["scenes"] = scene_docs
+        episode["timelineAnchors"] = timeline_anchors
         return doc, episode["id"]
 
     episode = {
@@ -585,6 +593,7 @@ def _install_scenes(project_doc: dict, scene_docs: list[dict]) -> tuple[dict, st
         "seasonFunction": "",
         "storylines": [],
         "scenes": scene_docs,
+        "timelineAnchors": timeline_anchors,
     }
     if seasons:
         seasons[0]["episodes"] = [episode]

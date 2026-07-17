@@ -1079,6 +1079,39 @@ def test_import_drops_audience_token_from_knowledge_event_characters(db_session,
     ]
 
 
+def test_import_infers_timeline_anchors_from_scene_sluglines(db_session, mock_llm):
+    """T7.24: a relative-time slugline suffix on scene 2 anchors "after
+    scene-1"; deterministic (fountain.timeline), no new LLM call."""
+    created = client.post(
+        "/api/v1/projects",
+        json=NEW_PROJECT_BODY,
+        headers={"Idempotency-Key": "00000000-0000-4000-8000-000000000044"},
+    ).json()
+    pid = created["id"]
+
+    src = (
+        "INT. THE LONG POUR - DAY\n\nMARTA\nMorning.\n\n"
+        "INT. THE LONG POUR - THREE DAYS LATER\n\nMARTA\nLater.\n"
+    )
+    mock_llm.set_responses("segment_scene", one_beat_per_scene(src))
+    mock_llm.set_response("extract_ledger_facts", extraction())
+    mock_llm.set_response("scan_consistency", scan())
+
+    body = client.post(
+        f"/api/v1/projects/{pid}/import", json={"format": "fountain", "content": src}
+    ).json()
+
+    episode = body["project"]["seasons"][0]["episodes"][0]
+    assert episode["timelineAnchors"] == [
+        {
+            "afterSceneId": "scene-1",
+            "label": "Three Days Later",
+            "kind": "relative",
+            "quote": "INT. THE LONG POUR - THREE DAYS LATER",
+        }
+    ]
+
+
 def test_reimport_never_modifies_locked_character_fields(unlocked_project, db_session, mock_llm):
     project = db_session.get(ProjectRow, PROJECT_ID)
     bible = project.doc["seriesBible"]

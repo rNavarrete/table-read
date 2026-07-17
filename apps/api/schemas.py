@@ -153,6 +153,20 @@ class EpisodeStoryline(_Base):
     character_ids: list[Id]
 
 
+class TimelineAnchorKind(StrEnum):
+    relative = "relative"
+    absolute = "absolute"
+
+
+class TimelineAnchor(_Base):
+    """T7.24 — see packages/contract/src/index.ts's `TimelineAnchor` docstring."""
+
+    after_scene_id: Id
+    label: str
+    kind: TimelineAnchorKind
+    quote: str = ""
+
+
 class Episode(_Base):
     id: Id
     index: int = Field(ge=0)
@@ -162,6 +176,7 @@ class Episode(_Base):
     season_function: str = ""
     storylines: list[EpisodeStoryline]
     scenes: list[Scene]
+    timeline_anchors: list[TimelineAnchor] = []
 
 
 class CharacterArc(_Base):

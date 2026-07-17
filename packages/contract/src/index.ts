@@ -118,6 +118,18 @@ export const Scene = z.object({
 })
 export type Scene = z.infer<typeof Scene>
 
+// T7.24 — a relative or absolute time marker between scenes, inferred from
+// scene slugline time-of-day text on import (fountain.timeline.
+// merge_timeline_anchors). Display-only in MVP: the as-of filter stays
+// scene-index-based (design doc T7.24) — anchors never reorder scenes.
+export const TimelineAnchor = z.object({
+  afterSceneId: Id, // the scene this time jump happens after
+  label: z.string(), // e.g. "Three days later"
+  kind: z.enum(['relative', 'absolute']),
+  quote: z.string().default(''), // verbatim slugline/action text evidence
+})
+export type TimelineAnchor = z.infer<typeof TimelineAnchor>
+
 export const Episode = z.object({
   id: Id,
   index: z.number().int().min(0),
@@ -133,6 +145,9 @@ export const Episode = z.object({
     }),
   ),
   scenes: z.array(Scene),
+  // T7.24 timeline anchors, ordered by scene order. Defaults to [] so
+  // pre-existing docs validate.
+  timelineAnchors: z.array(TimelineAnchor).default([]),
 })
 export type Episode = z.infer<typeof Episode>
 

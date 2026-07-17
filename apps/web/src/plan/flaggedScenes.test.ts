@@ -73,6 +73,7 @@ function project(scenes: Scene[]): Project {
             seasonFunction: '',
             storylines: [],
             scenes,
+            timelineAnchors: [],
           },
         ],
       },

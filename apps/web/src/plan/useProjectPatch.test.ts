@@ -155,6 +155,7 @@ describe('useProjectPatch', () => {
                 beats: [],
               },
             ],
+            timelineAnchors: [],
           },
         ],
       },
