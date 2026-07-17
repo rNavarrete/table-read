@@ -5,6 +5,7 @@ import {
   buildRelatedEdges,
   layoutFactArc,
   layoutFactNodes,
+  relatedFactIds,
 } from './knowledgeGraph'
 
 const project = {
@@ -233,7 +234,36 @@ describe('buildRelatedEdges', () => {
   })
 })
 
-describe('layoutFactArc', () => {
+describe('relatedFactIds', () => {
+  it('returns neighbor fact ids for a selected fact', () => {
+    const edges = buildRelatedEdges(
+      [
+        fact({
+          id: 'a',
+          knownBy: ['char-reyes', 'char-marta'],
+          factType: 'knowledge',
+        }),
+        fact({
+          id: 'b',
+          knownBy: ['char-reyes', 'char-marta'],
+          factType: 'knowledge',
+        }),
+        fact({
+          id: 'c',
+          knownBy: ['char-reyes'],
+          factType: 'knowledge',
+        }),
+      ],
+      project,
+    )
+
+    expect(relatedFactIds('a', edges).has('b')).toBe(true)
+    expect(relatedFactIds('a', edges).has('a')).toBe(false)
+    expect(relatedFactIds(null, edges).size).toBe(0)
+  })
+})
+
+describe('layoutFactArc (optional marker layout helper)', () => {
   it('returns empty for zero nodes', () => {
     expect(layoutFactArc(0)).toEqual([])
   })
@@ -263,7 +293,7 @@ describe('layoutFactArc', () => {
     ]
     const layout = layoutFactNodes(nodes)
     expect(layout.map((entry) => entry.factId)).toEqual(['one', 'two'])
-    // Symmetric arc → same x, distinct y (web reads vertically).
     expect(layout[0]!.y).not.toBe(layout[1]!.y)
   })
 })
+

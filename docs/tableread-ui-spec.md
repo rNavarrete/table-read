@@ -143,7 +143,7 @@ Ledger is a **story bible** — writers open it to understand what is true in th
 | View | Job |
 |---|---|
 | **Story Atlas** (default) | Compact expandable rows grouped by storytelling meaning |
-| **Knowledge Web** | Character-focused knowledge graph (or audience overview) |
+| **Knowledge Web** | Character- or Audience-focused who-knows-what (ranked list + detail) |
 
 Layout: left **Lenses** rail (198px, `--tr-panel-ledger-filters`) · main column with page header + active view body · **review queue** pinned at top when non-empty in **both** views.
 
@@ -192,11 +192,14 @@ Filtered non-queue facts (pending stay in the queue unless status filter is Need
 
 ### 7e. Knowledge Web
 
+Hybrid **focus strip + ranked fact list + detail** (research note `docs/superpowers/specs/2026-07-17-knowledge-web-graph-ux-research.md`). No graph library. Not a second Atlas — the job is focus-centric “what does this person / Audience know?”
+
 - **Focus:** selected **People** filter, or **Audience** when All — audience overview shows facts with empty `knownBy` (respect `knownByAsOf` when the ledger was fetched as-of a scene).
-- **Graph (no library):** focus node center-left; up to **24** fact nodes on a **radial/arc** layout (SVG spokes from focus → facts). Prefer `knowledge` / `relationship` when ranking. When more than 24 match, show **+N more** chrome that switches to Atlas. Pending nodes `--tr-amber-soft`; active nodes raised surface; selected node uses accent outline + lift.
-- **Dense fact nodes:** type cue (EVENT / STATE / KNOWS / REL / RULE) · 1–2 line fact text · muted scene label and/or knower count.
-- **Mini-edges (focus-centric):** light SVG links between visible facts that **share knowers**, plus links involving **relationship** facts that **co-mention** the same character name. Not a force-directed graph — still capped and secondary to focus spokes.
-- **Interaction:** click / keyboard-activate fact node → detail panel (`FactCard`, same fields/actions as Atlas expanded row). **Open in Atlas** switches to Atlas and expands that fact.
+- **Focus strip:** focus chip (label) + light **type-cluster** chips (counts among visible facts: KNOWS / REL / …). Optional hub metaphor only — not full FactCards on an arc.
+- **Ranked rows (cap 24):** scrollable list preferring `knowledge` / `relationship` when ranking (same `buildKnowledgeGraph` ranking). Each row: type cue · 1–2 line fact · muted scene · knower count. Pending rows `--tr-amber-soft`; selected row accent outline + lift.
+- **Overflow:** when more than 24 match, **+N more — open Atlas** chrome switches to Atlas.
+- **Related cues:** fact–fact mini-edges are **hidden by default**. When a row is selected, related visible facts (shared knowers / relationship co-mentions from the capped edge model) get a subtle related highlight — not a hairball SVG graph.
+- **Interaction:** click / keyboard-activate row → detail panel (`FactCard`, same fields/actions as Atlas expanded row). **Open in Atlas** switches to Atlas and expands that fact.
 - **Empty / All-people cliff:** "No knowledge facts for {name} yet" (or Audience) + nudge to pick a person from People when focus is Audience / All yields little; Atlas switcher hint remains.
 
 ### 7f. Fact detail (shared)

@@ -4,11 +4,9 @@ import { Card } from '../plan/Card'
 import { Chip } from '../plan/Chip'
 import { FactCard } from './FactCard'
 import {
-  WEB_FOCUS,
-  WEB_VIEW,
   buildKnowledgeGraph,
   knownByForFocus,
-  layoutFactNodes,
+  relatedFactIds,
 } from './knowledgeGraph'
 import { formatSourceSpanLabel } from './sourceSpanLabel'
 
@@ -35,19 +33,30 @@ const TYPE_CUE: Record<LedgerFact['factType'], string> = {
   world_rule: 'RULE',
 }
 
-const NODE_W = 168
-const NODE_H = 72
+const CLUSTER_ORDER: LedgerFact['factType'][] = [
+  'knowledge',
+  'relationship',
+  'event',
+  'state',
+  'world_rule',
+]
 
-function factNodeClass(fact: LedgerFact, selected: boolean): string {
+function factRowClass(
+  fact: LedgerFact,
+  selected: boolean,
+  related: boolean,
+): string {
   const base =
-    'absolute box-border flex w-[168px] -translate-x-1/2 -translate-y-1/2 flex-col gap-1 rounded-card border px-2.5 py-2 text-left shadow-raised transition-[box-shadow,outline-color,background-color] duration-standard ease-standard motion-reduce:transition-none focus-visible:outline focus-visible:outline-selected focus-visible:outline-offset-2 focus-visible:outline-tr-coral'
+    'flex w-full items-start gap-2 rounded-card border px-3 py-2 text-left shadow-raised transition-[box-shadow,outline-color,background-color] duration-standard ease-standard motion-reduce:transition-none focus-visible:outline focus-visible:outline-selected focus-visible:outline-offset-2 focus-visible:outline-tr-coral'
   const surface =
     fact.status === 'pending_review'
       ? 'border-tr-border bg-tr-amber-soft'
       : 'border-tr-border bg-tr-surface-raised'
   const selectedClass = selected
-    ? ' z-10 outline outline-selected outline-offset-2 outline-tr-coral shadow-lift'
-    : ' outline outline-0 outline-transparent'
+    ? ' outline outline-selected outline-offset-2 outline-tr-coral shadow-lift'
+    : related
+      ? ' outline outline-1 outline-offset-0 outline-tr-border-strong bg-tr-sky-soft'
+      : ' outline outline-0 outline-transparent'
   return `${base} ${surface}${selectedClass}`
 }
 
@@ -63,9 +72,22 @@ function sceneShortLabel(fact: LedgerFact, project: Project): string {
   return scenePart ?? full
 }
 
+function typeClusterCounts(
+  factNodes: LedgerFact[],
+): { type: LedgerFact['factType']; count: number }[] {
+  const counts = new Map<LedgerFact['factType'], number>()
+  for (const fact of factNodes) {
+    counts.set(fact.factType, (counts.get(fact.factType) ?? 0) + 1)
+  }
+  return CLUSTER_ORDER.flatMap((type) => {
+    const count = counts.get(type) ?? 0
+    return count > 0 ? [{ type, count }] : []
+  })
+}
+
 /**
- * Knowledge Web — character-focused radial graph (UI spec §7e).
- * SVG spokes + mini-edges; no graph library.
+ * Knowledge Web — hybrid focus strip + ranked fact list + detail (UI spec §7e).
+ * Ranking/cap from `buildKnowledgeGraph`; no graph library; no radial FactCards.
  */
 export function KnowledgeWeb({
   facts,
@@ -84,22 +106,21 @@ export function KnowledgeWeb({
     () => buildKnowledgeGraph(facts, project, characterId),
     [facts, project, characterId],
   )
-  const layouts = useMemo(
-    () => layoutFactNodes(graph.factNodes),
-    [graph.factNodes],
-  )
-  const layoutById = useMemo(() => {
-    const map = new Map<string, { x: number; y: number }>()
-    for (const entry of layouts) {
-      map.set(entry.factId, { x: entry.x, y: entry.y })
-    }
-    return map
-  }, [layouts])
 
   const [selectedId, setSelectedId] = useState<string | null>(null)
 
   const selectedFact =
     graph.factNodes.find((fact) => fact.id === selectedId) ?? null
+
+  const relatedIds = useMemo(
+    () => relatedFactIds(selectedId, graph.relatedEdges),
+    [selectedId, graph.relatedEdges],
+  )
+
+  const clusters = useMemo(
+    () => typeClusterCounts(graph.factNodes),
+    [graph.factNodes],
+  )
 
   const showPeopleNudge =
     characterId === null &&
@@ -143,7 +164,7 @@ export function KnowledgeWeb({
     >
       <Card
         variant="raised"
-        className="relative flex min-h-[32rem] flex-1 flex-col overflow-hidden border border-tr-border bg-tr-surface-clay p-3"
+        className="relative flex min-h-0 flex-1 flex-col overflow-hidden border border-tr-border bg-tr-surface-clay p-3"
       >
         {showPeopleNudge && (
           <p
@@ -156,108 +177,83 @@ export function KnowledgeWeb({
         )}
 
         <div
-          className="relative min-h-0 w-full flex-1"
-          data-testid="knowledge-web-canvas"
+          className="mb-3 flex shrink-0 flex-wrap items-center gap-2"
+          data-testid="knowledge-web-focus-strip"
         >
-          <svg
-            className="absolute inset-0 h-full w-full"
-            viewBox={`0 0 ${WEB_VIEW.width} ${WEB_VIEW.height}`}
-            preserveAspectRatio="xMidYMid meet"
-            aria-hidden
-            data-testid="knowledge-web-svg"
+          <div
+            className="rounded-card border border-tr-border-strong bg-tr-surface-raised px-3 py-2 shadow-lift"
+            data-testid="web-focus-node"
           >
-            {graph.relatedEdges.map((edge) => {
-              const from = layoutById.get(edge.fromFactId)
-              const to = layoutById.get(edge.toFactId)
-              if (!from || !to) return null
-              const midX = (from.x + to.x) / 2
-              const midY = (from.y + to.y) / 2 - 18
-              return (
-                <path
-                  key={edge.id}
-                  d={`M ${from.x} ${from.y} Q ${midX} ${midY} ${to.x} ${to.y}`}
-                  fill="none"
-                  stroke="var(--tr-border-strong)"
-                  strokeWidth={edge.kind === 'relationship' ? 1.25 : 1}
-                  strokeOpacity={edge.kind === 'relationship' ? 0.55 : 0.4}
-                  data-testid={edge.id}
-                  data-edge-kind={edge.kind}
-                />
-              )
-            })}
-
-            {layouts.map((layout) => (
-              <line
-                key={`spoke-${layout.factId}`}
-                x1={WEB_FOCUS.x}
-                y1={WEB_FOCUS.y}
-                x2={layout.x}
-                y2={layout.y}
-                stroke="var(--tr-border)"
-                strokeWidth={1.5}
-                data-testid={`web-spoke-${layout.factId}`}
-              />
-            ))}
-          </svg>
-
-          <div className="pointer-events-none absolute inset-0">
-            <div
-              className="pointer-events-auto absolute z-20 -translate-x-1/2 -translate-y-1/2 rounded-card border border-tr-border-strong bg-tr-surface-raised px-4 py-3 text-center shadow-lift"
-              style={{
-                left: `${(WEB_FOCUS.x / WEB_VIEW.width) * 100}%`,
-                top: `${(WEB_FOCUS.y / WEB_VIEW.height) * 100}%`,
-              }}
-              data-testid="web-focus-node"
+            <span className="text-12 text-tr-text-muted">Focus</span>
+            <p
+              className="font-display text-17 text-tr-text-primary"
+              data-testid="web-focus-label"
             >
-              <span className="text-12 text-tr-text-muted">Focus</span>
-              <p
-                className="font-display text-17 text-tr-text-primary"
-                data-testid="web-focus-label"
+              {graph.focusLabel}
+            </p>
+          </div>
+          <div
+            className="flex flex-wrap items-center gap-1.5"
+            data-testid="knowledge-web-clusters"
+            aria-label="Fact type clusters for focus"
+          >
+            {clusters.map(({ type, count }) => (
+              <span
+                key={type}
+                className="inline-flex items-center gap-1.5 rounded-card border border-tr-border bg-tr-surface-raised px-2 py-1 text-11 text-tr-text-secondary"
+                data-testid={`web-cluster-${type}`}
               >
-                {graph.focusLabel}
-              </p>
-            </div>
+                <span
+                  className="inline-block size-2 rounded-full bg-tr-border-strong"
+                  aria-hidden
+                />
+                {TYPE_CUE[type]} · {count}
+              </span>
+            ))}
+          </div>
+        </div>
 
-            {graph.factNodes.map((fact) => {
-              const layout = layoutById.get(fact.id)
-              if (!layout) return null
-              const selected = selectedId === fact.id
-              return (
+        <ul
+          className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto"
+          data-testid="knowledge-web-list"
+        >
+          {graph.factNodes.map((fact) => {
+            const selected = selectedId === fact.id
+            const related = !selected && relatedIds.has(fact.id)
+            return (
+              <li key={fact.id}>
                 <button
-                  key={fact.id}
                   type="button"
-                  className={`pointer-events-auto ${factNodeClass(fact, selected)}`}
-                  style={{
-                    left: `${(layout.x / WEB_VIEW.width) * 100}%`,
-                    top: `${(layout.y / WEB_VIEW.height) * 100}%`,
-                    width: NODE_W,
-                    minHeight: NODE_H,
-                  }}
+                  className={factRowClass(fact, selected, related)}
                   data-testid={`web-fact-${fact.id}`}
+                  data-related={related ? 'true' : undefined}
                   aria-pressed={selected}
                   onClick={() => setSelectedId(fact.id)}
                 >
-                  <span className="flex items-center gap-1">
-                    <Chip hue="neutral" className="px-1.5 py-0 text-11">
-                      {TYPE_CUE[fact.factType]}
-                    </Chip>
-                  </span>
-                  <span className="line-clamp-2 text-13 text-tr-text-primary">
-                    {fact.fact}
-                  </span>
-                  <span className="flex items-center justify-between gap-2 text-11 text-tr-text-muted">
-                    <span data-testid={`web-fact-scene-${fact.id}`}>
-                      {sceneShortLabel(fact, project)}
+                  <Chip hue="neutral" className="shrink-0 px-1.5 py-0 text-11">
+                    {TYPE_CUE[fact.factType]}
+                  </Chip>
+                  <span className="min-w-0 flex-1">
+                    <span className="line-clamp-2 text-13 text-tr-text-primary">
+                      {fact.fact}
                     </span>
-                    <span data-testid={`web-fact-knowers-${fact.id}`}>
-                      {knowerCountLabel(fact)}
+                    <span className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-11 text-tr-text-muted">
+                      <span data-testid={`web-fact-scene-${fact.id}`}>
+                        {sceneShortLabel(fact, project)}
+                      </span>
+                      <span data-testid={`web-fact-knowers-${fact.id}`}>
+                        {knowerCountLabel(fact)}
+                      </span>
+                      {related ? (
+                        <span className="text-tr-accent-ink">related</span>
+                      ) : null}
                     </span>
                   </span>
                 </button>
-              )
-            })}
-          </div>
-        </div>
+              </li>
+            )
+          })}
+        </ul>
 
         {graph.overflowCount > 0 && (
           <div className="mt-2 flex shrink-0 justify-end">

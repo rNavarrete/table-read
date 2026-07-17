@@ -189,9 +189,23 @@ export function buildRelatedEdges(
   return edges
 }
 
+/** Neighbor fact ids linked to `selectedId` via related edges (selection cue). */
+export function relatedFactIds(
+  selectedId: string | null,
+  edges: KnowledgeEdge[],
+): Set<string> {
+  const ids = new Set<string>()
+  if (!selectedId) return ids
+  for (const edge of edges) {
+    if (edge.fromFactId === selectedId) ids.add(edge.toFactId)
+    else if (edge.toFactId === selectedId) ids.add(edge.fromFactId)
+  }
+  return ids
+}
+
 /**
- * Place `count` fact nodes on an arc to the right of the focus point.
- * Slight radius stagger when dense so cards overlap less.
+ * Optional marker layout: place `count` points on an arc to the right of focus.
+ * Kept for a future “Web dots” mode — primary Knowledge Web uses ranked rows.
  */
 export function layoutFactArc(
   count: number,

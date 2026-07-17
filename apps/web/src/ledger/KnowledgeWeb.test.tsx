@@ -105,7 +105,7 @@ describe('KnowledgeWeb', () => {
     )
   })
 
-  it('renders fact node buttons with web-fact test ids on a radial canvas', () => {
+  it('renders ranked fact rows in a scrollable list (hybrid layout)', () => {
     render(
       <KnowledgeWeb
         facts={[reyesKnowledge, reyesPending, martaKnowledge]}
@@ -116,14 +116,17 @@ describe('KnowledgeWeb', () => {
       />,
     )
 
-    expect(screen.getByTestId('knowledge-web-svg')).toBeTruthy()
-    expect(screen.getByTestId('web-spoke-reyes-knowledge')).toBeTruthy()
+    expect(screen.getByTestId('knowledge-web-focus-strip')).toBeTruthy()
+    expect(screen.getByTestId('knowledge-web-list')).toBeTruthy()
     expect(screen.getByTestId('web-fact-reyes-knowledge')).toBeTruthy()
     expect(screen.getByTestId('web-fact-reyes-pending')).toBeTruthy()
     expect(screen.queryByTestId('web-fact-marta-knowledge')).toBeNull()
+    // Primary view is list+detail — not a radial card fan.
+    expect(screen.queryByTestId('knowledge-web-svg')).toBeNull()
+    expect(screen.queryByTestId('web-spoke-reyes-knowledge')).toBeNull()
   })
 
-  it('shows type cue, scene, and knower count on denser nodes', () => {
+  it('shows type cue, scene, and knower count on fact rows', () => {
     render(
       <KnowledgeWeb
         facts={[reyesKnowledge]}
@@ -134,8 +137,8 @@ describe('KnowledgeWeb', () => {
       />,
     )
 
-    const node = screen.getByTestId('web-fact-reyes-knowledge')
-    expect(node.textContent).toContain('KNOWS')
+    const row = screen.getByTestId('web-fact-reyes-knowledge')
+    expect(row.textContent).toContain('KNOWS')
     expect(
       screen.getByTestId('web-fact-scene-reyes-knowledge').textContent,
     ).toContain('sc 1')
@@ -144,7 +147,7 @@ describe('KnowledgeWeb', () => {
     ).toContain('1 knower')
   })
 
-  it('styles pending fact nodes with amber-soft background', () => {
+  it('styles pending fact rows with amber-soft background', () => {
     render(
       <KnowledgeWeb
         facts={[reyesKnowledge, reyesPending]}
@@ -163,7 +166,7 @@ describe('KnowledgeWeb', () => {
     ).not.toMatch(/bg-tr-amber-soft/)
   })
 
-  it('marks the selected fact node and opens FactCard detail', async () => {
+  it('marks the selected fact row and opens FactCard detail', async () => {
     const user = userEvent.setup()
     render(
       <KnowledgeWeb
@@ -190,6 +193,25 @@ describe('KnowledgeWeb', () => {
     expect(screen.getByTestId('web-fact-reyes-knowledge').className).toMatch(
       /shadow-lift/,
     )
+  })
+
+  it('supports keyboard selection of fact rows', async () => {
+    const user = userEvent.setup()
+    render(
+      <KnowledgeWeb
+        facts={[reyesKnowledge, reyesPending]}
+        allFacts={[reyesKnowledge, reyesPending]}
+        project={project}
+        characterId="char-reyes"
+        busy={false}
+      />,
+    )
+
+    const row = screen.getByTestId('web-fact-reyes-knowledge')
+    row.focus()
+    expect(document.activeElement).toBe(row)
+    await user.keyboard('{Enter}')
+    expect(screen.getByTestId('fact-card-reyes-knowledge')).toBeTruthy()
   })
 
   it('opens the selected fact in Atlas', async () => {
@@ -241,7 +263,7 @@ describe('KnowledgeWeb', () => {
     expect(onBrowseInAtlas).toHaveBeenCalledTimes(1)
   })
 
-  it('renders shared-knower mini-edges between visible facts', () => {
+  it('hides fact–fact mini-edges by default', () => {
     render(
       <KnowledgeWeb
         facts={[
@@ -263,7 +285,39 @@ describe('KnowledgeWeb', () => {
       />,
     )
 
-    expect(screen.getByTestId('edge-sk-shared-a-shared-b')).toBeTruthy()
+    expect(screen.queryByTestId('edge-sk-shared-a-shared-b')).toBeNull()
+  })
+
+  it('marks related rows when a fact is selected', async () => {
+    const user = userEvent.setup()
+    render(
+      <KnowledgeWeb
+        facts={[
+          fact({
+            id: 'shared-a',
+            knownBy: ['char-reyes', 'char-marta'],
+            fact: 'Shared secret A',
+          }),
+          fact({
+            id: 'shared-b',
+            knownBy: ['char-reyes', 'char-marta'],
+            fact: 'Shared secret B',
+          }),
+        ]}
+        allFacts={[]}
+        project={project}
+        characterId="char-reyes"
+        busy={false}
+      />,
+    )
+
+    await user.click(screen.getByTestId('web-fact-shared-a'))
+    expect(
+      screen.getByTestId('web-fact-shared-b').getAttribute('data-related'),
+    ).toBe('true')
+    expect(
+      screen.getByTestId('web-fact-shared-a').getAttribute('data-related'),
+    ).toBeNull()
   })
 
   it('shows queue actions in detail when selected fact is pending', async () => {
