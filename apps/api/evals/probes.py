@@ -306,17 +306,17 @@ def _overview_prompt(ctx: FixtureCtx) -> tuple[str, str]:
     scene = ctx.scene("scene-1")
     beats = scene.get("beats") or []
     beat_id = beats[0]["id"] if beats else "beat-1-1"
-    what = (
-        beats[0].get("whatHappens", "")
-        if beats
-        else scene.get("whatHappens", "")
-    )
+    beat0 = beats[0] if beats else {}
+    what = beat0.get("whatHappens", "") or scene.get("whatHappens", "")
     scene_spine = [
         {
             "sceneId": scene["id"],
             "act": scene.get("act", 0),
             "location": scene.get("location", ""),
             "whatHappens": what,
+            "audienceLearns": beat0.get("audienceLearns", ""),
+            "audienceFeels": beat0.get("audienceFeels", ""),
+            "scriptExcerpt": (beat0.get("scriptText") or "")[:400],
         }
     ]
     known_beats = [
@@ -324,13 +324,17 @@ def _overview_prompt(ctx: FixtureCtx) -> tuple[str, str]:
             "beatId": beat_id,
             "sceneId": scene["id"],
             "whatHappens": what,
+            "audienceLearns": beat0.get("audienceLearns", ""),
+            "audienceFeels": beat0.get("audienceFeels", ""),
         }
     ]
+    cast = [c.get("name", "") for c in ctx.characters if c.get("name")]
     return render.build_overview_prompt(
         ctx.doc,
         scene_spine,
         known_beats,
         render.new_nonce(),
+        known_cast=cast,
     )
 
 

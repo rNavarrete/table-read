@@ -38,5 +38,13 @@
     "Dark Night of the Soul",
     "Break into Three",
     "Final Image"
+  ],
+  "forbiddenBoilerplate": [
+    "becomes a space for",
+    "raises the stakes",
+    "deepens character",
+    "action shifts to",
+    "crucial confrontation",
+    "final reversal or commitment"
   ]
 }

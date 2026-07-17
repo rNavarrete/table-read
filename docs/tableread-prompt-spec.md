@@ -324,20 +324,21 @@ Schema-invalid tool output follows the client's standard one-retry rule. Separat
 This operation shipped with `PROMPT_VERSION 0.11.0`; prompt/tool-schema changes remain pending real-eval sign-off until the explicitly authorized full suite passes.
 
 
-### Import story overview (T7.27/T7.28 + TV beat-sheet grounding)
+### Import story overview (T7.27/T7.28 + content quality)
 
-The synchronized `infer_story_overview` operation uses the `classifier` role at temperature 0. It runs after `infer_narrative_promises` and before ledger fact extraction. Input is an explicit `show_format` block, an act-ordered `scene_spine` (`sceneId`, `act`, `location`, `whatHappens` — no full scriptText), and `known_beats` (`beatId`, `sceneId`, `whatHappens`) — all freeform text enters only through `drama_manager/render.py` nonce-wrapped `<source_data>` blocks.
+The synchronized `infer_story_overview` operation uses the `classifier` role at temperature 0. It runs after `infer_narrative_promises` and before ledger fact extraction. Input is an explicit `show_format` block, `known_cast` (names only), an act-ordered `scene_spine` (`sceneId`, `act`, `location`, `whatHappens`, `audienceLearns`, `audienceFeels`, short `scriptExcerpt` — not full scriptText), and `known_beats` (`beatId`, `sceneId`, `whatHappens`, `audienceLearns`, `audienceFeels`) — all freeform text enters only through `drama_manager/render.py` nonce-wrapped `<source_data>` blocks.
 
-Craft constraints for the model (see design research citations + 2026-07-17 amendment):
+Craft constraints for the model (see design research citations + 2026-07-17 amendments):
 
-- **logline:** one sentence, prefer 25–40 words; protagonist + want + obstacle; stakes/irony when supported.
-- **outline:** one short summary per `scene_spine` scene id (scene-ordered spine), not freeform prose.
-- **beatSheet:** major **TV teleplay** turns for the selected format (Teaser/Cold Open when `coldOpen`; Act N Turn/Out; Climax; Tag when `tag`) — not a forced Save-the-Cat 15-beat feature template. Density roughly `modules`…`2×modules` where modules = coldOpen + actCount + tag. Each row **must** use a known `beatId`; `sceneId`/`act` should match that beat's parent scene (server resolves/coerces). Midpoint only when earned mid-episode; forbid feature-only STC catalog labels.
-- **summary:** exactly two paragraphs, third person, present tense; ¶1 setup/inciting; ¶2 escalation/resolution; spoil the ending when the script has one.
+- **Content quality (hard):** name characters and concrete events/props/decisions from the source; ban location-theater boilerplate that only restates rooms or empty templates (“raises the stakes”, “becomes a space for…”, etc.); never invent anchors.
+- **logline:** one sentence, prefer 25–40 words; protagonist + want + obstacle with episode-specific detail; stakes/irony when supported.
+- **outline:** one short **story-action** summary per `scene_spine` scene id (who does what / what changes) — not a slugline paraphrase.
+- **beatSheet:** major **TV teleplay** turns for the selected format (Teaser/Cold Open when `coldOpen`; Act N Turn/Out; Climax; Tag when `tag`) — not a forced Save-the-Cat 15-beat feature template. Density roughly `modules`…`2×modules` where modules = coldOpen + actCount + tag. Each row **must** use a known `beatId`; `sceneId`/`act` should match that beat's parent scene (server resolves/coerces). Each summary is the dramatic **turn**, not the room. Midpoint only when earned mid-episode; forbid feature-only STC catalog labels.
+- **summary:** exactly two paragraphs, third person, present tense; ¶1 setup/inciting with names and concrete incidents; ¶2 escalation/resolution with the same specificity; spoil the ending when the script has one.
 
-Output schema: `InferredStoryOverview` (beat rows may include nullable `act`). Server drops unknown beat ids, resolves `sceneId` and coerces `act` from the parent scene, sorts/dedupes the beat sheet, sets `provenance: "inferred"`, and may backfill empty project/episode `premise` from the logline. Schema-invalid tool output follows the client's standard one-retry rule; a second failure surfaces `SCHEMA_INVALID_LLM` with zero persisted rows.
+Output schema: `InferredStoryOverview` (beat rows may include nullable `act`). Server drops unknown beat ids, resolves `sceneId` and coerces `act` from the parent scene, sorts/dedupes the beat sheet, soft-replaces location-theater outline/beat summaries with segmented beat `whatHappens` when available (never invents text), sets `provenance: "inferred"`, and may backfill empty project/episode `premise` from the logline. Schema-invalid tool output follows the client's standard one-retry rule; a second failure surfaces `SCHEMA_INVALID_LLM` with zero persisted rows.
 
-This operation ships with `PROMPT_VERSION 0.16.0` (TV beat-sheet grounding); real-eval sign-off is required before remote merge but is not run until authorized.
+This operation ships with `PROMPT_VERSION 0.17.0` (content quality); real-eval sign-off is required before remote merge but is not run until authorized.
 
 ## 8. Cross-cutting conventions
 

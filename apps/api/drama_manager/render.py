@@ -26,25 +26,17 @@ from typing import Any
 
 # Prompt spec §8 / hard rule 7: every template carries a PROMPT_VERSION (semver);
 # it is logged with each call and bumped on any template change. Bumped to
-# 0.16.0 for TV beat-sheet grounding on `infer_story_overview` (design
-# amendment 2026-07-17-import-story-overview): act-ordered spine + beat
-# whatHappens + TV act vocabulary; optional beat-sheet `act`. Requires
+# 0.17.0 for story-overview *content quality* (design amendment
+# 2026-07-17-import-story-overview): richer spine/beat inputs, ban
+# location-theater boilerplate, require concrete names/events. Requires
 # `make evals` sign-off before merge (not run until authorized).
-# History: 0.15.0 for T7.28 (story overview builder). 0.14.0 for T7.20
-# (`build_promises_prompt` / narrative promises).
-# 0.13.0 for T7.23 (time-aware P1 remainder Task 3):
-# `build_extract_prompt`'s user message now asks the model to optionally note
-# knowledgeEvents (learns/forgets transitions beyond a fact's baseline
-# knownBy). 0.12.0 added `build_entity_prompt` for `infer_story_entities`
-# (§5a, T7.15). 0.11.0 added act-inference and deterministic-retry prompts
-# over compact post-segmentation scene summaries. 0.10.0 replaced import beat
-# ranges with typed segment starts and structured `{lineNumber, text}` source
-# lines. 0.9.0 added lock-aware narrative repair + subtext-fidelity HARD
-# RULES (adoption A1 / A10) on the shared system prompt — prompt-changing;
-# needed `make evals` sign-off. History: 0.8.0 suggest_instructions; 0.7.0
-# scene skeleton; 0.6.0 continuity constraint; 0.5.0 regenerate; 0.4.0 blast
-# radius; 0.3.0 tune; 0.2.0 candidate + §0 system prompt.
-PROMPT_VERSION = "0.16.0"
+# History: 0.16.0 TV beat-sheet grounding; 0.15.0 T7.28 overview builder;
+# 0.14.0 T7.20 (`build_promises_prompt`); 0.13.0 T7.23 knowledgeEvents;
+# 0.12.0 `build_entity_prompt`; 0.11.0 act-inference; 0.10.0 typed segment
+# starts; 0.9.0 lock-aware narrative repair. Earlier: 0.8.0 suggest;
+# 0.7.0 scene skeleton; 0.6.0 continuity; 0.5.0 regenerate; 0.4.0 blast;
+# 0.3.0 tune; 0.2.0 candidate + §0 system prompt.
+PROMPT_VERSION = "0.17.0"
 
 
 def new_nonce() -> str:
@@ -262,12 +254,14 @@ def build_overview_prompt(
     scene_spine: list[dict],
     known_beats: list[dict],
     nonce: str,
+    known_cast: list[str] | None = None,
 ) -> tuple[str, str]:
-    """`infer_story_overview` (T7.28 + TV beat-sheet grounding amendment):
-    act-ordered scene spine and beat inventory (with whatHappens) from the
-    imported partition, plus explicit show format for teleplay density.
-    Craft: logline 25–40 words; scene-ordered outline; TV act-structure beat
-    sheet; exactly two present-tense synopsis paragraphs."""
+    """`infer_story_overview` (T7.28 + content-quality amendment):
+    act-ordered scene spine (whatHappens / learns / feels / short script
+    excerpt) and beat inventory from the imported partition, plus show
+    format and known cast names. Craft: concrete logline; scene-action
+    outline (not slugline paraphrase); TV act-structure beat sheet of
+    turns; two specific synopsis paragraphs with names and stakes."""
     fmt = project.get("format") or {}
     format_block = {
         "genre": fmt.get("genre"),
@@ -282,20 +276,40 @@ def build_overview_prompt(
         + int(format_block.get("actCount") or 0)
         + (1 if format_block.get("tag") else 0)
     )
+    cast = list(known_cast or [])
     user = (
         source_data("show_format", format_block, nonce)
+        + "\n"
+        + source_data("known_cast", cast, nonce)
         + "\n"
         + source_data("scene_spine", scene_spine, nonce)
         + "\n"
         + source_data("known_beats", known_beats, nonce)
         + "\nInfer an episode story overview grounded only in show_format, "
-        "scene_spine, and known_beats.\n"
+        "known_cast, scene_spine, and known_beats. Prefer whatHappens, "
+        "audienceLearns, audienceFeels, and scriptExcerpt over location "
+        "names — location is navigation metadata, not the story.\n"
+        "CONTENT QUALITY (hard):\n"
+        "- Name characters from known_cast (or names clearly on the page) "
+        "and state concrete events, props, decisions, and stakes from the "
+        "source. Do not invent people, places, or plot.\n"
+        "- Ban location-theater boilerplate: never write summaries that "
+        "only restate a slugline/room, or empty templates like "
+        "\"becomes a space for…\", \"raises the stakes\", \"deepens "
+        "character dynamics\", \"action shifts to…\", \"a crucial "
+        "confrontation\", \"final reversal or commitment\".\n"
+        "- If source fields are thin, still extract the specific action "
+        "from scriptExcerpt; never pad with generic political/crisis "
+        "prose.\n"
+        "FIELDS:\n"
         "- logline: exactly one sentence, prefer 25–40 words; name the "
-        "protagonist, their want, and the obstacle; include stakes or irony "
-        "when the script supports them. This is an episode logline, not a "
-        "series bible essay.\n"
+        "protagonist, their want, and the obstacle with episode-specific "
+        "detail; include stakes or irony when supported. Episode logline, "
+        "not a series bible essay.\n"
         "- outline: one short summary per scene_spine sceneId, in source "
-        "order (scene-by-scene spine). Do not invent scene ids.\n"
+        "order. Each summary is the story action of that scene "
+        "(who does what / what changes) — not a paraphrase of location or "
+        "slugline. Do not invent scene ids.\n"
         "- beatSheet: major TV teleplay turns for THIS format — not a "
         "Save-the-Cat 15-beat feature template. Prefer labels from teleplay "
         "grammar: Teaser or Cold Open when coldOpen is true; Act N Turn / "
@@ -308,12 +322,15 @@ def build_overview_prompt(
         f"{max(modules, 1)}–{max(2 * modules, 2)} rows (modules≈"
         f"{modules}), not one row per scene. Each row MUST use a known "
         "beatId from known_beats; set sceneId to that beat's sceneId; set "
-        "act to that scene's act from scene_spine. Summarize the dramatic "
-        "turn from whatHappens — do not paste sluglines as labels.\n"
+        "act to that scene's act from scene_spine. Each summary is the "
+        "dramatic TURN (what changes for whom) — not the room, not "
+        "\"stakes rise at the White House\". Do not paste sluglines as "
+        "labels.\n"
         "- summary: exactly two paragraphs, third person, present tense; "
-        "paragraph 1 = setup/world/inciting; paragraph 2 = escalation/"
-        "climax/resolution. Spoil the ending when the script has one. "
-        "No scene-by-scene laundry list."
+        "paragraph 1 = setup/world/inciting with names and concrete "
+        "incidents; paragraph 2 = escalation/climax/resolution with the "
+        "same specificity. Spoil the ending when the script has one. "
+        "No scene-by-scene laundry list and no vague crisis filler."
     )
     return build_system_prompt(project, nonce), user
 

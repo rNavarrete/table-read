@@ -1112,10 +1112,19 @@ def _overview_fixture_context() -> tuple[dict, list[dict], list[dict]]:
                 "act": i,  # simple increasing acts for density checks
                 "location": span.location,
                 "whatHappens": what,
+                "audienceLearns": "",
+                "audienceFeels": "",
+                "scriptExcerpt": "\n".join(span.lines[:8]),
             }
         )
         known_beats.append(
-            {"beatId": bid, "sceneId": sid, "whatHappens": what}
+            {
+                "beatId": bid,
+                "sceneId": sid,
+                "whatHappens": what,
+                "audienceLearns": "",
+                "audienceFeels": "",
+            }
         )
     project = {
         "title": "The Tide Ledger",
@@ -1214,7 +1223,11 @@ def story_overview_eval(
         emit_attempt(on_progress, family="story-overview", run=i + 1, runs=runs)
         t0 = time.monotonic()
         system, user = render.build_overview_prompt(
-            project, summaries, beats, render.new_nonce()
+            project,
+            summaries,
+            beats,
+            render.new_nonce(),
+            known_cast=["Nora", "Cass"],
         )
         try:
             result: InferredStoryOverview = client.infer_story_overview(
@@ -1268,6 +1281,16 @@ def story_overview_eval(
                 break
         if act_ok:
             hits += 1
+        checks += 1
+        # Content quality: reject location-theater / empty templates.
+        boiler = planted.get("forbiddenBoilerplate") or []
+        blob_for_boiler = " ".join(
+            [result.logline, result.summary]
+            + [r.summary for r in result.outline]
+            + [r.summary for r in result.beat_sheet]
+        )
+        if not boiler or not _matches_any(blob_for_boiler, boiler):
+            hits += 1
         scores.append(hits / max(1, checks))
 
         blob = _overview_text_blob(result)
@@ -1317,7 +1340,11 @@ def story_overview_merge_eval(
         emit_attempt(on_progress, family="story-overview-merge", run=i + 1, runs=runs)
         t0 = time.monotonic()
         system, user = render.build_overview_prompt(
-            project, summaries, beats, render.new_nonce()
+            project,
+            summaries,
+            beats,
+            render.new_nonce(),
+            known_cast=["Nora", "Cass"],
         )
         try:
             result = client.infer_story_overview(

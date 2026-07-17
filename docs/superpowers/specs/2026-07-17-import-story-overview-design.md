@@ -224,3 +224,63 @@ StoryOverviewBeatItem = {
 - Required `beatId` preserved (option 1); no silent unanchored rows.
 - Outline / logline / summary craft rules unchanged.
 - Contract package remains executable authority.
+
+---
+
+## Amendment — content quality (2026-07-17, post TV grounding)
+
+**Status:** Approved. Implements on `PROMPT_VERSION` **0.16.0 → 0.17.0**.
+
+### Problem (observed after TV-structure ship)
+
+Writers trust Overview *formatting* (Cold Open / Act N Turn / Tag) but still **do not trust content**. A West Wing–style re-import produced:
+
+| Surface | Failure mode |
+|---|---|
+| **Summary** | Vague political-crisis prose; almost no proper names or concrete plot (bike accident, Meet the Press, etc.); phrases like “a crucial confrontation,” “final reversal or commitment.” |
+| **Outline (~29)** | Each row mostly slugline + empty template (“becomes a space for…”, “raises the stakes”, “deepens character dynamics”). Truncation artifacts (“INT. WESTA”). Not what happens in the scene. |
+| **Beat sheet** | Structure OK, but summaries still location-theater (“action shifts to the White House, raising stakes”) not story turns. |
+
+### Root-cause diagnosis (pre-0.17.0)
+
+| Factor | Finding |
+|---|---|
+| Prompt | Structure-hardened (TV labels) but **content-soft** — no ban on location-restating boilerplate; no requirement for names/concrete events |
+| Pipeline inputs | Spine/beats carried `whatHappens` only; scene-level `whatHappens` is empty at assembly; **no** `audienceLearns` / `audienceFeels` / short script excerpts (entity inference already uses early scriptText) |
+| `max_tokens` | `infer_story_overview` at **8192** — large episodes truncate mid-field (slugline fragments) |
+| Merge | Grounded ids/acts but **no** soft quality replacement when summaries are location theater |
+| UI | Outline linked **location as title**, then summary — visually reads as location-theater even when summary exists |
+
+### Quality bar (bad vs good)
+
+**Outline row**
+
+- Bad: `THE OVAL OFFICE — becomes a space for a crucial confrontation`
+- Good: `Bartlet cancels Meet the Press after learning about the bike accident`
+
+**Beat-sheet summary**
+
+- Bad: `Action shifts to the White House, raising the stakes`
+- Good: `Leo forces Bartlet to face the political cost of the accident`
+
+**Two-paragraph summary**
+
+- Bad: Generic crisis prose with no names or incidents
+- Good: Names protagonists, the concrete incident, and the episode’s turn/stakes (present tense; spoil the ending)
+
+### Locked decisions (C)
+
+| # | Decision |
+|---|---|
+| C1 | Prompt **bans** location-theater boilerplate; requires character names + concrete events from source; outline = story action; beat summaries = the turn; synopsis = two specific paragraphs |
+| C2 | Pipeline feeds richest available beat/scene text: rolled-up `whatHappens` / `audienceLearns` / `audienceFeels` + short `scriptExcerpt` (≈12 lines/scene) + `known_cast` — all via `render.py` inert wrapping |
+| C3 | Soft merge guard: if outline/beat summary is location theater **and** segmented beat `whatHappens` is concrete, replace; never invent anchors; do not drop rows for soft failures |
+| C4 | `max_tokens` **16384** for `infer_story_overview` (truncation fix) |
+| C5 | Overview UI: outline **leads with action summary**; location is muted secondary cue (beat-sheet formatting unchanged) |
+| C6 | `PROMPT_VERSION` **0.17.0**; planted eval may flag boilerplate; real `make evals` only when authorized |
+
+### Self-review (content-quality amendment)
+
+- Bad/good examples explicit; no schema change required.
+- Soft guards prefer segmented text over silent drop.
+- Contract package remains executable authority.

@@ -119,3 +119,7 @@ export const InferredStoryOverview = z.object({
 
 Implemented on main after T7.30: optional `act` on beat-sheet rows; prompt 0.16.0 with format + act-ordered spine + beat `whatHappens`; merge resolve/coerce/sort/dedupe; planted STC-label + act checks; Overview keeps formatting with muted act cue. Real `make evals` still deferred until authorized.
 
+## Follow-up — content quality (2026-07-17)
+
+Prompt **0.17.0**: ban location-theater; require names/events; richer spine (learns/feels/scriptExcerpt + known_cast); merge soft-replaces boilerplate with beat `whatHappens`; `max_tokens` 16384; outline UI leads with action. Real `make evals` still deferred.
+

@@ -185,7 +185,9 @@ _OPS: tuple[LlmOp, ...] = (
         "Infer an episode logline, scene-ordered outline, named beat sheet "
         "anchored to existing beat ids, and a two-paragraph present-tense "
         "synopsis from the imported script.",
-        max_tokens=8_192,
+        # Large episodes (many outline rows + beat sheet + synopsis) truncated
+        # mid-field at 8192 ("INT. WESTA"); match other import classifier ceilings.
+        max_tokens=16_384,
         call_timeout_seconds=180.0,
     ),
     LlmOp(

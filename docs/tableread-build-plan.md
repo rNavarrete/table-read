@@ -178,6 +178,8 @@ Replaces the hardcoded seeded entry point with a project dashboard, idea/import 
 *Accept:* families in `--full` / `--only`; dry-run green; test-plan rows added; **`make evals` not run**.
 
 **T7.30a TV beat-sheet grounding.** Optional `act` on overview beat rows; prompt feeds format + act-ordered spine + beat `whatHappens`; merge resolves `sceneId`/coerces `act`/sorts/dedupes; `PROMPT_VERSION` 0.15.0 → **0.16.0**; planted STC-label + act checks. Spec amendment on `2026-07-17-import-story-overview-design.md`. — implemented (dry-run OK; **`make evals` not run** until authorized).
+
+**T7.30b Overview content quality.** Prompt **0.17.0** bans location-theater boilerplate and requires names/concrete events; pipeline feeds learns/feels/scriptExcerpt + known_cast; merge soft-replaces boilerplate with beat `whatHappens`; `max_tokens` 16384; outline UI leads with action. Spec amendment on same design doc. — implemented (**`make evals` not run** until authorized).
 *Accept:* mock/unit/import tests green; `make check-contract` green; Overview formatting preserved; real evals deferred.
 
 

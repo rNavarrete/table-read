@@ -372,6 +372,7 @@ def analyze_import(
         scene_spine,
         known_beats,
         render.new_nonce(),
+        known_cast=known_cast,
     )
     story_overview = llm.infer_story_overview(
         system=system, user_message=user, prompt_version=render.PROMPT_VERSION
@@ -569,11 +570,17 @@ _ENTITY_PROMPT_EARLY_LINES = 40
 
 
 
-def _overview_prompt_inputs(scene_docs: list[dict]) -> tuple[list[dict], list[dict]]:
-    """Act-ordered spine + beat inventory for `infer_story_overview`.
+_OVERVIEW_SCRIPT_EXCERPT_LINES = 12
 
-    Spine rows omit scriptText (slugline paste drifts labels). Beats carry
-    whatHappens so named turns stay grounded in segmented content.
+
+def _overview_prompt_inputs(scene_docs: list[dict]) -> tuple[list[dict], list[dict]]:
+    """Richest compact spine + beat inventory for `infer_story_overview`.
+
+    Scene-level `whatHappens` is empty at import assembly; roll up beat
+    plan fields and a short script excerpt so the overview model sees
+    story action, not only locations. Full scriptText stays out of the
+    prompt (token + slugline-paste risk); excerpts are inert-wrapped by
+    the renderer.
     """
     scene_spine: list[dict] = []
     known_beats: list[dict] = []
@@ -582,12 +589,25 @@ def _overview_prompt_inputs(scene_docs: list[dict]) -> tuple[list[dict], list[di
         what_happens = " ".join(
             b["whatHappens"] for b in beats if b.get("whatHappens")
         )
+        learns = " ".join(
+            b["audienceLearns"] for b in beats if b.get("audienceLearns")
+        )
+        feels = " ".join(
+            b["audienceFeels"] for b in beats if b.get("audienceFeels")
+        )
+        full_text = "\n".join(b.get("scriptText", "") for b in beats)
+        excerpt = "\n".join(
+            full_text.split("\n")[:_OVERVIEW_SCRIPT_EXCERPT_LINES]
+        )
         scene_spine.append(
             {
                 "sceneId": scene["id"],
                 "act": scene.get("act", 0),
                 "location": scene.get("location", ""),
                 "whatHappens": what_happens,
+                "audienceLearns": learns,
+                "audienceFeels": feels,
+                "scriptExcerpt": excerpt,
             }
         )
         for beat in beats:
@@ -598,6 +618,8 @@ def _overview_prompt_inputs(scene_docs: list[dict]) -> tuple[list[dict], list[di
                     "beatId": beat["id"],
                     "sceneId": scene["id"],
                     "whatHappens": beat.get("whatHappens") or "",
+                    "audienceLearns": beat.get("audienceLearns") or "",
+                    "audienceFeels": beat.get("audienceFeels") or "",
                 }
             )
     return scene_spine, known_beats

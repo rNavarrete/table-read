@@ -107,16 +107,24 @@ export function OverviewPanel({
             ) : (
               <ol className="flex list-decimal flex-col gap-2 pl-5">
                 {overview.outline.map((row) => (
-                  <li key={row.sceneId} className="text-13 text-tr-text-secondary">
+                  <li
+                    key={row.sceneId}
+                    className="flex flex-col gap-0.5 text-13 text-tr-text-secondary"
+                  >
                     <button
                       type="button"
-                      className="text-tr-sky underline-offset-2 hover:underline"
+                      className="text-left text-tr-text-primary underline-offset-2 hover:underline hover:text-tr-sky"
                       onClick={() => onJumpToScene(row.sceneId)}
                       data-testid={`overview-outline-scene-${row.sceneId}`}
                     >
-                      {sceneLabel(project, row.sceneId)}
+                      {row.summary}
                     </button>
-                    <span className="ml-2">{row.summary}</span>
+                    <span
+                      className="text-12 text-tr-text-muted"
+                      data-testid={`overview-outline-location-${row.sceneId}`}
+                    >
+                      {sceneLabel(project, row.sceneId)}
+                    </span>
                   </li>
                 ))}
               </ol>

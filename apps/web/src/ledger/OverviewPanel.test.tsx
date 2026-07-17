@@ -98,6 +98,13 @@ describe('OverviewPanel', () => {
     expect(screen.getByTestId('overview-beat-act-beat-1-1').textContent).toContain(
       'COLD OPEN',
     )
+    // Outline leads with story action, not location-as-title.
+    expect(screen.getByTestId('overview-outline-scene-scene-1').textContent).toContain(
+      'Marty calls for Doc.',
+    )
+    expect(screen.getByTestId('overview-outline-location-scene-1').textContent).toContain(
+      'THE LAB',
+    )
     await user.click(screen.getByTestId('overview-outline-scene-scene-1'))
     expect(onJumpToScene).toHaveBeenCalledWith('scene-1')
     await user.click(screen.getByTestId('overview-beat-scene-beat-1-1'))

@@ -315,6 +315,9 @@ def test_overview_prompt_uses_tv_act_grammar_and_spine():
             "act": 0,
             "location": "THE OVAL OFFICE",
             "whatHappens": "Bartlet pivots the briefing.",
+            "audienceLearns": "The briefing is a stall.",
+            "audienceFeels": "Unease",
+            "scriptExcerpt": "BARTLET\nGet me Meet the Press.",
         }
     ]
     beats = [
@@ -322,12 +325,128 @@ def test_overview_prompt_uses_tv_act_grammar_and_spine():
             "beatId": "beat-1-1",
             "sceneId": "scene-1",
             "whatHappens": "Bartlet pivots the briefing.",
+            "audienceLearns": "The briefing is a stall.",
+            "audienceFeels": "Unease",
         }
     ]
-    _system, user = build_overview_prompt(project, spine, beats, new_nonce())
+    _system, user = build_overview_prompt(
+        project, spine, beats, new_nonce(), known_cast=["Bartlet", "Leo"]
+    )
     assert "scene_spine" in user
     assert "show_format" in user
+    assert "known_cast" in user
     assert "Act N Turn" in user or "Act N Out" in user
     assert "Save-the-Cat" in user or "Save the Cat" in user or "feature-only" in user
     assert "Hook, Inciting" not in user
     assert "whatHappens" in user
+    assert "location-theater" in user or "becomes a space for" in user
+    assert "scriptExcerpt" in user
+    assert "CONTENT QUALITY" in user
+
+
+def test_merge_replaces_location_theater_outline_with_beat_what_happens():
+    from drama_manager.overview import is_location_theater
+
+    assert is_location_theater(
+        "Action shifts to the Oval Office, raising the stakes.",
+        "INT. OVAL OFFICE",
+    )
+    assert not is_location_theater(
+        "Bartlet cancels Meet the Press after the bike accident.",
+        "INT. OVAL OFFICE",
+    )
+
+    doc = _doc(
+        scenes=[
+            {
+                "id": "scene-1",
+                "act": 1,
+                "index": 0,
+                "location": "INT. OVAL OFFICE",
+                "beats": [
+                    {
+                        "id": "beat-1-1",
+                        "whatHappens": "Bartlet cancels Meet the Press.",
+                    }
+                ],
+            },
+            {
+                "id": "scene-2",
+                "act": 2,
+                "index": 1,
+                "location": "EXT. WHITE HOUSE",
+                "beats": [
+                    {
+                        "id": "beat-2-1",
+                        "whatHappens": "Josh briefs Leo on the bike accident.",
+                    }
+                ],
+            },
+        ]
+    )
+    merge_story_overview(
+        doc,
+        "ep-1",
+        overview(
+            outline=[
+                {
+                    "sceneId": "scene-1",
+                    "summary": "The Oval Office becomes a space for confrontation.",
+                },
+                {
+                    "sceneId": "scene-2",
+                    "summary": "Josh briefs Leo on the bike accident.",
+                },
+            ],
+            beatSheet=[
+                {
+                    "beatId": "beat-1-1",
+                    "label": "Cold Open",
+                    "summary": "Action shifts to the Oval Office, raising the stakes.",
+                    "sceneId": "scene-1",
+                    "act": 1,
+                },
+                {
+                    "beatId": "beat-2-1",
+                    "label": "Act One Turn",
+                    "summary": "Josh briefs Leo on the bike accident.",
+                    "sceneId": "scene-2",
+                    "act": 2,
+                },
+            ],
+        ),
+    )
+    ov = doc["seasons"][0]["episodes"][0]["storyOverview"]
+    assert ov["outline"][0]["summary"] == "Bartlet cancels Meet the Press."
+    assert ov["outline"][1]["summary"] == "Josh briefs Leo on the bike accident."
+    assert ov["beatSheet"][0]["summary"] == "Bartlet cancels Meet the Press."
+    assert ov["beatSheet"][1]["summary"] == "Josh briefs Leo on the bike accident."
+
+
+def test_overview_prompt_inputs_include_learns_feels_and_excerpt():
+    from fountain.pipeline import _overview_prompt_inputs
+
+    spine, beats = _overview_prompt_inputs(
+        [
+            {
+                "id": "scene-1",
+                "act": 0,
+                "location": "INT. OVAL OFFICE",
+                "whatHappens": "",
+                "beats": [
+                    {
+                        "id": "beat-1-1",
+                        "whatHappens": "Bartlet pivots.",
+                        "audienceLearns": "The stall is deliberate.",
+                        "audienceFeels": "Tension",
+                        "scriptText": "BARTLET\nCancel it.\nLEO\nSir.",
+                    }
+                ],
+            }
+        ]
+    )
+    assert spine[0]["whatHappens"] == "Bartlet pivots."
+    assert spine[0]["audienceLearns"] == "The stall is deliberate."
+    assert spine[0]["audienceFeels"] == "Tension"
+    assert "Cancel it." in spine[0]["scriptExcerpt"]
+    assert beats[0]["audienceLearns"] == "The stall is deliberate."
