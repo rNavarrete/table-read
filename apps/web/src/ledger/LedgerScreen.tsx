@@ -14,7 +14,7 @@ import { loadResume, saveResume } from '../projects/resumeContext'
 import { AppShell } from '../shell/AppShell'
 import { CastPanel } from './CastPanel'
 import { FactCard } from './FactCard'
-import { FilterRail } from './FilterRail'
+import { FilterRail, type AsOfSceneOption } from './FilterRail'
 import { KnowledgeWeb } from './KnowledgeWeb'
 import { LedgerViewSwitcher } from './LedgerViewSwitcher'
 import { StoryAtlas } from './StoryAtlas'
@@ -50,6 +50,24 @@ function sceneLabel(project: Project, sceneId: string): string {
   return sceneId
 }
 
+/** Episode scenes in doc order for the T7.18 As-of control — location, or
+ * `Scene {n}` (1-based) when the scene has no location set yet. */
+function episodeSceneOptions(project: Project): AsOfSceneOption[] {
+  const options: AsOfSceneOption[] = []
+  for (const season of project.seasons) {
+    for (const episode of season.episodes) {
+      for (const scene of episode.scenes) {
+        const location = (scene as { location?: string }).location
+        options.push({
+          id: scene.id,
+          label: location || `Scene ${scene.index + 1}`,
+        })
+      }
+    }
+  }
+  return options
+}
+
 /**
  * Ledger mode (UI spec §6 / build plan T5.1): filter rail · review queue ·
  * Atlas / Knowledge Web. Server is source of truth; mutations roll back on
@@ -73,12 +91,17 @@ export function LedgerScreen() {
   const [actionError, setActionError] = useState<string | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [castPanelOpen, setCastPanelOpen] = useState(false)
+  // Session-only (design spec §UI): no persistence, resets on reload.
+  const [asOfScene, setAsOfScene] = useState<string | null>(null)
   const inFlightRef = useRef(false)
 
   useEffect(() => {
     if (!projectId) return
     let cancelled = false
-    Promise.all([getProject(projectId), getLedger(projectId)])
+    Promise.all([
+      getProject(projectId),
+      getLedger(projectId, asOfScene ? { asOfScene } : undefined),
+    ])
       .then(([loadedProject, loadedLedger]) => {
         if (cancelled) return
         setProject(loadedProject)
@@ -93,7 +116,7 @@ export function LedgerScreen() {
     return () => {
       cancelled = true
     }
-  }, [projectId])
+  }, [projectId, asOfScene])
 
   useEffect(() => {
     if (!projectId) return
@@ -121,6 +144,10 @@ export function LedgerScreen() {
     }
   }, [expandedFactId, focusFactId, ledger, view])
 
+  const sceneOptions = useMemo(
+    () => (project ? episodeSceneOptions(project) : []),
+    [project],
+  )
   const queue = useMemo(() => pendingReviewFacts(ledger), [ledger])
   const highConf = useMemo(() => highConfidencePending(ledger), [ledger])
   const sceneGroups = useMemo(() => groupPendingByScene(ledger), [ledger])
@@ -202,7 +229,7 @@ export function LedgerScreen() {
         expectedHeadSnapshotId: project?.headSnapshotId,
       })
       // Refetch so supersede-target updates land (confirm may touch two facts).
-      return getLedger(activeProjectId)
+      return getLedger(activeProjectId, asOfScene ? { asOfScene } : undefined)
     })
   }
 
@@ -214,7 +241,7 @@ export function LedgerScreen() {
       await rejectLedgerFact(factId, {
         expectedHeadSnapshotId: project?.headSnapshotId,
       })
-      return getLedger(activeProjectId)
+      return getLedger(activeProjectId, asOfScene ? { asOfScene } : undefined)
     })
   }
 
@@ -243,7 +270,7 @@ export function LedgerScreen() {
         },
         { expectedHeadSnapshotId: project?.headSnapshotId },
       )
-      return getLedger(activeProjectId)
+      return getLedger(activeProjectId, asOfScene ? { asOfScene } : undefined)
     })
   }
 
@@ -366,6 +393,9 @@ export function LedgerScreen() {
           filters={filters}
           onChange={setFilters}
           onManageCast={() => setCastPanelOpen(true)}
+          sceneOptions={sceneOptions}
+          asOfScene={asOfScene}
+          onAsOfSceneChange={setAsOfScene}
         />
         <div className="flex min-w-0 flex-1 flex-col gap-4 p-6">
           <header className="flex flex-wrap items-center gap-3">
@@ -499,7 +529,9 @@ export function LedgerScreen() {
                 onExpandedFactIdChange={setExpandedFactId}
                 emptyMessage={
                   ledger.length === 0
-                    ? "Facts appear as you write. Table Read tracks what's true so you don't have to."
+                    ? asOfScene
+                      ? 'No facts are in force as of this scene yet.'
+                      : "Facts appear as you write. Table Read tracks what's true so you don't have to."
                     : 'No facts match.'
                 }
               />

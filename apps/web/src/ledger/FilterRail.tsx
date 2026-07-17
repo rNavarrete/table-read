@@ -37,21 +37,38 @@ const FACT_TYPE_LABELS: Record<FactTypeFilter, string> = {
   world_rule: 'World rules',
 }
 
+/** One episode scene, in doc order, for the As-of selector. */
+export interface AsOfSceneOption {
+  id: string
+  label: string
+}
+
 export interface FilterRailProps {
   project: Project
   filters: LedgerFilters
   onChange: (next: LedgerFilters) => void
   onManageCast?: () => void
+  /** Episode scenes for the As-of control (T7.18). Omit/empty hides the
+   * section — existing callers that don't wire time-aware filtering are
+   * unaffected. */
+  sceneOptions?: AsOfSceneOption[]
+  /** Currently selected as-of scene, or `null` for "Latest (all)". */
+  asOfScene?: string | null
+  onAsOfSceneChange?: (sceneId: string | null) => void
 }
 
 /**
- * Left filter rail (UI spec §6: 198px — status, character, fact type).
+ * Left filter rail (UI spec §6: 198px — status, character, fact type, and
+ * the T7.18 As-of scene control).
  */
 export function FilterRail({
   project,
   filters,
   onChange,
   onManageCast,
+  sceneOptions = [],
+  asOfScene = null,
+  onAsOfSceneChange,
 }: FilterRailProps) {
   const optionClass = (active: boolean) =>
     'flex cursor-pointer items-center gap-2 rounded-chip px-3 py-1 text-13 transition-colors focus-within:outline focus-within:outline-selected focus-within:outline-tr-coral ' +
@@ -87,6 +104,41 @@ export function FilterRail({
           ))}
         </div>
       </fieldset>
+
+      {sceneOptions.length > 0 && (
+        <fieldset className="mb-6">
+          <legend className="mb-2 text-12 uppercase tracking-wide text-tr-text-muted">
+            As of
+          </legend>
+          <div className="flex flex-col gap-1">
+            <label className={optionClass(asOfScene === null)}>
+              <input
+                className="sr-only"
+                type="radio"
+                name="ledger-as-of"
+                checked={asOfScene === null}
+                onChange={() => onAsOfSceneChange?.(null)}
+              />
+              Latest (all)
+            </label>
+            {sceneOptions.map((scene) => (
+              <label
+                key={scene.id}
+                className={optionClass(asOfScene === scene.id)}
+              >
+                <input
+                  className="sr-only"
+                  type="radio"
+                  name="ledger-as-of"
+                  checked={asOfScene === scene.id}
+                  onChange={() => onAsOfSceneChange?.(scene.id)}
+                />
+                {scene.label}
+              </label>
+            ))}
+          </div>
+        </fieldset>
+      )}
 
       <fieldset className="mb-6">
         <div className="mb-2 flex items-center justify-between gap-2">
