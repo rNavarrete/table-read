@@ -138,20 +138,21 @@ Layout: quiet full-mode Review surface — compact header card with small instru
 
 ## 7. Ledger mode
 
-Ledger is a **story bible** — writers open it to understand what is true in the story world. Two swappable views share the same filters, review queue, and mutation paths:
+Ledger is a **story bible** — writers open it to understand what is true in the story world. Two swappable views share the same filters, review queue, and mutation paths. Visual language: **Editorial Quiet Tool** (cool paper, slate-blue accent, soft ambient shadows) — craft elevation over the dual-view + browse-clarity base; see `docs/superpowers/specs/2026-07-17-ledger-creative-polish-design.md`.
 
 | View | Job |
 |---|---|
 | **Story Atlas** (default) | Compact expandable rows grouped by storytelling meaning |
 | **Knowledge Web** | Character- or Audience-focused who-knows-what (ranked list + detail) |
 
-Layout: left **filter rail** (198px, `--tr-panel-ledger-filters`) · main column with page header + active view body · **review queue** pinned at top when non-empty in **both** views.
+Layout: left **filter rail** (198px, `--tr-panel-ledger-filters`, sunken) · main column on page surface with page header + active view body · **review queue** pinned at top when non-empty in **both** views.
 
 ### 7a. Page chrome
 
-- **Title:** display font — "What's true in this story" (`font-display`, 17–22px).
-- **View switcher:** segmented control **Atlas · Web** in the header (`LedgerViewSwitcher`); active segment `--tr-coral-soft` fill + `--tr-accent-ink` text (match mode switcher). Choice persists per project in `localStorage` (`tr.ledger.view.{projectId}`).
-- **Pending chip:** amber when `pending_review` count > 0 ("N to review"); click scrolls to / focuses the review queue.
+- **Title:** display font — "What's true in this story" (`font-display`, 22px) with a one-line secondary subtitle (“Your story bible — browse truths, or focus who knows what.”).
+- **View switcher:** segmented control **Atlas · Web** in the header (`LedgerViewSwitcher`); clay track, active segment `--tr-coral-soft` + `--tr-accent-ink` + `--tr-shadow-raised` (match ModeSwitcher). Choice persists per project in `localStorage` (`tr.ledger.view.{projectId}`).
+- **Pending chip:** amber-soft when `pending_review` count > 0 ("N to review"); click scrolls to / focuses the review queue; focus-visible uses `--tr-outline-selected` + `--tr-coral`.
+- **Motion:** Atlas ↔ Web body uses a brief fade/rise enter (`.tr-ledger-view-enter`, `--tr-motion-duration-standard` / `--tr-motion-ease-standard`; disabled under `prefers-reduced-motion`).
 
 ### 7b. Filter rail (shared filters)
 
@@ -162,19 +163,19 @@ Same `LedgerFilters` model (`status`, `characterId`, `factType`); writer-facing 
 | **People** | All · characters with knownBy count `> 0` and `(n)` badges (also sets Knowledge Web focus when Web is active). Zero-count cast (unused / slugline junk) lives under a collapsed **No linked facts (N)** disclosure — expandable, not removed. Manage cast link |
 | **Browse** | All truths · Events · States · Knowledge · Relationships · World rules — chapter/`factType` filter with `(n)` counts (replaces the former “Lenses” label) |
 | **Threads** | Setups & payoffs entry (when wired) |
-| **Status** | Collapsed by default when All; summary shows pending “N to review”. Expand for All · Needs review · Active · Superseded · Stale · Rejected |
-| **As of** | Compact `<select>`: Latest (all) · episode scenes in doc order (not a full radio list) |
+| **Status** | Collapsed by default when All; summary shows pending “N to review” in amber. Expand for All · Needs review · Active · Superseded · Stale · Rejected |
+| **As of** | Compact raised `<select>`: Latest (all) · episode scenes in doc order (not a full radio list); focus-visible outline |
 
-Accent-tint active pills on a warm sunken panel. Filters affect both Atlas and Web.
+Section legends: 11px uppercase muted (`text-11`, `tracking-wide`). Accent-tint active pills (`--tr-coral-soft` / `--tr-accent-ink`) on the sunken rail; option hover uses `--tr-surface-clay`; color transitions use standard motion. Filters affect both Atlas and Web.
 
 ### 7c. Review queue (both views)
 
 Unchanged mutation semantics; presentation polish only.
 
-- Amber section when pending non-empty ("N facts awaiting review").
+- Amber-soft raised section with a left amber edge when pending non-empty; display title "N facts awaiting review".
 - **Accept all high-confidence (n)** (sage, facts ≥0.8 in one batch snapshot).
 - Per-scene grouping with **Accept scene** / **Reject scene**; scene labels prefer resolvable location from the project, not raw `scene-38`.
-- Queue cards use the same detail actions as expanded Atlas rows (see §7e).
+- Queue cards use the same detail actions as expanded Atlas rows (see §7f).
 
 ### 7d. Story Atlas
 
@@ -188,7 +189,9 @@ Filtered non-queue facts (pending stay in the queue unless status filter is Need
 | Relationships | `relationship` |
 | World rules | `world_rule` |
 
-**Collapsed row:** discriminating knower/irony cue (not the chapter’s redundant `factType` pill) · fact text (15px primary, 1–2 line clamp) · trailing muted knower initials when useful · scene link label.
+**Chapter chrome:** display 17px title + muted count; light hairline under the chapter header. Knower subheads (when ≥20 facts): 11px uppercase muted.
+
+**Collapsed row:** discriminating knower/irony cue (not the chapter’s redundant `factType` pill) · fact text (15px primary, 1–2 line clamp, snug leading) · trailing muted knower initials when useful · scene link label. Rows are raised sheets (`--tr-shadow-raised`); hover lifts (`--tr-shadow-lift` + clay fill). Focus-visible: selected outline.
 
 Cue mapping (existing fields only — no parallel tag taxonomy):
 
@@ -201,28 +204,30 @@ Cue mapping (existing fields only — no parallel tag taxonomy):
 
 Full `factType` remains on expanded detail. Inside a chapter with ≥20 facts, rows group under knower subheads: **Audience** (empty `knownBy`), each single knower (cast order), **Shared** (multi-knower — no card duplication).
 
-**Expanded row:** full fact text · type · source-span link · known-by chips · confidence bar · provenance · status · supersede chain · queue actions when `pending_review`. Click toggles expand; **one row expanded globally** at a time. Expanded detail reuses `FactCard`.
+**Expanded row:** accent outline + lift on the collapsed control; detail below reuses `FactCard` with the same brief enter motion as view switch. Click toggles expand; **one row expanded globally** at a time.
+
+**Empty:** raised quiet panel; *Empty ledger* — "Facts appear as you write…"; *Filtered empty* — "No facts match." plus a short filter-clear nudge.
 
 ### 7e. Knowledge Web
 
 Hybrid **focus strip + ranked fact list + detail** (research note `docs/superpowers/specs/2026-07-17-knowledge-web-graph-ux-research.md`). No graph library. Not a second Atlas — the job is focus-centric “what does this person / Audience know?”
 
 - **Focus:** selected **People** filter, or **Audience** when All — audience overview shows facts with empty `knownBy` (respect `knownByAsOf` when the ledger was fetched as-of a scene).
-- **Focus strip:** focus chip (label) + light **type-cluster** chips (counts among visible facts: KNOWS / REL / …). Optional hub metaphor only — not full FactCards on an arc.
-- **Ranked rows (cap 24):** scrollable list preferring `knowledge` / `relationship` when ranking (same `buildKnowledgeGraph` ranking). Each row: type cue · 1–2 line fact · muted scene · knower count. Pending rows `--tr-amber-soft`; selected row accent outline + lift.
+- **Focus strip:** raised focus card (11px “Focus” legend + display 17px label) + light **type-cluster** chips (counts among visible facts: KNOWS / REL / …). Optional hub metaphor only — not full FactCards on an arc.
+- **Ranked rows (cap 24):** scrollable list preferring `knowledge` / `relationship` when ranking (same `buildKnowledgeGraph` ranking). Each row: type cue · 1–2 line fact at **15px** · muted scene · knower count. Pending rows `--tr-amber-soft`; selected row accent outline + lift; related rows sky-soft highlight when a selection is active.
 - **Overflow:** when more than 24 match, **+N more — open Atlas** chrome switches to Atlas.
 - **Related cues:** fact–fact mini-edges are **hidden by default**. When a row is selected, related visible facts (shared knowers / relationship co-mentions from the capped edge model) get a subtle related highlight — not a hairball SVG graph.
-- **Interaction:** click / keyboard-activate row → detail panel (`FactCard`, same fields/actions as Atlas expanded row). **Open in Atlas** switches to Atlas and expands that fact.
-- **Empty / All-people cliff:** "No knowledge facts for {name} yet" (or Audience) + nudge to pick a person from People when focus is Audience / All yields little; Atlas switcher hint remains.
+- **Interaction:** click / keyboard-activate row → detail panel (`FactCard`, same fields/actions as Atlas expanded row) with enter motion. **Open in Atlas** switches to Atlas and expands that fact.
+- **Empty / All-people cliff:** raised quiet panel — "No knowledge facts for {name} yet" (or Audience) + nudge to pick a person from People when focus is Audience / All yields little; Atlas switcher hint remains.
 
 ### 7f. Fact detail (shared)
 
-Hairline-border raised card with fact text (15px primary) · type chip (sky) · `establishedIn` + source-span link ("ep 1 · sc 3 · beat 2" → jumps to beat in Write mode, highlighted 2s) · **Known by** avatars/initials chips (empty = "audience only", italic) · confidence bar (2px, sage fill on cool-paper track; muted fill when superseded) · provenance chip (`inferred` amber / `confirmed` sage / `writer-authored` sky) · status. Superseded facts: strikethrough text + "superseded by →" link; chain view expands inline as a vertical thread.
+Hairline-border raised card (`--tr-shadow-raised`, comfortable padding) with fact text (15px primary, snug leading) · type chip (sky) · `establishedIn` + source-span link ("ep 1 · sc 3 · beat 2" → jumps to beat in Write mode, highlighted 2s) · **Known by** avatars/initials chips (empty = "audience only", italic) · confidence bar (2px, sage fill on cool-paper track; muted fill when superseded) · provenance chip (`inferred` amber / `confirmed` sage / `writer-authored` sky) · status. Superseded facts: strikethrough text + "superseded by →" link; chain view expands inline as a vertical thread. Interactive controls use focus-visible selected outline.
 
-- **Queue card actions:** **Accept** (sage) · **Edit** (opens inline form: text, knownBy, type → saves as `writer_authored`) · **Reject** (muted; fact becomes `rejected`, excluded from prompts). **Every ledger action is a versioned mutation**: accept/edit/reject/batch each commit through the standard snapshot transaction (ledger is snapshot-versioned state), so all of them are undoable via the global undo — a mistaken batch-accept is one undo away, and the undo control is enabled in Ledger mode like everywhere else.
+- **Queue card actions:** separated by a hairline — **Accept** (sage) · **Edit** (opens inline form: text, knownBy, type → saves as `writer_authored`) · **Reject** (muted; fact becomes `rejected`, excluded from prompts). **Every ledger action is a versioned mutation**: accept/edit/reject/batch each commit through the standard snapshot transaction (ledger is snapshot-versioned state), so all of them are undoable via the global undo — a mistaken batch-accept is one undo away, and the undo control is enabled in Ledger mode like everywhere else.
 - **Dependency hint:** card footer "referenced by 2 upcoming scenes" when other scenes' plans mention linked characters + this fact was injected into their last generation (best-effort, from prompt logs).
 
-**States:** *Empty ledger* — "Facts appear as you write. Table Read tracks what's true so you don't have to." *Filtered empty* — plain "No facts match."
+**States:** *Empty ledger* — "Facts appear as you write. Table Read tracks what's true so you don't have to." *Filtered empty* — "No facts match." (+ Atlas filter nudge).
 
 ## 8. Component inventory (build once, reuse)
 
