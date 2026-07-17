@@ -47,7 +47,9 @@
    * names minted here, values exactly as the spec comments state them.
    */
 
-  /* Scale: 12/13/15/17/22/28. Script canvas fixed 12pt Courier equivalent. */
+  /* Scale: 11/12/13/15/17/22/28. 11px = secondary chrome (outline pitch,
+     beat gutter labels per UI spec §4). Script canvas fixed 12pt Courier. */
+  --tr-font-size-11: 11px;
   --tr-font-size-12: 12px;
   --tr-font-size-13: 13px;
   --tr-font-size-15: 15px;
@@ -125,6 +127,7 @@
   --font-script:  var(--tr-font-script);
   --font-display: var(--tr-font-display);
 
+  --text-11: var(--tr-font-size-11);
   --text-12: var(--tr-font-size-12);
   --text-13: var(--tr-font-size-13);
   --text-15: var(--tr-font-size-15);

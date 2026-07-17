@@ -2,6 +2,11 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import type { BeatCandidate } from 'contract'
 import { suggestInstructions } from '../api/client'
 import type { CandidateSlot } from './candidateReducer'
+import { formatConflictExplanation } from './formatConflictExplanation'
+import {
+  normalizeScriptText,
+  withNormalizedScriptText,
+} from './normalizeScriptText'
 import { SuggestionChips } from './SuggestionChips'
 import { useTuneSession } from './useTuneSession'
 import type { AcceptErrorState } from './useAcceptBeat'
@@ -31,17 +36,25 @@ const dangerShell =
   'rounded-card border border-tr-border border-l-4 border-l-tr-danger bg-tr-surface-raised p-4 shadow-raised transition-[box-shadow,transform] hover:-translate-y-px hover:shadow-lift motion-reduce:transform-none motion-reduce:transition-none'
 
 function ScriptPreview({ text }: { text: string }) {
+  // UI spec §3: ~8-line script preview. Scrollable so longer beats stay
+  // readable; fade removed so the scrollbar isn't fighting a mask.
   return (
-    <div className="relative mt-2 overflow-hidden">
-      <p className="line-clamp-[8] whitespace-pre-wrap font-script text-12 leading-relaxed text-tr-text-secondary">
-        {text}
-      </p>
-      <div className="absolute inset-x-0 bottom-0 h-6 bg-gradient-to-b from-transparent to-tr-surface-raised" />
+    <div
+      className="mt-2 max-h-[9.5rem] overflow-y-auto rounded-card bg-tr-surface-clay px-2.5 py-2"
+      data-testid="candidate-script-preview"
+    >
+      <pre className="m-0 whitespace-pre-wrap font-script text-12 leading-relaxed text-tr-text-secondary">
+        {normalizeScriptText(text)}
+      </pre>
     </div>
   )
 }
 
-function ConflictChips({
+/**
+ * Continuity warning (UI spec §3): Accept stays disabled until the writer
+ * acknowledges. Copy is cleaned of ledger internals; the CTA is the action.
+ */
+function ContinuityWarning({
   conflicts,
   confirmed,
   onConfirm,
@@ -51,19 +64,44 @@ function ConflictChips({
   onConfirm: () => void
 }) {
   if (conflicts.length === 0) return null
+
+  const n = conflicts.length
+  const heading = confirmed
+    ? n === 1
+      ? 'Continuity noted'
+      : 'Continuity notes acknowledged'
+    : n === 1
+      ? 'May conflict with the Ledger'
+      : `May conflict with ${n} Ledger facts`
+
   return (
-    <div className="mt-2 flex flex-wrap gap-2">
-      {conflicts.map((conflict) => (
+    <div
+      className="mt-2 rounded-card border border-tr-border bg-tr-amber-soft px-3 py-2.5"
+      data-testid="continuity-conflict"
+      role="status"
+    >
+      <p className="text-13 font-medium text-tr-text-primary">{heading}</p>
+      <ul className="mt-1.5 list-disc space-y-1 pl-4 text-13 leading-snug text-tr-text-secondary">
+        {conflicts.map((conflict) => (
+          <li key={conflict.factId}>
+            {formatConflictExplanation(conflict.explanation)}
+          </li>
+        ))}
+      </ul>
+      {confirmed ? (
+        <p className="mt-2 text-12 text-tr-text-secondary">
+          Accept is unlocked. Tune if you want to resolve it first.
+        </p>
+      ) : (
         <button
-          key={conflict.factId}
           type="button"
           onClick={onConfirm}
-          className="rounded-chip bg-tr-amber-soft px-3 py-1 text-13 text-tr-text-primary"
+          data-testid="continuity-conflict-confirm"
+          className="mt-2 rounded-chip border border-tr-border bg-tr-surface-raised px-3 py-1 text-13 text-tr-text-primary transition-colors hover:border-tr-coral motion-reduce:transition-none"
         >
-          {confirmed ? '✓ ' : ''}conflicts with: {conflict.explanation} (
-          {conflict.factId})
+          I understand — unlock Accept
         </button>
-      ))}
+      )}
     </div>
   )
 }
@@ -137,7 +175,7 @@ export function CandidateCard({
   useEffect(() => {
     if (tuneDone && tuneDone !== notifiedRef.current) {
       notifiedRef.current = tuneDone
-      onReplace(tuneDone.candidate)
+      onReplace(withNormalizedScriptText(tuneDone.candidate))
       tuneSession.reset()
     }
     // tuneSession is a stable object identity per render, not a dependency
@@ -174,8 +212,8 @@ export function CandidateCard({
         data-testid={`candidate-card-${index}`}
       >
         <p className="text-13 text-tr-text-muted">Drafting…</p>
-        <p className="mt-2 whitespace-pre-wrap font-script text-12 text-tr-text-secondary">
-          {slot.provisionalScriptText}
+        <p className="mt-2 max-h-[9.5rem] overflow-y-auto whitespace-pre-wrap font-script text-12 text-tr-text-secondary">
+          {normalizeScriptText(slot.provisionalScriptText)}
         </p>
       </div>
     )
@@ -207,7 +245,7 @@ export function CandidateCard({
     )
   }
 
-  const candidate = slot.candidate
+  const candidate = withNormalizedScriptText(slot.candidate)
   const hasConflicts = candidate.continuityConflicts.length > 0
   const acceptDisabled = accepting || (hasConflicts && !conflictsConfirmed)
   const focusRing = focused ? ' ring-2 ring-tr-sky' : ''
@@ -227,7 +265,7 @@ export function CandidateCard({
         {candidate.beatPlan.whatHappens}
       </p>
       <ScriptPreview text={candidate.scriptText} />
-      <ConflictChips
+      <ContinuityWarning
         conflicts={candidate.continuityConflicts}
         confirmed={conflictsConfirmed}
         onConfirm={() => setConflictsConfirmed(true)}
@@ -246,8 +284,8 @@ export function CandidateCard({
               {tuneResult?.status === 'streaming' && (
                 <>
                   <p className="text-13 text-tr-text-muted">Tuning…</p>
-                  <p className="mt-1 whitespace-pre-wrap font-script text-12 text-tr-text-secondary">
-                    {tuneResult.provisionalScriptText}
+                  <p className="mt-1 max-h-[9.5rem] overflow-y-auto whitespace-pre-wrap font-script text-12 text-tr-text-secondary">
+                    {normalizeScriptText(tuneResult.provisionalScriptText)}
                   </p>
                 </>
               )}
@@ -259,6 +297,11 @@ export function CandidateCard({
                     {tuneResult?.status === 'failed'
                       ? tuneResult.error.message
                       : tuneSession.session.connectionError}
+                  </p>
+                  <p className="mt-1 text-12 text-tr-text-secondary">
+                    The model’s revised beat didn’t match the required shape
+                    after one automatic retry. Try Retry, or Tune again with a
+                    shorter instruction.
                   </p>
                   <button
                     type="button"
@@ -320,6 +363,11 @@ export function CandidateCard({
             <button
               type="button"
               disabled={acceptDisabled}
+              title={
+                hasConflicts && !conflictsConfirmed
+                  ? 'Acknowledge the continuity warning first'
+                  : undefined
+              }
               onClick={() => onAccept(candidate)}
               className="rounded-card bg-tr-coral px-3 py-1.5 text-13 text-tr-surface-raised transition-colors hover:bg-tr-coral-hover disabled:opacity-50 motion-reduce:transition-none"
             >

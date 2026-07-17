@@ -39,6 +39,7 @@ export const EXPECTED_TOKENS: Record<string, string> = {
   '--tr-font-script': '"Courier Prime", "Courier New", monospace',
   '--tr-font-display': '"Instrument Sans", system-ui, sans-serif',
 
+  '--tr-font-size-11': '11px',
   '--tr-font-size-12': '12px',
   '--tr-font-size-13': '13px',
   '--tr-font-size-15': '15px',

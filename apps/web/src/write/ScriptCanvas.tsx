@@ -4,6 +4,7 @@ import { FormattedScript } from './FormattedScript'
 import { parseFountainLines } from './fountainFormat'
 import { formatSceneSlug } from './SceneOutline'
 import type { QuietAiCanvasHandlers } from './useQuietAi'
+import { WRITE_WHIMSY, whimsy, whimsyPick } from './writeWhimsy'
 
 function autosize(el: HTMLTextAreaElement) {
   el.style.height = 'auto'
@@ -119,16 +120,32 @@ function BeatRow({
       data-testid={`beat-row-${beat.id}`}
     >
       <div
-        className="w-6 shrink-0 pt-1 text-right text-12 text-tr-text-muted opacity-0 transition-opacity group-hover:opacity-100"
+        className={whimsyPick(
+          'w-6 shrink-0 pt-1 text-right text-12 text-tr-text-muted opacity-0 transition-opacity group-hover:opacity-100',
+          'w-6 shrink-0 pt-1 text-right text-12 text-tr-text-muted opacity-60 transition-opacity group-hover:opacity-100',
+        )}
         aria-hidden="true"
       >
-        {locked ? <LockGlyph /> : index + 1}
+        {locked ? (
+          <LockGlyph />
+        ) : WRITE_WHIMSY ? (
+          <span className="inline-flex h-5 w-5 items-center justify-center rounded-chip bg-tr-sage-soft text-12 text-tr-text-secondary">
+            {index + 1}
+          </span>
+        ) : (
+          index + 1
+        )}
       </div>
       <div className="min-w-0 flex-1">
         {showPlan ? (
           <div data-testid={`beat-plan-${beat.id}`} className="mb-3">
-            <p className="text-12 font-medium uppercase tracking-wide text-tr-text-secondary">
-              Beat plan
+            <p
+              className={whimsyPick(
+                'text-12 font-medium uppercase tracking-wide text-tr-text-secondary',
+                'font-display text-13 text-tr-text-secondary',
+              )}
+            >
+              {whimsyPick('Beat plan', 'What happens here')}
             </p>
             <p className="mt-1 text-15 leading-6 text-tr-text-primary">
               {planPitch}
@@ -225,9 +242,20 @@ function SceneBlock({
       data-testid={`write-scene-${scene.id}`}
       data-scene-id={scene.id}
       aria-label={`Script — ${scene.location || slug}`}
-      className="border-b border-tr-border py-8 last:border-b-0"
+      className={whimsy(
+        'border-b border-tr-border py-8 last:border-b-0',
+        'relative border-b-0 py-10 last:pb-4',
+      )}
       onFocusCapture={focus}
     >
+      {WRITE_WHIMSY ? (
+        <div
+          className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-center text-12 tracking-[0.35em] text-tr-text-muted"
+          aria-hidden
+        >
+          · · ·
+        </div>
+      ) : null}
       {showHeader ? (
         <header className={scenePitch || scene.beats.length === 0 ? 'mb-5' : 'mb-2'}>
           {showSlug ? (
@@ -303,9 +331,13 @@ export function ScriptCanvas({
     <div
       // max-w-script-col = --tr-script-col (600px, UI spec §3), minted per
       // controller ruling on T2.3 review.
-      className="mx-auto max-w-script-col w-full rounded-card bg-tr-surface-raised px-10 py-10 shadow-raised"
+      className={whimsyPick(
+        'mx-auto max-w-script-col w-full rounded-card bg-tr-surface-raised px-10 py-10 shadow-raised',
+        'mx-auto max-w-script-col w-full rounded-card bg-tr-surface-raised px-10 py-10 shadow-lift ring-1 ring-tr-border',
+      )}
       aria-label="Episode script"
       data-testid="script-canvas"
+      data-whimsy={WRITE_WHIMSY ? 'true' : 'false'}
       {...canvasHandlers}
     >
       {scenes.map((scene) => (

@@ -2,6 +2,7 @@
 import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import { CommandBar } from './CommandBar'
+import { WRITE_WHIMSY } from './writeWhimsy'
 
 afterEach(cleanup)
 
@@ -13,9 +14,13 @@ describe('CommandBar', () => {
     expect(bar.className).toContain('max-w-script-col')
     expect(bar.className).toContain('rounded-chip')
     expect(bar.className).toContain('bg-tr-surface-raised')
-    expect(bar.className).toContain('shadow-raised')
+    expect(bar.className).toContain(
+      WRITE_WHIMSY ? 'shadow-lift' : 'shadow-raised',
+    )
     expect(
-      screen.getByRole('button', { name: /generate/i }).className,
+      screen.getByRole('button', {
+        name: WRITE_WHIMSY ? /write it/i : /generate/i,
+      }).className,
     ).toContain('bg-tr-coral')
   })
 })

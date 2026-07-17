@@ -4,7 +4,6 @@ import {
   useMemo,
   useRef,
   useState,
-  type FocusEvent,
 } from 'react'
 import type { BeatCandidate, CraftLevel, Project, Scene } from 'contract'
 import { getLedger, getProject, patchProject } from '../api/client'
@@ -22,6 +21,8 @@ import { useCandidateSession } from './useCandidateSession'
 import { useQuietAi } from './useQuietAi'
 import { useWriteKeyboard } from './useWriteKeyboard'
 import { allScenes, findScene, pickDefaultScene } from './projectTree'
+import { isEditingInScrollport, pickTopIntersectingSceneId } from './scrollSpy'
+import { whimsyPick } from './writeWhimsy'
 
 function useUrlParam(name: string): string | null {
   return useMemo(
@@ -51,7 +52,7 @@ export function WriteScreen() {
   const commandBarRef = useRef<CommandBarHandle>(null)
   const scrollportRef = useRef<HTMLDivElement>(null)
   const suppressSpyUntilRef = useRef(0)
-  const typingInCanvasRef = useRef(false)
+  const activeSceneIdRef = useRef<string | null>(null)
   /** After `?scene=` / resume land, scroll once the episode canvas mounts. */
   const pendingScrollSceneIdRef = useRef<string | null>(null)
 
@@ -99,6 +100,10 @@ export function WriteScreen() {
     activeSceneId && project ? findScene(project, activeSceneId) : null
 
   useEffect(() => {
+    activeSceneIdRef.current = activeSceneId
+  }, [activeSceneId])
+
+  useEffect(() => {
     if (projectId && activeSceneId) {
       saveResume(projectId, { mode: 'Write', sceneId: activeSceneId })
     }
@@ -106,6 +111,7 @@ export function WriteScreen() {
 
   const selectScene = useCallback(
     (sceneId: string, { scroll = true }: { scroll?: boolean } = {}) => {
+      activeSceneIdRef.current = sceneId
       setActiveSceneId(sceneId)
       replaceSceneQuery(sceneId)
       if (scroll) {
@@ -143,8 +149,9 @@ export function WriteScreen() {
     })
   }, [scenes, project?.id])
 
-  // Scroll spy: topmost visible scene updates outline — not while typing in a beat
-  // and not during a short window after outline/keyboard jumps.
+  // Scroll spy: topmost visible scene updates outline. IO callbacks only
+  // include *changed* entries, so we accumulate the latest entry per section.
+  // Caret in a beat wins; outline/keyboard jumps suppress briefly.
   useEffect(() => {
     const root = scrollportRef.current
     if (!root || scenes.length === 0) return
@@ -156,22 +163,27 @@ export function WriteScreen() {
       .filter((el): el is HTMLElement => el instanceof HTMLElement)
     if (sections.length === 0) return
 
+    const byTarget = new Map<Element, IntersectionObserverEntry>()
     const observer = new IntersectionObserver(
       (entries) => {
+        for (const entry of entries) byTarget.set(entry.target, entry)
         if (Date.now() < suppressSpyUntilRef.current) return
-        if (typingInCanvasRef.current) return
-        const visible = entries
-          .filter((e) => e.isIntersecting)
-          .sort(
-            (a, b) =>
-              a.boundingClientRect.top - b.boundingClientRect.top,
+        if (isEditingInScrollport(root)) return
+        const id = pickTopIntersectingSceneId(byTarget.values())
+        if (!id || id === activeSceneIdRef.current) return
+        activeSceneIdRef.current = id
+        setActiveSceneId(id)
+        replaceSceneQuery(id)
+        requestAnimationFrame(() => {
+          const outlineRow = document.querySelector(
+            `[data-testid="write-outline-${id}"]`,
           )
-        const top = visible[0]?.target
-        if (!(top instanceof HTMLElement)) return
-        const id = top.dataset.sceneId
-        if (id) setActiveSceneId(id)
+          if (outlineRow instanceof HTMLElement) {
+            outlineRow.scrollIntoView({ block: 'nearest' })
+          }
+        })
       },
-      { root, rootMargin: '-10% 0px -70% 0px', threshold: [0, 0.25, 0.5] },
+      { root, rootMargin: '-10% 0px -70% 0px', threshold: [0, 0.1, 0.25, 0.5] },
     )
     for (const section of sections) observer.observe(section)
     return () => observer.disconnect()
@@ -193,17 +205,7 @@ export function WriteScreen() {
   }, [highlightBeatId, scenes.length])
 
   const { quiet, canvasHandlers } = useQuietAi()
-  const baseCanvasHandlers = canvasHandlers
-  const wrappedCanvasHandlers = {
-    onFocus: (e: FocusEvent<HTMLElement>) => {
-      typingInCanvasRef.current = true
-      baseCanvasHandlers.onFocus(e)
-    },
-    onBlur: (e: FocusEvent<HTMLElement>) => {
-      typingInCanvasRef.current = false
-      baseCanvasHandlers.onBlur(e)
-    },
-  }
+  const wrappedCanvasHandlers = canvasHandlers
 
   const candidateSession = useCandidateSession(
     activeProjectId,
@@ -379,7 +381,10 @@ export function WriteScreen() {
         <div
           ref={scrollportRef}
           data-testid="write-scrollport"
-          className="min-h-0 min-w-0 flex-1 overflow-y-auto px-8 py-8 pb-28"
+          className={whimsyPick(
+            'min-h-0 min-w-0 flex-1 overflow-y-auto px-8 py-8 pb-28',
+            'min-h-0 min-w-0 flex-1 overflow-y-auto bg-tr-surface-clay px-8 py-10 pb-28',
+          )}
         >
           <ScriptCanvas
             scenes={scenes}
@@ -388,7 +393,10 @@ export function WriteScreen() {
             onSceneFocus={(id) => selectScene(id, { scroll: false })}
           />
         </div>
-        <div className="flex shrink-0 flex-col border-l border-tr-border bg-tr-surface-sunken p-4">
+        <div
+          className="flex h-full min-h-0 shrink-0 flex-col overflow-hidden border-l border-tr-border bg-tr-surface-sunken p-4"
+          data-testid="write-candidate-rail"
+        >
           <CandidateDock
             key={activeSceneId ?? 'none'}
             session={candidateSession.session}

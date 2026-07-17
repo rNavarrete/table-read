@@ -332,12 +332,74 @@ def extract_script_text_prefix(buffer: str) -> str | None:
     return "".join(out)
 
 
+def normalize_script_text(text: str) -> str:
+    """Collapse LLM double-escaped Fountain whitespace.
+
+    Proper JSON `"line\\nline"` already becomes a real newline after
+    `json.loads`. Double-escaped `"line\\\\nline"` leaves the two-character
+    sequence backslash + n, which then renders literally in the dock.
+    """
+    if "\\" not in text:
+        return text
+    return (
+        text.replace("\\r\\n", "\n")
+        .replace("\\n", "\n")
+        .replace("\\r", "\n")
+        .replace("\\t", "\t")
+    )
+
+
 def _finalize(buffer: str) -> BeatCandidate:
     """Parse and validate the complete accumulated tool input. Raises
     `json.JSONDecodeError` or `pydantic.ValidationError` on any failure — both
-    surface as `candidate_failed` with SCHEMA_INVALID_LLM."""
+    surface as `candidate_failed` with SCHEMA_INVALID_LLM.
+
+    Light structural repairs only (not content invention): normalize escaped
+    newlines, default a missing continuityConflicts list, and clamp label to
+    the contract max (40). Anything still invalid still fails after rule-9
+    retry — never a fabricated BeatCandidate.
+    """
     obj = json.loads(buffer)
+    script = obj.get("scriptText")
+    if isinstance(script, str):
+        obj["scriptText"] = normalize_script_text(script)
+    if "continuityConflicts" not in obj:
+        obj["continuityConflicts"] = []
+    label = obj.get("label")
+    if isinstance(label, str) and len(label) > 40:
+        obj["label"] = label[:39] + "…"
     return BeatCandidate.model_validate(obj)
+
+
+def schema_failure_client_message(exc: ValidationError) -> str:
+    """Safe client message for SCHEMA_INVALID_LLM (hard rule 5: field paths /
+    error kinds only — never model or writer text from `input`)."""
+    hints: list[str] = []
+    for err in exc.errors():
+        loc = err.get("loc") or ()
+        path = ".".join(str(p) for p in loc)
+        typ = err.get("type", "")
+        if typ == "string_too_long" and path == "label":
+            hints.append("label exceeds 40 characters")
+        elif typ == "string_too_long":
+            hints.append(f"{path} too long" if path else "a string field is too long")
+        elif typ == "missing":
+            hints.append(f"missing {path}" if path else "missing field")
+        elif path.endswith("factId") or path.endswith("fact_id"):
+            hints.append("invalid continuity conflict fact id")
+        elif path:
+            hints.append(f"invalid {path}")
+        else:
+            hints.append(typ or "invalid field")
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for hint in hints:
+        if hint not in seen:
+            seen.add(hint)
+            deduped.append(hint)
+    if not deduped:
+        return "candidate failed schema validation"
+    return "candidate failed schema validation (" + "; ".join(deduped[:3]) + ")"
 
 
 def _one_line(text: str, limit: int = 80) -> str:
@@ -562,7 +624,8 @@ def _stream_attempt(stream_fn: StreamFn, system: str, user: str) -> Iterator[Eve
     except json.JSONDecodeError:
         return ("bad_json", None)
     except ValidationError as exc:
-        return ("invalid_schema", str(exc))
+        # Keep the ValidationError for a safe client hint; retry note uses str().
+        return ("invalid_schema", exc)
 
 
 def _stream_one(
@@ -597,7 +660,9 @@ def _stream_one(
         # `payload` (the validation error) can echo model-produced field
         # values and must never be logged (hard rule 5).
         retried = True
-        retry_user = f"{user}\n\n" + _RETRY_NOTE.format(tool=op_name, error=payload)
+        retry_user = f"{user}\n\n" + _RETRY_NOTE.format(
+            tool=op_name, error=str(payload)
+        )
         status, payload = yield from _stream_attempt(stream_fn, system, retry_user)
 
     if status == "ok":
@@ -626,12 +691,18 @@ def _stream_one(
         retried,
         SchemaInvalidLlmError.code,
     )
+    if status == "bad_json":
+        client_message = "candidate response was not valid JSON"
+    elif isinstance(payload, ValidationError):
+        client_message = schema_failure_client_message(payload)
+    else:
+        client_message = "candidate failed schema validation"
     yield (
         CANDIDATE_FAILED,
         {
             "error": {
                 "code": SchemaInvalidLlmError.code,
-                "message": "candidate failed schema validation",
+                "message": client_message,
             }
         },
     )

@@ -120,12 +120,16 @@ describe('CandidateCard', () => {
     expect(onRetryGeneration).toHaveBeenCalled()
   })
 
-  it('a continuity conflict blocks Accept until the conflict chip is confirmed', async () => {
+  it('a continuity conflict blocks Accept until the writer acknowledges', async () => {
     const user = userEvent.setup()
     const onAccept = vi.fn()
     const c = candidate({
       continuityConflicts: [
-        { factId: 'fact-04', explanation: "Dan doesn't know" },
+        {
+          factId: 'fact-04',
+          explanation:
+            "Dan doesn't know yet (audienceKnows:false re: fact-04)",
+        },
       ],
     })
     render(
@@ -137,14 +141,24 @@ describe('CandidateCard', () => {
     )
 
     const acceptButton = screen.getByRole('button', {
-      name: /accept/i,
+      name: /^accept/i,
     }) as HTMLButtonElement
     expect(acceptButton.disabled).toBe(true)
-
-    await user.click(
-      screen.getByText(/conflicts with: Dan doesn't know \(fact-04\)/),
+    expect(screen.getByTestId('continuity-conflict').textContent).toContain(
+      'May conflict with the Ledger',
     )
+    expect(screen.getByTestId('continuity-conflict').textContent).toContain(
+      "Dan doesn't know yet",
+    )
+    expect(screen.getByTestId('continuity-conflict').textContent).not.toMatch(
+      /audienceKnows|fact-04/i,
+    )
+
+    await user.click(screen.getByTestId('continuity-conflict-confirm'))
     expect(acceptButton.disabled).toBe(false)
+    expect(screen.getByTestId('continuity-conflict').textContent).toContain(
+      'Accept is unlocked',
+    )
     await user.click(acceptButton)
     expect(onAccept).toHaveBeenCalledWith(c)
   })

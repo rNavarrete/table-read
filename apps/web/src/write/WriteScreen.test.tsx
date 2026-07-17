@@ -136,6 +136,9 @@ describe('WriteScreen script home', () => {
     expect(screen.getByTestId('write-scene-outline')).not.toBeNull()
     expect(screen.getByTestId('write-scene-scene-1')).not.toBeNull()
     expect(screen.getByTestId('write-scene-scene-2')).not.toBeNull()
+    const rail = screen.getByTestId('write-candidate-rail')
+    expect(rail.className).toContain('min-h-0')
+    expect(rail.className).toContain('overflow-hidden')
   })
 
   it('outline click marks the active scene', async () => {

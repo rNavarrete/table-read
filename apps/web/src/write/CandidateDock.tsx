@@ -92,7 +92,7 @@ export function CandidateDock({
   return (
     <aside
       className={
-        'flex w-panel-candidate-dock shrink-0 flex-col' +
+        'flex h-full min-h-0 w-panel-candidate-dock shrink-0 flex-col' +
         (quiet ? ' opacity-40' : '') +
         (streaming
           ? ' rounded-card ring-2 ring-tr-coral-soft motion-safe:animate-pulse'
@@ -102,7 +102,7 @@ export function CandidateDock({
       data-testid="candidate-dock"
     >
       {!quiet && (
-        <div className="mb-3">
+        <div className="mb-3 shrink-0">
           <CraftLevelPicker
             value={craftLevel}
             onChange={onCraftLevelChange}
@@ -136,13 +136,18 @@ export function CandidateDock({
             </>
           ) : (
             <>
-              <NextBeatButton
-                onClick={onNextBeat}
-                disabled={streaming}
-                hidden={quiet}
-                centered={false}
-              />
-              <div className="flex flex-col gap-4">
+              <div className="shrink-0">
+                <NextBeatButton
+                  onClick={onNextBeat}
+                  disabled={streaming}
+                  hidden={quiet}
+                  centered={false}
+                />
+              </div>
+              <div
+                className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto"
+                data-testid="candidate-dock-scroll"
+              >
                 {session.slots.map((slot, index) => (
                   <CandidateCard
                     key={index}

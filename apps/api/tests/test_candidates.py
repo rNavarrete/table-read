@@ -293,13 +293,27 @@ def _one_slot_events(mock) -> list[tuple[str, dict]]:
     )
 
 
+def test_finalize_clamps_long_label_and_defaults_conflicts():
+    wire = json.dumps(
+        {
+            "label": "x" * 50,
+            "beatPlan": {"whatHappens": "w", "audienceLearns": "l", "audienceFeels": "f"},
+            "scriptText": "ok",
+        }
+    )
+    cand = candidates._finalize(wire)
+    assert len(cand.label) == 40
+    assert cand.label.endswith("…")
+    assert cand.continuity_conflicts == []
+
+
 def test_schema_invalid_stream_retries_once_then_succeeds():
-    # attempt 1: valid JSON, schema-invalid (label > 40 chars); retry: valid.
+    # attempt 1: valid JSON, schema-invalid (missing scriptText); retry: valid.
+    # Label-too-long is repaired in `_finalize` and is no longer a retry case.
     bad = json.dumps(
         {
-            "label": "x" * 41,
+            "label": "Broken",
             "beatPlan": {"whatHappens": "w", "audienceLearns": "l", "audienceFeels": "f"},
-            "scriptText": "bad attempt",
             "continuityConflicts": [],
         }
     )
@@ -316,7 +330,7 @@ def test_schema_invalid_stream_retries_once_then_succeeds():
     # retry deltas restart the scriptText prefix (documented choice); the
     # authoritative candidate_done carries the retry's value
     deltas = [d["text"] for n, d in events if n == candidates.DELTA]
-    assert "".join(deltas) == "bad attempt" + "good attempt"
+    assert "".join(deltas) == "good attempt"
     done = [d for n, d in events if n == candidates.CANDIDATE_DONE]
     assert len(done) == 1
     assert done[0]["scriptText"] == "good attempt"

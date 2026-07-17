@@ -3,7 +3,8 @@ import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Scene } from 'contract'
-import { SceneOutline } from './SceneOutline'
+import { outlinePitch, SceneOutline } from './SceneOutline'
+import { WRITE_WHIMSY } from './writeWhimsy'
 
 afterEach(cleanup)
 
@@ -26,26 +27,90 @@ function scene(partial: Partial<Scene> & { id: string }): Scene {
 }
 
 describe('SceneOutline', () => {
-  it('lists scenes with index and slug', () => {
+  it('lists scenes with index, slug, and whatHappens pitch', () => {
     render(
       <SceneOutline
         scenes={[
-          scene({ id: 'scene-1', location: 'OVAL OFFICE', time: 'DAY' }),
-          scene({ id: 'scene-2', location: "JOSH'S OFFICE", time: 'DAY' }),
+          scene({
+            id: 'scene-1',
+            location: 'OVAL OFFICE',
+            time: 'DAY',
+            whatHappens: 'Josh presses Leo',
+          }),
+          scene({
+            id: 'scene-2',
+            location: "JOSH'S OFFICE",
+            time: 'DAY',
+            whatHappens: 'Sam decides to act',
+          }),
+          scene({
+            id: 'scene-3',
+            location: 'ROOSEVELT ROOM',
+            time: 'DAY',
+            whatHappens: '',
+          }),
         ]}
         activeSceneId="scene-2"
         onSelect={() => {}}
       />,
     )
     expect(screen.getByTestId('write-scene-outline').textContent).toContain(
-      'Scenes · 2',
+      WRITE_WHIMSY ? 'On the page · 3' : 'Scenes · 3',
     )
-    expect(screen.getByTestId('write-outline-scene-1').textContent).toContain(
-      '1. OVAL OFFICE',
-    )
+    const row1 = screen.getByTestId('write-outline-scene-1')
+    expect(row1.textContent).toContain('1. OVAL OFFICE')
+    expect(row1.textContent).toContain('Josh presses Leo')
     expect(screen.getByTestId('write-outline-scene-2').textContent).toContain(
-      "2. JOSH'S OFFICE",
+      'Sam decides to act',
     )
+    // Empty pitch: slug only (no empty second line).
+    expect(screen.getByTestId('write-outline-scene-3').textContent).toBe(
+      '3. ROOSEVELT ROOM — DAY',
+    )
+  })
+
+  it('outlinePitch falls back to beat plan then script action for imports', () => {
+    expect(
+      outlinePitch(
+        scene({
+          id: 'scene-a',
+          whatHappens: '',
+          beats: [
+            {
+              id: 'beat-a-1',
+              index: 0,
+              locked: false,
+              scriptLocked: false,
+              whatHappens: 'Marty stalls Jennifer',
+              audienceLearns: '',
+              audienceFeels: '',
+              scriptText: 'EXT. ALLEY - DAY\n\nMarty checks his watch.',
+            },
+          ],
+        }),
+      ),
+    ).toBe('Marty stalls Jennifer')
+
+    expect(
+      outlinePitch(
+        scene({
+          id: 'scene-b',
+          whatHappens: '',
+          beats: [
+            {
+              id: 'beat-b-1',
+              index: 0,
+              locked: false,
+              scriptLocked: false,
+              whatHappens: '',
+              audienceLearns: '',
+              audienceFeels: '',
+              scriptText: 'EXT. ALLEY - DAY\n\nMarty checks his watch.',
+            },
+          ],
+        }),
+      ),
+    ).toBe('Marty checks his watch.')
   })
 
   it('marks the active scene and reports clicks', async () => {

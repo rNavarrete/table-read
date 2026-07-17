@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Scene } from 'contract'
 import { ScriptCanvas } from './ScriptCanvas'
+import { WRITE_WHIMSY } from './writeWhimsy'
 
 // No @testing-library/jest-dom in this project (see useQuietAi.test.tsx) —
 // assertions read plain DOM properties instead of jest-dom matchers.
@@ -38,7 +39,9 @@ describe('ScriptCanvas', () => {
     const sheet = screen.getByTestId('script-canvas')
     expect(sheet.className).toContain('max-w-script-col')
     expect(sheet.className).toContain('bg-tr-surface-raised')
-    expect(sheet.className).toContain('shadow-raised')
+    expect(sheet.className).toContain(
+      WRITE_WHIMSY ? 'shadow-lift' : 'shadow-raised',
+    )
   })
 
   it('empty scene shows a clear empty state, not a blank sheet', () => {

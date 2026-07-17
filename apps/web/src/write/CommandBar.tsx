@@ -9,6 +9,7 @@ import {
 } from 'react'
 import { suggestInstructions } from '../api/client'
 import { SuggestionChips } from './SuggestionChips'
+import { whimsyPick } from './writeWhimsy'
 
 export interface CommandBarProps {
   onSubmit: (instruction: string) => void
@@ -101,7 +102,10 @@ export const CommandBar = forwardRef<CommandBarHandle, CommandBarProps>(
       >
         <form
           onSubmit={handleSubmit}
-          className="flex h-14 w-full max-w-script-col items-center gap-3 rounded-chip border border-tr-border bg-tr-surface-raised px-4 shadow-raised"
+          className={whimsyPick(
+            'flex h-14 w-full max-w-script-col items-center gap-3 rounded-chip border border-tr-border bg-tr-surface-raised px-4 shadow-raised',
+            'flex h-14 w-full max-w-script-col items-center gap-3 rounded-chip border border-tr-coral-soft bg-tr-surface-raised px-4 shadow-lift',
+          )}
           data-testid="command-bar"
         >
           <input
@@ -114,7 +118,10 @@ export const CommandBar = forwardRef<CommandBarHandle, CommandBarProps>(
             onFocus={() => void loadSuggestions()}
             onKeyDown={handleKeyDown}
             disabled={disabled}
-            placeholder="Tell the scene where to go…  [/] or [W]"
+            placeholder={whimsyPick(
+              'Tell the scene where to go…  [/] or [W]',
+              'Whisper the next move…  [/] or [W]',
+            )}
             aria-label="Tell the scene where to go"
             className="min-w-0 flex-1 bg-transparent text-15 text-tr-text-primary outline-none placeholder:text-tr-text-muted disabled:opacity-50"
           />
@@ -123,7 +130,7 @@ export const CommandBar = forwardRef<CommandBarHandle, CommandBarProps>(
             disabled={disabled || !instruction.trim()}
             className="rounded-chip bg-tr-coral px-4 py-1.5 text-13 text-tr-surface-raised transition-colors hover:bg-tr-coral-hover disabled:opacity-50 motion-reduce:transition-none"
           >
-            Generate
+            {whimsyPick('Generate', 'Write it')}
           </button>
         </form>
         {!instruction.trim() && (

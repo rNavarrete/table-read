@@ -124,6 +124,7 @@ const TOKEN_GROUPS: TokenGroup[] = [
   {
     title: 'Type scale',
     tokens: [
+      { cssVar: '--tr-font-size-11', kind: 'size' },
       { cssVar: '--tr-font-size-12', kind: 'size' },
       { cssVar: '--tr-font-size-13', kind: 'size' },
       { cssVar: '--tr-font-size-15', kind: 'size' },
