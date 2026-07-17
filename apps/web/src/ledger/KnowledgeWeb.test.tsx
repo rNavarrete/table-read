@@ -14,6 +14,7 @@ const project = {
     characters: [
       { id: 'char-reyes', name: 'Detective Ana Reyes' },
       { id: 'char-marta', name: 'Marta Vega' },
+      { id: 'char-doc', name: 'Doc' },
     ],
   },
   seasons: [
@@ -104,7 +105,7 @@ describe('KnowledgeWeb', () => {
     )
   })
 
-  it('renders fact node buttons with web-fact test ids', () => {
+  it('renders fact node buttons with web-fact test ids on a radial canvas', () => {
     render(
       <KnowledgeWeb
         facts={[reyesKnowledge, reyesPending, martaKnowledge]}
@@ -115,9 +116,32 @@ describe('KnowledgeWeb', () => {
       />,
     )
 
+    expect(screen.getByTestId('knowledge-web-svg')).toBeTruthy()
+    expect(screen.getByTestId('web-spoke-reyes-knowledge')).toBeTruthy()
     expect(screen.getByTestId('web-fact-reyes-knowledge')).toBeTruthy()
     expect(screen.getByTestId('web-fact-reyes-pending')).toBeTruthy()
     expect(screen.queryByTestId('web-fact-marta-knowledge')).toBeNull()
+  })
+
+  it('shows type cue, scene, and knower count on denser nodes', () => {
+    render(
+      <KnowledgeWeb
+        facts={[reyesKnowledge]}
+        allFacts={[reyesKnowledge]}
+        project={project}
+        characterId="char-reyes"
+        busy={false}
+      />,
+    )
+
+    const node = screen.getByTestId('web-fact-reyes-knowledge')
+    expect(node.textContent).toContain('KNOWS')
+    expect(
+      screen.getByTestId('web-fact-scene-reyes-knowledge').textContent,
+    ).toContain('sc 1')
+    expect(
+      screen.getByTestId('web-fact-knowers-reyes-knowledge').textContent,
+    ).toContain('1 knower')
   })
 
   it('styles pending fact nodes with amber-soft background', () => {
@@ -139,7 +163,7 @@ describe('KnowledgeWeb', () => {
     ).not.toMatch(/bg-tr-amber-soft/)
   })
 
-  it('clicking a fact node opens FactCard detail panel', async () => {
+  it('marks the selected fact node and opens FactCard detail', async () => {
     const user = userEvent.setup()
     render(
       <KnowledgeWeb
@@ -159,8 +183,13 @@ describe('KnowledgeWeb', () => {
     await user.click(screen.getByTestId('web-fact-reyes-knowledge'))
     expect(screen.getByTestId('fact-card-reyes-knowledge')).toBeTruthy()
     expect(
-      screen.getByTestId('fact-card-reyes-knowledge').textContent,
-    ).toContain('Reyes knows the marina gate code')
+      screen
+        .getByTestId('web-fact-reyes-knowledge')
+        .getAttribute('aria-pressed'),
+    ).toBe('true')
+    expect(screen.getByTestId('web-fact-reyes-knowledge').className).toMatch(
+      /shadow-lift/,
+    )
   })
 
   it('opens the selected fact in Atlas', async () => {
@@ -181,6 +210,60 @@ describe('KnowledgeWeb', () => {
     await user.click(screen.getByRole('button', { name: 'Open in Atlas' }))
 
     expect(onOpenInAtlas).toHaveBeenCalledWith('reyes-knowledge')
+  })
+
+  it('shows +N more overflow chrome that browses Atlas', async () => {
+    const user = userEvent.setup()
+    const onBrowseInAtlas = vi.fn()
+    const many = Array.from({ length: 30 }, (_, i) =>
+      fact({
+        id: `fact-${i}`,
+        knownBy: ['char-reyes'],
+        factType: 'event',
+        fact: `Event fact ${i}`,
+      }),
+    )
+
+    render(
+      <KnowledgeWeb
+        facts={many}
+        allFacts={many}
+        project={project}
+        characterId="char-reyes"
+        busy={false}
+        onBrowseInAtlas={onBrowseInAtlas}
+      />,
+    )
+
+    const overflow = screen.getByTestId('knowledge-web-overflow')
+    expect(overflow.textContent).toContain('+6 more')
+    await user.click(overflow)
+    expect(onBrowseInAtlas).toHaveBeenCalledTimes(1)
+  })
+
+  it('renders shared-knower mini-edges between visible facts', () => {
+    render(
+      <KnowledgeWeb
+        facts={[
+          fact({
+            id: 'shared-a',
+            knownBy: ['char-reyes', 'char-marta'],
+            fact: 'Shared secret A',
+          }),
+          fact({
+            id: 'shared-b',
+            knownBy: ['char-reyes', 'char-marta'],
+            fact: 'Shared secret B',
+          }),
+        ]}
+        allFacts={[]}
+        project={project}
+        characterId="char-reyes"
+        busy={false}
+      />,
+    )
+
+    expect(screen.getByTestId('edge-sk-shared-a-shared-b')).toBeTruthy()
   })
 
   it('shows queue actions in detail when selected fact is pending', async () => {
@@ -221,7 +304,7 @@ describe('KnowledgeWeb', () => {
     )
   })
 
-  it('shows audience empty state when characterId is null', () => {
+  it('shows audience empty state with People nudge when characterId is null', () => {
     render(
       <KnowledgeWeb
         facts={[reyesKnowledge]}
@@ -235,5 +318,30 @@ describe('KnowledgeWeb', () => {
     expect(screen.getByTestId('knowledge-web-empty').textContent).toContain(
       'No knowledge facts for Audience yet',
     )
+    expect(
+      screen.getByTestId('knowledge-web-people-nudge').textContent,
+    ).toMatch(/Pick a person in People/i)
+  })
+
+  it('nudges Audience focus when the web is sparse', () => {
+    const audienceFact = fact({
+      id: 'audience-1',
+      knownBy: [],
+      fact: 'Everyone knows the pier floods',
+    })
+
+    render(
+      <KnowledgeWeb
+        facts={[audienceFact]}
+        allFacts={[audienceFact]}
+        project={project}
+        characterId={null}
+        busy={false}
+      />,
+    )
+
+    expect(
+      screen.getByTestId('knowledge-web-people-nudge').textContent,
+    ).toMatch(/pick a person in People/i)
   })
 })

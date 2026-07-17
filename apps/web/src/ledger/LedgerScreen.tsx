@@ -362,6 +362,11 @@ export function LedgerScreen() {
     setExpandedFactId(factId)
   }
 
+  function handleBrowseInAtlas() {
+    setView('atlas')
+    saveLedgerView(projectId, 'atlas')
+  }
+
   function scrollToReviewQueue() {
     document
       .querySelector('[data-testid="review-queue"]')
@@ -575,6 +580,7 @@ export function LedgerScreen() {
                 onEdit={handleEdit}
                 onSourceSpanClick={handleSourceSpanClick}
                 onOpenInAtlas={handleOpenInAtlas}
+                onBrowseInAtlas={handleBrowseInAtlas}
               />
             )}
           </section>

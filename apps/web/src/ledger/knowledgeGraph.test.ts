@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import type { LedgerFact, Project } from 'contract'
-import { buildKnowledgeGraph } from './knowledgeGraph'
+import {
+  buildKnowledgeGraph,
+  buildRelatedEdges,
+  layoutFactArc,
+  layoutFactNodes,
+} from './knowledgeGraph'
 
 const project = {
   id: 'proj-longpour',
@@ -9,6 +14,7 @@ const project = {
     characters: [
       { id: 'char-reyes', name: 'Detective Ana Reyes' },
       { id: 'char-marta', name: 'Marta Vega' },
+      { id: 'char-doc', name: 'Doc' },
     ],
   },
 } as unknown as Project
@@ -73,6 +79,8 @@ describe('buildKnowledgeGraph', () => {
     expect(model.focusId).toBeNull()
     expect(model.focusLabel).toBe('Audience')
     expect(model.factNodes.map((f) => f.id)).toEqual(['audience-only'])
+    expect(model.overflowCount).toBe(0)
+    expect(model.matchCount).toBe(1)
   })
 
   it('uses character focus and known-by facts, preferring knowledge and relationship', () => {
@@ -123,9 +131,6 @@ describe('buildKnowledgeGraph', () => {
 
   it('T7.23: prefers knownByAsOf over knownBy when set, for audience focus', () => {
     const asOfFacts = [
-      // Baseline knownBy is non-empty, but knownByAsOf says nobody knows it
-      // yet as of this scene — audience focus (knownBy.length === 0) must
-      // follow knownByAsOf, not baseline knownBy.
       fact({
         id: 'not-yet-known',
         knownBy: ['char-marta'],
@@ -139,7 +144,7 @@ describe('buildKnowledgeGraph', () => {
     expect(model.factNodes.map((f) => f.id)).toEqual(['not-yet-known'])
   })
 
-  it('caps visible fact nodes at 24 by default', () => {
+  it('caps visible fact nodes at 24 and reports overflow', () => {
     const many = Array.from({ length: 30 }, (_, i) =>
       fact({
         id: `fact-${i}`,
@@ -148,9 +153,10 @@ describe('buildKnowledgeGraph', () => {
       }),
     )
 
-    expect(
-      buildKnowledgeGraph(many, project, 'char-reyes').factNodes,
-    ).toHaveLength(24)
+    const model = buildKnowledgeGraph(many, project, 'char-reyes')
+    expect(model.factNodes).toHaveLength(24)
+    expect(model.matchCount).toBe(30)
+    expect(model.overflowCount).toBe(6)
   })
 
   it('respects a custom cap', () => {
@@ -165,5 +171,99 @@ describe('buildKnowledgeGraph', () => {
     expect(
       buildKnowledgeGraph(many, project, 'char-reyes', 3).factNodes,
     ).toHaveLength(3)
+  })
+
+  it('builds related edges for shared knowers among visible nodes', () => {
+    const model = buildKnowledgeGraph(
+      [
+        fact({
+          id: 'a',
+          knownBy: ['char-reyes', 'char-marta'],
+          factType: 'knowledge',
+        }),
+        fact({
+          id: 'b',
+          knownBy: ['char-reyes'],
+          factType: 'knowledge',
+        }),
+        fact({
+          id: 'c',
+          knownBy: ['char-doc'],
+          factType: 'knowledge',
+          fact: 'Doc alone knows this',
+        }),
+      ],
+      project,
+      'char-reyes',
+    )
+
+    expect(
+      model.relatedEdges.some((edge) => edge.kind === 'shared_knower'),
+    ).toBe(true)
+    expect(
+      model.relatedEdges.some(
+        (edge) =>
+          (edge.fromFactId === 'a' && edge.toFactId === 'b') ||
+          (edge.fromFactId === 'b' && edge.toFactId === 'a'),
+      ),
+    ).toBe(true)
+  })
+})
+
+describe('buildRelatedEdges', () => {
+  it('links relationship facts that co-mention the same character', () => {
+    const nodes = [
+      fact({
+        id: 'rel-1',
+        factType: 'relationship',
+        fact: 'Doc distrusts Marta Vega after the pier.',
+        knownBy: ['char-doc'],
+      }),
+      fact({
+        id: 'rel-2',
+        factType: 'relationship',
+        fact: 'Marta Vega owes Doc a favor.',
+        knownBy: ['char-marta'],
+      }),
+    ]
+
+    const edges = buildRelatedEdges(nodes, project)
+    expect(edges).toHaveLength(1)
+    expect(edges[0]!.kind).toBe('relationship')
+  })
+})
+
+describe('layoutFactArc', () => {
+  it('returns empty for zero nodes', () => {
+    expect(layoutFactArc(0)).toEqual([])
+  })
+
+  it('places a single node to the right of focus', () => {
+    const [point] = layoutFactArc(1, { focusX: 100, focusY: 200, radius: 100 })
+    expect(point!.x).toBeGreaterThan(100)
+    expect(point!.y).toBeCloseTo(200, 5)
+  })
+
+  it('spreads multiple nodes across an arc with distinct positions', () => {
+    const points = layoutFactArc(5, { focusX: 100, focusY: 200 })
+    expect(points).toHaveLength(5)
+    const ys = points.map((p) => p.y)
+    expect(Math.min(...ys)).toBeLessThan(200)
+    expect(Math.max(...ys)).toBeGreaterThan(200)
+    const keys = new Set(
+      points.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`),
+    )
+    expect(keys.size).toBe(5)
+  })
+
+  it('layoutFactNodes aligns ids to arc points', () => {
+    const nodes = [
+      fact({ id: 'one', knownBy: ['char-reyes'] }),
+      fact({ id: 'two', knownBy: ['char-reyes'] }),
+    ]
+    const layout = layoutFactNodes(nodes)
+    expect(layout.map((entry) => entry.factId)).toEqual(['one', 'two'])
+    // Symmetric arc → same x, distinct y (web reads vertically).
+    expect(layout[0]!.y).not.toBe(layout[1]!.y)
   })
 })

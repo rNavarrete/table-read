@@ -127,29 +127,32 @@ Keep product copy from UI spec §7: empty ledger message; filtered empty “No f
 - Focus character = `filters.characterId`, or **Audience** when `characterId === null` (default “All” means audience-centric overview: facts with empty `knownBy`, plus a short prompt to pick a person)
 - When a person is selected in People, Web centers on that character
 
-### 6.2 Nodes & edges (MVP)
+### 6.2 Nodes & edges
 
 - **Center:** focus character (or Audience)
 - **Fact nodes:** facts where:
-  - focus is in `knownBy`, OR
-  - focus is Audience and `knownBy.length === 0`, OR
-  - fact text / linked characters involve focus (best-effort: `knownBy` + character name mention is enough for MVP; no NLP)
-- Prefer `knowledge` and `relationship` fact types when ranking which nodes to show; cap visible fact nodes (e.g. **24**) with “Show in Atlas” overflow
-- **Edges:** simple spokes from focus → fact (CSS lines or SVG; no library)
+  - focus is in `knownBy` / `knownByAsOf`, OR
+  - focus is Audience and effective known-by is empty, OR
+  - fact text mentions the focused character’s name (best-effort; no NLP)
+- Prefer `knowledge` and `relationship` fact types when ranking; cap visible fact nodes at **24** with **+N more → Atlas** overflow chrome
+- **Spokes:** SVG paths from focus → each visible fact (radial/arc layout)
+- **Mini-edges:** light SVG links between visible facts that share knowers, and between facts tied by relationship co-mentions (character names in text). Cap degree / edge count so the web stays readable. No force-directed physics / no graph library.
 
 ### 6.3 Interaction
 
-- Click fact node → side detail panel (or expand sheet) with same fields/actions as Atlas expanded row
+- Click / keyboard-activate fact node → side detail panel with same fields/actions as Atlas expanded row
 - Click “Open in Atlas” jumps to Atlas view and expands that fact
-- Empty graph: “No knowledge facts for {name} yet” + switcher hint
+- “+N more” switches to Atlas (browse full set under current filters)
+- Empty graph: “No knowledge facts for {name} yet” + People / Atlas nudge; Audience/All empty or sparse → stronger “pick a person” cliff copy
 
 ### 6.4 Layout
 
 Layered placement without a graph library:
 
-- Focus node fixed center-left
-- Fact nodes in a vertical/arc column on the right, scrollable if many
-- Soft page wash; fact nodes use amber-soft for pending, raised surface for active
+- Focus node fixed center-left on a taller clay-wash canvas
+- Fact nodes placed on an arc/radial ring to the right of focus (pure layout helper + SVG)
+- Dense node chrome: type cue · scene · knower count; selected = accent outline + lift (`--tr-*` motion tokens)
+- Soft clay wash always on; no `LEDGER_WHIMSY` flag (decorative extras stay token-bound and ship without a kill switch)
 
 ## 7. Whimsy / visual language
 

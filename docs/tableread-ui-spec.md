@@ -192,9 +192,12 @@ Filtered non-queue facts (pending stay in the queue unless status filter is Need
 
 ### 7e. Knowledge Web
 
-- **Focus:** selected **People** filter, or **Audience** when All — audience overview shows facts with empty `knownBy`.
-- **Graph (MVP, no library):** focus node center-left; up to **24** fact nodes as spokes on the right (prefer `knowledge` / `relationship` types when ranking). Pending nodes `--tr-amber-soft`; active nodes raised surface.
-- **Interaction:** click fact node → detail panel (`FactCard`, same fields/actions as Atlas expanded row). **Open in Atlas** switches to Atlas and expands that fact. Empty graph: "No knowledge facts for {name} yet" + switcher hint.
+- **Focus:** selected **People** filter, or **Audience** when All — audience overview shows facts with empty `knownBy` (respect `knownByAsOf` when the ledger was fetched as-of a scene).
+- **Graph (no library):** focus node center-left; up to **24** fact nodes on a **radial/arc** layout (SVG spokes from focus → facts). Prefer `knowledge` / `relationship` when ranking. When more than 24 match, show **+N more** chrome that switches to Atlas. Pending nodes `--tr-amber-soft`; active nodes raised surface; selected node uses accent outline + lift.
+- **Dense fact nodes:** type cue (EVENT / STATE / KNOWS / REL / RULE) · 1–2 line fact text · muted scene label and/or knower count.
+- **Mini-edges (focus-centric):** light SVG links between visible facts that **share knowers**, plus links involving **relationship** facts that **co-mention** the same character name. Not a force-directed graph — still capped and secondary to focus spokes.
+- **Interaction:** click / keyboard-activate fact node → detail panel (`FactCard`, same fields/actions as Atlas expanded row). **Open in Atlas** switches to Atlas and expands that fact.
+- **Empty / All-people cliff:** "No knowledge facts for {name} yet" (or Audience) + nudge to pick a person from People when focus is Audience / All yields little; Atlas switcher hint remains.
 
 ### 7f. Fact detail (shared)
 
