@@ -29,6 +29,7 @@ from schemas import (
     InitialSceneSkeleton,
     InstructionSuggestions,
     LedgerExtraction,
+    NarrativePromises,
     RegeneratedElements,
     SegmentedScene,
     StoryEntities,
@@ -213,6 +214,51 @@ def _default_responses() -> dict[str, BaseModel]:
                     "name": "The Long Pour",
                     "note": "The bar Marta and Dan co-own.",
                     "evidence": [{"sceneId": "scene-1", "quote": "INT. THE LONG POUR - NIGHT"}],
+                }
+            ],
+        ),
+        # §5b infer_narrative_promises placeholder (T7.19 Task 1; T7.20 wires
+        # the real prompt call). Fixture-consistent: the setup is the same
+        # ledger beat MockLlmClient's extract_ledger_facts example references
+        # (Marta finds the $40,000 transfer); no payoff yet in this one-episode
+        # fixture, so status stays "open".
+        "infer_narrative_promises": NarrativePromises(
+            threads=[
+                {
+                    "label": "The missing $40,000",
+                    "summary": "Marta has found the unexplained transfer but not confronted Dan.",
+                    "status": "open",
+                    "ownerNames": ["Marta", "Dan"],
+                    "setupSceneId": "scene-1",
+                    "payoffSceneId": None,
+                    "setupQuote": "ON SCREEN: OUTGOING TRANSFER — $40,000.00 — MEMO: (blank)",
+                    "payoffQuote": "",
+                }
+            ],
+            sceneMotivations=[
+                {
+                    "sceneId": "scene-3",
+                    "motivations": [
+                        {
+                            "characterName": "Marta",
+                            "objective": "Get Dan to volunteer where the money went.",
+                            "stakes": "Trusting her own brother again.",
+                            "obstacle": "Dan deflects with easy charm.",
+                        }
+                    ],
+                }
+            ],
+            worldRules=[
+                {
+                    "text": (
+                        "The Long Pour is the last neutral ground in town: cops, "
+                        "fishermen, and creditors all drink there."
+                    ),
+                    "limit": "The truce holds only inside the bar's doors.",
+                    "cost": "",
+                    "exception": "",
+                    "evidenceSceneId": "scene-1",
+                    "evidenceQuote": "Chairs upside-down on tables.",
                 }
             ],
         ),
@@ -485,6 +531,16 @@ class MockLlmClient:
     ) -> StoryEntities:
         return self._call(
             "infer_story_entities",
+            system=system,
+            user_message=user_message,
+            prompt_version=prompt_version,
+        )
+
+    def infer_narrative_promises(
+        self, *, system: str, user_message: str, prompt_version: str
+    ) -> NarrativePromises:
+        return self._call(
+            "infer_narrative_promises",
             system=system,
             user_message=user_message,
             prompt_version=prompt_version,

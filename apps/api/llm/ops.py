@@ -20,8 +20,10 @@ call -- so the real operation count was 8: the 6 distinct ops those 7 schemas
 produce, plus `generate_beat_candidates` and `tune_beat`, which both return
 `BeatCandidate` (defined in §2, not §2a). T-continuity Task 1 adds a 9th,
 `infer_story_entities` (§5a, StoryEntities) -- schema/registry only here;
-Task 2 owns its prompt/pipeline wiring. All 9 are implemented here; see the
-task report for this reconciliation.
+Task 2 owns its prompt/pipeline wiring. Narrative-promises (P2) Task 1 (T7.19)
+adds a 10th, `infer_narrative_promises` (NarrativePromises) -- again
+schema/registry only; T7.20 owns its prompt/pipeline wiring. All 10 are
+implemented here; see the task report for this reconciliation.
 """
 
 from __future__ import annotations
@@ -39,6 +41,7 @@ from schemas import (
     InitialSceneSkeleton,
     InstructionSuggestions,
     LedgerExtraction,
+    NarrativePromises,
     RegeneratedElements,
     SegmentedScene,
     StoryEntities,
@@ -126,6 +129,21 @@ _OPS: tuple[LlmOp, ...] = (
         "Identify characters (including non-speaking ones), relationships, and "
         "world elements (locations/objects) implied by the imported script, "
         "each with source evidence.",
+    ),
+    # T7.19 narrative-promises P2 (design doc 2026-07-16-narrative-promises-design):
+    # Task 1 of that plan adds schema/registry only -- Task 2 (T7.20) owns the
+    # prompt, pipeline wiring, and PROMPT_VERSION bump. Runs after
+    # infer_story_entities and before extract_ledger_facts (so motivations see
+    # the resolved cast), classifier role/temperature 0 for the same reason as
+    # infer_story_entities -- this is a source-grounded read, not a creative task.
+    LlmOp(
+        "infer_narrative_promises",
+        "NarrativePromises",
+        NarrativePromises,
+        "classifier",
+        "Identify setup/payoff story threads, fill scene motivations, and "
+        "extract structured world rules (limit/cost/exception) from the "
+        "imported script, each with source evidence.",
     ),
     # T6.1 escalation EXECUTED: prompt spec §7 mandates temperature 0 for stage-2
     # segmentation, but the writer tier rejects sampling params, so under the

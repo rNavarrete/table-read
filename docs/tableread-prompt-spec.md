@@ -250,6 +250,39 @@ Purpose: import-time cast/relationship/world-element read, run once per import b
 
 Server-side merge policy (Task 2): resolved characters extend existing rows with aliases (never rename/delete, never touch `locked: true` fields); relationships whose both endpoints resolve are appended, unresolvable rows dropped and counted in logs; world elements land as `worldQA` entries (`q: "Where/What is <name>?"`, `a: note`) — no first-class Project field in P0. Schema-invalid after one retry surfaces `SCHEMA_INVALID_LLM`, import fails atomically (rule 9; no silent degradation).
 
+## 5b. `infer_narrative_promises`
+
+Purpose: import-time threads/motivations/world-rule read (narrative-promises P2 design doc; T7.19–T7.22), run once per import between `infer_story_entities` and `extract_ledger_facts` — after entities so motivations can name the resolved cast, before facts. Model: `classifier` role, temperature 0 — this schema/registry cut (T7.19) does not yet wire the call into the pipeline; T7.20 owns the prompt template and pipeline placement.
+
+**Input (T7.20):** scene summaries + the cue/cast character list (names+ids) + existing `worldRules` text, all `<source_data_{nonce}>`.
+
+**Output schema (`NarrativePromises`):** threads (setup→payoff arcs), per-scene motivations, and structured world rules. Threads and motivations name characters by string, never id — same convention as `infer_story_entities`; the server resolves `ownerNames`/`characterName` against the existing bible and drops unresolvable owners/motivations (log counts only, never text — rule 5). `setupSceneId`/`payoffSceneId`/`sceneId`/`evidenceSceneId` are already-known scene ids the model selects from the input scene list, not free text, so they need no resolution.
+
+```json
+{
+  "threads": [{
+    "label": "string", "summary": "string",
+    "status": "open | paid_off | abandoned",
+    "ownerNames": ["string"],
+    "setupSceneId": "", "payoffSceneId": "or null",
+    "setupQuote": "<=200 chars", "payoffQuote": "may be empty"
+  }],
+  "sceneMotivations": [{
+    "sceneId": "",
+    "motivations": [{
+      "characterName": "string",
+      "objective": "string", "stakes": "string", "obstacle": "string"
+    }]
+  }],
+  "worldRules": [{
+    "text": "string", "limit": "string", "cost": "string", "exception": "string",
+    "evidenceSceneId": "or null", "evidenceQuote": "string"
+  }]
+}
+```
+
+Server-side merge policy (T7.20): threads mint new `thread-*` ids and attach to the episode (re-import replaces prior import-minted threads for that episode, same as scenes — v1 has no thread locking); `sceneMotivations` write onto the matching `Scene.motivations` array; `worldRules` append new rules into the bible's `worldRules` and never overwrite a `locked: true` rule. Schema-invalid after one retry surfaces `SCHEMA_INVALID_LLM`, import fails atomically (rule 9).
+
 ## 6. `suggest_instructions`
 
 Purpose: 3 diverse scene/beat instruction suggestions ("Inspire me" / empty-field carousels). Model: `classifier` role. Output: `{"suggestions": ["", "", ""]}`. Server deduplicates against `suggestionHistory` embeddings (cosine > 0.85 → regenerate; MVP exact-text when embeddings absent).
@@ -292,7 +325,7 @@ This operation shipped with `PROMPT_VERSION 0.11.0`; prompt/tool-schema changes 
 
 ## 8. Cross-cutting conventions
 
-- **Model pinning:** prompts reference model *roles* (`writer`, `classifier`), resolved via `config/models.toml`, which pins exact model IDs (e.g., `writer = "claude-sonnet-4-5-20250929"`) per PROMPT_VERSION. Every call logs both the role and the resolved model ID; changing a pinned ID is a versioned change requiring `make evals`, same as a prompt edit. Role assignments: `writer` = §1 candidates, §2 tune (tuning dialogue is still creative writing), §4 regenerate, §9 scene skeleton; `classifier` = §3 blast radius, §5 extraction, §5a entity inference, §6 suggestions, §7 segmentation and act inference, §8c consistency scan. (§7 segmentation was reassigned writer→classifier per the T6.1 escalation so it can run at temperature 0 as §7 requires — see build plan T6.1; the writer tier rejects sampling params.)
+- **Model pinning:** prompts reference model *roles* (`writer`, `classifier`), resolved via `config/models.toml`, which pins exact model IDs (e.g., `writer = "claude-sonnet-4-5-20250929"`) per PROMPT_VERSION. Every call logs both the role and the resolved model ID; changing a pinned ID is a versioned change requiring `make evals`, same as a prompt edit. Role assignments: `writer` = §1 candidates, §2 tune (tuning dialogue is still creative writing), §4 regenerate, §9 scene skeleton; `classifier` = §3 blast radius, §5 extraction, §5a entity inference, §5b narrative-promise inference, §6 suggestions, §7 segmentation and act inference, §8c consistency scan. (§7 segmentation was reassigned writer→classifier per the T6.1 escalation so it can run at temperature 0 as §7 requires — see build plan T6.1; the writer tier rejects sampling params.)
 - **Strict tool use:** every tool definition sets `strict: true`; candidate cards are actionable only after full tool-input validation (header policy + §8a).
 - **Real schemas, one source:** the canonical `input_schema` for every op is **generated from the Zod definitions in the data contract §2a** (`packages/contract`, via `z.toJSONSchema`) with `additionalProperties: false`, explicit `required` arrays, enums, and nullable fields — every operation type in this doc (`BeatCandidate`, `BlastRadius`, `RegeneratedElements`, `LedgerExtraction`, `InstructionSuggestions`, `InferredActBreaks`, `SegmentedScene`, `ConsistencyScan`) is defined there and CI-diffed; the JSON blocks in this doc are readable summaries, not the artifact. Example of the real thing, `BeatCandidate`:
 

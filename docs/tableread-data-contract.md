@@ -34,9 +34,19 @@ export const Relationship = z.object({
   reallyLike: z.string(), locked: z.boolean().default(false),
 });
 
+// T7.19 — extends the original { text, locked } bible entry with structured
+// limit/cost/exception fields plus one evidence citation. New fields all
+// default so pre-existing docs (and the fixture's original two-field rules)
+// still validate unchanged.
+export const WorldRule = z.object({
+  text: z.string(), locked: z.boolean().default(false),
+  limit: z.string().default(""), cost: z.string().default(""), exception: z.string().default(""),
+  evidenceSceneId: Id.nullable().default(null), evidenceQuote: z.string().default(""),
+});
+
 export const SeriesBible = z.object({
   existentialQuestion: z.object({ text: z.string(), locked: z.boolean().default(false) }),
-  worldRules: z.array(z.object({ text: z.string(), locked: z.boolean().default(false) })),
+  worldRules: z.array(WorldRule),
   storiesToAvoid: z.array(z.string()),
   characters: z.array(Character),
   relationships: z.array(Relationship),
@@ -66,11 +76,28 @@ export const Scene = z.object({
   beats: z.array(Beat),
 });
 
+// T7.19 — a narrative setup/payoff arc, MVP-scoped to the episode it lives
+// on (non-goal: cross-episode threads). status is a single lifecycle
+// label, not step tracking — an "open" thread may have only a setup;
+// "paid_off" has a payoff span. Import mints ids and resolves ownerNames
+// (see infer_narrative_promises §2a) to ownerCharacterIds server-side.
+export const StoryThread = z.object({
+  id: Id, label: z.string(), summary: z.string(),
+  status: z.enum(["open", "paid_off", "abandoned"]),
+  ownerCharacterIds: z.array(Id).default([]),
+  setupSceneId: Id, payoffSceneId: Id.nullable().default(null),
+  setupQuote: z.string().default(""), payoffQuote: z.string().default(""),
+  locked: z.boolean().default(false),
+});
+
 export const Episode = z.object({
   id: Id, index: z.number().int().min(0), locked: z.boolean().default(false),
   title: z.string(), premise: z.string(), seasonFunction: z.string().default(""),
   storylines: z.array(z.object({ id: z.enum(["A","B","C"]), summary: z.string(), characterIds: z.array(Id) })),
   scenes: z.array(Scene),
+  // T7.19 narrative-promise threads — MVP stores threads on the first
+  // (only) episode. Defaults to [] so pre-existing docs validate.
+  threads: z.array(StoryThread).default([]),
 });
 
 export const Season = z.object({
@@ -234,10 +261,12 @@ export const ProjectImportResult = z.object({
 });
 
 // Named import progress stages (§7 step 4), in emission order. `inferring_entities`
-// (§2a infer_story_entities/§5a) runs between act inference and fact extraction.
+// (§2a infer_story_entities/§5a) runs between act inference and fact extraction;
+// `inferring_promises` (§2a infer_narrative_promises/§5b, T7.19) runs right after
+// it, still before fact extraction, so motivations see the resolved cast.
 export const ProjectImportStageName = z.enum([
   "parsing_scenes", "segmenting_beats", "inferring_acts", "inferring_entities",
-  "extracting_facts", "checking_consistency", "saving",
+  "inferring_promises", "extracting_facts", "checking_consistency", "saving",
 ]);
 
 // §9.3 SSE progress: `stage` events announce each named stage, `progress`
@@ -450,6 +479,35 @@ export const StoryEntities = z.object({
   worldElements: z.array(InferredWorldElement),
 });
 
+// §5b infer_narrative_promises (T7.19) — import-time thread/motivation/
+// world-rule read, run after infer_story_entities and before
+// extract_ledger_facts. ownerNames/characterName are strings the server
+// resolves the same way infer_story_entities does; setupSceneId/
+// payoffSceneId/sceneId/evidenceSceneId are already-known scene ids, no
+// resolution needed. Server mints thread ids, writes sceneMotivations onto
+// matching Scene.motivations, and merges worldRules into the bible (append
+// new; never overwrite a locked rule).
+export const NarrativePromises = z.object({
+  threads: z.array(z.object({
+    label: z.string(), summary: z.string(),
+    status: z.enum(["open", "paid_off", "abandoned"]),
+    ownerNames: z.array(z.string()),
+    setupSceneId: Id, payoffSceneId: Id.nullable(),
+    setupQuote: z.string(), payoffQuote: z.string(),
+  })),
+  sceneMotivations: z.array(z.object({
+    sceneId: Id,
+    motivations: z.array(z.object({
+      characterName: z.string(),
+      objective: z.string(), stakes: z.string(), obstacle: z.string(),
+    })),
+  })),
+  worldRules: z.array(z.object({
+    text: z.string(), limit: z.string(), cost: z.string(), exception: z.string(),
+    evidenceSceneId: Id.nullable(), evidenceQuote: z.string(),
+  })),
+});
+
 // §6 suggest_instructions
 export const InstructionSuggestions = z.object({
   suggestions: z.array(z.string()).length(3),
@@ -535,7 +593,7 @@ Defined transactions:
   4. Run `scan_consistency` across the imported episode (initial sweep — imports can carry internal contradictions).
   5. One snapshot committing doc + ledger + flags together; partial failure rolls back all of it.
 - `POST /projects/import/extract-pdf` multipart `file` (`application/pdf`) → `PdfExtractResult` — pre-project PDF extraction only. It creates no project, snapshot, ledger row, or idempotency record, and never calls the LLM. Text-layer extraction uses `pypdf`; OCR uses pypdfium2-rendered pages plus Tesseract. On success, the client treats the editable result as `source.format: "text"` for the existing create-and-import path. Response wire shape is `{text, method, pageCount, warnings}` where `method` is `"text_layer"` or `"ocr"`. Reject missing/non-PDF, oversize/page-cap, unreadable, or empty extraction with `{error: {code: "VALIDATION", message}}`; if Tesseract is unavailable when OCR is required, return `{error: {code: "UNAVAILABLE", message}}`.
-- `POST /projects/import` `ProjectImportCreateRequest` with required `Idempotency-Key` header → **SSE** (§9.3 atomic create-and-import — the import-wizard analogue of `POST /projects` above): reuses the same parse/import pipeline as `POST /projects/{pid}/import`, but creates the project **and** its imported state in one DB transaction — every LLM/parsing stage that can fail runs before that single write, never an empty root followed by an import child. Events: `stage {type: "stage", name}` announces each named stage in order (`parsing_scenes`, `segmenting_beats`, `inferring_acts`, `inferring_entities`, `extracting_facts`, `checking_consistency`, `saving`); `progress {type: "progress", stage, done, total}` may appear after a stage starts to report monotonic item progress within that stage, with `0 <= done <= total`. Scene progress is emitted for `segmenting_beats` and `extracting_facts`; the singleton `inferring_acts` stage emits no per-scene progress. Example frames include `event: progress` / `data: {"type":"progress","stage":"segmenting_beats","done":2,"total":3}` while segmenting scenes and `event: progress` / `data: {"type":"progress","stage":"extracting_facts","done":2,"total":3}` while extracting facts. The stream then emits exactly one terminal `complete {type: "complete", result: ProjectImportResult}` or `failed {type: "failed", error}`. `ProjectImportResult` is `{project, newFacts, consistencyFlags}` — the same shape `POST /projects/{pid}/import` returns. Idempotency mirrors `POST /projects`: a hash conflict is rejected with a plain 409 `IDEMPOTENCY_CONFLICT` JSON response *before* the stream opens (never a mid-stream surprise); a same-key/same-hash replay opens a stream whose only frame is the terminal `complete` with the original result; a failed transaction leaves no key, so a retry with the same key runs normally.
+- `POST /projects/import` `ProjectImportCreateRequest` with required `Idempotency-Key` header → **SSE** (§9.3 atomic create-and-import — the import-wizard analogue of `POST /projects` above): reuses the same parse/import pipeline as `POST /projects/{pid}/import`, but creates the project **and** its imported state in one DB transaction — every LLM/parsing stage that can fail runs before that single write, never an empty root followed by an import child. Events: `stage {type: "stage", name}` announces each named stage in order (`parsing_scenes`, `segmenting_beats`, `inferring_acts`, `inferring_entities`, `inferring_promises`, `extracting_facts`, `checking_consistency`, `saving`); `progress {type: "progress", stage, done, total}` may appear after a stage starts to report monotonic item progress within that stage, with `0 <= done <= total`. Scene progress is emitted for `segmenting_beats` and `extracting_facts`; the singleton `inferring_acts` stage emits no per-scene progress. Example frames include `event: progress` / `data: {"type":"progress","stage":"segmenting_beats","done":2,"total":3}` while segmenting scenes and `event: progress` / `data: {"type":"progress","stage":"extracting_facts","done":2,"total":3}` while extracting facts. The stream then emits exactly one terminal `complete {type: "complete", result: ProjectImportResult}` or `failed {type: "failed", error}`. `ProjectImportResult` is `{project, newFacts, consistencyFlags}` — the same shape `POST /projects/{pid}/import` returns. Idempotency mirrors `POST /projects`: a hash conflict is rejected with a plain 409 `IDEMPOTENCY_CONFLICT` JSON response *before* the stream opens (never a mid-stream surprise); a same-key/same-hash replay opens a stream whose only frame is the terminal `complete` with the original result; a failed transaction leaves no key, so a retry with the same key runs normally.
 - `GET /projects/{pid}/export.fountain` → `text/plain`
 - `GET /projects/{pid}/export.json` → `PersistedState` (adoption A6) — the full fixture-shaped envelope (`project`, `ledger`, `snapshots`, `consistencyFlags`, `changeSets`, `suggestionHistory`). Privacy §7.1 "export-everything"; Settings UI offers the download. Round-trip: export → purge → re-seed from export restores project doc and ledger byte-identical.
 - `DELETE /projects/{pid}` — purges every project-scoped row across **all six DB tables plus embeddings**: `projects`, `snapshots`, `ledger_facts`, `change_sets` (including stored previews — they contain generated script text and instructions), `consistency_flags`, `suggestion_history`, and the embedding blobs stored with suggestion history (privacy §7.1). One transaction; the purge test asserts zero remaining rows per table. ("All six DB tables plus embeddings" is the canonical phrasing — build plan and test plan use it verbatim.)

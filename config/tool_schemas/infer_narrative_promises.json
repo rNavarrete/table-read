@@ -1,0 +1,154 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "sceneMotivations": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "motivations": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "characterName": {
+                  "type": "string"
+                },
+                "objective": {
+                  "type": "string"
+                },
+                "obstacle": {
+                  "type": "string"
+                },
+                "stakes": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "characterName",
+                "objective",
+                "stakes",
+                "obstacle"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "sceneId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "sceneId",
+          "motivations"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "threads": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "label": {
+            "type": "string"
+          },
+          "ownerNames": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "payoffQuote": {
+            "type": "string"
+          },
+          "payoffSceneId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "setupQuote": {
+            "type": "string"
+          },
+          "setupSceneId": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "open",
+              "paid_off",
+              "abandoned"
+            ],
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "label",
+          "summary",
+          "status",
+          "ownerNames",
+          "setupSceneId",
+          "payoffSceneId",
+          "setupQuote",
+          "payoffQuote"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "worldRules": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "cost": {
+            "type": "string"
+          },
+          "evidenceQuote": {
+            "type": "string"
+          },
+          "evidenceSceneId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "exception": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "text",
+          "limit",
+          "cost",
+          "exception",
+          "evidenceSceneId",
+          "evidenceQuote"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "threads",
+    "sceneMotivations",
+    "worldRules"
+  ],
+  "type": "object"
+}

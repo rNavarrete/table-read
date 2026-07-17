@@ -407,7 +407,8 @@
                 ],
                 "beats": []
               }
-            ]
+            ],
+            "threads": []
           }
         ]
       }
@@ -1037,13 +1038,14 @@
                     ],
                     "beats": []
                   }
-                ]
+                ],
+                "threads": []
               }
             ]
           }
         ],
         "headSnapshotId": "snap-root",
-    "defaultCraftLevel": "standard"
+        "defaultCraftLevel": "standard"
       },
       "ledger": [
         {

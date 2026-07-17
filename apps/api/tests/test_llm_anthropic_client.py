@@ -564,6 +564,7 @@ def _fixture_valid_input_for(op_name: str) -> dict:
         "suggest_instructions": {"suggestions": ["a", "b", "c"]},
         "infer_act_breaks": {"starts": [{"act": 0, "startSceneIndex": 0}]},
         "infer_story_entities": {"characters": [], "relationships": [], "worldElements": []},
+        "infer_narrative_promises": {"threads": [], "sceneMotivations": [], "worldRules": []},
         "segment_scene": {"segments": []},
         "scan_consistency": {"flags": []},
         "generate_scene_skeleton": {"label": "x", "scenes": []},

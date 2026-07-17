@@ -58,14 +58,27 @@ export const Relationship = z.object({
 })
 export type Relationship = z.infer<typeof Relationship>
 
+// T7.19 — extends the original `{ text, locked }` bible entry with
+// structured limit/cost/exception fields plus one evidence citation
+// (design doc "WorldRule"). All new fields default so pre-existing docs
+// (and the fixture's original two-field rules) still validate unchanged.
+export const WorldRule = z.object({
+  text: z.string(),
+  locked: z.boolean().default(false),
+  limit: z.string().default(''),
+  cost: z.string().default(''),
+  exception: z.string().default(''),
+  evidenceSceneId: Id.nullable().default(null),
+  evidenceQuote: z.string().default(''),
+})
+export type WorldRule = z.infer<typeof WorldRule>
+
 export const SeriesBible = z.object({
   existentialQuestion: z.object({
     text: z.string(),
     locked: z.boolean().default(false),
   }),
-  worldRules: z.array(
-    z.object({ text: z.string(), locked: z.boolean().default(false) }),
-  ),
+  worldRules: z.array(WorldRule),
   storiesToAvoid: z.array(z.string()),
   characters: z.array(Character),
   relationships: z.array(Relationship),
@@ -160,6 +173,27 @@ export const ObjectState = z.object({
 })
 export type ObjectState = z.infer<typeof ObjectState>
 
+// T7.19 — a narrative setup/payoff arc, MVP-scoped to the episode it lives
+// on (design doc "StoryThread"; non-goal: cross-episode threads).
+// `status` is a single lifecycle label, not step tracking — an "open"
+// thread may have only a setup; "paid_off" has a payoff span. Import mints
+// these server-side (never writer-authored ids from the model) and
+// resolves `ownerNames` (see `infer_narrative_promises`) to
+// `ownerCharacterIds` against the existing bible.
+export const StoryThread = z.object({
+  id: Id,
+  label: z.string(),
+  summary: z.string(),
+  status: z.enum(['open', 'paid_off', 'abandoned']),
+  ownerCharacterIds: z.array(Id).default([]),
+  setupSceneId: Id,
+  payoffSceneId: Id.nullable().default(null),
+  setupQuote: z.string().default(''),
+  payoffQuote: z.string().default(''),
+  locked: z.boolean().default(false),
+})
+export type StoryThread = z.infer<typeof StoryThread>
+
 export const Episode = z.object({
   id: Id,
   index: z.number().int().min(0),
@@ -183,6 +217,9 @@ export const Episode = z.object({
   // T7.26 object custody / location continuity. Defaults to [] so
   // pre-existing docs validate.
   objectStates: z.array(ObjectState).default([]),
+  // T7.19 narrative-promise threads (design doc "MVP stores threads on the
+  // first (only) episode"). Defaults to [] so pre-existing docs validate.
+  threads: z.array(StoryThread).default([]),
 })
 export type Episode = z.infer<typeof Episode>
 
@@ -420,6 +457,9 @@ export const ProjectImportStageName = z.enum([
   'segmenting_beats',
   'inferring_acts',
   'inferring_entities',
+  // T7.19 — infer_narrative_promises runs after entities (so motivations
+  // see the resolved cast) and before fact extraction (design doc "P2").
+  'inferring_promises',
   'extracting_facts',
   'checking_consistency',
   'saving',
@@ -665,6 +705,57 @@ export const StoryEntities = z.object({
   worldElements: z.array(InferredWorldElement),
 })
 export type StoryEntities = z.infer<typeof StoryEntities>
+
+// T7.19 infer_narrative_promises — import-time threads/motivations/world-rule
+// read, run after infer_story_entities and before extract_ledger_facts
+// (design doc "LLM op: infer_narrative_promises"). Threads and world rules
+// name characters/scenes the same way infer_story_entities does elsewhere:
+// `ownerNames` are strings the server resolves to `ownerCharacterIds`
+// (unresolvable owners dropped, counts only, never logged as text);
+// `setupSceneId`/`payoffSceneId`/`sceneId`/`evidenceSceneId` are already
+// server-known scene ids (the model sees the scene list, not raw text
+// offsets) so no name resolution is needed for those. Server mints thread
+// ids, writes `sceneMotivations` onto matching `Scene.motivations`, and
+// merges `worldRules` into the bible (append new; never overwrite a locked
+// rule).
+export const NarrativePromises = z.object({
+  threads: z.array(
+    z.object({
+      label: z.string(),
+      summary: z.string(),
+      status: z.enum(['open', 'paid_off', 'abandoned']),
+      ownerNames: z.array(z.string()),
+      setupSceneId: Id,
+      payoffSceneId: Id.nullable(),
+      setupQuote: z.string(),
+      payoffQuote: z.string(),
+    }),
+  ),
+  sceneMotivations: z.array(
+    z.object({
+      sceneId: Id,
+      motivations: z.array(
+        z.object({
+          characterName: z.string(),
+          objective: z.string(),
+          stakes: z.string(),
+          obstacle: z.string(),
+        }),
+      ),
+    }),
+  ),
+  worldRules: z.array(
+    z.object({
+      text: z.string(),
+      limit: z.string(),
+      cost: z.string(),
+      exception: z.string(),
+      evidenceSceneId: Id.nullable(),
+      evidenceQuote: z.string(),
+    }),
+  ),
+})
+export type NarrativePromises = z.infer<typeof NarrativePromises>
 
 // T7.23 extract-time counterpart to `KnowledgeEvent`: the model names
 // characters, never ids (same convention as `knownBy`/`InferredCharacter`);

@@ -60,6 +60,8 @@ SCHEMA_NAMES = [
     "TimelineAnchor",
     "RelationshipState",
     "ObjectState",
+    "StoryThread",
+    "WorldRule",
     "Episode",
     "Season",
     "SourceSpan",
@@ -102,6 +104,7 @@ SCHEMA_NAMES = [
     "InferredRelationship",
     "InferredWorldElement",
     "StoryEntities",
+    "NarrativePromises",
 ]
 
 # JSON Schema keys that are cosmetic/library-specific noise, not part of the

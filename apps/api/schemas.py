@@ -94,9 +94,23 @@ class WorldQA(_Base):
     locked: bool = False
 
 
+class WorldRule(_Base):
+    """T7.19 — extends the original `{text, locked}` bible entry with
+    structured limit/cost/exception fields plus one evidence citation. See
+    packages/contract/src/index.ts's `WorldRule` docstring."""
+
+    text: str
+    locked: bool = False
+    limit: str = ""
+    cost: str = ""
+    exception: str = ""
+    evidence_scene_id: Id | None = None
+    evidence_quote: str = ""
+
+
 class SeriesBible(_Base):
     existential_question: LockedText
-    world_rules: list[LockedText]
+    world_rules: list[WorldRule]
     stories_to_avoid: list[str]
     characters: list[Character]
     relationships: list[Relationship]
@@ -186,6 +200,28 @@ class ObjectState(_Base):
     quote: str = ""
 
 
+class ThreadStatus(StrEnum):
+    open = "open"
+    paid_off = "paid_off"
+    abandoned = "abandoned"
+
+
+class StoryThread(_Base):
+    """T7.19 — a narrative setup/payoff arc, MVP-scoped to the episode it
+    lives on. See packages/contract/src/index.ts's `StoryThread` docstring."""
+
+    id: Id
+    label: str
+    summary: str
+    status: ThreadStatus
+    owner_character_ids: list[Id] = []
+    setup_scene_id: Id
+    payoff_scene_id: Id | None = None
+    setup_quote: str = ""
+    payoff_quote: str = ""
+    locked: bool = False
+
+
 class Episode(_Base):
     id: Id
     index: int = Field(ge=0)
@@ -198,6 +234,7 @@ class Episode(_Base):
     timeline_anchors: list[TimelineAnchor] = []
     relationship_states: list[RelationshipState] = []
     object_states: list[ObjectState] = []
+    threads: list[StoryThread] = []
 
 
 class CharacterArc(_Base):
@@ -478,6 +515,7 @@ class ImportProgressStageName(StrEnum):
     segmenting_beats = "segmenting_beats"
     inferring_acts = "inferring_acts"
     inferring_entities = "inferring_entities"
+    inferring_promises = "inferring_promises"
     extracting_facts = "extracting_facts"
     checking_consistency = "checking_consistency"
     saving = "saving"
@@ -736,6 +774,46 @@ class StoryEntities(_Base):
     characters: list[InferredCharacter]
     relationships: list[InferredRelationship]
     world_elements: list[InferredWorldElement]
+
+
+# T7.19 infer_narrative_promises — see packages/contract/src/index.ts's
+# `NarrativePromises` docstring for the name-resolution/merge rules.
+class InferredThread(_Base):
+    label: str
+    summary: str
+    status: ThreadStatus
+    owner_names: list[str]
+    setup_scene_id: Id
+    payoff_scene_id: Id | None
+    setup_quote: str
+    payoff_quote: str
+
+
+class InferredMotivation(_Base):
+    character_name: str
+    objective: str
+    stakes: str
+    obstacle: str
+
+
+class InferredSceneMotivations(_Base):
+    scene_id: Id
+    motivations: list[InferredMotivation]
+
+
+class InferredWorldRule(_Base):
+    text: str
+    limit: str
+    cost: str
+    exception: str
+    evidence_scene_id: Id | None
+    evidence_quote: str
+
+
+class NarrativePromises(_Base):
+    threads: list[InferredThread]
+    scene_motivations: list[InferredSceneMotivations]
+    world_rules: list[InferredWorldRule]
 
 
 class ExtractedFactSourceSpan(_Base):
