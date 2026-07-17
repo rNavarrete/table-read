@@ -29,6 +29,7 @@ from drama_manager import (
     candidates,
     change_sets,
     characters,
+    ledger_as_of,
     ledger_mutations,
     locks,
     scan,
@@ -390,15 +391,30 @@ def get_ledger(
     pid: str,
     status: str | None = None,
     character_id: str | None = Query(default=None, alias="characterId"),
+    as_of_scene: str | None = Query(default=None, alias="asOfScene"),
     session: Session = Depends(get_session),
 ) -> list[dict]:
-    _get_project_or_404(session, pid)
+    """`GET /projects/{pid}/ledger?status=&characterId=&asOfScene=` (data
+    contract §4). `asOfScene` applies the T7.18 temporal filter
+    (`ledger_as_of.facts_as_of`) first — using this (MVP: single-episode)
+    project's ordered scene list — then `status`/`characterId` apply on the
+    narrowed set, exactly like today's filters (design doc semantic 2)."""
+    project = _get_project_or_404(session, pid)
     facts = session.query(LedgerFactRow).filter_by(project_id=pid).order_by(LedgerFactRow.id).all()
+    fact_dicts = [f.to_wire_dict() for f in facts]
+    if as_of_scene is not None:
+        scenes = [scene for _episode, scene in locks._iter_scenes(project.doc)]
+        try:
+            fact_dicts = ledger_as_of.facts_as_of(scenes, fact_dicts, as_of_scene)
+        except KeyError as exc:
+            raise ApiError(
+                400, "VALIDATION", f"asOfScene {as_of_scene!r} not found"
+            ) from exc
     if status is not None:
-        facts = [f for f in facts if f.status == status]
+        fact_dicts = [f for f in fact_dicts if f["status"] == status]
     if character_id is not None:
-        facts = [f for f in facts if character_id in f.known_by]
-    return [f.to_wire_dict() for f in facts]
+        fact_dicts = [f for f in fact_dicts if character_id in f["knownBy"]]
+    return fact_dicts
 
 
 @router.get("/{pid}/consistency-flags", response_model=list[ConsistencyFlag])

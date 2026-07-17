@@ -225,11 +225,12 @@ export async function extractPdf(file: File): Promise<PdfExtractResult> {
 
 export function getLedger(
   projectId: string,
-  opts?: { status?: string; characterId?: string },
+  opts?: { status?: string; characterId?: string; asOfScene?: string },
 ): Promise<LedgerFact[]> {
   const params = new URLSearchParams()
   if (opts?.status) params.set('status', opts.status)
   if (opts?.characterId) params.set('characterId', opts.characterId)
+  if (opts?.asOfScene) params.set('asOfScene', opts.asOfScene)
   const qs = params.toString()
   return getJson<LedgerFact[]>(
     `/projects/${projectId}/ledger${qs ? `?${qs}` : ''}`,

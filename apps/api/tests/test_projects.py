@@ -168,6 +168,45 @@ def test_get_ledger_returns_deterministic_order(seeded_project):
     assert fact_ids == sorted(fact_ids)
 
 
+def test_get_ledger_as_of_scene_excludes_later_facts(seeded_project):
+    """T7.18 Task 2: asOfScene=scene-2 keeps only facts established at or
+    before scene-2 (fact-01/02/03/04/05 in the fixture), excluding fact-06/
+    07/08 which are established in scene-3/scene-4."""
+    url = f"/api/v1/projects/{PROJECT_ID}/ledger"
+    response = client.get(url, params={"asOfScene": "scene-2"})
+
+    assert response.status_code == 200
+    facts = response.json()
+    assert {f["id"] for f in facts} == {
+        "fact-01",
+        "fact-02",
+        "fact-03",
+        "fact-04",
+        "fact-05",
+    }
+
+
+def test_get_ledger_as_of_scene_composes_with_status_filter(seeded_project):
+    """asOfScene narrows temporally, then status filters as today — matches
+    design doc semantic 2 (status applied after as-of)."""
+    url = f"/api/v1/projects/{PROJECT_ID}/ledger"
+    response = client.get(
+        url, params={"asOfScene": "scene-4", "status": "pending_review"}
+    )
+
+    assert response.status_code == 200
+    facts = response.json()
+    assert [f["id"] for f in facts] == ["fact-06"]
+
+
+def test_get_ledger_as_of_scene_unknown_id_returns_400(seeded_project):
+    url = f"/api/v1/projects/{PROJECT_ID}/ledger"
+    response = client.get(url, params={"asOfScene": "scene-does-not-exist"})
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "VALIDATION"
+
+
 def test_undo_at_root_returns_409(seeded_project):
     response = client.post(f"/api/v1/projects/{PROJECT_ID}/undo")
 

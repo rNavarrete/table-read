@@ -531,7 +531,7 @@ Defined transactions:
 
 **Ledger mode**
 
-- `GET /projects/{pid}/ledger?status=&characterId=` → `LedgerFact[]`
+- `GET /projects/{pid}/ledger?status=&characterId=&asOfScene=` → `LedgerFact[]` — `asOfScene` (T7.18) filters to facts in force as of that scene (established at or before it in the project's scene order, and not superseded by a fact established at or before it — `drama_manager/ledger_as_of.facts_as_of`), applied *before* `status`/`characterId`. Unknown scene id → 400 `VALIDATION`. Omit → no temporal filter (today's behavior). No `LedgerFact` schema change.
 - `POST /ledger/{factId}/confirm` | `/reject` | `PATCH /ledger/{factId}` (edit text and/or knownBy → provenance becomes `writer_authored`; if the fact was `pending_review`, status also becomes `active` so it leaves the review queue)
 - `POST /projects/{pid}/ledger/batch` `{confirmIds: [], rejectIds: []}` → `{ledger}` — batch review (import queue); supersede-proposal semantics apply per id; **one snapshot for the whole batch**; any invalid id fails the entire batch (400, nothing applied)
 
