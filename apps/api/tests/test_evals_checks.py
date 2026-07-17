@@ -417,6 +417,8 @@ def test_run_suite_full_includes_soft_families(session_factory):
         "import-inference",
         "subtext-fidelity",
         "act-boundary-quality",
+        "entity-inference",
+        "alias-resolution",
     ]
 
 
@@ -436,6 +438,8 @@ def test_default_run_map_tiers_hard_and_soft():
     assert m["importInference"] == 5
     assert m["subtextFidelity"] == 5
     assert m["actBoundaryQuality"] == 5
+    assert m["entityInference"] == 5
+    assert m["aliasResolution"] == 5
 
 
 def test_resolve_run_map_override_is_uniform():
@@ -443,7 +447,7 @@ def test_resolve_run_map_override_is_uniform():
 
     m = resolve_run_map(1)
     assert set(m.values()) == {1}
-    assert len(m) == 9
+    assert len(m) == 11
 
 
 def test_nominal_call_estimate_core_defaults():

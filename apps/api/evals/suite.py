@@ -33,6 +33,8 @@ EVAL_KEYS: dict[str, str] = {
     "import-inference": "importInference",
     "subtext": "subtextFidelity",
     "act-boundaries": "actBoundaryQuality",
+    "entity-inference": "entityInference",
+    "alias-resolution": "aliasResolution",
 }
 
 HARD_RUNS = 5
@@ -55,6 +57,8 @@ SOFT_EVAL_KEYS: tuple[str, ...] = (
     "import-inference",
     "subtext",
     "act-boundaries",
+    "entity-inference",
+    "alias-resolution",
 )
 
 # `--only`/checkpoint short key → the `EvalResult.name` that family produces.
@@ -71,6 +75,8 @@ FAMILY_RESULT_NAME: dict[str, str] = {
     "import-inference": "import-inference",
     "subtext": "subtext-fidelity",
     "act-boundaries": "act-boundary-quality",
+    "entity-inference": "entity-inference",
+    "alias-resolution": "alias-resolution",
 }
 
 
@@ -102,12 +108,14 @@ def nominal_call_estimate(runs: dict[str, int]) -> dict:
     up to 3 product calls per regenerate attempt (preview's regenerate + apply's
     extract + scan; guard rejections stop after 1) plus 1 per candidate attempt
     → ≤ 4 × lock runs. continuity = 3 grader calibration calls + (1 generate +
-    1 grade) × continuity runs. Segmentation and each adoption soft eval = 1 ×
+    1 grade) × continuity runs.     Segmentation and each adoption soft eval = 1 ×
     that family's runs. Act-boundary validity and quality each have two labeled
-    probes, so each is 2 × that family's runs. Rule-9 retries can add up to one
+    probes, so each is 2 × that family's runs. `entityInference` and
+    `aliasResolution` each call `infer_story_entities` once per run, same as
+    the other single-probe soft families. Rule-9 retries can add up to one
     extra call per product call (observed-worst budget ≈ 1.5× total). Core
     defaults (schema/act-validity/lock/continuity, N=5): ≈88 nominal; `--full`
-    adds soft families (≈+30); `--runs 1` core ≈20."""
+    adds soft families (≈+40); `--runs 1` core ≈20."""
     schema = len(probes.SCHEMA_PROBES) * runs["schemaValidity"]
     act_validity = 2 * runs["actBoundaryValidity"]
     lock = 4 * runs["lockViolation"]
@@ -117,6 +125,8 @@ def nominal_call_estimate(runs: dict[str, int]) -> dict:
     import_inference = runs["importInference"]
     subtext = runs["subtextFidelity"]
     act_boundaries = 2 * runs["actBoundaryQuality"]
+    entity_inference = runs["entityInference"]
+    alias_resolution = runs["aliasResolution"]
     return {
         "schemaValidity": schema,
         "actBoundaryValidity": act_validity,
@@ -127,6 +137,8 @@ def nominal_call_estimate(runs: dict[str, int]) -> dict:
         "importInference": import_inference,
         "subtextFidelity": subtext,
         "actBoundaryQuality": act_boundaries,
+        "entityInference": entity_inference,
+        "aliasResolution": alias_resolution,
         "totalNominal": (
             schema
             + act_validity
@@ -137,6 +149,8 @@ def nominal_call_estimate(runs: dict[str, int]) -> dict:
             + import_inference
             + subtext
             + act_boundaries
+            + entity_inference
+            + alias_resolution
         ),
     }
 
@@ -302,6 +316,18 @@ def run_suite(
             ctx,
             runs=runs[EVAL_KEYS["act-boundaries"]],
             on_progress=on_progress,
+        ),
+    )
+    run_family(
+        "entity-inference",
+        lambda: adoption.entity_inference_eval(
+            client, runs=runs[EVAL_KEYS["entity-inference"]], on_progress=on_progress
+        ),
+    )
+    run_family(
+        "alias-resolution",
+        lambda: adoption.alias_resolution_eval(
+            client, runs=runs[EVAL_KEYS["alias-resolution"]], on_progress=on_progress
         ),
     )
 

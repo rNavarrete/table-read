@@ -41,6 +41,8 @@ _ONLY_CHOICES = (
     "import-inference",
     "subtext",
     "act-boundaries",
+    "entity-inference",
+    "alias-resolution",
 )
 
 

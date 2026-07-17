@@ -1,0 +1,62 @@
+{
+  "description": "T7.17 golden entity-inference fixture. Two alias pairs (Dorothy/Dot, Marguerite/Margo) are never co-located in the same line as their cue; Owen never speaks; the cousin relationship and Owen's wariness are implied, never stated literally.",
+  "source": "fixtures/entity-inference.fountain",
+  "plantedEntities": [
+    {
+      "id": "planted-char-dorothy",
+      "kind": "character",
+      "mustMatchAny": ["Dorothy"]
+    },
+    {
+      "id": "planted-char-marguerite",
+      "kind": "character",
+      "mustMatchAny": ["Marguerite"]
+    },
+    {
+      "id": "planted-char-owen",
+      "kind": "character",
+      "mustMatchAny": ["Owen"]
+    },
+    {
+      "id": "planted-rel-cousins",
+      "kind": "relationship",
+      "mustMatchAny": ["grandmother", "cousin", "family", "both of us", "related", "inherit"]
+    },
+    {
+      "id": "planted-rel-owen-wary",
+      "kind": "relationship",
+      "mustMatchAny": ["wary", "distrust", "tension", "avoid", "resent", "estrange", "uneasy", "careful", "won't hear"]
+    },
+    {
+      "id": "planted-loc-greenhouse",
+      "kind": "location",
+      "mustMatchAny": ["greenhouse"]
+    },
+    {
+      "id": "planted-loc-boathouse",
+      "kind": "location",
+      "mustMatchAny": ["boathouse"]
+    },
+    {
+      "id": "planted-obj-key",
+      "kind": "object",
+      "mustMatchAny": ["brass key", "key"]
+    }
+  ],
+  "plantedAliasPairs": [
+    {
+      "id": "planted-alias-dorothy",
+      "canonicalMatchAny": ["Dorothy"],
+      "aliasMatchAny": ["Dot"]
+    },
+    {
+      "id": "planted-alias-marguerite",
+      "canonicalMatchAny": ["Marguerite"],
+      "aliasMatchAny": ["Margo"]
+    }
+  ],
+  "plantedNonSpeakingCharacters": ["planted-char-owen"],
+  "hallucinationGuard": {
+    "forbiddenWithoutBasis": ["inheritance lawsuit", "wedding", "funeral", "police", "murder", "affair"]
+  }
+}

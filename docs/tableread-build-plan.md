@@ -132,8 +132,8 @@ Replaces the hardcoded seeded entry point with a project dashboard, idea/import 
 **T7.16 Cast management (Ledger).** Rename/aliases PATCH, atomic merge (absorbs aliases, rewrites `knownBy`, re-points relationships, one snapshot), and reference-guarded delete; PEOPLE rail management UI with optimistic rollback. Plan: same doc, Task 3.
 *Accept:* each mutation writes exactly one snapshot; merge is atomic (crash leaves either both fact rewrite and character removal or neither); locked source/target ⇒ 409 `LOCKED_OBJECT`; referenced delete ⇒ 409 `VALIDATION` with counts; e2e: merge two duplicate imports and Knowledge Web focus shows the union of facts.
 
-**T7.17 Entity-inference evals.** `fixtures/entity-inference.fountain` with planted aliases, non-speaking character, implied relationships, locations, object; soft gates: entity recall ≥ 0.8, alias resolution ≥ 0.9, zero basis-free entities. Plan: same doc, Task 4.
-*Accept:* eval family wired into `make evals`; non-billable dry-run green; test-plan §1/§3 rows added; real-eval run only on explicit authorization.
+**T7.17 Entity-inference evals.** `fixtures/entity-inference.fountain` with planted aliases, non-speaking character, implied relationships, locations, object; soft gates: entity recall ≥ 0.8, alias resolution ≥ 0.9, zero basis-free entities. Plan: same doc, Task 4. — implemented; `make evals-dry --full` green (both soft families WARN on the seeded Mock, as expected, and never block); **real `make evals` sign-off (0.12.0) still pending explicit authorization**, which also covers T7.15's pending sign-off above.
+*Accept:* eval family wired into `make evals` (`entity-inference` + `alias-resolution`, both soft, in `SOFT_EVAL_KEYS`); non-billable dry-run green; test-plan §1/§3 rows added; real-eval run only on explicit authorization.
 
 ## Milestone 8 — Fabula adoption (P-MVP slices)
 
