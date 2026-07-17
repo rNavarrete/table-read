@@ -19,6 +19,7 @@ const SCHEMA_NAMES = [
   'Scene',
   'TimelineAnchor',
   'RelationshipState',
+  'ObjectState',
   'Episode',
   'Season',
   'SourceSpan',

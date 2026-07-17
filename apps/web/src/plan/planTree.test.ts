@@ -104,6 +104,7 @@ function project(scenes: Scene[]): Project {
             scenes,
             timelineAnchors: [],
             relationshipStates: [],
+            objectStates: [],
           },
         ],
       },

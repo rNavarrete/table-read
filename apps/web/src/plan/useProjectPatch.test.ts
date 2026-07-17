@@ -157,6 +157,7 @@ describe('useProjectPatch', () => {
             ],
             timelineAnchors: [],
             relationshipStates: [],
+            objectStates: [],
           },
         ],
       },

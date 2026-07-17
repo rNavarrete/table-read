@@ -1169,6 +1169,81 @@ def test_import_infers_relationship_states_from_entity_evidence(db_session, mock
     ]
 
 
+def test_import_infers_object_states_and_flags_location_conflict(
+    db_session, mock_llm, monkeypatch
+):
+    """T7.26: object custody / location continuity ("simpler MVP" path).
+    Deterministic text scan over already-extracted state/event facts (no
+    new LLM call) fills episode.objectStates; a later scene contradicting
+    an earlier object location becomes an open tension flag."""
+    # Force sequential scene processing so the mock's per-op FIFO response
+    # queue (popped in call order) lines up with scene order deterministically
+    # -- see test_out_of_order_scene_workers_preserve_source_order.
+    monkeypatch.setattr(pipeline, "IMPORT_LLM_CONCURRENCY", 1, raising=False)
+    created = client.post(
+        "/api/v1/projects",
+        json=NEW_PROJECT_BODY,
+        headers={"Idempotency-Key": "00000000-0000-4000-8000-000000000046"},
+    ).json()
+    pid = created["id"]
+
+    src = (
+        "INT. THE LONG POUR - DAY\n\nMARTA\nMorning.\n\n"
+        "EXT. MARINA - NIGHT\n\nMARTA\nLater.\n"
+    )
+    mock_llm.set_responses("segment_scene", one_beat_per_scene(src))
+    mock_llm.set_responses(
+        "extract_ledger_facts",
+        [
+            extraction(
+                [
+                    {
+                        **one_fact(beat_id="beat-1-1"),
+                        "fact": "The bag is hidden inside the ice machine",
+                        "sourceSpan": {
+                            **one_fact()["sourceSpan"],
+                            "sceneId": "scene-1",
+                            "beatId": "beat-1-1",
+                        },
+                    }
+                ]
+            ),
+            extraction(
+                [
+                    {
+                        **one_fact(beat_id="beat-2-1"),
+                        "fact": "The bag is hidden inside the marina locker",
+                        "sourceSpan": {
+                            **one_fact()["sourceSpan"],
+                            "sceneId": "scene-2",
+                            "beatId": "beat-2-1",
+                        },
+                    }
+                ]
+            ),
+        ],
+    )
+    mock_llm.set_response("scan_consistency", scan())
+
+    body = client.post(
+        f"/api/v1/projects/{pid}/import", json={"format": "fountain", "content": src}
+    ).json()
+
+    episode = body["project"]["seasons"][0]["episodes"][0]
+    assert {(s["locationLabel"], s["sceneId"]) for s in episode["objectStates"]} == {
+        ("the ice machine", "scene-1"),
+        ("the marina locker", "scene-2"),
+    }
+
+    flags = body["consistencyFlags"]
+    object_flags = [f for f in flags if f["objectId"] == "scene-2" and f["factId"] is None]
+    assert len(object_flags) == 1
+    assert object_flags[0]["severity"] == "tension"
+    assert object_flags[0]["status"] == "open"
+    assert "ice machine" in object_flags[0]["explanation"]
+    assert "marina locker" in object_flags[0]["explanation"]
+
+
 def test_reimport_never_modifies_locked_character_fields(unlocked_project, db_session, mock_llm):
     project = db_session.get(ProjectRow, PROJECT_ID)
     bible = project.doc["seriesBible"]

@@ -70,6 +70,7 @@ function episodeWith(scenes: Scene[]): Project['seasons'] {
           scenes,
           timelineAnchors: [],
           relationshipStates: [],
+          objectStates: [],
         },
       ],
     },

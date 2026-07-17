@@ -41,6 +41,7 @@ from fountain.characters import (
     merge_inferred_entities,
     normalize_known_by,
 )
+from fountain.object_states import detect_object_conflicts, infer_object_states
 from fountain.parse import (
     CoverageError,
     ImportedBeat,
@@ -308,6 +309,12 @@ def analyze_import(
             new_facts.append(fact)
     bible["characters"] = characters
 
+    # ── Object custody / location continuity (T7.26, "simpler MVP"): a
+    # deterministic pass over the just-extracted fact text, no new LLM
+    # call. Stored on the episode; conflicts become open flags below. ──────
+    object_states = infer_object_states(new_facts)
+    _episode_ref(new_doc, episode_id)["objectStates"] = object_states
+
     # ── Consistency scan (§4 step 3): one sweep across the imported episode. ──
     yield ImportStageStarted(STAGE_CHECKING_CONSISTENCY)
     scene_summaries = [
@@ -350,6 +357,15 @@ def analyze_import(
                 "severity": "tension",
                 "status": "open",
                 "sourceChange": "",
+            }
+        )
+    for conflict in detect_object_conflicts(object_states, scene_docs):
+        raw_flags.append(
+            {
+                "id": flag_minter.mint(),
+                "status": "open",
+                "sourceChange": "",
+                **conflict,
             }
         )
 

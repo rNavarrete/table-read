@@ -176,6 +176,16 @@ class RelationshipState(_Base):
     quote: str = ""
 
 
+class ObjectState(_Base):
+    """T7.26 — see packages/contract/src/index.ts's `ObjectState` docstring."""
+
+    name: str
+    holder_character_id: Id | None
+    location_label: str
+    scene_id: Id
+    quote: str = ""
+
+
 class Episode(_Base):
     id: Id
     index: int = Field(ge=0)
@@ -187,6 +197,7 @@ class Episode(_Base):
     scenes: list[Scene]
     timeline_anchors: list[TimelineAnchor] = []
     relationship_states: list[RelationshipState] = []
+    object_states: list[ObjectState] = []
 
 
 class CharacterArc(_Base):

@@ -145,6 +145,21 @@ export const RelationshipState = z.object({
 })
 export type RelationshipState = z.infer<typeof RelationshipState>
 
+// T7.26 — object custody / location continuity (design doc "simpler MVP"
+// path): one row per state/event ledger fact whose text names an object's
+// hiding/storage location, inferred deterministically from already-
+// extracted fact text (fountain.object_states) — no new LLM call.
+// `holderCharacterId` is unset in this MVP cut (location-only signal); the
+// field exists so a future holder-tracking pass has nowhere else to add.
+export const ObjectState = z.object({
+  name: z.string(),
+  holderCharacterId: Id.nullable(),
+  locationLabel: z.string(),
+  sceneId: Id,
+  quote: z.string().default(''),
+})
+export type ObjectState = z.infer<typeof ObjectState>
+
 export const Episode = z.object({
   id: Id,
   index: z.number().int().min(0),
@@ -165,6 +180,9 @@ export const Episode = z.object({
   timelineAnchors: z.array(TimelineAnchor).default([]),
   // T7.25 relationship state history. Defaults to [] so pre-existing docs validate.
   relationshipStates: z.array(RelationshipState).default([]),
+  // T7.26 object custody / location continuity. Defaults to [] so
+  // pre-existing docs validate.
+  objectStates: z.array(ObjectState).default([]),
 })
 export type Episode = z.infer<typeof Episode>
 

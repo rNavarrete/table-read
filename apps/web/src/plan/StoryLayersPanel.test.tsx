@@ -38,6 +38,7 @@ function episode(scenes: Scene[]): Episode {
     scenes,
     timelineAnchors: [],
     relationshipStates: [],
+    objectStates: [],
   }
 }
 
