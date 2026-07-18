@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** After import, Ledger shows an episode story overview (logline, scene outline, named beat sheet, two-paragraph synopsis) inferred by one classifier op.
+**Goal:** After import, Ledger shows an episode story overview (logline, scene outline, named beat sheet, two-paragraph synopsis) inferred by one **writer** (Sonnet) op.
 
 **Architecture:** New `Episode.storyOverview` persisted object; §2a `infer_story_overview` / `InferredStoryOverview` after `inferring_promises` and before fact extraction; merge grounds scene/beat ids, backfills empty premises from logline, respects locks; Ledger Overview panel mirrors Threads.
 

@@ -3,7 +3,17 @@
 # config/models.toml, which pins exact model IDs"). Every LLM call logs both
 # the role and the resolved model id; changing a pinned id here is a
 # versioned change requiring `make evals` sign-off, same as a prompt-template
-# edit (CLAUDE.md hard rule 7).
+# edit (CLAUDE.md hard rule 7). Reassigning an op's role in llm/ops.py is
+# likewise a versioned model-path change (evals before merge).
+#
+# Role split (product intent):
+#   classifier (Haiku) = grounded extraction / deterministic reads
+#     (entities, promises, facts, blast radius, suggestions, acts,
+#     segmentation, consistency scan) — anthropic_client sends temperature=0
+#   writer (Sonnet) = synthesis / judgment
+#     (beat candidates, tune, regenerate, scene skeleton, story overview
+#     logline/synopsis/beat-sheet turn selection). Overview is the first
+#     import op on writer. Writer tier must omit temperature (see below).
 #
 # Model-id gap (flagged per the T1.2 task brief): the prompt spec gives its
 # pinned id as an illustrative example ("e.g., writer =
@@ -18,7 +28,8 @@
 # "Temperature 0" on every classifier op (§3/§5/§6/§8c), but current-
 # generation Sonnet 5 / Opus 4.7+ reject any non-default `temperature`
 # outright (400 invalid_request_error). Haiku 4.5 still accepts it, so this
-# is a functional requirement here, not just a cost choice.
+# is a functional requirement here, not just a cost choice. Writer-role
+# ops therefore never send `temperature` (anthropic_client).
 
 [models]
 writer = "claude-sonnet-5"

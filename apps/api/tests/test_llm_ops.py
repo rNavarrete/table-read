@@ -12,6 +12,7 @@ EXPECTED_OPS = {
     "infer_act_breaks": "classifier",
     "infer_story_entities": "classifier",  # §5a import-time entity inference (T-continuity)
     "infer_narrative_promises": "classifier",  # §5b threads/motivations/world rules (T7.19)
+    "infer_story_overview": "writer",  # §5c synthesis (logline/synopsis/beat turns) on Sonnet
     "segment_scene": "classifier",  # T6.1 escalation: moved writer->classifier for temperature 0
     "scan_consistency": "classifier",
     "generate_scene_skeleton": "writer",  # §9.4 guided-setup scene skeleton

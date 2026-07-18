@@ -261,6 +261,31 @@ def test_writer_role_op_uses_the_writer_model_and_no_temperature():
     assert "temperature" not in call
 
 
+def test_infer_story_overview_uses_writer_model_and_no_temperature():
+    """§5c overview is writer-role synthesis — omit temperature (Sonnet 5 400)."""
+    from schemas import InferredStoryOverview
+
+    valid_overview = FakeMessage(
+        content=[
+            FakeToolUseBlock(
+                input=_fixture_valid_input_for("infer_story_overview"),
+                name="infer_story_overview",
+            )
+        ]
+    )
+    sdk = FakeSdkClient([valid_overview])
+    client = AnthropicClient(sdk_client=sdk, models=_MODELS)
+
+    result = client.infer_story_overview(
+        system="sys", user_message="hi", prompt_version="0.1.0"
+    )
+
+    assert isinstance(result, InferredStoryOverview)
+    call = sdk.messages.calls[0]
+    assert call["model"] == "writer-model-x"
+    assert "temperature" not in call
+
+
 def test_classifier_role_op_uses_the_classifier_model_and_temperature_zero():
     from schemas import BlastRadius
 

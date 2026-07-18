@@ -28,7 +28,7 @@ Requested artifacts:
 | Import pipeline | Leaves `episode.premise = ""`; beat `whatHappens` filled from segmentation; no overview stage. |
 | Ledger UI | Atlas · Knowledge Web · Threads · Cast. No Story overview surface. |
 
-**Verdict:** Extend §4.8 with a first-class `Episode.storyOverview` + one import classifier op. Contract package is authoritative for executable shapes; this doc defines product intent.
+**Verdict:** Extend §4.8 with a first-class `Episode.storyOverview` + one import **writer** op (synthesis). Contract package is authoritative for executable shapes; this doc defines product intent.
 
 ## Craft research (citations)
 
@@ -135,7 +135,7 @@ Empty state: “Import a script to generate a story overview.”
 
 ## Cost
 
-+1 synchronized classifier call per import (episode-scoped; compact scene/beat summaries — same input shape family as promises/acts). Prefer one call; avoid chunking.
++1 synchronized **writer** (Sonnet) call per import (episode-scoped; compact scene/beat summaries — same input shape family as promises/acts). Prefer one call; avoid chunking. Outline stays in the same `infer_story_overview` call (no second op).
 
 ## Build-plan tasks
 
@@ -191,7 +191,7 @@ Sources:
 | Scene spine | Reused entity summaries (incl. early `scriptText`) — encourages slugline parroting; **scene `act` omitted** |
 | Format | Only in shared system SHOW FORMAT; not reinforced for beat-sheet density |
 | Merge | Dropped unknown `beatId`s only — no scene↔beat verify, no act coerce, no sort/dedupe |
-| Model role | `classifier` @ temp 0 is correct; not the drift source |
+| Model role | Was `classifier` @ temp 0; later moved to **writer** (Sonnet) for synthesis — not the original TV-label drift source |
 
 ### Locked decisions (B)
 
@@ -284,3 +284,25 @@ Writers trust Overview *formatting* (Cold Open / Act N Turn / Tag) but still **d
 - Bad/good examples explicit; no schema change required.
 - Soft guards prefer segmented text over silent drop.
 - Contract package remains executable authority.
+
+---
+
+## Amendment — writer-role synthesis (2026-07-17)
+
+**Status:** Approved (chat decision). Role reassignment only; prompt template text unchanged (`PROMPT_VERSION` **0.18.0**).
+
+### Decision
+
+| # | Decision |
+|---|---|
+| W1 | **`infer_story_overview` uses `writer` (Sonnet / `claude-sonnet-5`)**, not classifier Haiku. |
+| W2 | **Classifier (Haiku)** = grounded extraction; **writer (Sonnet)** = synthesis/judgment (logline, synopsis, beat-sheet turn selection). Overview is the **first import op on writer**. |
+| W3 | **No `temperature=0`** on writer-role calls — Sonnet 5 may 400 on non-default temperature (same constraint that moved segmentation to classifier). Classifier ops keep temp 0. |
+| W4 | **One call** still produces logline + outline + beat sheet + synopsis — do not split outline into a second op. |
+| W5 | **`make evals` required before merge** (model-path change); not run until authorized. Verify: re-import and API logs show `model=claude-sonnet-5` for `infer_story_overview`. |
+
+### Self-review
+
+- Role split matches product intent (extraction vs synthesis).
+- Temperature handling remains role-gated in `anthropic_client`.
+- No schema / tool-schema / prompt-text change.

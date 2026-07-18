@@ -2,11 +2,18 @@
 `BeatCandidate` from §2 reused by `generate_beat_candidates`/`tune_beat` per
 docs/tableread-prompt-spec.md §1-§2). Single source of truth for: the tool
 `name` used in `tool_choice` forcing, the output schema, and the
-writer/classifier model-role split (prompt spec §8, with the T6.1 escalation
-applied: "writer = §1 candidates, §2 tune, §4 regenerate; classifier = §3 blast
-radius, §5 extraction, §6 suggestions, §7 segmentation, §8c consistency scan").
+writer/classifier model-role split (prompt spec §8):
+
+- **classifier (Haiku):** grounded extraction / deterministic reads — blast
+  radius, ledger facts, entities, narrative promises, suggestions, act
+  inference, segmentation, consistency scan. Runs at temperature 0.
+- **writer (Sonnet):** synthesis / judgment — beat candidates, tune,
+  regenerate, scene skeleton, and §5c story overview (logline, synopsis,
+  beat-sheet turn selection). Writer-tier models reject non-default
+  temperature; anthropic_client omits `temperature` for writer ops.
+
 §7 segmentation moved writer→classifier so it can run at temperature 0 (§7);
-see the note at its LlmOp below.
+see the note at its LlmOp below. Overview is the first import op on writer.
 
 Consumed by `mock.py`/`anthropic_client.py` (dispatch + tool-schema lookup)
 and by `scripts/generate_tool_schemas.py` (config/tool_schemas/ generation).
@@ -174,19 +181,25 @@ _OPS: tuple[LlmOp, ...] = (
     # anthropic_client sends temperature=0 (prompt spec §7), and §7's temperature
     # requirement is honored. (The gate threshold itself is still chosen-not-pinned;
     # that ratification remains DESIGN-GAP(T6.1) at the eval's gate constant.)
-    # T7.27 story overview (design 2026-07-17-import-story-overview): Task 1
-    # adds schema/registry only — T7.28 owns prompt, pipeline, PROMPT_VERSION.
+    # T7.27/T7.28 story overview (design 2026-07-17-import-story-overview):
     # Runs after infer_narrative_promises and before extract_ledger_facts.
+    # Role: **writer** (Sonnet) — logline/synopsis/beat-sheet turn selection is
+    # synthesis/judgment, not grounded extraction. Outline generation stays in
+    # this same single call (no second op). Writer tier must not send
+    # temperature=0 (400 on non-default sampling); classifier ops keep temp 0.
+    # Role reassignment is a versioned model-path change — requires `make evals`
+    # sign-off before merge (PROMPT_VERSION unchanged: prompt text untouched;
+    # see prompt-spec §5c OVERVIEW note). First import op on the writer role.
     LlmOp(
         "infer_story_overview",
         "InferredStoryOverview",
         InferredStoryOverview,
-        "classifier",
+        "writer",
         "Infer an episode logline, scene-ordered outline, named beat sheet "
         "anchored to existing beat ids, and a two-paragraph present-tense "
         "synopsis from the imported script.",
         # Large episodes (many outline rows + beat sheet + synopsis) truncated
-        # mid-field at 8192 ("INT. WESTA"); match other import classifier ceilings.
+        # mid-field at 8192 ("INT. WESTA"); match other large import ceilings.
         max_tokens=16_384,
         call_timeout_seconds=180.0,
     ),

@@ -226,14 +226,12 @@ class AnthropicClient:
             "messages": messages,
         }
         # Prompt spec §3/§5/§6/§7/§8c: classifier-role ops run at temperature 0.
-        # `config/models.toml` deliberately pins `classifier` to a model tier
-        # that still accepts an explicit `temperature` -- see that file's
-        # comment for why current-generation Sonnet/Opus reject it outright.
-        # This now covers `segment_scene` too: §7 mandates temperature 0 for
-        # segmentation, and the T6.1 escalation moved that op writer->classifier
-        # (llm/ops.py) precisely so this branch applies to it — resolving the
-        # former gap where writer-tier segmentation ran at model default and the
-        # segmentation-determinism eval regressed.
+        # Writer-role ops must omit `temperature` — current writer tier
+        # (Sonnet 5) rejects non-default sampling with 400 invalid_request_error
+        # (same issue that moved §7 segmentation classifier-side). Classifier
+        # stays on Haiku, which accepts temperature=0. `infer_story_overview`
+        # is writer-role synthesis, so it uses model default temperature.
+        # `segment_scene` remains classifier so §7's temperature-0 mandate holds.
         if op.role == "classifier":
             kwargs["temperature"] = 0
 
