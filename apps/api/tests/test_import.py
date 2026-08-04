@@ -1387,6 +1387,8 @@ def test_import_infers_thread_and_scene_motivations_after_entities(db_session, m
             "objective": "Find Doc.",
             "stakes": "The plan falls apart without him.",
             "obstacle": "The lab is empty.",
+            "statedObjective": "",
+            "concealed": False,
         }
     ]
 
@@ -2021,3 +2023,62 @@ def test_extraction_sends_one_byte_identical_whole_episode_cache_prefix(
 
     # And it stays inside the §8b boundary like every other source payload.
     assert "<source_data_" in only and 'kind="episode_script"' in only
+
+
+def test_import_lands_a_secret_with_both_sides_resolved(db_session, mock_llm):
+    """End to end: a planted concealment survives inference -> merge -> doc.
+
+    Proves the whole wiring, not just the merge: the op returns names, the
+    server resolves them against the cast entity inference minted, mints the
+    secret id, and attaches it to the episode.
+    """
+    created = client.post(
+        "/api/v1/projects",
+        json=NEW_PROJECT_BODY,
+        headers={"Idempotency-Key": "00000000-0000-4000-8000-000000000061"},
+    ).json()
+    pid = created["id"]
+
+    src = (
+        "INT. BAR - NIGHT\n\nDAN\nI'm closing up.\n\n"
+        "INT. BAR - LATER\n\nMARTA\nWhere did the money go?\n"
+    )
+    mock_llm.set_responses("segment_scene", one_beat_per_scene(src))
+    mock_llm.set_response(
+        "infer_narrative_promises",
+        promises(
+            secrets=[
+                {
+                    "summary": "Dan hid the $40,000 in the ice machine.",
+                    "holderNames": ["Dan"],
+                    "concealedFromNames": ["Marta"],
+                    "audienceKnows": True,
+                    "establishedSceneId": "scene-1",
+                    "revealedSceneId": None,
+                    "concealmentSceneIds": ["scene-2"],
+                    "establishedQuote": "I'm closing up.",
+                    "revealedQuote": "",
+                }
+            ]
+        ),
+    )
+
+    response = client.post(
+        f"/api/v1/projects/{pid}/import",
+        json={"format": "fountain", "content": src},
+    )
+    assert response.status_code == 200, response.text
+
+    episode = response.json()["project"]["seasons"][0]["episodes"][0]
+    assert len(episode["secrets"]) == 1
+    secret = episode["secrets"][0]
+    assert secret["id"].startswith("secret-")
+    assert secret["summary"] == "Dan hid the $40,000 in the ice machine."
+    # Both sides resolved to real minted character ids, not raw names.
+    cast = {c["id"] for c in response.json()["project"]["seriesBible"]["characters"]}
+    assert set(secret["holderCharacterIds"]) <= cast
+    assert set(secret["concealedFromCharacterIds"]) <= cast
+    assert secret["holderCharacterIds"] != secret["concealedFromCharacterIds"]
+    # Still concealed at end of episode, and its concealment scene survived.
+    assert secret["revealedSceneId"] is None
+    assert secret["concealmentSceneIds"] == ["scene-2"]

@@ -25,7 +25,10 @@ import secrets
 from typing import Any
 
 # Prompt spec §8 / hard rule 7: every template carries a PROMPT_VERSION (semver);
-# it is logged with each call and bumped on any template change. 0.33.0 gives
+# it is logged with each call and bumped on any template change. 0.34.0 asks
+# infer_narrative_promises for secrets (who is hiding what from whom, and
+# where it lands) and for the stated-vs-actual objective gap that is an
+# ulterior motive — both newly representable in the contract. 0.33.0 gives
 # the per-scene extraction loop the whole episode as a cached prompt prefix:
 # every call still targets one scene, but can now see the scenes around it, so
 # cross-scene facts (who already knew this, what the audience knows, a fact
@@ -63,7 +66,7 @@ from typing import Any
 # 0.10.0 typed segment starts; 0.9.0 lock-aware narrative repair. Earlier:
 # 0.8.0 suggest; 0.7.0 scene skeleton; 0.6.0 continuity; 0.5.0 regenerate;
 # 0.4.0 blast; 0.3.0 tune; 0.2.0 candidate + §0 system prompt.
-PROMPT_VERSION = "0.33.0"
+PROMPT_VERSION = "0.34.0"
 
 
 def new_nonce() -> str:
@@ -286,7 +289,26 @@ def build_promises_prompt(
         "evidenceExcerpt for a verbatim quote when one is needed. Only "
         "return a scene motivation when the source establishes that "
         "character's objective, stakes, and obstacle; omit unsupported or "
-        "routine scene entries rather than filling every scene. "
+        "routine scene entries rather than filling every scene.\n"
+        "For each motivation, set objective to what the character is actually "
+        "pursuing. Set statedObjective only when they claim to be pursuing "
+        "something different — the words they use to cover the real one — and "
+        "set concealed true when that difference is deliberate deception "
+        "rather than a want they cannot yet name. Leave statedObjective empty "
+        "when there is no gap; that is the common case, and an invented gap "
+        "is worse than none.\n"
+        "Also identify secrets: something one character knows and is actively "
+        "keeping from another. A secret needs both sides — who holds it "
+        "(holderNames) and who is kept in the dark (concealedFromNames). If "
+        "everyone present already knows it, it is a plain fact, not a secret; "
+        "do not report it. Give establishedSceneId where it becomes concealed, "
+        "revealedSceneId where it finally comes out or null when it is still "
+        "hidden at the end of these scenes, and concealmentSceneIds for the "
+        "scenes where the holder actively maintains it — a deflection, a lie, "
+        "a change of subject. Set audienceKnows by whether the audience has "
+        "been shown it, which is often true while the other characters are "
+        "still in the dark. Ground every secret in what the source shows, not "
+        "in what a character might plausibly be hiding.\n"
         "Do not repeat a rule already present in existing_world_rules; "
         "only report new ones. Refer to every character only by a name "
         "string from known_cast, never an id — the server resolves and "

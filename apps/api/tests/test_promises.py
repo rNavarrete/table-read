@@ -188,6 +188,8 @@ def test_merge_patches_scene_motivations_when_character_resolves():
             "objective": "Find the money.",
             "stakes": "Trust.",
             "obstacle": "Dan's charm.",
+            "statedObjective": "",
+            "concealed": False,
         }
     ]
 
@@ -330,3 +332,172 @@ def test_merge_drops_evidence_scene_id_for_unknown_scene():
     )
 
     assert result["seriesBible"]["worldRules"][0]["evidenceSceneId"] is None
+
+
+_CAST = [
+    {
+        "id": "char-dan",
+        "name": "Dan Vega",
+        "locked": False,
+        "aliases": ["Dan"],
+        "embodiment": "",
+        "presentation": "",
+        "hiding": "",
+        "traits": "",
+        "seriesArc": "",
+    },
+    {
+        "id": "char-marta",
+        "name": "Marta Vega",
+        "locked": False,
+        "aliases": ["Marta"],
+        "embodiment": "",
+        "presentation": "",
+        "hiding": "",
+        "traits": "",
+        "seriesArc": "",
+    },
+]
+
+
+def _secret(**overrides) -> dict:
+    return {
+        "summary": "Dan hid the money in the ice machine.",
+        "holderNames": ["Dan"],
+        "concealedFromNames": ["Marta"],
+        "audienceKnows": True,
+        "establishedSceneId": "scene-1",
+        "revealedSceneId": None,
+        "concealmentSceneIds": [],
+        "establishedQuote": "Dan wedges the envelope behind the ice machine.",
+        "revealedQuote": "",
+        **overrides,
+    }
+
+
+def test_merge_mints_a_secret_and_resolves_both_sides():
+    doc = _doc(characters=_CAST)
+    result = merge_narrative_promises(doc, "ep-1", promises(secrets=[_secret()]))
+
+    secrets = result["seasons"][0]["episodes"][0]["secrets"]
+    assert len(secrets) == 1
+    secret = secrets[0]
+    assert secret["id"].startswith("secret-")
+    assert secret["holderCharacterIds"] == ["char-dan"]
+    assert secret["concealedFromCharacterIds"] == ["char-marta"]
+    assert secret["revealedSceneId"] is None
+    assert secret["provenance"] == "inferred"
+    assert secret["locked"] is False
+    # Promises inference runs before fact extraction, so there is nothing to
+    # link yet — better null than an id that resolves to nothing.
+    assert secret["factId"] is None
+
+
+def test_merge_drops_a_secret_nobody_is_keeping():
+    """No resolvable holder means it is not a secret, just a fact.
+
+    Storing it would put a duplicate of an ordinary ledger fact into the
+    secrets list and inflate the count with things no one is hiding.
+    """
+    doc = _doc(characters=_CAST)
+    result = merge_narrative_promises(
+        doc, "ep-1", promises(secrets=[_secret(holderNames=["Nobody At All"])])
+    )
+    assert result["seasons"][0]["episodes"][0]["secrets"] == []
+
+
+def test_merge_drops_a_secret_nobody_is_in_the_dark_about():
+    doc = _doc(characters=_CAST)
+    result = merge_narrative_promises(
+        doc, "ep-1", promises(secrets=[_secret(concealedFromNames=[])])
+    )
+    assert result["seasons"][0]["episodes"][0]["secrets"] == []
+
+
+def test_merge_treats_an_ungrounded_reveal_scene_as_still_concealed():
+    """Same rule threads use for an ungrounded payoff: trust the page, not the id."""
+    doc = _doc(characters=_CAST)
+    result = merge_narrative_promises(
+        doc, "ep-1", promises(secrets=[_secret(revealedSceneId="scene-999")])
+    )
+    assert result["seasons"][0]["episodes"][0]["secrets"][0]["revealedSceneId"] is None
+
+
+def test_merge_filters_concealment_scenes_to_real_scenes():
+    doc = _doc(characters=_CAST)
+    result = merge_narrative_promises(
+        doc,
+        "ep-1",
+        promises(secrets=[_secret(concealmentSceneIds=["scene-1", "scene-999"])]),
+    )
+    secret = result["seasons"][0]["episodes"][0]["secrets"][0]
+    assert secret["concealmentSceneIds"] == ["scene-1"]
+
+
+def test_merge_skips_a_secret_established_in_an_unknown_scene():
+    doc = _doc(characters=_CAST)
+    result = merge_narrative_promises(
+        doc, "ep-1", promises(secrets=[_secret(establishedSceneId="scene-999")])
+    )
+    assert result["seasons"][0]["episodes"][0]["secrets"] == []
+
+
+def test_merge_records_an_ulterior_motive_as_a_stated_actual_gap():
+    doc = _doc(characters=_CAST)
+    result = merge_narrative_promises(
+        doc,
+        "ep-1",
+        promises(
+            scene_motivations=[
+                {
+                    "sceneId": "scene-1",
+                    "motivations": [
+                        {
+                            "characterName": "Dan",
+                            "objective": "Keep Marta away from the ice machine.",
+                            "stakes": "The money.",
+                            "obstacle": "She saw the transfer.",
+                            "statedObjective": "Close up the bar.",
+                            "concealed": True,
+                        }
+                    ],
+                }
+            ]
+        ),
+    )
+    motivation = result["seasons"][0]["episodes"][0]["scenes"][0]["motivations"][0]
+    assert motivation["statedObjective"] == "Close up the bar."
+    assert motivation["concealed"] is True
+
+
+def test_merge_normalizes_a_stated_objective_that_matches_the_real_one():
+    """A restated objective is not a gap.
+
+    Left as-is, a model that echoes `objective` into `statedObjective` would
+    make every motivation look like an ulterior motive, so a non-empty value
+    would stop meaning anything.
+    """
+    doc = _doc(characters=_CAST)
+    result = merge_narrative_promises(
+        doc,
+        "ep-1",
+        promises(
+            scene_motivations=[
+                {
+                    "sceneId": "scene-1",
+                    "motivations": [
+                        {
+                            "characterName": "Marta",
+                            "objective": "Find the money.",
+                            "stakes": "Trust.",
+                            "obstacle": "Dan's charm.",
+                            "statedObjective": "  find the money.  ",
+                            "concealed": False,
+                        }
+                    ],
+                }
+            ]
+        ),
+    )
+    motivation = result["seasons"][0]["episodes"][0]["scenes"][0]["motivations"][0]
+    assert motivation["statedObjective"] == ""

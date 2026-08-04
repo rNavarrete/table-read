@@ -38,6 +38,20 @@ def _find_episode(doc: dict, episode_id: str) -> dict:
     raise KeyError(episode_id)
 
 
+def _resolve_unique(names: list[str], characters: list[dict]) -> list[str]:
+    """Resolve names to character ids, preserving order and dropping both
+    unresolvable names and duplicates."""
+    resolved: list[str] = []
+    seen: set[str] = set()
+    for name in names:
+        char_id = resolve_character_id(name, characters)
+        if char_id is None or char_id in seen:
+            continue
+        seen.add(char_id)
+        resolved.append(char_id)
+    return resolved
+
+
 def merge_narrative_promises(
     doc: dict, episode_id: str, result: NarrativePromises
 ) -> dict:
@@ -54,6 +68,12 @@ def merge_narrative_promises(
       (`payoffSceneId` -> `None`) rather than trusting an ungrounded id.
       Replaces the episode's entire `threads` list (re-import semantics,
       same as scenes: v1 has no thread locking).
+    - Secrets: like threads, but the holder / concealed-from pair is the
+      whole point rather than decoration, so a row that resolves to no holder
+      or to nobody kept in the dark is dropped instead of stored — with
+      either side empty it is an ordinary ledger fact, not a secret.
+      `factId` stays null here because promises inference runs *before*
+      extract_ledger_facts; there is no fact to link yet.
     - Scene motivations: only scenes present in this episode are patched,
       and only with the motivations whose `characterName` resolves; a scene
       with zero resolved motivations keeps its prior `motivations` (never
@@ -105,6 +125,56 @@ def merge_narrative_promises(
         )
     episode["threads"] = threads
 
+    secrets: list[dict] = []
+    dropped_secrets = 0
+    secret_minter = IdMinter([], "secret-")
+    for inferred_secret in result.secrets:
+        if inferred_secret.established_scene_id not in scenes_by_id:
+            continue
+        holder_ids = _resolve_unique(inferred_secret.holder_names, characters)
+        concealed_from_ids = _resolve_unique(
+            inferred_secret.concealed_from_names, characters
+        )
+        # Unlike a thread's owners — which are decoration — the holder /
+        # concealed-from pair IS the secret. With either side empty this is
+        # not a secret at all: no one is keeping it, or no one is in the dark,
+        # and what's left is an ordinary ledger fact wearing a secret's shape.
+        # Storing it anyway would inflate the count with duplicates of facts
+        # the ledger already holds, so drop and count instead.
+        if not holder_ids or not concealed_from_ids:
+            dropped_secrets += 1
+            continue
+        revealed_scene_id = (
+            inferred_secret.revealed_scene_id
+            if inferred_secret.revealed_scene_id in scenes_by_id
+            else None
+        )
+        secrets.append(
+            {
+                "id": secret_minter.mint(),
+                "summary": inferred_secret.summary,
+                # Promises inference runs before extract_ledger_facts, so no
+                # fact exists to point at yet. Left null for a later pass to
+                # link rather than inventing an id that resolves to nothing.
+                "factId": None,
+                "holderCharacterIds": holder_ids,
+                "concealedFromCharacterIds": concealed_from_ids,
+                "audienceKnows": inferred_secret.audience_knows,
+                "establishedSceneId": inferred_secret.established_scene_id,
+                "revealedSceneId": revealed_scene_id,
+                "concealmentSceneIds": [
+                    scene_id
+                    for scene_id in inferred_secret.concealment_scene_ids
+                    if scene_id in scenes_by_id
+                ],
+                "establishedQuote": inferred_secret.established_quote,
+                "revealedQuote": inferred_secret.revealed_quote,
+                "provenance": "inferred",
+                "locked": False,
+            }
+        )
+    episode["secrets"] = secrets
+
     dropped_motivations = 0
     for scene_motivations in result.scene_motivations:
         scene = scenes_by_id.get(scene_motivations.scene_id)
@@ -116,12 +186,21 @@ def merge_narrative_promises(
             if char_id is None:
                 dropped_motivations += 1
                 continue
+            stated = (motivation.stated_objective or "").strip()
             resolved.append(
                 {
                     "characterId": char_id,
                     "objective": motivation.objective,
                     "stakes": motivation.stakes,
                     "obstacle": motivation.obstacle,
+                    # A "stated" objective identical to the real one is not a
+                    # gap; normalize it away so a non-empty statedObjective
+                    # always means there IS an ulterior motive.
+                    "statedObjective": (
+                        "" if stated.casefold() == motivation.objective.strip().casefold()
+                        else stated
+                    ),
+                    "concealed": bool(motivation.concealed),
                 }
             )
         if resolved:
@@ -154,15 +233,18 @@ def merge_narrative_promises(
         appended_rules += 1
     bible["worldRules"] = existing_rules
 
-    if dropped_owners or dropped_motivations:
+    if dropped_owners or dropped_motivations or dropped_secrets:
         _logger.info(
-            "merge_narrative_promises owners_dropped=%d motivations_dropped=%d",
+            "merge_narrative_promises owners_dropped=%d motivations_dropped=%d "
+            "secrets_dropped=%d",
             dropped_owners,
             dropped_motivations,
+            dropped_secrets,
         )
     _logger.info(
-        "merge_narrative_promises threads=%d rules_appended=%d",
+        "merge_narrative_promises threads=%d secrets=%d rules_appended=%d",
         len(threads),
+        len(secrets),
         appended_rules,
     )
     return doc
