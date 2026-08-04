@@ -72,8 +72,18 @@ class LlmClient(Protocol):
     ) -> RegeneratedElements: ...
 
     def extract_ledger_facts(
-        self, *, system: str, user_message: str, prompt_version: str
-    ) -> LedgerExtraction: ...
+        self,
+        *,
+        system: str,
+        user_message: str,
+        prompt_version: str,
+        cache_prefix: str | None = None,
+    ) -> LedgerExtraction:
+        """`cache_prefix` is a stable per-run source payload (the whole episode
+        script) sent as a cached system block, so a per-scene loop can see the
+        surrounding episode for ~0.1x input after the first call. It must be
+        byte-identical across the run — see `render.build_episode_source_block`."""
+        ...
 
     def suggest_instructions(
         self, *, system: str, user_message: str, prompt_version: str

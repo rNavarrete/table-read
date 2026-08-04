@@ -224,8 +224,15 @@ class _OutOfOrderImportLlm(MockLlmClient):
             self.segment_completed.append(scene)
         return seg([(1, 2)])
 
-    def extract_ledger_facts(self, *, system: str, user_message: str, prompt_version: str):
-        del system, prompt_version
+    def extract_ledger_facts(
+        self,
+        *,
+        system: str,
+        user_message: str,
+        prompt_version: str,
+        cache_prefix: str | None = None,
+    ):
+        del system, prompt_version, cache_prefix
         if '"sceneId": "scene-1"' in user_message:
             scene_id, beat_id, label = "scene-1", "beat-1-1", "alpha"
         elif '"sceneId": "scene-2"' in user_message:
@@ -1963,3 +1970,50 @@ def test_analyze_import_uses_one_source_data_nonce_for_the_whole_run(
         )
     )
     assert set(re.findall(r"<source_data_([0-9a-f]+)", "\n".join(seen))) == {"cafebabe"}
+
+
+def test_extraction_sends_one_byte_identical_whole_episode_cache_prefix(
+    unlocked_project,
+):
+    """Every scene's extraction call shares one cached whole-episode prefix.
+
+    Two things have to hold for the cache to work at all, and neither has any
+    symptom when broken except the bill:
+      - every call must actually carry the prefix, and
+      - it must be byte-identical across the run (caching is a prefix match).
+
+    It must also genuinely contain the *whole* episode — a prefix rebuilt per
+    scene, or scoped to the target scene, would cache nothing and would leave
+    extraction exactly as blind to cross-scene facts as it was before.
+    """
+    src = "\n".join(
+        [
+            "INT. ALPHA - DAY",
+            "Alpha hides the key.",
+            "INT. BETA - DAY",
+            "Beta searches the room.",
+            "INT. GAMMA - DAY",
+            "Gamma finds the key.",
+        ]
+    )
+    llm = MockLlmClient()
+    llm.set_responses("segment_scene", one_beat_per_scene(src))
+    llm.set_response("extract_ledger_facts", extraction())
+    llm.set_response("scan_consistency", scan())
+
+    _drain_analysis(pipeline.analyze_import(unlocked_project["project"], [], src, llm))
+
+    prefixes = llm.cache_prefixes_seen
+    assert len(prefixes) == 3, f"expected one call per scene, got {len(prefixes)}"
+    assert all(p is not None for p in prefixes), "an extraction call sent no cache prefix"
+    assert len(set(prefixes)) == 1, "cache prefix drifted between calls — cache would miss"
+
+    # The point of the prefix: the scene being extracted is not the only scene
+    # in it. Scene 1's call can see scene 3.
+    only = prefixes[0]
+    for scene_id in ("scene-1", "scene-2", "scene-3"):
+        assert scene_id in only, f"{scene_id} missing from the whole-episode prefix"
+    assert "Gamma finds the key." in only
+
+    # And it stays inside the §8b boundary like every other source payload.
+    assert "<source_data_" in only and 'kind="episode_script"' in only

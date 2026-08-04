@@ -693,6 +693,11 @@ class MockLlmClient:
         # streamed call should yield, so tests can force mid-escape splits,
         # out-of-order fields, or missing scriptText. Empty → the streaming
         # method serializes the normal generate_beat_candidates response.
+        # Cached-prefix payloads seen by ops that support one, so tests can
+        # assert byte-stability across a run (a drifting prefix is a silent
+        # 0%-cache-hit bug with no other symptom).
+        self.last_cache_prefix: str | None = None
+        self.cache_prefixes_seen: list[str | None] = []
         self._candidate_streams: list[list[str]] = []
         # Same mechanism for stream_tune_beat (§8a: tune streams too). Empty →
         # the streamed value is derived from the tune_beat op response.
@@ -826,8 +831,17 @@ class MockLlmClient:
         )
 
     def extract_ledger_facts(
-        self, *, system: str, user_message: str, prompt_version: str
+        self,
+        *,
+        system: str,
+        user_message: str,
+        prompt_version: str,
+        cache_prefix: str | None = None,
     ) -> LedgerExtraction:
+        # cache_prefix is accepted for protocol parity and recorded so tests can
+        # assert it stays byte-identical across a run; the mock makes no calls.
+        self.last_cache_prefix = cache_prefix
+        self.cache_prefixes_seen.append(cache_prefix)
         return self._call(
             "extract_ledger_facts",
             system=system,

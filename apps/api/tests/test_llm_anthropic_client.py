@@ -1021,3 +1021,90 @@ def test_schema_invalid_logs_field_paths_not_values(caplog):
     tool_result = retry_messages[2]["content"][0]["content"]
     assert secret not in tool_result
     assert "betweenNames" in tool_result
+
+
+def test_extract_without_cache_prefix_sends_a_plain_system_string():
+    response = FakeMessage(
+        content=[
+            FakeToolUseBlock(
+                input=_fixture_valid_input_for("extract_ledger_facts"),
+                name="extract_ledger_facts",
+            )
+        ]
+    )
+    sdk = FakeSdkClient([response])
+    client = AnthropicClient(sdk_client=sdk, models=_MODELS)
+
+    client.extract_ledger_facts(
+        system="sys", user_message="scene 1", prompt_version="0.33.0"
+    )
+
+    assert sdk.messages.calls[0]["system"] == "sys"
+
+
+def test_extract_with_cache_prefix_marks_the_last_system_block_for_caching():
+    """The cached prefix is what makes whole-episode context affordable.
+
+    Caching is a byte-exact prefix match over tools -> system -> messages, so
+    the breakpoint belongs on the LAST system block (the stable per-run source
+    payload) and everything per-call stays in the user turn. A 1h TTL because
+    an import runs for minutes across bounded workers and may resume from a
+    checkpoint; the 5-minute default would silently buy a second full write.
+    """
+    response = FakeMessage(
+        content=[
+            FakeToolUseBlock(
+                input=_fixture_valid_input_for("extract_ledger_facts"),
+                name="extract_ledger_facts",
+            )
+        ]
+    )
+    sdk = FakeSdkClient([response])
+    client = AnthropicClient(sdk_client=sdk, models=_MODELS)
+
+    client.extract_ledger_facts(
+        system="sys",
+        user_message="scene 1",
+        prompt_version="0.33.0",
+        cache_prefix="WHOLE EPISODE",
+    )
+
+    system = sdk.messages.calls[0]["system"]
+    assert system == [
+        {"type": "text", "text": "sys"},
+        {
+            "type": "text",
+            "text": "WHOLE EPISODE",
+            "cache_control": {"type": "ephemeral", "ttl": "1h"},
+        },
+    ]
+    # The per-call payload must stay after the breakpoint, or every call
+    # writes its own cache entry and none of them ever reads one.
+    assert sdk.messages.calls[0]["messages"] == [
+        {"role": "user", "content": "scene 1"}
+    ]
+
+
+def test_schema_retry_reuses_the_same_cached_system_prefix():
+    """A retry that rebuilt the prefix would pay a second full cache write."""
+    bad = FakeMessage(content=[FakeToolUseBlock(input={"nope": 1}, name="extract_ledger_facts")])
+    good = FakeMessage(
+        content=[
+            FakeToolUseBlock(
+                input=_fixture_valid_input_for("extract_ledger_facts"),
+                name="extract_ledger_facts",
+            )
+        ]
+    )
+    sdk = FakeSdkClient([bad, good])
+    client = AnthropicClient(sdk_client=sdk, models=_MODELS)
+
+    client.extract_ledger_facts(
+        system="sys",
+        user_message="scene 1",
+        prompt_version="0.33.0",
+        cache_prefix="WHOLE EPISODE",
+    )
+
+    assert len(sdk.messages.calls) == 2
+    assert sdk.messages.calls[0]["system"] == sdk.messages.calls[1]["system"]

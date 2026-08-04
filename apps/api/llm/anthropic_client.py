@@ -280,7 +280,8 @@ class AnthropicClient:
         content_types = ",".join(str(getattr(block, "type", "unknown")) for block in content)
         _logger.info(
             "llm_call op=%s prompt_version=%s model=%s retried=%s failed=%s "
-            "input_tokens=%s output_tokens=%s stop_reason=%s response_id=%s "
+            "input_tokens=%s output_tokens=%s cache_write=%s cache_read=%s "
+            "stop_reason=%s response_id=%s "
             "request_id=%s content_types=%s input_hash=%s",
             op.name,
             prompt_version,
@@ -289,6 +290,11 @@ class AnthropicClient:
             failed,
             getattr(usage, "input_tokens", None),
             getattr(usage, "output_tokens", None),
+            # A cached-prefix op whose cache_read stays 0 across a run has a
+            # silent invalidator (a per-call nonce, a changed tool list, a
+            # changed effort). These counters are the only symptom.
+            getattr(usage, "cache_creation_input_tokens", None),
+            getattr(usage, "cache_read_input_tokens", None),
             getattr(response, "stop_reason", None),
             getattr(response, "id", None),
             getattr(response, "_request_id", None),
@@ -301,8 +307,51 @@ class AnthropicClient:
         """Short content hash for logs — never the message itself (hard rule 5)."""
         return hashlib.sha256(user_message.encode()).hexdigest()[:16]
 
+    @staticmethod
+    def _system_param(system: str, cache_prefix: str | None) -> Any:
+        """Plain string, or a cached two-block system when `cache_prefix` is set.
+
+        Render order is tools -> system -> messages, and caching is a byte-exact
+        prefix match, so the breakpoint goes on the LAST system block: the
+        stable per-run source payload. Everything that varies per call stays in
+        the user turn, after the breakpoint.
+
+        1h TTL rather than the 5-minute default: an import runs several minutes
+        across bounded workers and may be resumed from a checkpoint, and a
+        prefix that expires mid-run silently costs a second full write.
+
+        Note the caller must keep `tools` and the resolved `effort` identical
+        across calls that share this prefix — a change to either invalidates it
+        (tools render first; effort is rendered into the prompt).
+
+        **A prefix below the model's minimum cacheable size silently does not
+        cache** — no error, just `cache_creation_input_tokens: 0` forever. The
+        minimum is model-specific and NOT monotonic across generations: it is
+        4096 tokens on Haiku 4.5 (which serves every classifier-role op here,
+        including `extract_ledger_facts`) but only 512 on Opus 5. A short
+        episode can therefore pay full input rate for its prefix on every call
+        while a longer one caches. That is not harmful — the context is still
+        delivered — but it explains a `cache_read=0` run, and it is the reason
+        the log line carries both counters."""
+        if not cache_prefix:
+            return system
+        return [
+            {"type": "text", "text": system},
+            {
+                "type": "text",
+                "text": cache_prefix,
+                "cache_control": {"type": "ephemeral", "ttl": "1h"},
+            },
+        ]
+
     def _call(
-        self, op_name: str, *, system: str, user_message: str, prompt_version: str
+        self,
+        op_name: str,
+        *,
+        system: str,
+        user_message: str,
+        prompt_version: str,
+        cache_prefix: str | None = None,
     ) -> BaseModel:
         op = OP_REGISTRY[op_name]
         model = self._models[op.role]
@@ -312,7 +361,7 @@ class AnthropicClient:
         kwargs: dict[str, Any] = {
             "model": model,
             "max_tokens": op.max_tokens if op.max_tokens is not None else self._max_tokens,
-            "system": system,
+            "system": self._system_param(system, cache_prefix),
             "tools": [tool],
             "tool_choice": (
                 {"type": "tool", "name": op.name}
@@ -609,13 +658,19 @@ class AnthropicClient:
         )
 
     def extract_ledger_facts(
-        self, *, system: str, user_message: str, prompt_version: str
+        self,
+        *,
+        system: str,
+        user_message: str,
+        prompt_version: str,
+        cache_prefix: str | None = None,
     ) -> LedgerExtraction:
         return self._call(
             "extract_ledger_facts",
             system=system,
             user_message=user_message,
             prompt_version=prompt_version,
+            cache_prefix=cache_prefix,
         )
 
     def suggest_instructions(

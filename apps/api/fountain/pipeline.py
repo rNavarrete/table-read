@@ -530,10 +530,17 @@ def analyze_import(
         len(scene_docs),
         LedgerExtraction,
     )
+    # One whole-episode payload, built once and reused verbatim by every scene
+    # call, so the prompt prefix stays byte-identical and caches (§ measured at
+    # ~0.1x input per warm call). Extraction is the op that most needs it: who
+    # already knows a fact, and whether a later scene contradicts it, are not
+    # answerable from the target scene alone.
+    episode_source = render.build_episode_source_block(scene_docs, run_nonce)
     extractions = yield from _run_ordered_parallel(
         scene_docs,
         lambda index, scene: _extract_one(
-            index, scene, new_doc, episode_id, characters, llm, run_nonce
+            index, scene, new_doc, episode_id, characters, llm, run_nonce,
+            episode_source,
         ),
         stage=STAGE_EXTRACTING_FACTS,
         existing_results=cached_extractions,
@@ -973,13 +980,23 @@ def _extract_one(
     characters: list[dict],
     llm: LlmClient,
     run_nonce: str,
+    episode_source: str | None = None,
 ) -> LedgerExtraction:
+    """Extract facts for one scene, with the whole episode as cached context.
+
+    `episode_source` is built once per run and passed unchanged to every call
+    (see `render.build_episode_source_block`). It must not be rebuilt here: a
+    per-call rebuild would still be byte-identical today, but it invites a
+    future per-call detail to creep in and silently kill the cache."""
     system, user = render.build_extract_prompt(
         new_doc, episode_id, scene, [], characters, run_nonce
     )
     try:
         return llm.extract_ledger_facts(
-            system=system, user_message=user, prompt_version=render.PROMPT_VERSION
+            system=system,
+            user_message=user,
+            prompt_version=render.PROMPT_VERSION,
+            cache_prefix=episode_source,
         )
     except Exception as exc:
         reason_class, _reason = classify_llm_unavailable_reason(exc)

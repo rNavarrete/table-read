@@ -25,7 +25,13 @@ import secrets
 from typing import Any
 
 # Prompt spec §8 / hard rule 7: every template carries a PROMPT_VERSION (semver);
-# it is logged with each call and bumped on any template change. Bumped to
+# it is logged with each call and bumped on any template change. 0.33.0 gives
+# the per-scene extraction loop the whole episode as a cached prompt prefix:
+# every call still targets one scene, but can now see the scenes around it, so
+# cross-scene facts (who already knew this, what the audience knows, a fact
+# contradicted twelve scenes later) are reachable at all. Measured at ~$0.009
+# of marginal input per call for a 45-scene episode.
+# Bumped to
 # 0.32.0 gives Narrative Map verification a bounded, citation-only source
 # packet rather than replaying every raw screenplay scene, and instructs the
 # verifier to separate blocking evidence failures from editorial advisories.
@@ -57,7 +63,7 @@ from typing import Any
 # 0.10.0 typed segment starts; 0.9.0 lock-aware narrative repair. Earlier:
 # 0.8.0 suggest; 0.7.0 scene skeleton; 0.6.0 continuity; 0.5.0 regenerate;
 # 0.4.0 blast; 0.3.0 tune; 0.2.0 candidate + §0 system prompt.
-PROMPT_VERSION = "0.32.0"
+PROMPT_VERSION = "0.33.0"
 
 
 def new_nonce() -> str:
@@ -583,6 +589,35 @@ def build_narrative_map_verification_prompt(
     return build_system_prompt(project, nonce), user
 
 
+def build_episode_source_block(scenes: list[dict], nonce: str) -> str:
+    """The whole episode's script, for use as a **cached prompt prefix**.
+
+    Per-scene ops (extraction, segmentation) target one scene at a time, but a
+    scene alone cannot answer the questions the ledger exists to answer: who
+    already knew this, whether the audience knows it, whether a later scene
+    contradicts it. Those are all cross-scene. Sending the whole episode as a
+    cached prefix makes that context available on every call for ~0.1x input
+    after the first write.
+
+    Byte-stability is the whole point: caching is a prefix match, so this must
+    render identically on every call of a run. It derives only from the saved
+    episode and the run nonce, both fixed for the run — do not interpolate
+    anything per-call here, and keep the per-call payload in the user turn."""
+    payload = [
+        {
+            "sceneId": scene["id"],
+            "act": scene.get("act", 0),
+            "location": scene.get("location", ""),
+            "beats": [
+                {"beatId": beat["id"], "scriptText": beat.get("scriptText", "")}
+                for beat in scene.get("beats", [])
+            ],
+        }
+        for scene in scenes
+    ]
+    return source_data("episode_script", payload, nonce)
+
+
 def build_extract_prompt(
     project: dict,
     episode_id: str,
@@ -592,7 +627,15 @@ def build_extract_prompt(
     nonce: str,
 ) -> tuple[str, str]:
     """`extract_ledger_facts` (§5): line-numbered beats for one imported scene,
-    existing facts as full objects, and the character list."""
+    existing facts as full objects, and the character list.
+
+    The target scene stays line-numbered in the *user* turn because
+    `ledger_policy.verify_source_text` locates each quote within the reported
+    line range — that verification is what demotes an unfounded fact, so the
+    numbering must describe exactly the beat the model is reporting against.
+    Whole-episode context arrives separately as the cached prefix (see
+    `build_episode_source_block`); it is deliberately not line-numbered, so
+    there is no second, conflicting coordinate space for the model to cite."""
     beats = [
         {
             "beatId": b["id"],
@@ -608,7 +651,12 @@ def build_extract_prompt(
         + source_data("continuity_facts", existing_facts, nonce)
         + "\n"
         + source_data("characters", characters, nonce)
-        + "\nExtract new continuity facts and flag contradictions. Report line "
+        + "\nExtract new continuity facts and flag contradictions for THIS "
+        "scene only. The whole episode is available above as context: use it "
+        "to judge who already knows each fact at this point, whether the "
+        "audience knows it, and whether a later scene contradicts it — but "
+        "report sourceSpan line ranges only into the numbered beats of this "
+        "scene. Report line "
         "ranges into each beat's numbered scriptText; do not transcribe. If "
         "this scene shows a character learning (or, rarely, forgetting) a "
         "new fact beyond who already knows it at the moment it's "
