@@ -65,6 +65,18 @@ def facts_as_of(
     return in_force
 
 
+# Which KnowledgeEvent kinds move the knower set. Kept as explicit sets rather
+# than an if/elif chain so that adding a kind to the contract without deciding
+# its fold semantics is a visible omission here, not a silent no-op.
+#
+# `confirms` adds because a suspicion that hardens into certainty IS knowing.
+# `suspects` and `misinformed` are deliberately in neither set: they are
+# belief states, and treating a belief as knowledge is how a ledger ends up
+# confidently wrong. See `KnowledgeEventKind` in packages/contract.
+_KINDS_THAT_ADD_KNOWERS = frozenset({"learns", "confirms"})
+_KINDS_THAT_REMOVE_KNOWERS = frozenset({"forgets"})
+
+
 def knowers_as_of(fact: dict, scenes: list[dict], as_of_scene_id: str) -> list[str]:
     """Who knows `fact` as of `as_of_scene_id` (design doc "Semantics for as-of").
 
@@ -95,11 +107,16 @@ def knowers_as_of(fact: dict, scenes: list[dict], as_of_scene_id: str) -> list[s
     knowers: list[str] = list(fact.get("knownBy") or [])
     for _index, _position, event in applicable:
         character_ids = event.get("characterIds") or []
-        if event.get("kind") == "learns":
+        kind = event.get("kind")
+        if kind in _KINDS_THAT_ADD_KNOWERS:
             for character_id in character_ids:
                 if character_id not in knowers:
                     knowers.append(character_id)
-        elif event.get("kind") == "forgets":
+        elif kind in _KINDS_THAT_REMOVE_KNOWERS:
             forgotten = set(character_ids)
             knowers = [cid for cid in knowers if cid not in forgotten]
+        # Every other kind is deliberately inert here. `suspects` and
+        # `misinformed` describe what a character believes, not what they
+        # know, and folding them in would quietly turn a hunch or a lie into
+        # canon — exactly the failure `knownBy` exists to prevent.
     return knowers

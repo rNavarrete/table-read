@@ -126,10 +126,19 @@ class SeriesBible(_Base):
 
 
 class Motivation(_Base):
+    """`objective` is what the character actually pursues; `stated_objective`
+    is what they claim, when that differs (empty = no gap, the common case).
+    The distance between the two IS the ulterior motive. `concealed`
+    separates deliberate deception from self-deception — a dramaturg treats
+    those differently and it isn't recoverable from the strings alone.
+    See packages/contract/src/index.ts's `Motivation` docstring."""
+
     character_id: Id
     objective: str
     stakes: str
     obstacle: str
+    stated_objective: str = ""
+    concealed: bool = False
 
 
 class Beat(_Base):
@@ -223,6 +232,34 @@ class StoryThread(_Base):
     payoff_scene_id: Id | None = None
     setup_quote: str = ""
     payoff_quote: str = ""
+    locked: bool = False
+
+
+class Provenance(StrEnum):
+    inferred = "inferred"
+    writer_confirmed = "writer_confirmed"
+    writer_authored = "writer_authored"
+
+
+class Secret(_Base):
+    """A StoryThread's shape applied to concealment: established -> revealed
+    rather than setup -> paid off. What it adds is the asymmetry a thread has
+    no room for — who holds it and who is kept in the dark. A fact everyone
+    knows is not a secret, and `known_by` alone cannot say whether the gap is
+    deliberate. See packages/contract/src/index.ts's `Secret` docstring."""
+
+    id: Id
+    summary: str
+    fact_id: Id | None = None
+    holder_character_ids: list[Id] = []
+    concealed_from_character_ids: list[Id] = []
+    audience_knows: bool = True
+    established_scene_id: Id
+    revealed_scene_id: Id | None = None
+    concealment_scene_ids: list[Id] = []
+    established_quote: str = ""
+    revealed_quote: str = ""
+    provenance: Provenance = Provenance.inferred
     locked: bool = False
 
 
@@ -419,6 +456,7 @@ class Episode(_Base):
     relationship_states: list[RelationshipState] = []
     object_states: list[ObjectState] = []
     threads: list[StoryThread] = []
+    secrets: list[Secret] = []
     story_overview: StoryOverview | None = None
     narrative_map: NarrativeMap | None = None
 
@@ -459,12 +497,6 @@ class FactType(StrEnum):
     world_rule = "world_rule"
 
 
-class Provenance(StrEnum):
-    inferred = "inferred"
-    writer_confirmed = "writer_confirmed"
-    writer_authored = "writer_authored"
-
-
 class FactStatus(StrEnum):
     active = "active"
     superseded = "superseded"
@@ -474,8 +506,16 @@ class FactStatus(StrEnum):
 
 
 class KnowledgeEventKind(StrEnum):
+    """Only `learns`/`confirms` add to the knower set and only `forgets`
+    removes; `suspects` and `misinformed` deliberately do NOT, so `known_by`
+    keeps meaning "who actually knows the true fact". See
+    packages/contract/src/index.ts's `KnowledgeEventKind` docstring."""
+
     learns = "learns"
+    confirms = "confirms"
     forgets = "forgets"
+    suspects = "suspects"
+    misinformed = "misinformed"
 
 
 class KnowledgeEvent(_Base):
@@ -981,6 +1021,8 @@ class InferredMotivation(_Base):
     objective: str
     stakes: str
     obstacle: str
+    stated_objective: str
+    concealed: bool
 
 
 class InferredSceneMotivations(_Base):
@@ -997,8 +1039,23 @@ class InferredWorldRule(_Base):
     evidence_quote: str
 
 
+class InferredSecret(_Base):
+    """Names, not ids — the server resolves them and mints the secret id."""
+
+    summary: str
+    holder_names: list[str]
+    concealed_from_names: list[str]
+    audience_knows: bool
+    established_scene_id: Id
+    revealed_scene_id: Id | None
+    concealment_scene_ids: list[Id]
+    established_quote: str
+    revealed_quote: str
+
+
 class NarrativePromises(_Base):
     threads: list[InferredThread]
+    secrets: list[InferredSecret]
     scene_motivations: list[InferredSceneMotivations]
     world_rules: list[InferredWorldRule]
 

@@ -53,10 +53,12 @@ def promises(
     threads: list[dict] | None = None,
     scene_motivations: list[dict] | None = None,
     world_rules: list[dict] | None = None,
+    secrets: list[dict] | None = None,
 ) -> NarrativePromises:
     return NarrativePromises.model_validate(
         {
             "threads": threads or [],
+            "secrets": secrets or [],
             "sceneMotivations": scene_motivations or [],
             "worldRules": world_rules or [],
         }
@@ -170,6 +172,8 @@ def test_merge_patches_scene_motivations_when_character_resolves():
                             "objective": "Find the money.",
                             "stakes": "Trust.",
                             "obstacle": "Dan's charm.",
+                            "statedObjective": "",
+                            "concealed": False,
                         }
                     ],
                 }
@@ -212,6 +216,8 @@ def test_merge_keeps_prior_motivations_when_none_resolve():
                             "objective": "x",
                             "stakes": "x",
                             "obstacle": "x",
+                            "statedObjective": "",
+                            "concealed": False,
                         }
                     ],
                 }
@@ -239,6 +245,8 @@ def test_merge_ignores_motivations_for_unknown_scene():
                             "objective": "x",
                             "stakes": "x",
                             "obstacle": "x",
+                            "statedObjective": "",
+                            "concealed": False,
                         }
                     ],
                 }

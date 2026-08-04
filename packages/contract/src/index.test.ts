@@ -6,6 +6,10 @@ import {
   ProjectImportStageName,
   StoryThread,
   WorldRule,
+  Episode,
+  KnowledgeEvent,
+  Motivation,
+  Secret,
 } from './index'
 
 // Placeholder scaffold test — real schema tests land in T0.2.
@@ -174,6 +178,19 @@ describe('NarrativePromises', () => {
           payoffQuote: '',
         },
       ],
+      secrets: [
+        {
+          summary: 'Marty is hiding the almanac from Doc.',
+          holderNames: ['Marty'],
+          concealedFromNames: ['Doc'],
+          audienceKnows: true,
+          establishedSceneId: 'scene-1',
+          revealedSceneId: null,
+          concealmentSceneIds: [],
+          establishedQuote: 'quote',
+          revealedQuote: '',
+        },
+      ],
       sceneMotivations: [
         {
           sceneId: 'scene-1',
@@ -183,6 +200,8 @@ describe('NarrativePromises', () => {
               objective: 'o',
               stakes: 's',
               obstacle: 'b',
+              statedObjective: '',
+              concealed: false,
             },
           ],
         },
@@ -208,5 +227,99 @@ describe('ProjectImportStageName', () => {
     expect(stages.indexOf('inferring_promises')).toBe(
       stages.indexOf('inferring_entities') + 1,
     )
+  })
+})
+
+describe('Motivation stated vs actual', () => {
+  it('defaults to no stated/actual gap so existing docs validate', () => {
+    const parsed = Motivation.parse({
+      characterId: 'char-marta',
+      objective: 'Get Dan to admit he moved the money.',
+      stakes: 'Trusting her brother.',
+      obstacle: 'Dan deflects.',
+    })
+    expect(parsed.statedObjective).toBe('')
+    expect(parsed.concealed).toBe(false)
+  })
+
+  it('carries an ulterior motive as the gap between stated and actual', () => {
+    const parsed = Motivation.parse({
+      characterId: 'char-dan',
+      objective: 'Keep Marta away from the ice machine.',
+      stakes: 'The money.',
+      obstacle: 'She already saw the transfer.',
+      statedObjective: 'Close up the bar.',
+      concealed: true,
+    })
+    expect(parsed.statedObjective).not.toBe(parsed.objective)
+    expect(parsed.concealed).toBe(true)
+  })
+})
+
+describe('KnowledgeEvent kinds', () => {
+  it('accepts belief states distinct from knowing', () => {
+    for (const kind of [
+      'learns',
+      'confirms',
+      'forgets',
+      'suspects',
+      'misinformed',
+    ]) {
+      expect(KnowledgeEvent.parse({ sceneId: 'scene-2', kind }).kind).toBe(kind)
+    }
+  })
+
+  it('rejects a kind the fold has no semantics for', () => {
+    expect(() =>
+      KnowledgeEvent.parse({ sceneId: 'scene-2', kind: 'overhears' }),
+    ).toThrow()
+  })
+})
+
+describe('Secret', () => {
+  it('treats a null revealedSceneId as still concealed', () => {
+    const parsed = Secret.parse({
+      id: 'secret-01',
+      summary: "Dan hid the money in the bar's ice machine.",
+      holderCharacterIds: ['char-dan'],
+      concealedFromCharacterIds: ['char-marta'],
+      establishedSceneId: 'scene-2',
+    })
+    expect(parsed.revealedSceneId).toBeNull()
+    expect(parsed.factId).toBeNull()
+    expect(parsed.audienceKnows).toBe(true)
+    expect(parsed.provenance).toBe('inferred')
+    expect(parsed.locked).toBe(false)
+  })
+
+  it('requires the concealment asymmetry to be expressible', () => {
+    // A fact everyone knows is not a secret: holder and concealed-from are
+    // what distinguish one from a plain ledger fact.
+    const parsed = Secret.parse({
+      id: 'secret-01',
+      summary: 'x',
+      establishedSceneId: 'scene-1',
+      holderCharacterIds: ['char-dan'],
+      concealedFromCharacterIds: ['char-marta'],
+      concealmentSceneIds: ['scene-3'],
+      revealedSceneId: 'scene-9',
+    })
+    expect(parsed.holderCharacterIds).toEqual(['char-dan'])
+    expect(parsed.concealedFromCharacterIds).toEqual(['char-marta'])
+    expect(parsed.concealmentSceneIds).toEqual(['scene-3'])
+  })
+})
+
+describe('Episode.secrets', () => {
+  it('defaults to [] so pre-existing docs validate', () => {
+    const episode = Episode.parse({
+      id: 'ep-1',
+      index: 0,
+      title: 'Pilot',
+      premise: '',
+      storylines: [],
+      scenes: [],
+    })
+    expect(episode.secrets).toEqual([])
   })
 })

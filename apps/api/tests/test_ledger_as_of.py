@@ -154,3 +154,81 @@ def test_knowers_as_of_unknown_as_of_scene_id_raises_key_error():
         raise AssertionError("expected KeyError")
     except KeyError:
         pass
+
+
+def _fact_with_events(events: list[dict], known_by: list[str] | None = None) -> dict:
+    return {
+        "id": "fact-01",
+        "knownBy": known_by if known_by is not None else [],
+        "knowledgeEvents": events,
+        "sourceSpan": {"episodeId": "ep-1", "sceneId": "scene-1", "beatId": "beat-1-1"},
+        "status": "active",
+        "supersedes": None,
+        "supersededBy": None,
+    }
+
+
+_SCENES = [{"id": "scene-1"}, {"id": "scene-2"}, {"id": "scene-3"}]
+
+
+def test_confirms_adds_a_knower_like_learns():
+    """A suspicion that hardens into certainty is knowing."""
+    fact = _fact_with_events(
+        [{"sceneId": "scene-2", "characterIds": ["char-marta"], "kind": "confirms"}]
+    )
+    assert knowers_as_of(fact, _SCENES, "scene-3") == ["char-marta"]
+
+
+def test_suspects_does_not_make_a_character_a_knower():
+    """A hunch is not knowledge.
+
+    Folding `suspects` into knownBy would put a character's guess into canon
+    and, worse, into every later generation prompt as established fact — the
+    precise way a continuity ledger becomes confidently wrong.
+    """
+    fact = _fact_with_events(
+        [{"sceneId": "scene-2", "characterIds": ["char-marta"], "kind": "suspects"}]
+    )
+    assert knowers_as_of(fact, _SCENES, "scene-3") == []
+
+
+def test_misinformed_does_not_make_a_character_a_knower():
+    """Being told something false is the opposite of knowing it."""
+    fact = _fact_with_events(
+        [{"sceneId": "scene-2", "characterIds": ["char-dan"], "kind": "misinformed"}]
+    )
+    assert knowers_as_of(fact, _SCENES, "scene-3") == []
+
+
+def test_suspect_then_confirm_replays_in_scene_order():
+    """The sequence a mystery actually runs: suspicion, then proof."""
+    fact = _fact_with_events(
+        [
+            {"sceneId": "scene-3", "characterIds": ["char-marta"], "kind": "confirms"},
+            {"sceneId": "scene-2", "characterIds": ["char-marta"], "kind": "suspects"},
+        ]
+    )
+    # As of the suspicion she still does not know it...
+    assert knowers_as_of(fact, _SCENES, "scene-2") == []
+    # ...and only the confirmation makes her a knower.
+    assert knowers_as_of(fact, _SCENES, "scene-3") == ["char-marta"]
+
+
+def test_every_contract_kind_has_decided_fold_semantics():
+    """A new kind must be classified, not silently ignored.
+
+    Adding a value to KnowledgeEventKind without deciding whether it moves the
+    knower set would make it a no-op by default — a quiet wrong answer rather
+    than a loud failure.
+    """
+    from drama_manager.ledger_as_of import (
+        _KINDS_THAT_ADD_KNOWERS,
+        _KINDS_THAT_REMOVE_KNOWERS,
+    )
+    from schemas import KnowledgeEventKind
+
+    decided = _KINDS_THAT_ADD_KNOWERS | _KINDS_THAT_REMOVE_KNOWERS | {
+        "suspects",
+        "misinformed",
+    }
+    assert {k.value for k in KnowledgeEventKind} == decided

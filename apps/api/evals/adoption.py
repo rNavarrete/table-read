@@ -781,6 +781,19 @@ def _seed_promises_response() -> NarrativePromises:
                 "payoffQuote": "",
             },
         ],
+        secrets=[
+            {
+                "summary": "Cass has been writing to her sister and never sending it.",
+                "holderNames": ["Cass"],
+                "concealedFromNames": ["Nora"],
+                "audienceKnows": True,
+                "establishedSceneId": "scene-promises-1",
+                "revealedSceneId": None,
+                "concealmentSceneIds": [],
+                "establishedQuote": "Maybe I'll send this one to my sister. Maybe I won't.",
+                "revealedQuote": "",
+            }
+        ],
         sceneMotivations=[
             {
                 "sceneId": "scene-promises-1",
@@ -790,6 +803,8 @@ def _seed_promises_response() -> NarrativePromises:
                         "objective": "Return the brass compass to Cass.",
                         "stakes": "Honoring her father's dying request.",
                         "obstacle": "Cass won't let go of the compass.",
+                        "statedObjective": "",
+                        "concealed": False,
                     }
                 ],
             }

@@ -22,7 +22,11 @@
             ]
           }
         },
-        "required": ["existingFactId", "explanation", "proposedReplacement"],
+        "required": [
+          "existingFactId",
+          "explanation",
+          "proposedReplacement"
+        ],
         "type": "object"
       },
       "type": "array"
@@ -63,7 +67,13 @@
                   "type": "array"
                 },
                 "kind": {
-                  "enum": ["learns", "forgets"],
+                  "enum": [
+                    "learns",
+                    "confirms",
+                    "forgets",
+                    "suspects",
+                    "misinformed"
+                  ],
                   "type": "string"
                 },
                 "quote": {
@@ -74,7 +84,12 @@
                   "type": "string"
                 }
               },
-              "required": ["sceneId", "characterNames", "kind", "quote"],
+              "required": [
+                "sceneId",
+                "characterNames",
+                "kind",
+                "quote"
+              ],
               "type": "object"
             },
             "type": "array"
@@ -132,6 +147,9 @@
       "type": "array"
     }
   },
-  "required": ["newFacts", "contradictions"],
+  "required": [
+    "newFacts",
+    "contradictions"
+  ],
   "type": "object"
 }

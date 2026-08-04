@@ -98,11 +98,23 @@ export const SeriesBible = z.object({
 })
 export type SeriesBible = z.infer<typeof SeriesBible>
 
+// `objective` is what the character is actually pursuing — unchanged meaning,
+// so pre-existing docs keep working. `statedObjective` is what they claim to
+// be pursuing when that differs; empty (the default) means there is no gap,
+// which is the common case. A non-empty `statedObjective` IS the ulterior
+// motive: the drama lives in the distance between the two.
+//
+// `concealed` separates the two ways that gap arises — deliberate deception
+// (true) from self-deception or a want the character can't yet articulate
+// (false). A dramaturg treats those very differently, and it is not
+// recoverable from the two strings alone.
 export const Motivation = z.object({
   characterId: Id,
   objective: z.string(),
   stakes: z.string(),
   obstacle: z.string(),
+  statedObjective: z.string().default(''),
+  concealed: z.boolean().default(false),
 })
 export type Motivation = z.infer<typeof Motivation>
 
@@ -197,6 +209,43 @@ export const StoryThread = z.object({
   locked: z.boolean().default(false),
 })
 export type StoryThread = z.infer<typeof StoryThread>
+
+// A secret is a StoryThread's shape applied to concealment: established ->
+// revealed instead of setup -> paid off, which is why it lives beside it and
+// mirrors its fields. What it adds is the asymmetry a thread has no room for
+// — WHO holds it and who is kept in the dark. That pair is the whole point:
+// a fact everyone knows is not a secret, and `knownBy` alone can't say
+// whether the gap is deliberate.
+//
+// `factId` links to the LedgerFact being concealed when there is one, so the
+// secret does not become a second, drifting copy of the truth. It is nullable
+// because a secret can be established before the fact is nailed down (a
+// character conceals something the ledger hasn't pinned yet).
+//
+// `revealedSceneId: null` means still concealed at end of episode — the
+// direct analogue of an open thread, and the thing a writer most wants
+// flagged. Defaults throughout so pre-existing docs validate.
+export const Secret = z.object({
+  id: Id,
+  summary: z.string(),
+  factId: Id.nullable().default(null),
+  holderCharacterIds: z.array(Id).default([]),
+  concealedFromCharacterIds: z.array(Id).default([]),
+  audienceKnows: z.boolean().default(true),
+  establishedSceneId: Id,
+  revealedSceneId: Id.nullable().default(null),
+  // Scenes where the secret is actively maintained — a deflection, a lie, a
+  // change of subject. These are the beats a writer scans for when the reveal
+  // needs to land, and they are invisible from the establish/reveal pair.
+  concealmentSceneIds: z.array(Id).default([]),
+  establishedQuote: z.string().default(''),
+  revealedQuote: z.string().default(''),
+  provenance: z
+    .enum(['inferred', 'writer_confirmed', 'writer_authored'])
+    .default('inferred'),
+  locked: z.boolean().default(false),
+})
+export type Secret = z.infer<typeof Secret>
 
 // T7.27 — episode-level story overview (logline, scene outline, named beat
 // sheet, two-paragraph synopsis). Import mints no ids; outline/beatSheet
@@ -417,6 +466,10 @@ export const Episode = z.object({
   // T7.19 narrative-promise threads (design doc "MVP stores threads on the
   // first (only) episode"). Defaults to [] so pre-existing docs validate.
   threads: z.array(StoryThread).default([]),
+  // Concealment arcs, episode-scoped like threads: who is hiding what from
+  // whom, and whether it has landed yet. Defaults to [] so pre-existing docs
+  // validate.
+  secrets: z.array(Secret).default([]),
   // T7.27 episode story overview (import-inferred logline/outline/beat sheet/
   // synopsis). Defaults to null so pre-existing docs validate.
   storyOverview: StoryOverview.nullable().default(null),
@@ -462,10 +515,34 @@ export type SourceSpan = z.infer<typeof SourceSpan>
 // `knowers_as_of` (apps/api/drama_manager/ledger_as_of.py) starts from
 // baseline `knownBy` and folds in every event with `sceneId` index <= the
 // queried scene, in scene order.
+// Knowing is not the only epistemic state a scene can put a character in, and
+// collapsing the others into "knows" is what produces the confident-but-wrong
+// ledger. Only two kinds move the knower set:
+//
+//   learns      -> joins the knower set
+//   confirms    -> joins it (suspicion hardening into knowledge)
+//   forgets     -> leaves it
+//   suspects    -> does NOT join: they have a hypothesis, not the fact
+//   misinformed -> does NOT join: they hold a false belief about it
+//
+// `knownBy` therefore keeps its exact meaning — who actually knows the true
+// fact — while suspicion and misinformation stay visible to the writer
+// instead of being rounded up into knowledge. Dramatic irony continues to
+// live in the knownBy/audienceKnows gap; `misinformed` is the sharper case
+// where a character is confidently wrong.
+export const KnowledgeEventKind = z.enum([
+  'learns',
+  'confirms',
+  'forgets',
+  'suspects',
+  'misinformed',
+])
+export type KnowledgeEventKind = z.infer<typeof KnowledgeEventKind>
+
 export const KnowledgeEvent = z.object({
   sceneId: Id,
   characterIds: z.array(Id).default([]),
-  kind: z.enum(['learns', 'forgets']),
+  kind: KnowledgeEventKind,
   quote: z.string().default(''), // <=200 chars evidence
 })
 export type KnowledgeEvent = z.infer<typeof KnowledgeEvent>
@@ -937,6 +1014,22 @@ export const NarrativePromises = z.object({
       payoffQuote: z.string(),
     }),
   ),
+  // Concealment arcs. Names, not ids (server resolves), and scene ids chosen
+  // from the supplied list. `revealedSceneId: null` = still concealed at end
+  // of episode. The server mints ids and links `factId` where it can.
+  secrets: z.array(
+    z.object({
+      summary: z.string(),
+      holderNames: z.array(z.string()),
+      concealedFromNames: z.array(z.string()),
+      audienceKnows: z.boolean(),
+      establishedSceneId: Id,
+      revealedSceneId: Id.nullable(),
+      concealmentSceneIds: z.array(Id),
+      establishedQuote: z.string(),
+      revealedQuote: z.string(),
+    }),
+  ),
   sceneMotivations: z.array(
     z.object({
       sceneId: Id,
@@ -946,6 +1039,10 @@ export const NarrativePromises = z.object({
           objective: z.string(),
           stakes: z.string(),
           obstacle: z.string(),
+          // Empty unless the character claims a different goal than the one
+          // their behaviour serves; the gap is the ulterior motive.
+          statedObjective: z.string(),
+          concealed: z.boolean(),
         }),
       ),
     }),
@@ -1173,10 +1270,15 @@ export type NarrativeMapVerification = z.infer<typeof NarrativeMapVerification>
 // characters, never ids (same convention as `knownBy`/`InferredCharacter`);
 // the server resolves each name the same way `knownBy` names are resolved
 // (`fountain.characters.normalize_known_by`) before storing.
+// Extract-time counterpart to KnowledgeEvent: same kinds, but the model names
+// characters rather than minting ids (server resolves via
+// fountain.characters.normalize_known_by). See KnowledgeEventKind above for
+// which kinds move the knower set — the model reports what the scene shows,
+// the server decides what that means for `knownBy`.
 export const ExtractedKnowledgeEvent = z.object({
   sceneId: Id,
   characterNames: z.array(z.string()).default([]),
-  kind: z.enum(['learns', 'forgets']),
+  kind: KnowledgeEventKind,
   quote: z.string().default(''),
 })
 export type ExtractedKnowledgeEvent = z.infer<typeof ExtractedKnowledgeEvent>

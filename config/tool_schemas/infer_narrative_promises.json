@@ -12,6 +12,9 @@
                 "characterName": {
                   "type": "string"
                 },
+                "concealed": {
+                  "type": "boolean"
+                },
                 "objective": {
                   "type": "string"
                 },
@@ -20,9 +23,19 @@
                 },
                 "stakes": {
                   "type": "string"
+                },
+                "statedObjective": {
+                  "type": "string"
                 }
               },
-              "required": ["characterName", "objective", "stakes", "obstacle"],
+              "required": [
+                "characterName",
+                "objective",
+                "stakes",
+                "obstacle",
+                "statedObjective",
+                "concealed"
+              ],
               "type": "object"
             },
             "type": "array"
@@ -31,7 +44,73 @@
             "type": "string"
           }
         },
-        "required": ["sceneId", "motivations"],
+        "required": [
+          "sceneId",
+          "motivations"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "secrets": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "audienceKnows": {
+            "type": "boolean"
+          },
+          "concealedFromNames": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "concealmentSceneIds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "establishedQuote": {
+            "type": "string"
+          },
+          "establishedSceneId": {
+            "type": "string"
+          },
+          "holderNames": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "revealedQuote": {
+            "type": "string"
+          },
+          "revealedSceneId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "summary": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "summary",
+          "holderNames",
+          "concealedFromNames",
+          "audienceKnows",
+          "establishedSceneId",
+          "revealedSceneId",
+          "concealmentSceneIds",
+          "establishedQuote",
+          "revealedQuote"
+        ],
         "type": "object"
       },
       "type": "array"
@@ -69,7 +148,11 @@
             "type": "string"
           },
           "status": {
-            "enum": ["open", "paid_off", "abandoned"],
+            "enum": [
+              "open",
+              "paid_off",
+              "abandoned"
+            ],
             "type": "string"
           },
           "summary": {
@@ -133,6 +216,11 @@
       "type": "array"
     }
   },
-  "required": ["threads", "sceneMotivations", "worldRules"],
+  "required": [
+    "threads",
+    "secrets",
+    "sceneMotivations",
+    "worldRules"
+  ],
   "type": "object"
 }

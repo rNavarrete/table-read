@@ -78,11 +78,18 @@ export const SeriesBible = z.object({
   ),
 })
 
+// `objective` = what the character actually pursues (meaning unchanged).
+// `statedObjective` = what they claim, when that differs; empty means no gap.
+// The distance between the two is the ulterior motive. `concealed` separates
+// deliberate deception from self-deception. Both default, so pre-existing
+// docs validate.
 export const Motivation = z.object({
   characterId: Id,
   objective: z.string(),
   stakes: z.string(),
   obstacle: z.string(),
+  statedObjective: z.string().default(''),
+  concealed: z.boolean().default(false),
 })
 
 export const Beat = z.object({
@@ -256,6 +263,31 @@ export const StoryThread = z.object({
   locked: z.boolean().default(false),
 })
 
+// A StoryThread's shape applied to concealment: established -> revealed
+// rather than setup -> paid off. What it adds is the asymmetry a thread has
+// no room for — who holds it and who is kept in the dark. A fact everyone
+// knows is not a secret, and `knownBy` alone cannot say whether the gap is
+// deliberate. `factId` links the concealed LedgerFact when one exists, so the
+// secret never becomes a second, drifting copy of the truth.
+// `revealedSceneId: null` = still concealed at end of episode.
+export const Secret = z.object({
+  id: Id,
+  summary: z.string(),
+  factId: Id.nullable().default(null),
+  holderCharacterIds: z.array(Id).default([]),
+  concealedFromCharacterIds: z.array(Id).default([]),
+  audienceKnows: z.boolean().default(true),
+  establishedSceneId: Id,
+  revealedSceneId: Id.nullable().default(null),
+  concealmentSceneIds: z.array(Id).default([]),
+  establishedQuote: z.string().default(''),
+  revealedQuote: z.string().default(''),
+  provenance: z
+    .enum(['inferred', 'writer_confirmed', 'writer_authored'])
+    .default('inferred'),
+  locked: z.boolean().default(false),
+})
+
 export const Episode = z.object({
   id: Id,
   index: z.number().int().min(0),
@@ -274,6 +306,8 @@ export const Episode = z.object({
   // T7.19 narrative-promise threads — MVP stores threads on the first
   // (only) episode. Defaults to [] so pre-existing docs validate.
   threads: z.array(StoryThread).default([]),
+  // Concealment arcs, episode-scoped like threads. Defaults to [].
+  secrets: z.array(Secret).default([]),
   // T7.27 episode story overview — null when not yet inferred.
   storyOverview: StoryOverview.nullable().default(null),
   // T7.32 evidence-grounded structural map — null when not yet inferred.
@@ -420,10 +454,23 @@ export const InferredNarrativeMap = z.object({
 // knower set as of sceneId; "forgets" removes them. knowers_as_of
 // (drama_manager/ledger_as_of.py) starts from baseline knownBy and folds in
 // every event with sceneId index <= the queried scene, in scene order.
+// Only `learns`/`confirms` add to the knower set and only `forgets` removes.
+// `suspects` and `misinformed` are recorded but deliberately do NOT move it,
+// so `knownBy` keeps meaning "who actually knows the true fact" — a belief is
+// not knowledge, and folding one in is how a ledger becomes confidently wrong.
+// Fold semantics live in drama_manager/ledger_as_of.py.
+export const KnowledgeEventKind = z.enum([
+  'learns',
+  'confirms',
+  'forgets',
+  'suspects',
+  'misinformed',
+])
+
 export const KnowledgeEvent = z.object({
   sceneId: Id,
   characterIds: z.array(Id).default([]),
-  kind: z.enum(['learns', 'forgets']),
+  kind: KnowledgeEventKind,
   quote: z.string().default(''), // <=200 chars evidence
 })
 
@@ -775,7 +822,7 @@ export const InitialSceneSkeleton = z.object({
 export const ExtractedKnowledgeEvent = z.object({
   sceneId: Id,
   characterNames: z.array(z.string()).default([]),
-  kind: z.enum(['learns', 'forgets']),
+  kind: KnowledgeEventKind,
   quote: z.string().default(''),
 })
 
@@ -874,6 +921,22 @@ export const NarrativePromises = z.object({
       payoffQuote: z.string(),
     }),
   ),
+  // Concealment arcs. Names, not ids (server resolves); scene ids chosen from
+  // the supplied list. `revealedSceneId: null` = still concealed. The server
+  // mints ids and links `factId` where it can.
+  secrets: z.array(
+    z.object({
+      summary: z.string(),
+      holderNames: z.array(z.string()),
+      concealedFromNames: z.array(z.string()),
+      audienceKnows: z.boolean(),
+      establishedSceneId: Id,
+      revealedSceneId: Id.nullable(),
+      concealmentSceneIds: z.array(Id),
+      establishedQuote: z.string(),
+      revealedQuote: z.string(),
+    }),
+  ),
   sceneMotivations: z.array(
     z.object({
       sceneId: Id,
@@ -883,6 +946,8 @@ export const NarrativePromises = z.object({
           objective: z.string(),
           stakes: z.string(),
           obstacle: z.string(),
+          statedObjective: z.string(),
+          concealed: z.boolean(),
         }),
       ),
     }),

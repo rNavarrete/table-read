@@ -1037,10 +1037,12 @@ def promises(
     threads: list[dict] | None = None,
     scene_motivations: list[dict] | None = None,
     world_rules: list[dict] | None = None,
+    secrets: list[dict] | None = None,
 ) -> NarrativePromises:
     return NarrativePromises.model_validate(
         {
             "threads": threads or [],
+            "secrets": secrets or [],
             "sceneMotivations": scene_motivations or [],
             "worldRules": world_rules or [],
         }
@@ -1351,6 +1353,8 @@ def test_import_infers_thread_and_scene_motivations_after_entities(db_session, m
                             "objective": "Find Doc.",
                             "stakes": "The plan falls apart without him.",
                             "obstacle": "The lab is empty.",
+                            "statedObjective": "",
+                            "concealed": False,
                         }
                     ],
                 }

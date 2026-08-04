@@ -223,7 +223,7 @@ Purpose: continuity extraction after each accepted change. Model: `classifier` r
         {
           "sceneId": "",
           "characterNames": ["string"],
-          "kind": "learns | forgets",
+          "kind": "learns | confirms | forgets | suspects | misinformed",
           "quote": "may be empty"
         }
       ],
@@ -242,6 +242,8 @@ Purpose: continuity extraction after each accepted change. Model: `classifier` r
 ```
 
 `audienceKnows` is separate from `knownBy`: dramatic irony is precisely the gap between them (fixture fact-02: audience knows the money is in the ice machine; only Dan does).
+
+`kind` distinguishes knowing from believing. Only `learns`/`confirms` add a character to the knower set and only `forgets` removes one; `suspects` (a hypothesis) and `misinformed` (a false belief) are recorded but never move `knownBy`, so an inference about what someone *thinks* can't quietly become canon and enter later generation prompts as established fact. The server owns that fold (`drama_manager/ledger_as_of.py`); the model just reports what the scene shows.
 
 `knowledgeEvents` (T7.23, optional, empty array is the common case) lets the model note a knowledge-state change for _this_ new fact beyond its baseline `knownBy` — e.g. a character learning it later in the same batch of scene beats. Names, not ids, same convention as `knownBy`; the server resolves each name the same way (`fountain.characters.normalize_known_by`) and drops unresolvable/audience tokens. First cut: this is the only extraction-time surface for knowledge transitions — a dedicated `infer_knowledge_events` classifier op is deferred until this proves insufficient (design doc T7.23).
 
@@ -309,7 +311,7 @@ discovery while bounded excerpts support auditable quotes and keep the
 story-wide request reliable and cost-controlled. All input is
 `<source_data_{nonce}>`.
 
-**Output schema (`NarrativePromises`):** threads (setup→payoff arcs), per-scene motivations, and structured world rules. Threads and motivations name characters by string, never id — same convention as `infer_story_entities`; the server resolves `ownerNames`/`characterName` against the existing bible and drops unresolvable owners/motivations (log counts only, never text — rule 5). `setupSceneId`/`payoffSceneId`/`sceneId`/`evidenceSceneId` are already-known scene ids the model selects from the input scene list, not free text, so they need no resolution.
+**Output schema (`NarrativePromises`):** threads (setup→payoff arcs), **secrets** (concealed→revealed arcs), per-scene motivations, and structured world rules. A secret is a thread with an asymmetry: `holderNames` vs `concealedFromNames`. A fact everyone knows is not a secret, so both sides are required; `revealedSceneId: null` means still concealed at end of episode. Motivations carry `statedObjective` (empty unless the character claims a different goal than their behaviour serves) and `concealed` (deliberate deception vs self-deception) — the stated/actual gap is the ulterior motive. Threads and motivations name characters by string, never id — same convention as `infer_story_entities`; the server resolves `ownerNames`/`characterName` against the existing bible and drops unresolvable owners/motivations (log counts only, never text — rule 5). `setupSceneId`/`payoffSceneId`/`sceneId`/`evidenceSceneId` are already-known scene ids the model selects from the input scene list, not free text, so they need no resolution.
 
 ```json
 {
@@ -333,7 +335,9 @@ story-wide request reliable and cost-controlled. All input is
           "characterName": "string",
           "objective": "string",
           "stakes": "string",
-          "obstacle": "string"
+          "obstacle": "string",
+          "statedObjective": "string, empty when it matches objective",
+          "concealed": true
         }
       ]
     }
@@ -356,7 +360,7 @@ objective, stakes, and obstacle; it omits routine or unsupported scenes rather
 than guessing. Server-side merge policy (T7.20): threads mint new `thread-*`
 ids and attach to the episode (re-import replaces prior import-minted threads
 for that episode, same as scenes — v1 has no thread locking);
-`sceneMotivations` write onto the matching `Scene.motivations` array;
+`secrets` mint `secret-*` ids and attach to the episode alongside threads, with `holderNames`/`concealedFromNames` resolved like `ownerNames` and unresolvable rows dropped; `sceneMotivations` write onto the matching `Scene.motivations` array;
 `worldRules` append new rules into the bible's `worldRules` and never overwrite
 a `locked: true` rule. Schema-invalid after one retry surfaces
 `SCHEMA_INVALID_LLM`, import fails atomically (rule 9).

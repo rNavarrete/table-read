@@ -239,6 +239,22 @@ def _default_responses() -> dict[str, BaseModel]:
                     "payoffQuote": "",
                 }
             ],
+            # Dan is the fixture's worked example of a stated/actual gap: he
+            # says he is closing up, while what he is doing is keeping Marta
+            # away from the ice machine.
+            secrets=[
+                {
+                    "summary": "Dan hid the $40,000 in the bar's ice machine.",
+                    "holderNames": ["Dan"],
+                    "concealedFromNames": ["Marta"],
+                    "audienceKnows": True,
+                    "establishedSceneId": "scene-2",
+                    "revealedSceneId": None,
+                    "concealmentSceneIds": ["scene-3"],
+                    "establishedQuote": "Dan wedges the envelope behind the ice machine.",
+                    "revealedQuote": "",
+                }
+            ],
             sceneMotivations=[
                 {
                     "sceneId": "scene-3",
@@ -248,7 +264,17 @@ def _default_responses() -> dict[str, BaseModel]:
                             "objective": "Get Dan to volunteer where the money went.",
                             "stakes": "Trusting her own brother again.",
                             "obstacle": "Dan deflects with easy charm.",
-                        }
+                            "statedObjective": "",
+                            "concealed": False,
+                        },
+                        {
+                            "characterName": "Dan",
+                            "objective": "Keep Marta away from the ice machine.",
+                            "stakes": "The money, and her knowing he took it.",
+                            "obstacle": "Marta already saw the transfer.",
+                            "statedObjective": "Close up the bar for the night.",
+                            "concealed": True,
+                        },
                     ],
                 }
             ],
