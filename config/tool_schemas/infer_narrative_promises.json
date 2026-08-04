@@ -22,12 +22,7 @@
                   "type": "string"
                 }
               },
-              "required": [
-                "characterName",
-                "objective",
-                "stakes",
-                "obstacle"
-              ],
+              "required": ["characterName", "objective", "stakes", "obstacle"],
               "type": "object"
             },
             "type": "array"
@@ -36,10 +31,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "sceneId",
-          "motivations"
-        ],
+        "required": ["sceneId", "motivations"],
         "type": "object"
       },
       "type": "array"
@@ -77,11 +69,7 @@
             "type": "string"
           },
           "status": {
-            "enum": [
-              "open",
-              "paid_off",
-              "abandoned"
-            ],
+            "enum": ["open", "paid_off", "abandoned"],
             "type": "string"
           },
           "summary": {
@@ -145,10 +133,6 @@
       "type": "array"
     }
   },
-  "required": [
-    "threads",
-    "sceneMotivations",
-    "worldRules"
-  ],
+  "required": ["threads", "sceneMotivations", "worldRules"],
   "type": "object"
 }

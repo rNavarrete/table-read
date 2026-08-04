@@ -1,22 +1,9 @@
 {
   "description": "T7.30 golden story-overview fixture (TV beat-sheet grounding). Plants logline keywords, scene/beat ids, two-paragraph shape, forbids Save-the-Cat feature-only labels, and checks act grounding.",
   "source": "fixtures/story-overview.fountain",
-  "loglineMatchAny": [
-    "Nora",
-    "compass",
-    "debt",
-    "Cass",
-    "tide",
-    "promise"
-  ],
-  "plantedSceneIds": [
-    "scene-overview-1",
-    "scene-overview-2"
-  ],
-  "plantedBeatIds": [
-    "beat-overview-1-1",
-    "beat-overview-2-1"
-  ],
+  "loglineMatchAny": ["Nora", "compass", "debt", "Cass", "tide", "promise"],
+  "plantedSceneIds": ["scene-overview-1", "scene-overview-2"],
+  "plantedBeatIds": ["beat-overview-1-1", "beat-overview-2-1"],
   "summaryParagraphs": 2,
   "hallucinationGuard": {
     "forbiddenWithoutBasis": [

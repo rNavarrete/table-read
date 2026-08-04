@@ -1,0 +1,218 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "acts": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "act": {
+            "type": "integer"
+          },
+          "dramaticQuestion": {
+            "type": "string"
+          },
+          "escalation": {
+            "type": "string"
+          },
+          "turnBeatId": {
+            "type": "string"
+          }
+        },
+        "required": ["act", "dramaticQuestion", "escalation", "turnBeatId"],
+        "type": "object"
+      },
+      "minItems": 1,
+      "type": "array"
+    },
+    "centralConflict": {
+      "type": "string"
+    },
+    "characterArcs": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "arcSummary": {
+            "type": "string"
+          },
+          "characterName": {
+            "type": "string"
+          },
+          "externalPressure": {
+            "type": "string"
+          },
+          "internalConflict": {
+            "type": "string"
+          },
+          "need": {
+            "type": "string"
+          },
+          "turningPoints": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "beatId": {
+                  "type": "string"
+                },
+                "change": {
+                  "type": "string"
+                }
+              },
+              "required": ["beatId", "change"],
+              "type": "object"
+            },
+            "minItems": 1,
+            "type": "array"
+          },
+          "want": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "characterName",
+          "want",
+          "need",
+          "internalConflict",
+          "externalPressure",
+          "arcSummary",
+          "turningPoints"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "controllingIdea": {
+      "type": "string"
+    },
+    "dramaticQuestion": {
+      "type": "string"
+    },
+    "heroJourney": {
+      "additionalProperties": false,
+      "properties": {
+        "applies": {
+          "type": "boolean"
+        },
+        "protagonistName": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "rationale": {
+          "type": "string"
+        },
+        "stages": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "beatId": {
+                "type": "string"
+              },
+              "stage": {
+                "enum": [
+                  "ordinary_world",
+                  "call_to_adventure",
+                  "refusal",
+                  "meeting_the_mentor",
+                  "crossing_the_threshold",
+                  "tests_allies_enemies",
+                  "approach",
+                  "ordeal",
+                  "reward",
+                  "road_back",
+                  "resurrection",
+                  "return_with_elixir"
+                ],
+                "type": "string"
+              },
+              "summary": {
+                "type": "string"
+              }
+            },
+            "required": ["stage", "beatId", "summary"],
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "required": ["applies", "protagonistName", "rationale", "stages"],
+      "type": "object"
+    },
+    "themes": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "evidence": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "beatId": {
+                  "type": "string"
+                }
+              },
+              "required": ["beatId"],
+              "type": "object"
+            },
+            "minItems": 1,
+            "type": "array"
+          },
+          "label": {
+            "type": "string"
+          },
+          "statement": {
+            "type": "string"
+          }
+        },
+        "required": ["label", "statement", "evidence"],
+        "type": "object"
+      },
+      "minItems": 1,
+      "type": "array"
+    },
+    "threadMovements": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "beatId": {
+            "type": "string"
+          },
+          "phase": {
+            "enum": [
+              "setup",
+              "escalation",
+              "reversal",
+              "reveal",
+              "payoff",
+              "aftermath"
+            ],
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "threadId": {
+            "type": "string"
+          }
+        },
+        "required": ["threadId", "beatId", "phase", "summary"],
+        "type": "object"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "dramaticQuestion",
+    "centralConflict",
+    "controllingIdea",
+    "themes",
+    "acts",
+    "heroJourney",
+    "characterArcs",
+    "threadMovements"
+  ],
+  "type": "object"
+}

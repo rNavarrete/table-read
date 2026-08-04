@@ -70,8 +70,7 @@ function derivedFromEvidence(
 ): { summary: string; bio: string } {
   const linked = facts
     .filter(
-      (f) =>
-        f.status !== 'rejected' && knownByIds(f).includes(character.id),
+      (f) => f.status !== 'rejected' && knownByIds(f).includes(character.id),
     )
     .sort((a, b) => {
       const typeDelta =
@@ -98,7 +97,10 @@ function derivedFromEvidence(
   const bioParts: string[] = []
   if (linked.length > 0) {
     bioParts.push(
-      linked.map((f) => f.fact.trim()).filter(Boolean).join(' '),
+      linked
+        .map((f) => f.fact.trim())
+        .filter(Boolean)
+        .join(' '),
     )
   }
   for (const m of motivations.slice(0, 2)) {

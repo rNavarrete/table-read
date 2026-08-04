@@ -2,25 +2,20 @@
 import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import { CommandBar } from './CommandBar'
-import { WRITE_WHIMSY } from './writeWhimsy'
 
 afterEach(cleanup)
 
 describe('CommandBar', () => {
-  it('uses Quiet Tool floating pill chrome', () => {
+  it('uses Write redesign floating bar chrome', () => {
     render(<CommandBar onSubmit={() => {}} disabled={false} hidden={false} />)
 
     const bar = screen.getByTestId('command-bar')
-    expect(bar.className).toContain('max-w-script-col')
-    expect(bar.className).toContain('rounded-chip')
+    expect(bar.className).toContain('rounded-2xl')
     expect(bar.className).toContain('bg-tr-surface-raised')
-    expect(bar.className).toContain(
-      WRITE_WHIMSY ? 'shadow-lift' : 'shadow-raised',
-    )
+    expect(bar.className).toContain('shadow-write-bar')
     expect(
-      screen.getByRole('button', {
-        name: WRITE_WHIMSY ? /write it/i : /generate/i,
-      }).className,
+      screen.getByRole('button', { name: /write it/i }).className,
     ).toContain('bg-tr-coral')
+    expect(screen.getByPlaceholderText('Whisper the next move…')).not.toBeNull()
   })
 })

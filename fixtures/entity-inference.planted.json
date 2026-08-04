@@ -20,12 +20,29 @@
     {
       "id": "planted-rel-cousins",
       "kind": "relationship",
-      "mustMatchAny": ["grandmother", "cousin", "family", "both of us", "related", "inherit"]
+      "mustMatchAny": [
+        "grandmother",
+        "cousin",
+        "family",
+        "both of us",
+        "related",
+        "inherit"
+      ]
     },
     {
       "id": "planted-rel-owen-wary",
       "kind": "relationship",
-      "mustMatchAny": ["wary", "distrust", "tension", "avoid", "resent", "estrange", "uneasy", "careful", "won't hear"]
+      "mustMatchAny": [
+        "wary",
+        "distrust",
+        "tension",
+        "avoid",
+        "resent",
+        "estrange",
+        "uneasy",
+        "careful",
+        "won't hear"
+      ]
     },
     {
       "id": "planted-loc-greenhouse",
@@ -57,6 +74,13 @@
   ],
   "plantedNonSpeakingCharacters": ["planted-char-owen"],
   "hallucinationGuard": {
-    "forbiddenWithoutBasis": ["inheritance lawsuit", "wedding", "funeral", "police", "murder", "affair"]
+    "forbiddenWithoutBasis": [
+      "inheritance lawsuit",
+      "wedding",
+      "funeral",
+      "police",
+      "murder",
+      "affair"
+    ]
   }
 }

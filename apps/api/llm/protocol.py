@@ -18,10 +18,15 @@ from schemas import (
     BlastRadius,
     ConsistencyScan,
     InferredActBreaks,
+    InferredNarrativeMap,
+    InferredNarrativeMapSynthesis,
+    InferredNarrativeSceneAnalysisBatch,
+    InferredStoryOverview,
     InitialSceneSkeleton,
     InstructionSuggestions,
     LedgerExtraction,
-    InferredStoryOverview, NarrativePromises,
+    NarrativeMapVerification,
+    NarrativePromises,
     RegeneratedElements,
     SegmentedScene,
     StoryEntities,
@@ -89,6 +94,22 @@ class LlmClient(Protocol):
     def infer_story_overview(
         self, *, system: str, user_message: str, prompt_version: str
     ) -> InferredStoryOverview: ...
+
+    def infer_narrative_map(
+        self, *, system: str, user_message: str, prompt_version: str
+    ) -> InferredNarrativeMap: ...
+
+    def infer_narrative_scene_analysis(
+        self, *, system: str, user_message: str, prompt_version: str
+    ) -> InferredNarrativeSceneAnalysisBatch: ...
+
+    def infer_narrative_map_synthesis(
+        self, *, system: str, user_message: str, prompt_version: str
+    ) -> InferredNarrativeMapSynthesis: ...
+
+    def verify_narrative_map(
+        self, *, system: str, user_message: str, prompt_version: str
+    ) -> NarrativeMapVerification: ...
 
     def segment_scene(
         self, *, system: str, user_message: str, prompt_version: str

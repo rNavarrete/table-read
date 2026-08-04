@@ -21,10 +21,12 @@
 ### Task 1: Pure `facts_as_of` + unit tests
 
 **Files:**
+
 - Create: `apps/api/drama_manager/ledger_as_of.py`
 - Create: `apps/api/tests/test_ledger_as_of.py`
 
 **Interfaces:**
+
 - Produces: `def facts_as_of(scenes: list[dict], ledger: list[dict], as_of_scene_id: str) -> list[dict]`
   - `scenes` = ordered episode scene docs (`id` field)
   - Raises `KeyError` if `as_of_scene_id` not in scenes
@@ -45,12 +47,14 @@
 ### Task 2: Wire `GET /ledger?asOfScene=`
 
 **Files:**
+
 - Modify: `apps/api/routes.py` (`get_ledger`)
 - Modify: `apps/web/src/api/client.ts` (ledger fetch query)
 - Modify: `docs/tableread-data-contract.md` (§4 ledger GET)
 - Test: `apps/api/tests/test_ledger.py` or new cases in existing ledger route tests
 
 **Interfaces:**
+
 - Consumes: `facts_as_of`
 - Query param `asOfScene: str | None = None`
 - Resolve episode scenes from project doc (first episode / same path other ledger code uses)
@@ -66,10 +70,12 @@
 ### Task 3: Ledger UI As-of control
 
 **Files:**
+
 - Modify: `apps/web/src/ledger/FilterRail.tsx` and/or `LedgerScreen.tsx`
 - Test: `apps/web/src/ledger/LedgerScreen.test.tsx` (or focused new test)
 
 **Behavior:**
+
 - Scene `<select>` or list labeled **As of** under Lenses/Status; first option **Latest (all)**
 - Changing selection refetches ledger with `asOfScene`
 - Empty-after-filter copy stays clear
@@ -83,6 +89,7 @@
 ### Task 4: Docs — build plan + test plan
 
 **Files:**
+
 - Modify: `docs/tableread-build-plan.md` (T7.18 acceptance)
 - Modify: `docs/tableread-test-plan.md` (§1 bullets)
 

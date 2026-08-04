@@ -64,17 +64,19 @@ describe('CharacterProfile', () => {
       <CharacterProfile character={c} project={projectWith(c)} facts={[]} />,
     )
     expect(
-      screen.getByTestId('character-profile').getAttribute('data-profile-source'),
+      screen
+        .getByTestId('character-profile')
+        .getAttribute('data-profile-source'),
     ).toBe('bible')
-    expect(screen.getByTestId('character-profile-summary').textContent).toContain(
-      'Cuts through noise.',
-    )
+    expect(
+      screen.getByTestId('character-profile-summary').textContent,
+    ).toContain('Cuts through noise.')
     expect(screen.getByTestId('character-profile-bio').textContent).toContain(
       'Steady chief of staff.',
     )
-    expect(screen.getByTestId('character-profile-aliases').textContent).toContain(
-      'Leo',
-    )
+    expect(
+      screen.getByTestId('character-profile-aliases').textContent,
+    ).toContain('Leo')
   })
 
   it('shows empty state when no profile content exists', () => {
@@ -92,7 +94,11 @@ describe('CharacterProfile', () => {
       seasons: [{ episodes: [{ id: 'ep-1', index: 0, scenes: [] }] }],
     } as unknown as Project
     render(
-      <CharacterProfile character={c} project={project} facts={[] as LedgerFact[]} />,
+      <CharacterProfile
+        character={c}
+        project={project}
+        facts={[] as LedgerFact[]}
+      />,
     )
     expect(screen.getByTestId('character-profile-empty').textContent).toMatch(
       /No profile yet/,

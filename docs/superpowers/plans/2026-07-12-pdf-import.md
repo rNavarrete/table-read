@@ -24,20 +24,21 @@
 
 ## File map
 
-| Area | Files |
-|---|---|
+| Area     | Files                                                                                      |
+| -------- | ------------------------------------------------------------------------------------------ |
 | Contract | `packages/contract/src/index.ts`, `apps/api/schemas.py`, `docs/tableread-data-contract.md` |
-| Extract | `apps/api/fountain/pdf_extract.py` (new), `apps/api/tests/test_pdf_extract.py` |
-| API | `apps/api/routes.py`, `apps/api/tests/test_pdf_extract_route.py` |
-| Deps | `apps/api/requirements.txt`, README or Makefile note for Tesseract |
-| Web | `apps/web/src/api/client.ts`, `ImportWizard.tsx`, tests |
-| Docs | design-doc §4.8, UI spec, test plan, build plan |
+| Extract  | `apps/api/fountain/pdf_extract.py` (new), `apps/api/tests/test_pdf_extract.py`             |
+| API      | `apps/api/routes.py`, `apps/api/tests/test_pdf_extract_route.py`                           |
+| Deps     | `apps/api/requirements.txt`, README or Makefile note for Tesseract                         |
+| Web      | `apps/web/src/api/client.ts`, `ImportWizard.tsx`, tests                                    |
+| Docs     | design-doc §4.8, UI spec, test plan, build plan                                            |
 
 ---
 
 ### Task 1: Contract + extract module (injectable engines)
 
 **Files:**
+
 - Modify: `packages/contract/src/index.ts` — add `PdfExtractMethod`, `PdfExtractResult`
 - Modify: `apps/api/schemas.py` — Pydantic mirrors
 - Modify: `docs/tableread-data-contract.md` — types + endpoint stub section
@@ -46,7 +47,9 @@
 - Modify: `apps/api/requirements.txt` — `pypdf`, `pypdfium2`, `pytesseract` (pin versions)
 
 **Interfaces:**
+
 - Produces:
+
 ```python
 MAX_PDF_BYTES = 20 * 1024 * 1024
 MAX_PDF_PAGES = 150
@@ -72,7 +75,9 @@ def extract_pdf(
     clock=time.monotonic,
 ) -> PdfExtractResult: ...
 ```
+
 - Zod:
+
 ```ts
 export const PdfExtractMethod = z.enum(['text_layer', 'ocr'])
 export const PdfExtractResult = z.object({
@@ -151,11 +156,13 @@ EOF
 ### Task 2: Extract HTTP route
 
 **Files:**
+
 - Modify: `apps/api/routes.py` — `POST /import/extract-pdf` before `/{pid}` catch-alls
 - Create: `apps/api/tests/test_pdf_extract_route.py`
 - Modify: `docs/tableread-data-contract.md` — full endpoint docs
 
 **Interfaces:**
+
 - `POST /api/v1/projects/import/extract-pdf` multipart field `file` → `PdfExtractResult`
 - Map `PdfExtractError` → existing `ApiError` envelope (`VALIDATION` / `UNAVAILABLE`)
 
@@ -198,21 +205,23 @@ EOF
 ### Task 3: Import wizard — `.pdf` + confirm-source step
 
 **Files:**
+
 - Modify: `apps/web/src/api/client.ts` — `extractPdf(file: File): Promise<PdfExtractResult>`
 - Modify: `apps/web/src/projects/wizard/ImportWizard.tsx` — accept `.pdf`; extract on select; confirm-source UI
 - Modify: `apps/web/src/projects/wizard/ImportWizard.test.tsx`
 - Modify: `apps/web/src/projects/wizard/importSourceStats.ts` if needed
 
 **Interfaces:**
+
 - `ACCEPTED_EXTENSIONS = ['.fountain', '.txt', '.pdf']`
 - On PDF file: `POST` extract → set `source`, `sourceFormat: 'text'`, show method badge + warnings; enable editing before analyze
 - Create & analyze body unchanged: `{ format: 'text', content: source, ... }`
 
 - [ ] **Step 1: Failing component tests**
 
-- PDF file triggers extract client and fills textarea  
-- Edited text is what analyze would send  
-- Non-pdf still rejected locally  
+- PDF file triggers extract client and fills textarea
+- Edited text is what analyze would send
+- Non-pdf still rejected locally
 
 - [ ] **Step 2: Implement UI + client; tests PASS**
 
@@ -233,13 +242,14 @@ EOF
 ### Task 4: Docs + Tesseract bootstrap + optional e2e
 
 **Files:**
-- Modify: `docs/narrative-sidekick-design-doc.md` §4.8  
-- Modify: `docs/tableread-ui-spec.md` import section  
-- Modify: `docs/tableread-test-plan.md`  
-- Modify: `docs/tableread-build-plan.md`  
-- Modify: `docs/superpowers/specs/2026-07-10-new-project-flow-design.md` non-goal (PDF exception)  
-- Modify: `docs/superpowers/specs/2026-07-12-pdf-import-design.md` — Status → `approved`  
-- Modify: root `README.md` or `Makefile` / `apps/api/README` — install `tesseract` + eng for OCR  
+
+- Modify: `docs/narrative-sidekick-design-doc.md` §4.8
+- Modify: `docs/tableread-ui-spec.md` import section
+- Modify: `docs/tableread-test-plan.md`
+- Modify: `docs/tableread-build-plan.md`
+- Modify: `docs/superpowers/specs/2026-07-10-new-project-flow-design.md` non-goal (PDF exception)
+- Modify: `docs/superpowers/specs/2026-07-12-pdf-import-design.md` — Status → `approved`
+- Modify: root `README.md` or `Makefile` / `apps/api/README` — install `tesseract` + eng for OCR
 - Optional: `apps/web/e2e/` PDF path with mocked extract if easier than real PDF
 
 - [ ] **Step 1: Doc edits reflecting extract→confirm→analyze**
@@ -260,27 +270,27 @@ EOF
 
 ## Spec coverage
 
-| Spec § | Task |
-|---|---|
-| pypdf + Tesseract, no LLM extract | 1 |
-| Caps / usability / errors | 1–2 |
-| Extract endpoint | 2 |
-| Confirm-source wizard + `.pdf` | 3 |
-| Docs / bootstrap | 4 |
-| Non-goals (FDX, AGPL, cloud OCR) | honored |
+| Spec §                            | Task    |
+| --------------------------------- | ------- |
+| pypdf + Tesseract, no LLM extract | 1       |
+| Caps / usability / errors         | 1–2     |
+| Extract endpoint                  | 2       |
+| Confirm-source wizard + `.pdf`    | 3       |
+| Docs / bootstrap                  | 4       |
+| Non-goals (FDX, AGPL, cloud OCR)  | honored |
 
 ## Self-review
 
-- No TBD placeholders.  
-- Analyze path unchanged (`format: "text"`).  
-- PR CI never requires Tesseract (injection).  
+- No TBD placeholders.
+- Analyze path unchanged (`format: "text"`).
+- PR CI never requires Tesseract (injection).
 
 ---
 
 **Plan complete and saved to `docs/superpowers/plans/2026-07-12-pdf-import.md`. Two execution options:**
 
-**1. Subagent-Driven (recommended)** — fresh subagent per task + review  
+**1. Subagent-Driven (recommended)** — fresh subagent per task + review
 
-**2. Inline Execution** — this session with checkpoints  
+**2. Inline Execution** — this session with checkpoints
 
 Which approach?

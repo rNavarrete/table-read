@@ -77,7 +77,7 @@ class Character(_Base):
     # T7.31 — Ledger People profile prose (separate from craft fields).
     # Defaults keep pre-existing docs / fixture validating without migration.
     summary: str = ""
-    bio: str = "" 
+    bio: str = ""
 
 
 class Relationship(_Base):
@@ -226,7 +226,6 @@ class StoryThread(_Base):
     locked: bool = False
 
 
-
 class StoryOverviewOutlineItem(_Base):
     """T7.27 — one scene row in the episode outline."""
 
@@ -260,6 +259,153 @@ class StoryOverview(_Base):
     locked: bool = False
 
 
+class NarrativeEvidence(_Base):
+    beat_id: Id
+    quote: str = Field(min_length=1, max_length=200)
+
+
+class NarrativeTheme(_Base):
+    label: str
+    statement: str
+    evidence: list[NarrativeEvidence] = Field(min_length=1)
+
+
+class NarrativeAct(_Base):
+    act: int = Field(ge=0)
+    dramatic_question: str
+    escalation: str
+    turn_beat_id: Id
+    evidence_quote: str = Field(min_length=1, max_length=200)
+
+
+class HeroJourneyStageName(StrEnum):
+    ordinary_world = "ordinary_world"
+    call_to_adventure = "call_to_adventure"
+    refusal = "refusal"
+    meeting_the_mentor = "meeting_the_mentor"
+    crossing_the_threshold = "crossing_the_threshold"
+    tests_allies_enemies = "tests_allies_enemies"
+    approach = "approach"
+    ordeal = "ordeal"
+    reward = "reward"
+    road_back = "road_back"
+    resurrection = "resurrection"
+    return_with_elixir = "return_with_elixir"
+
+
+class HeroJourneyStage(_Base):
+    stage: HeroJourneyStageName
+    beat_id: Id
+    summary: str
+    evidence_quote: str = Field(min_length=1, max_length=200)
+
+
+class HeroJourney(_Base):
+    applies: bool
+    protagonist_character_id: Id | None
+    rationale: str
+    stages: list[HeroJourneyStage]
+
+
+class CharacterArcTurningPoint(_Base):
+    beat_id: Id
+    change: str
+    quote: str = Field(min_length=1, max_length=200)
+
+
+class NarrativeCharacterArc(_Base):
+    character_id: Id
+    want: str
+    need: str
+    internal_conflict: str
+    external_pressure: str
+    arc_summary: str
+    turning_points: list[CharacterArcTurningPoint] = Field(min_length=1)
+
+
+class SceneTurn(_Base):
+    scene_id: Id
+    focal_character_id: Id | None
+    dramatic_function: str
+    conflict: str
+    stakes: str
+    turn_beat_id: Id
+    turn: str
+    evidence_quote: str = Field(min_length=1, max_length=200)
+
+
+class ThreadMovementPhase(StrEnum):
+    setup = "setup"
+    escalation = "escalation"
+    reversal = "reversal"
+    reveal = "reveal"
+    payoff = "payoff"
+    aftermath = "aftermath"
+
+
+class ThreadMovement(_Base):
+    thread_id: Id
+    beat_id: Id
+    phase: ThreadMovementPhase
+    summary: str
+    evidence_quote: str = Field(min_length=1, max_length=200)
+
+
+class NarrativeMap(_Base):
+    dramatic_question: str
+    central_conflict: str
+    controlling_idea: str
+    themes: list[NarrativeTheme] = Field(min_length=1)
+    acts: list[NarrativeAct] = Field(min_length=1)
+    hero_journey: HeroJourney
+    character_arcs: list[NarrativeCharacterArc]
+    scene_turns: list[SceneTurn] = Field(min_length=1)
+    thread_movements: list[ThreadMovement]
+    provenance: StoryOverviewProvenance = StoryOverviewProvenance.inferred
+    locked: bool = False
+
+
+class NarrativeMapRunStatus(StrEnum):
+    queued = "queued"
+    running = "running"
+    completed = "completed"
+    rejected = "rejected"
+    failed = "failed"
+    stale = "stale"
+
+
+class NarrativeMapRunPhase(StrEnum):
+    readiness = "readiness"
+    scene_analysis = "scene_analysis"
+    synthesis = "synthesis"
+    verification = "verification"
+    saving = "saving"
+    complete = "complete"
+    failed = "failed"
+
+
+class NarrativeMapRun(_Base):
+    id: Id
+    project_id: Id
+    source_snapshot_id: Id
+    source_hash: str = Field(min_length=1)
+    analysis_version: str = Field(min_length=1)
+    status: NarrativeMapRunStatus
+    phase: NarrativeMapRunPhase
+    scene_count: int = Field(ge=0)
+    completed_scene_count: int = Field(ge=0)
+    attempt_count: int = Field(ge=0)
+    retry_allowed: bool
+    estimated_cost_usd: float | None = Field(ge=0)
+    actual_input_tokens: int | None = Field(ge=0)
+    actual_output_tokens: int | None = Field(ge=0)
+    result_snapshot_id: Id | None
+    error_code: str | None
+    error_message: str | None
+    created_at: str
+    updated_at: str
+
+
 class Episode(_Base):
     id: Id
     index: int = Field(ge=0)
@@ -274,6 +420,7 @@ class Episode(_Base):
     object_states: list[ObjectState] = []
     threads: list[StoryThread] = []
     story_overview: StoryOverview | None = None
+    narrative_map: NarrativeMap | None = None
 
 
 class CharacterArc(_Base):
@@ -856,7 +1003,6 @@ class NarrativePromises(_Base):
     world_rules: list[InferredWorldRule]
 
 
-
 class InferredOutlineItem(_Base):
     scene_id: Id
     summary: str
@@ -880,6 +1026,155 @@ class InferredStoryOverview(_Base):
     beat_sheet: list[InferredBeatSheetItem]
     summary: str
 
+
+class InferredNarrativeEvidence(_Base):
+    beat_id: Id
+
+
+class InferredNarrativeTheme(_Base):
+    label: str
+    statement: str
+    evidence: list[InferredNarrativeEvidence] = Field(min_length=1)
+
+
+class InferredNarrativeAct(_Base):
+    act: int = Field(ge=0)
+    dramatic_question: str
+    escalation: str
+    turn_beat_id: Id
+
+
+class InferredHeroJourneyStage(_Base):
+    stage: HeroJourneyStageName
+    beat_id: Id
+    summary: str
+
+
+class InferredCharacterArcTurningPoint(_Base):
+    beat_id: Id
+    change: str
+
+
+class InferredThreadMovement(_Base):
+    thread_id: Id
+    beat_id: Id
+    phase: ThreadMovementPhase
+    summary: str
+
+
+class InferredNarrativeCharacterArc(_Base):
+    character_name: str
+    want: str
+    need: str
+    internal_conflict: str
+    external_pressure: str
+    arc_summary: str
+    turning_points: list[InferredCharacterArcTurningPoint] = Field(min_length=1)
+
+
+class InferredSceneTurn(_Base):
+    scene_id: Id
+    focal_character_name: str | None
+    dramatic_function: str
+    conflict: str
+    stakes: str
+    turn_beat_id: Id
+    turn: str
+
+
+class InferredHeroJourney(_Base):
+    applies: bool
+    protagonist_name: str | None
+    rationale: str
+    stages: list[InferredHeroJourneyStage]
+
+
+class InferredNarrativeMap(_Base):
+    dramatic_question: str
+    central_conflict: str
+    controlling_idea: str
+    themes: list[InferredNarrativeTheme] = Field(min_length=1)
+    acts: list[InferredNarrativeAct] = Field(min_length=1)
+    hero_journey: InferredHeroJourney
+    character_arcs: list[InferredNarrativeCharacterArc]
+    scene_turns: list[InferredSceneTurn] = Field(min_length=1)
+    thread_movements: list[InferredThreadMovement]
+
+
+class InferredNarrativeMoment(_Base):
+    beat_id: Id = Field(description="A beatId copied from allowedBeatIds for the supplied scene.")
+    summary: str = Field(
+        description="Concrete on-page action or decision at this moment; never a placeholder."
+    )
+    dramatic_function: str = Field(
+        description=(
+            "How this moment changes pressure, information, power, or choice in the scene."
+        )
+    )
+    consequence: str = Field(
+        description="What becomes newly true or must be addressed after this moment."
+    )
+
+
+class InferredNarrativeSceneAnalysis(_Base):
+    scene_id: Id = Field(description="The single supplied sceneId, copied exactly.")
+    summary: str = Field(
+        description="A concrete present-tense summary naming the scene's on-page action."
+    )
+    focal_character_name: str | None = Field(
+        description=(
+            "A name copied from known_cast when one perspective clearly leads; otherwise null."
+        )
+    )
+    dramatic_function: str = Field(
+        description="The specific job this scene performs in the episode's developing story."
+    )
+    conflict: str = Field(
+        description=(
+            "The scene's immediate opposition or pressure. For a connective scene, state "
+            "that there is no independent confrontation and name the pressure carried forward."
+        )
+    )
+    stakes: str = Field(
+        description="What can be gained, lost, exposed, or made harder by the scene's action."
+    )
+    turn_beat_id: Id = Field(
+        description="The allowed beatId where the scene's main change is clearest."
+    )
+    turn: str = Field(
+        description="The concrete change in information, decision, value, or power by scene end."
+    )
+    key_moments: list[InferredNarrativeMoment] = Field(
+        min_length=1,
+        description="One or more decisive on-page moments, each tied to an allowed beatId.",
+    )
+
+
+class InferredNarrativeSceneAnalysisBatch(_Base):
+    scenes: list[InferredNarrativeSceneAnalysis] = Field(min_length=1)
+
+
+class InferredNarrativeMapSynthesis(_Base):
+    dramatic_question: str
+    central_conflict: str
+    controlling_idea: str
+    themes: list[InferredNarrativeTheme] = Field(min_length=1)
+    acts: list[InferredNarrativeAct] = Field(min_length=1)
+    hero_journey: InferredHeroJourney
+    character_arcs: list[InferredNarrativeCharacterArc]
+    thread_movements: list[InferredThreadMovement]
+
+
+class NarrativeMapVerificationIssue(_Base):
+    path: str
+    reason: str
+
+
+class NarrativeMapVerification(_Base):
+    approved: bool
+    unsupported_paths: list[str]
+    missing_scene_ids: list[Id]
+    issues: list[NarrativeMapVerificationIssue]
 
 
 class ExtractedFactSourceSpan(_Base):

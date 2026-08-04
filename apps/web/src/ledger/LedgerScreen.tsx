@@ -1,10 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { LedgerFact, Project, StoryThread } from 'contract'
+import type {
+  LedgerFact,
+  NarrativeMapRun,
+  Project,
+  StoryThread,
+} from 'contract'
 import {
   batchLedgerReview,
   confirmLedgerFact,
   editLedgerFact,
+  generateNarrativeMap,
   getLedger,
+  getLatestNarrativeMapRun,
+  getNarrativeMapRun,
   getProject,
   rejectLedgerFact,
 } from '../api/client'
@@ -16,11 +24,13 @@ import { navigateToWriteScene } from '../shell/modeNavigation'
 import { CastPanel } from './CastPanel'
 import { CharacterProfile } from './CharacterProfile.tsx'
 import { FactCard } from './FactCard'
+import type { AtlasFilterChip } from './AtlasControlBar'
 import { FilterRail, type AsOfSceneOption } from './FilterRail'
 import { KnowledgeWeb } from './KnowledgeWeb'
 import { LedgerViewSwitcher } from './LedgerViewSwitcher'
+import { NarrativeMapCard } from './NarrativeMapCard'
 import { StoryAtlas } from './StoryAtlas'
-import { OverviewPanel } from './OverviewPanel'
+import { StoryOverviewCard } from './StoryOverviewCard'
 import { ThreadsPanel } from './ThreadsPanel'
 import {
   DEFAULT_FILTERS,
@@ -78,6 +88,15 @@ function firstEpisodeThreads(project: Project): StoryThread[] {
   return project.seasons[0]?.episodes[0]?.threads ?? []
 }
 
+const FACT_TYPE_LABELS: Record<LedgerFilters['factType'], string> = {
+  all: 'All types',
+  event: 'Events',
+  state: 'States',
+  knowledge: 'Knowledge',
+  relationship: 'Relationships',
+  world_rule: 'World rules',
+}
+
 /**
  * Ledger mode (UI spec §6 / build plan T5.1): filter rail · review queue ·
  * Atlas / Knowledge Web. Server is source of truth; mutations roll back on
@@ -100,9 +119,13 @@ export function LedgerScreen() {
   const [loadError, setLoadError] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
+  const [narrativeMapRun, setNarrativeMapRun] =
+    useState<NarrativeMapRun | null>(null)
+  const narrativeMapRunId = narrativeMapRun?.id
+  const narrativeMapRunStatus = narrativeMapRun?.status
+  const narrativeMapRunErrorCode = narrativeMapRun?.errorCode
+  const narrativeMapRunRetryAllowed = narrativeMapRun?.retryAllowed
   const [castPanelOpen, setCastPanelOpen] = useState(false)
-  const [threadsPanelOpen, setThreadsPanelOpen] = useState(false)
-  const [overviewPanelOpen, setOverviewPanelOpen] = useState(false)
   // Session-only (design spec §UI): no persistence, resets on reload.
   const [asOfScene, setAsOfScene] = useState<string | null>(null)
   const inFlightRef = useRef(false)
@@ -132,6 +155,97 @@ export function LedgerScreen() {
 
   useEffect(() => {
     if (!projectId) return
+    let cancelled = false
+    getLatestNarrativeMapRun(projectId)
+      .then((latestRun) => {
+        if (cancelled) return
+        setNarrativeMapRun(latestRun)
+        if (
+          latestRun?.status === 'rejected' ||
+          latestRun?.status === 'failed' ||
+          latestRun?.status === 'stale'
+        ) {
+          setActionError(
+            latestRun.errorMessage ??
+              'Narrative Map analysis did not complete.',
+          )
+        }
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return
+        setActionError(
+          err instanceof Error
+            ? err.message
+            : 'could not restore Narrative Map progress',
+        )
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [projectId])
+
+  useEffect(() => {
+    if (!activeProjectId || !narrativeMapRunId) return
+    const isActive =
+      narrativeMapRunStatus === 'queued' || narrativeMapRunStatus === 'running'
+    const isWaitingForSafeRetry =
+      narrativeMapRunStatus === 'failed' &&
+      (narrativeMapRunErrorCode === 'LLM_TIMEOUT' ||
+        narrativeMapRunErrorCode === 'WORKER_INTERRUPTED') &&
+      !narrativeMapRunRetryAllowed
+    if (!isActive && !isWaitingForSafeRetry) {
+      return
+    }
+
+    let cancelled = false
+    const refreshRun = async () => {
+      try {
+        const nextRun = await getNarrativeMapRun(
+          activeProjectId,
+          narrativeMapRunId,
+        )
+        if (cancelled) return
+        setNarrativeMapRun(nextRun)
+        if (nextRun.status === 'completed') {
+          setProject(await getProject(activeProjectId))
+        } else if (
+          nextRun.status === 'rejected' ||
+          nextRun.status === 'failed' ||
+          nextRun.status === 'stale'
+        ) {
+          setActionError(
+            nextRun.errorMessage ?? 'Narrative Map analysis did not complete.',
+          )
+        }
+      } catch (err) {
+        if (cancelled) return
+        setActionError(
+          err instanceof Error
+            ? err.message
+            : 'could not check Narrative Map progress',
+        )
+      }
+    }
+
+    void refreshRun()
+    const interval = window.setInterval(
+      () => void refreshRun(),
+      isActive ? 1500 : 10_000,
+    )
+    return () => {
+      cancelled = true
+      window.clearInterval(interval)
+    }
+  }, [
+    activeProjectId,
+    narrativeMapRunErrorCode,
+    narrativeMapRunId,
+    narrativeMapRunRetryAllowed,
+    narrativeMapRunStatus,
+  ])
+
+  useEffect(() => {
+    if (!projectId) return
     const resume = loadResume(projectId)
     saveResume(projectId, { ...resume, mode: 'Ledger' })
   }, [projectId])
@@ -143,17 +257,18 @@ export function LedgerScreen() {
 
   useEffect(() => {
     if (!focusFactId) return
-    const el = document.querySelector(
-      `[data-testid="fact-card-${focusFactId}"]`,
-    )
-    if (el instanceof HTMLElement) {
+    const timer = window.setTimeout(() => {
+      const el = document.querySelector(
+        `[data-testid="atlas-row-${focusFactId}"], [data-testid="fact-card-${focusFactId}"]`,
+      )
+      if (!(el instanceof HTMLElement)) return
       el.scrollIntoView?.({ block: 'nearest' })
       el.classList.add('outline', 'outline-selected', 'outline-tr-coral')
-      const t = window.setTimeout(() => {
+      window.setTimeout(() => {
         el.classList.remove('outline', 'outline-selected', 'outline-tr-coral')
       }, 2000)
-      return () => window.clearTimeout(t)
-    }
+    }, 0)
+    return () => window.clearTimeout(timer)
   }, [expandedFactId, focusFactId, ledger, view])
 
   const sceneOptions = useMemo(
@@ -165,8 +280,12 @@ export function LedgerScreen() {
     [project],
   )
 
-  const storyOverview =
-    project?.seasons[0]?.episodes[0]?.storyOverview ?? null
+  const storyOverview = project?.seasons[0]?.episodes[0]?.storyOverview ?? null
+  const narrativeMap = project?.seasons[0]?.episodes[0]?.narrativeMap ?? null
+  const episodeSceneCount = useMemo(
+    () => (project ? episodeSceneOptions(project).length : 0),
+    [project],
+  )
   const queue = useMemo(() => pendingReviewFacts(ledger), [ledger])
   const highConf = useMemo(() => highConfidencePending(ledger), [ledger])
   const sceneGroups = useMemo(() => groupPendingByScene(ledger), [ledger])
@@ -178,20 +297,65 @@ export function LedgerScreen() {
       ) ?? null
     )
   }, [project, filters.characterId])
-  const gridFacts = useMemo(() => {
+  const visibleFacts = useMemo(() => {
     const filtered = filterFacts(ledger, filters)
-    // Pending facts live in the review-queue section; don't duplicate them
-    // in the grid unless the writer filtered status to pending_review.
-    const visible =
-      filters.status === 'pending_review'
-        ? filtered
-        : filtered.filter((f) => f.status !== 'pending_review')
     const focused = ledger.find((fact) => fact.id === focusFactId)
-    return focused && !visible.some((fact) => fact.id === focused.id)
-      ? [...visible, focused]
-      : visible
+    return focused && !filtered.some((fact) => fact.id === focused.id)
+      ? [...filtered, focused]
+      : filtered
   }, [ledger, filters, focusFactId])
   const pendingCount = queue.length
+  const atlasFilterChips = useMemo<AtlasFilterChip[]>(() => {
+    const chips: AtlasFilterChip[] = []
+    if (filters.characterId) {
+      chips.push({
+        kind: 'character',
+        label: selectedCharacter?.name ?? 'Character',
+        onClear: () =>
+          setFilters((current) => ({ ...current, characterId: null })),
+      })
+    }
+    if (filters.status !== 'all') {
+      chips.push({
+        kind: 'status',
+        label: filters.status.replace('_', ' '),
+        onClear: () => setFilters((current) => ({ ...current, status: 'all' })),
+      })
+    }
+    if (filters.factType !== 'all') {
+      chips.push({
+        kind: 'type',
+        label: FACT_TYPE_LABELS[filters.factType],
+        onClear: () =>
+          setFilters((current) => ({ ...current, factType: 'all' })),
+      })
+    }
+    if (filters.secretsOnly) {
+      chips.push({
+        kind: 'secrets',
+        label: 'Secrets only',
+        tone: 'secret',
+        onClear: () =>
+          setFilters((current) => ({ ...current, secretsOnly: false })),
+      })
+    }
+    if (filters.hideSuperseded) {
+      chips.push({
+        kind: 'history',
+        label: 'Superseded hidden',
+        onClear: () =>
+          setFilters((current) => ({ ...current, hideSuperseded: false })),
+      })
+    }
+    if (asOfScene) {
+      chips.push({
+        kind: 'as-of',
+        label: `As of ${sceneOptions.find((scene) => scene.id === asOfScene)?.label ?? 'selected scene'}`,
+        onClear: () => setAsOfScene(null),
+      })
+    }
+    return chips
+  }, [asOfScene, filters, sceneOptions, selectedCharacter?.name])
 
   const runMutation = useCallback(
     async (
@@ -258,6 +422,32 @@ export function LedgerScreen() {
       // Refetch so supersede-target updates land (confirm may touch two facts).
       return getLedger(activeProjectId, asOfScene ? { asOfScene } : undefined)
     })
+  }
+
+  async function handleGenerateNarrativeMap() {
+    if (
+      !project ||
+      narrativeMapRun?.status === 'queued' ||
+      narrativeMapRun?.status === 'running'
+    ) {
+      return
+    }
+    setActionError(null)
+    try {
+      setNarrativeMapRun(
+        await generateNarrativeMap(project.id, {
+          expectedHeadSnapshotId: project.headSnapshotId,
+        }),
+      )
+    } catch (err) {
+      setActionError(
+        err instanceof ApiError
+          ? err.message
+          : err instanceof Error
+            ? err.message
+            : 'could not generate the narrative map',
+      )
+    }
   }
 
   function handleReject(factId: string) {
@@ -372,19 +562,23 @@ export function LedgerScreen() {
 
   function handleOpenInAtlas(factId: string) {
     setView('atlas')
-    saveLedgerView(projectId, 'atlas')
+    saveLedgerView(activeProjectId, 'atlas')
     setExpandedFactId(factId)
   }
 
   function handleBrowseInAtlas() {
     setView('atlas')
-    saveLedgerView(projectId, 'atlas')
+    saveLedgerView(activeProjectId, 'atlas')
   }
 
   function scrollToReviewQueue() {
-    document
-      .querySelector('[data-testid="review-queue"]')
-      ?.scrollIntoView?.({ block: 'nearest' })
+    setView('story')
+    saveLedgerView(activeProjectId, 'story')
+    window.requestAnimationFrame(() => {
+      document
+        .querySelector('[data-testid="review-queue"]')
+        ?.scrollIntoView?.({ block: 'nearest' })
+    })
   }
 
   if (!projectId) return null
@@ -424,220 +618,221 @@ export function LedgerScreen() {
       ledgerCount={pendingCount}
       projectId={projectId}
     >
-      <div className="flex min-h-[calc(100vh-3.5rem)] bg-tr-surface-page">
+      <div className="flex h-[calc(100vh-3.5rem)] min-h-0 overflow-hidden bg-tr-surface-raised">
         <FilterRail
           project={project}
           filters={filters}
           onChange={setFilters}
           onManageCast={() => setCastPanelOpen(true)}
-          onViewThreads={() => setThreadsPanelOpen(true)}
-          threadCount={threads.length}
-          onViewOverview={() => setOverviewPanelOpen(true)}
-          overviewPresent={Boolean(storyOverview)}
           sceneOptions={sceneOptions}
           asOfScene={asOfScene}
           onAsOfSceneChange={setAsOfScene}
           facts={ledger}
         />
-        <div className="flex min-w-0 flex-1 flex-col gap-6 px-8 py-6">
-          <header className="flex flex-wrap items-end justify-between gap-4 border-b border-tr-border pb-4">
-            <div className="flex min-w-0 flex-col gap-1">
-              <h1 className="font-display text-22 text-tr-text-primary">
-                What&apos;s true in this story
-              </h1>
-              <p className="text-13 text-tr-text-secondary">
-                Your story bible — browse truths, or focus who knows what.
-              </p>
-              {storyOverview?.logline && (
-                <button
-                  type="button"
-                  onClick={() => setOverviewPanelOpen(true)}
-                  className="mt-1 max-w-prose text-left text-13 text-tr-text-primary underline-offset-2 hover:underline"
-                  data-testid="overview-header-teaser"
-                >
-                  {storyOverview.logline}
-                </button>
-              )}
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <LedgerViewSwitcher
-                projectId={projectId}
-                value={view}
-                onChange={setView}
-              />
-              {pendingCount > 0 && (
-                <button
-                  type="button"
-                  onClick={scrollToReviewQueue}
-                  className="rounded-chip bg-tr-amber-soft px-2.5 py-1.5 text-13 text-tr-amber shadow-raised transition-[box-shadow,background-color] duration-standard ease-standard hover:shadow-lift focus-visible:outline focus-visible:outline-selected focus-visible:outline-offset-2 focus-visible:outline-tr-coral motion-reduce:transition-none"
-                >
-                  {pendingCount} to review
-                </button>
-              )}
-            </div>
-          </header>
-          {actionError && (
-            <p className="text-13 text-tr-danger" role="alert">
-              {actionError}
-            </p>
-          )}
-          {castPanelOpen && (
-            <CastPanel
-              project={project}
-              ledger={ledger}
-              onProjectChange={setProject}
-              onLedgerChange={setLedger}
-              onClose={() => setCastPanelOpen(false)}
-            />
-          )}
-          {threadsPanelOpen && (
-            <ThreadsPanel
-              project={project}
-              threads={threads}
-              onJumpToScene={handleJumpToScene}
-              onClose={() => setThreadsPanelOpen(false)}
-            />
-          )}
-          {overviewPanelOpen && (
-            <OverviewPanel
-              project={project}
-              overview={storyOverview}
-              onJumpToScene={handleJumpToScene}
-              onClose={() => setOverviewPanelOpen(false)}
-            />
-          )}
-          {queue.length > 0 && (
-            <section
-              className="rounded-card border border-tr-border border-l-2 border-l-tr-amber bg-tr-amber-soft p-5 shadow-raised"
-              aria-label="Review queue"
-              data-testid="review-queue"
-            >
-              <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-                <h2 className="font-display text-17 text-tr-text-primary">
-                  {queue.length} fact{queue.length === 1 ? '' : 's'} awaiting
-                  review
-                </h2>
-                {highConf.length > 0 && (
+        <div className="flex min-w-0 flex-1 flex-col overflow-y-auto bg-tr-ledger-content px-5 py-6 pb-16 lg:px-7 lg:py-8">
+          <div className="mx-auto flex w-full max-w-[1400px] flex-col gap-5">
+            <header className="flex flex-wrap items-start justify-between gap-6">
+              <div className="flex min-w-0 flex-col gap-1.5">
+                <h1 className="font-ledger-display text-30 font-medium text-tr-text-primary">
+                  What&apos;s true in this story
+                </h1>
+                <p className="max-w-[600px] text-pretty text-[14.5px] text-tr-text-secondary">
+                  {selectedCharacter
+                    ? `Showing what ${selectedCharacter.name} knows, and facts they appear in.`
+                    : 'Your story bible — browse truths, or focus who knows what.'}
+                </p>
+              </div>
+              <div className="flex flex-none flex-wrap items-center gap-2.5 pt-1">
+                <LedgerViewSwitcher
+                  projectId={projectId}
+                  value={view}
+                  onChange={setView}
+                  threadCount={threads.length}
+                />
+                {pendingCount > 0 && (
                   <button
                     type="button"
-                    disabled={busyId !== null}
-                    onClick={handleBatchAcceptHigh}
-                    className="rounded-card bg-tr-sage-soft px-3 py-1.5 text-13 text-tr-text-primary transition-colors duration-standard ease-standard hover:shadow-lift focus-visible:outline focus-visible:outline-selected focus-visible:outline-offset-2 focus-visible:outline-tr-coral disabled:opacity-50 motion-reduce:transition-none"
-                    data-testid="batch-accept-high"
+                    onClick={scrollToReviewQueue}
+                    className="rounded-control bg-tr-amber-soft px-2.5 py-1.5 text-13 text-tr-amber shadow-raised transition-[box-shadow,background-color] duration-standard ease-standard hover:shadow-lift focus-visible:outline focus-visible:outline-selected focus-visible:outline-offset-2 focus-visible:outline-tr-coral motion-reduce:transition-none"
                   >
-                    Accept all high-confidence ({highConf.length})
+                    {pendingCount} to review
                   </button>
                 )}
               </div>
-              <div className="flex flex-col gap-4">
-                {sceneGroups.map((group) => (
-                  <div
-                    key={group.sceneId}
-                    data-testid={`review-queue-scene-${group.sceneId}`}
-                    className="flex flex-col gap-2"
-                  >
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <h3 className="text-13 font-medium text-tr-text-primary">
-                        {sceneLabel(project, group.sceneId)}
-                        <span className="ml-2 font-normal text-tr-text-muted">
-                          ({group.facts.length})
-                        </span>
-                      </h3>
-                      <div className="flex gap-2">
-                        <button
-                          type="button"
-                          disabled={busyId !== null}
-                          onClick={() =>
-                            handleSceneBatch(group.sceneId, 'accept')
-                          }
-                          className="rounded-card bg-tr-sage-soft px-2.5 py-1 text-12 text-tr-text-primary transition-colors duration-standard ease-standard focus-visible:outline focus-visible:outline-selected focus-visible:outline-offset-2 focus-visible:outline-tr-coral disabled:opacity-50 motion-reduce:transition-none"
-                          data-testid={`scene-accept-${group.sceneId}`}
-                        >
-                          Accept scene
-                        </button>
-                        <button
-                          type="button"
-                          disabled={busyId !== null}
-                          onClick={() =>
-                            handleSceneBatch(group.sceneId, 'reject')
-                          }
-                          className="rounded-card px-2.5 py-1 text-12 text-tr-text-muted transition-colors duration-standard ease-standard hover:bg-tr-surface-raised focus-visible:outline focus-visible:outline-selected focus-visible:outline-offset-2 focus-visible:outline-tr-coral disabled:opacity-50 motion-reduce:transition-none"
-                          data-testid={`scene-reject-${group.sceneId}`}
-                        >
-                          Reject scene
-                        </button>
-                      </div>
-                    </div>
-                    <div className="grid gap-3 md:grid-cols-2">
-                      {group.facts.map((fact) => (
-                        <FactCard
-                          key={`queue-${fact.id}`}
-                          fact={fact}
-                          allFacts={ledger}
-                          project={project}
-                          queueActions
-                          busy={busyId !== null}
-                          onAccept={handleAccept}
-                          onReject={handleReject}
-                          onEdit={handleEdit}
-                          onSourceSpanClick={handleSourceSpanClick}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </section>
-          )}
-          {selectedCharacter && (
-            <CharacterProfile
-              character={selectedCharacter}
-              project={project}
-              facts={ledger}
-            />
-          )}
-          <section
-            key={view}
-            aria-label="Ledger facts"
-            className="tr-ledger-view-enter min-h-0 flex-1"
-            data-testid="ledger-view-body"
-          >
-            {view === 'atlas' ? (
-              <StoryAtlas
-                facts={gridFacts}
-                allFacts={ledger}
+            </header>
+            {actionError && (
+              <p className="text-13 text-tr-danger" role="alert">
+                {actionError}
+              </p>
+            )}
+            {castPanelOpen && (
+              <CastPanel
                 project={project}
-                busy={busyId !== null}
-                onAccept={handleAccept}
-                onReject={handleReject}
-                onEdit={handleEdit}
-                onSourceSpanClick={handleSourceSpanClick}
-                expandedFactId={expandedFactId}
-                onExpandedFactIdChange={setExpandedFactId}
-                emptyMessage={
-                  ledger.length === 0
-                    ? asOfScene
-                      ? 'No facts are in force as of this scene yet.'
-                      : "Facts appear as you write. Table Read tracks what's true so you don't have to."
-                    : 'No facts match.'
-                }
-              />
-            ) : (
-              <KnowledgeWeb
-                facts={gridFacts}
-                allFacts={ledger}
-                project={project}
-                busy={busyId !== null}
-                characterId={filters.characterId}
-                onAccept={handleAccept}
-                onReject={handleReject}
-                onEdit={handleEdit}
-                onSourceSpanClick={handleSourceSpanClick}
-                onOpenInAtlas={handleOpenInAtlas}
-                onBrowseInAtlas={handleBrowseInAtlas}
+                ledger={ledger}
+                onProjectChange={setProject}
+                onLedgerChange={setLedger}
+                onClose={() => setCastPanelOpen(false)}
               />
             )}
-          </section>
+            {view === 'story' && (
+              <>
+                <StoryOverviewCard
+                  project={project}
+                  overview={storyOverview}
+                  sceneCount={episodeSceneCount}
+                  threadCount={threads.length}
+                  factCount={ledger.length}
+                  onJumpToScene={handleJumpToScene}
+                />
+                <NarrativeMapCard
+                  project={project}
+                  narrativeMap={narrativeMap}
+                  onJumpToScene={handleJumpToScene}
+                  onGenerateNarrativeMap={handleGenerateNarrativeMap}
+                  narrativeMapRun={narrativeMapRun}
+                />
+                {queue.length > 0 && (
+                  <section
+                    className="rounded-card border border-tr-border border-l-2 border-l-tr-amber bg-tr-amber-soft p-5 shadow-raised"
+                    aria-label="Review queue"
+                    data-testid="review-queue"
+                  >
+                    <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+                      <h2 className="font-display text-17 text-tr-text-primary">
+                        {queue.length} fact{queue.length === 1 ? '' : 's'}{' '}
+                        awaiting review
+                      </h2>
+                      {highConf.length > 0 && (
+                        <button
+                          type="button"
+                          disabled={busyId !== null}
+                          onClick={handleBatchAcceptHigh}
+                          className="rounded-card bg-tr-sage-soft px-3 py-1.5 text-13 text-tr-text-primary transition-colors duration-standard ease-standard hover:shadow-lift focus-visible:outline focus-visible:outline-selected focus-visible:outline-offset-2 focus-visible:outline-tr-coral disabled:opacity-50 motion-reduce:transition-none"
+                          data-testid="batch-accept-high"
+                        >
+                          Accept all high-confidence ({highConf.length})
+                        </button>
+                      )}
+                    </div>
+                    <div className="flex flex-col gap-4">
+                      {sceneGroups.map((group) => (
+                        <div
+                          key={group.sceneId}
+                          data-testid={`review-queue-scene-${group.sceneId}`}
+                          className="flex flex-col gap-2"
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <h3 className="text-13 font-medium text-tr-text-primary">
+                              {sceneLabel(project, group.sceneId)}
+                              <span className="ml-2 font-normal text-tr-text-muted">
+                                ({group.facts.length})
+                              </span>
+                            </h3>
+                            <div className="flex gap-2">
+                              <button
+                                type="button"
+                                disabled={busyId !== null}
+                                onClick={() =>
+                                  handleSceneBatch(group.sceneId, 'accept')
+                                }
+                                className="rounded-card bg-tr-sage-soft px-2.5 py-1 text-12 text-tr-text-primary transition-colors duration-standard ease-standard focus-visible:outline focus-visible:outline-selected focus-visible:outline-offset-2 focus-visible:outline-tr-coral disabled:opacity-50 motion-reduce:transition-none"
+                                data-testid={`scene-accept-${group.sceneId}`}
+                              >
+                                Accept scene
+                              </button>
+                              <button
+                                type="button"
+                                disabled={busyId !== null}
+                                onClick={() =>
+                                  handleSceneBatch(group.sceneId, 'reject')
+                                }
+                                className="rounded-card px-2.5 py-1 text-12 text-tr-text-muted transition-colors duration-standard ease-standard hover:bg-tr-surface-raised focus-visible:outline focus-visible:outline-selected focus-visible:outline-offset-2 focus-visible:outline-tr-coral disabled:opacity-50 motion-reduce:transition-none"
+                                data-testid={`scene-reject-${group.sceneId}`}
+                              >
+                                Reject scene
+                              </button>
+                            </div>
+                          </div>
+                          <div className="grid gap-3 md:grid-cols-2">
+                            {group.facts.map((fact) => (
+                              <FactCard
+                                key={`queue-${fact.id}`}
+                                fact={fact}
+                                allFacts={ledger}
+                                project={project}
+                                queueActions
+                                busy={busyId !== null}
+                                onAccept={handleAccept}
+                                onReject={handleReject}
+                                onEdit={handleEdit}
+                                onSourceSpanClick={handleSourceSpanClick}
+                              />
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                )}
+                {selectedCharacter && (
+                  <CharacterProfile
+                    character={selectedCharacter}
+                    project={project}
+                    facts={ledger}
+                  />
+                )}
+              </>
+            )}
+            <section
+              key={view}
+              aria-label="Ledger facts"
+              className="tr-ledger-view-enter min-h-0 flex-1"
+              data-testid="ledger-view-body"
+            >
+              {view === 'atlas' ? (
+                <StoryAtlas
+                  facts={visibleFacts}
+                  allFacts={ledger}
+                  project={project}
+                  busy={busyId !== null}
+                  onAccept={handleAccept}
+                  onReject={handleReject}
+                  onSourceSpanClick={handleSourceSpanClick}
+                  expandedFactId={expandedFactId}
+                  onExpandedFactIdChange={setExpandedFactId}
+                  filterChips={atlasFilterChips}
+                  emptyMessage={
+                    ledger.length === 0
+                      ? asOfScene
+                        ? 'No facts are in force as of this scene yet.'
+                        : "Facts appear as you write. Table Read tracks what's true so you don't have to."
+                      : 'No facts match.'
+                  }
+                />
+              ) : view === 'web' ? (
+                <KnowledgeWeb
+                  facts={visibleFacts}
+                  allFacts={ledger}
+                  project={project}
+                  busy={busyId !== null}
+                  characterId={filters.characterId}
+                  onAccept={handleAccept}
+                  onReject={handleReject}
+                  onEdit={handleEdit}
+                  onSourceSpanClick={handleSourceSpanClick}
+                  onOpenInAtlas={handleOpenInAtlas}
+                  onBrowseInAtlas={handleBrowseInAtlas}
+                />
+              ) : view === 'threads' ? (
+                <ThreadsPanel
+                  project={project}
+                  threads={threads}
+                  onJumpToScene={handleJumpToScene}
+                  onClose={handleBrowseInAtlas}
+                />
+              ) : null}
+            </section>
+          </div>
         </div>
       </div>
     </AppShell>

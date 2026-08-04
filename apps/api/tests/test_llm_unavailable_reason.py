@@ -113,7 +113,8 @@ def test_classify_from_sdk_message_when_body_missing():
         message=(
             "Error code: 400 - "
             '{"type":"error","error":{"type":"invalid_request_error",'
-            '"message":"tools.0.custom: For \'array\' type, property \'prefixItems\' is not supported"}}'
+            '"message":"tools.0.custom: For \'array\' type, '
+            'property \'prefixItems\' is not supported"}}'
         ),
         response=resp,
         body={"type": "error"},

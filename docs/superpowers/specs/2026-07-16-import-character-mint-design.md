@@ -47,6 +47,7 @@ A line is a cue when the name token is ALL-CAPS (letters/digits/`.'-`/spaces), o
 - Re-import merges speakers; does not wipe existing characters
 - Locked characters are never overwritten
 - Create-and-import still one root snapshot / zero rows on failure
+
 ## Out of band
 
 Relationships, world-rule quality, and “atomic lies” extraction quality remain separate iteration work.

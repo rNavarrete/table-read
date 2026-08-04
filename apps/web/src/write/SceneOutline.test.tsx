@@ -4,7 +4,6 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Scene } from 'contract'
 import { outlinePitch, SceneOutline } from './SceneOutline'
-import { WRITE_WHIMSY } from './writeWhimsy'
 
 afterEach(cleanup)
 
@@ -54,18 +53,19 @@ describe('SceneOutline', () => {
         onSelect={() => {}}
       />,
     )
-    expect(screen.getByTestId('write-scene-outline').textContent).toContain(
-      WRITE_WHIMSY ? 'On the page · 3' : 'Scenes · 3',
-    )
+    const outline = screen.getByTestId('write-scene-outline')
+    expect(outline.textContent).toMatch(/On the page/)
+    expect(outline.textContent).toMatch(/3 scenes/)
     const row1 = screen.getByTestId('write-outline-scene-1')
-    expect(row1.textContent).toContain('1. OVAL OFFICE')
+    expect(row1.textContent).toContain('1')
+    expect(row1.textContent).toContain('OVAL OFFICE')
     expect(row1.textContent).toContain('Josh presses Leo')
     expect(screen.getByTestId('write-outline-scene-2').textContent).toContain(
       'Sam decides to act',
     )
     // Empty pitch: slug only (no empty second line).
-    expect(screen.getByTestId('write-outline-scene-3').textContent).toBe(
-      '3. ROOSEVELT ROOM — DAY',
+    expect(screen.getByTestId('write-outline-scene-3').textContent).toMatch(
+      /3.*ROOSEVELT ROOM — DAY/,
     )
   })
 
@@ -128,7 +128,7 @@ describe('SceneOutline', () => {
     )
     const active = screen.getByTestId('write-outline-scene-1')
     expect(active.getAttribute('aria-current')).toBe('true')
-    expect(active.className).toContain('bg-tr-coral-soft')
+    expect(active.className).toContain('bg-tr-write-selected')
 
     await user.click(screen.getByTestId('write-outline-scene-2'))
     expect(onSelect).toHaveBeenCalledWith('scene-2')

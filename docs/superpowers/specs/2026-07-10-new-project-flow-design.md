@@ -22,19 +22,19 @@ This is product behavior, not promotional copy.
 
 ## 2. Locked decisions
 
-| Decision | Choice |
-|---|---|
-| App entry | Project dashboard at `/projects`; no seeded-project fallback |
-| Dashboard direction | Story Launcher |
-| New project entry | Accent-token `+ New project` pill in the top-right plus two large launcher cards |
-| Creation paths | **Start from an idea** and **Import a script** |
-| Wizard style | Short, stepwise wizard with Back/Cancel and locally preserved inputs |
-| Idea handoff | Guided Plan setup: premise → characters → theme → optional scene skeleton |
-| Import inputs | `.fountain` / `.txt` / `.pdf` upload **and** paste |
-| Import handoff | Plan with scenes/beats; Ledger badge for pending imported facts |
-| AI behavior | Never starts on upload, paste, blur, navigation, or project creation |
-| Deletion | Permanent purge with typed-title confirmation; no Trash/archive fiction |
-| Visual system | Existing Quiet Tool tokens and components; no new color language |
+| Decision            | Choice                                                                           |
+| ------------------- | -------------------------------------------------------------------------------- |
+| App entry           | Project dashboard at `/projects`; no seeded-project fallback                     |
+| Dashboard direction | Story Launcher                                                                   |
+| New project entry   | Accent-token `+ New project` pill in the top-right plus two large launcher cards |
+| Creation paths      | **Start from an idea** and **Import a script**                                   |
+| Wizard style        | Short, stepwise wizard with Back/Cancel and locally preserved inputs             |
+| Idea handoff        | Guided Plan setup: premise → characters → theme → optional scene skeleton        |
+| Import inputs       | `.fountain` / `.txt` / `.pdf` upload **and** paste                               |
+| Import handoff      | Plan with scenes/beats; Ledger badge for pending imported facts                  |
+| AI behavior         | Never starts on upload, paste, blur, navigation, or project creation             |
+| Deletion            | Permanent purge with typed-title confirmation; no Trash/archive fiction          |
+| Visual system       | Existing Quiet Tool tokens and components; no new color language                 |
 
 ## 3. Non-goals
 
@@ -392,4 +392,3 @@ Use `MockLlmClient` only. Run `make test`, `make lint`, `make check-contract`, a
 7. Full e2e/accessibility/privacy verification and authoritative doc updates.
 
 Each slice is independently reviewable. Slice 6 is the only prompt-changing slice and cannot merge without the required eval sign-off.
-

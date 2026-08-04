@@ -87,9 +87,7 @@ export function CharacterProfile({
                 </p>
               ))
             ) : (
-              <p className="text-13 italic text-tr-text-muted">
-                No bio yet.
-              </p>
+              <p className="text-13 italic text-tr-text-muted">No bio yet.</p>
             )}
           </section>
         </div>

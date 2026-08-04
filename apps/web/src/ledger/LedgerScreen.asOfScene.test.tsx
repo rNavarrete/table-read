@@ -2,7 +2,7 @@
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { LedgerFact, Project } from 'contract'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { LedgerScreen } from './LedgerScreen'
 
 vi.mock('../api/client', () => ({
@@ -10,6 +10,7 @@ vi.mock('../api/client', () => ({
   confirmLedgerFact: vi.fn(),
   editLedgerFact: vi.fn(),
   getLedger: vi.fn(),
+  getLatestNarrativeMapRun: vi.fn(),
   getProject: vi.fn(),
   rejectLedgerFact: vi.fn(),
 }))
@@ -19,7 +20,11 @@ vi.mock('../projects/resumeContext', () => ({
   saveResume: vi.fn(),
 }))
 
-import { getLedger, getProject } from '../api/client'
+import { getLatestNarrativeMapRun, getLedger, getProject } from '../api/client'
+
+beforeEach(() => {
+  vi.mocked(getLatestNarrativeMapRun).mockResolvedValue(null)
+})
 
 afterEach(() => {
   cleanup()

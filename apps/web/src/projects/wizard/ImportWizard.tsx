@@ -587,10 +587,13 @@ export function ImportWizard() {
               </p>
               <p>{formatImportCostLine(stats)}</p>
               <p>
-                Estimate uses the classifier model; actual usage may vary.
+                Estimate mixes Sonnet (scene/entity work), Opus (story-wide
+                judgment), and Haiku (facts/scan) rates; actual usage may vary.
                 Create &amp; analyze script is the only action that sends this
                 source to the model. Scenes, beats, pending Ledger facts, and
-                consistency flags appear here only after that step.
+                consistency flags appear here only after that step. Narrative
+                Map generation is an explicit follow-up, so a slow map can never
+                undo this import.
               </p>
             </div>
           ),
@@ -611,12 +614,16 @@ export function ImportWizard() {
                     done: 0,
                     total: 0,
                   }
-                  const isHeavyStage =
-                    stage === 'segmenting_beats' || stage === 'extracting_facts'
                   const isDone =
                     session.progress.completedStages.includes(stage)
                   const isCurrent =
                     session.progress.currentStage === stage && !isDone
+                  const isIndeterminate = isCurrent && progress.done === 0
+                  const visualPercent = isDone
+                    ? 100
+                    : progress.total > 0
+                      ? Math.min(100, (progress.done / progress.total) * 100)
+                      : 0
                   const status =
                     session.phase === 'idle'
                       ? 'Pending'
@@ -635,30 +642,42 @@ export function ImportWizard() {
                         <span>{STAGE_LABELS[stage]}</span>
                         <span className="text-tr-text-secondary">{status}</span>
                       </div>
-                      {isHeavyStage && (
-                        <div className="grid gap-1">
+                      <div className="grid gap-1">
+                        {progress.total > 1 && (
                           <span className="text-12 text-tr-text-muted">
                             {progress.done} of {progress.total}
                           </span>
-                          {progress.total > 0 && (
+                        )}
+                        <div
+                          role="progressbar"
+                          aria-label={`${STAGE_LABELS[stage]} progress`}
+                          aria-valuemin={0}
+                          aria-valuemax={100}
+                          aria-valuenow={
+                            isIndeterminate ? undefined : visualPercent
+                          }
+                          aria-valuetext={
+                            isIndeterminate
+                              ? `${STAGE_LABELS[stage]} in progress`
+                              : progress.total > 1
+                                ? `${progress.done} of ${progress.total}`
+                                : status
+                          }
+                          className="h-1 overflow-hidden rounded-card bg-tr-surface-sunken"
+                        >
+                          {isIndeterminate ? (
                             <div
-                              role="progressbar"
-                              aria-label={`${STAGE_LABELS[stage]} progress`}
-                              aria-valuemin={0}
-                              aria-valuemax={progress.total}
-                              aria-valuenow={progress.done}
-                              className="h-1 overflow-hidden rounded-card bg-tr-surface-sunken"
-                            >
-                              <div
-                                className="h-full bg-tr-coral"
-                                style={{
-                                  width: `${Math.min(100, (progress.done / progress.total) * 100)}%`,
-                                }}
-                              />
-                            </div>
+                              className="tr-import-progress-indeterminate h-full bg-tr-coral"
+                              data-testid={`${stage}-indeterminate`}
+                            />
+                          ) : (
+                            <div
+                              className="h-full bg-tr-coral transition-[width]"
+                              style={{ width: `${visualPercent}%` }}
+                            />
                           )}
                         </div>
-                      )}
+                      </div>
                     </li>
                   )
                 })}
@@ -686,6 +705,10 @@ export function ImportWizard() {
                   <p className="text-13 text-tr-text-secondary">
                     Nothing was created. Your script and settings are still
                     here.
+                  </p>
+                  <p className="text-12 text-tr-text-muted">
+                    Retry reuses compatible saved analysis and runs only the
+                    unfinished stages.
                   </p>
                   <div className="flex gap-2">
                     <button

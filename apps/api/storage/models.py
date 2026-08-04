@@ -49,6 +49,80 @@ class ProjectRow(Base):
     updated_at: Mapped[datetime] = mapped_column(default=_utcnow)
 
 
+class NarrativeMapRunRow(Base):
+    """Durable, resumable work record for one source-versioned map analysis.
+
+    The raw script remains in `SnapshotRow.doc`; `checkpoint` stores only
+    completed derived packets so a retry can continue from the last verified
+    stage without paying to re-analyze the entire episode.
+    """
+
+    __tablename__ = "narrative_map_runs"
+
+    id: Mapped[str] = mapped_column(primary_key=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
+    run_key: Mapped[str] = mapped_column(unique=True, index=True)
+    source_snapshot_id: Mapped[str] = mapped_column(index=True)
+    source_hash: Mapped[str] = mapped_column(index=True)
+    analysis_version: Mapped[str]
+    status: Mapped[str] = mapped_column(index=True)
+    phase: Mapped[str]
+    scene_count: Mapped[int] = mapped_column(default=0)
+    completed_scene_count: Mapped[int] = mapped_column(default=0)
+    attempt_count: Mapped[int] = mapped_column(default=0)
+    estimated_cost_usd: Mapped[float | None] = mapped_column(default=None)
+    actual_input_tokens: Mapped[int | None] = mapped_column(default=None)
+    actual_output_tokens: Mapped[int | None] = mapped_column(default=None)
+    result_snapshot_id: Mapped[str | None] = mapped_column(default=None)
+    error_code: Mapped[str | None] = mapped_column(default=None)
+    error_message: Mapped[str | None] = mapped_column(default=None)
+    checkpoint: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(default=_utcnow)
+
+
+class ImportRunRow(Base):
+    """Pre-project durable state for an atomic create-and-import attempt.
+
+    The project still appears only after every analysis stage succeeds.
+    Completed analysis units live in ``ImportRunUnitRow`` so provider errors
+    and browser refreshes do not force already-paid work to run again.
+    """
+
+    __tablename__ = "import_runs"
+
+    id: Mapped[str] = mapped_column(primary_key=True)
+    idempotency_key: Mapped[str] = mapped_column(unique=True, index=True)
+    request_hash: Mapped[str] = mapped_column(index=True)
+    source_hash: Mapped[str] = mapped_column(index=True)
+    analysis_version: Mapped[str]
+    status: Mapped[str] = mapped_column(index=True)
+    phase: Mapped[str]
+    scene_count: Mapped[int] = mapped_column(default=0)
+    completed_scene_count: Mapped[int] = mapped_column(default=0)
+    attempt_count: Mapped[int] = mapped_column(default=0)
+    result_project_id: Mapped[str | None] = mapped_column(default=None)
+    error_code: Mapped[str | None] = mapped_column(default=None)
+    error_message: Mapped[str | None] = mapped_column(default=None)
+    checkpoint: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(default=_utcnow)
+
+
+class ImportRunUnitRow(Base):
+    """One independently reusable import result, keyed by stage and index."""
+
+    __tablename__ = "import_run_units"
+
+    id: Mapped[str] = mapped_column(primary_key=True)
+    run_id: Mapped[str] = mapped_column(ForeignKey("import_runs.id"), index=True)
+    stage: Mapped[str] = mapped_column(index=True)
+    unit_index: Mapped[int]
+    payload: Mapped[dict | list] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(default=_utcnow)
+
+
 class SnapshotRow(Base):
     __tablename__ = "snapshots"
 

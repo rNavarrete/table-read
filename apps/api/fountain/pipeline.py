@@ -5,14 +5,17 @@ Two-stage parse (prompt spec §7) → ledger extraction over imported scenes
 (all facts `pending_review`, §4 step 2) → initial consistency scan (§4 step
 3) → **one** write committing doc + ledger + flags (§4 step 4). Everything
 that can fail — chiefly LLM calls and later analysis — runs
-inside `analyze_import`, entirely *before* either caller's single DB write
+inside `analyze_import`, entirely *before* either caller's single project write
 (`run_import`'s `mutate()` below, or `create_import.py`'s
-`create_project_with_state`), so a failure persists nothing.
+`create_project_with_state`). The analysis core has no DB dependency; the
+create path may inject a checkpoint callback that durably saves completed
+pre-project units without creating partial project state.
 
 `analyze_import` is a generator so a caller that wants named progress (the
 create-and-import SSE stream, data contract §9.3: `parsing_scenes` /
 `segmenting_beats` / `inferring_acts` / `inferring_entities` /
-`inferring_promises` / `inferring_overview` / `extracting_facts` / `checking_consistency`) can
+`inferring_promises` / `inferring_overview` / `extracting_facts` /
+`checking_consistency`) can
 drive it one stage at a time; `run_import` below, which has no such caller,
 drains it in one call via `run_to_completion`.
 
@@ -29,11 +32,14 @@ import copy
 import logging
 from collections.abc import Callable, Generator
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from typing import cast
+
+from pydantic import BaseModel
 
 from drama_manager import locks, render
 from drama_manager.ledger_policy import IdMinter
+from drama_manager.narrative_map import NarrativeMapValidationError, merge_narrative_map
 from drama_manager.overview import merge_story_overview
 from drama_manager.promises import merge_narrative_promises
 from fountain import acts
@@ -44,6 +50,7 @@ from fountain.characters import (
     normalize_known_by,
 )
 from fountain.entity_inference import (
+    ENTITY_INFER_MAX_SCENES_PER_CHUNK,
     ENTITY_INFER_USER_CHAR_BUDGET,
     chunk_entity_scene_summaries,
     combine_story_entities,
@@ -56,11 +63,18 @@ from fountain.parse import (
     locate_source_text,
     normalize_and_slice,
     split_into_scenes,
+    strip_screenplay_front_matter,
 )
 from fountain.timeline import merge_timeline_anchors
-from llm.errors import SchemaInvalidLlmError
+from llm.errors import SchemaInvalidLlmError, classify_llm_unavailable_reason
 from llm.protocol import LlmClient
-from schemas import LedgerExtraction
+from schemas import (
+    ConsistencyScan,
+    InferredStoryOverview,
+    LedgerExtraction,
+    NarrativePromises,
+    StoryEntities,
+)
 from storage import snapshots
 from storage.models import LedgerFactRow, ProjectRow
 
@@ -95,6 +109,7 @@ class ImportStageProgress:
 
 
 ImportPipelineEvent = ImportStageStarted | ImportStageProgress
+ImportCheckpointWriter = Callable[[str, dict | list, int | None], None]
 
 
 @dataclass
@@ -126,6 +141,9 @@ def analyze_import(
     existing_ledger: list[dict],
     content: str,
     llm: LlmClient,
+    *,
+    checkpoint: dict | None = None,
+    checkpoint_writer: ImportCheckpointWriter | None = None,
 ) -> Generator[ImportPipelineEvent, None, ImportAnalysis]:
     """Run every LLM/parsing stage of an import with **no DB access and no
     mutation**, yielding internal pipeline progress events and returning the
@@ -142,6 +160,7 @@ def analyze_import(
     caller to map. A fresh (just-scaffolded, no seasons) `project_doc` with
     an empty `existing_ledger` is always writable, so create-and-import's
     guard call here is zero-cost."""
+    checkpoint = checkpoint or {}
     if not content:
         # An empty import has no scenes to segment; reject before touching the LLM.
         raise CoverageError("import content is empty")
@@ -155,59 +174,101 @@ def analyze_import(
     # ── Stage 1 + 2: deterministic split, then LLM segmentation + server-side
     # typed-start normalization + verbatim slicing, per scene. ──────────────
     yield ImportStageStarted(STAGE_PARSING_SCENES)
+    yield ImportStageProgress(STAGE_PARSING_SCENES, 0, 1)
+    stripped = strip_screenplay_front_matter(content)
+    if stripped.removed_line_count:
+        _logger.info(
+            "import_front_matter_stripped removed_lines=%d removed_chars=%d",
+            stripped.removed_line_count,
+            stripped.removed_char_count,
+        )
+    content = stripped.content
+    if not content.strip():
+        raise CoverageError("import contains only screenplay front matter")
     spans = split_into_scenes(content)
+    _write_checkpoint(
+        checkpoint_writer,
+        STAGE_PARSING_SCENES,
+        {"sceneCount": len(spans)},
+    )
+    yield ImportStageProgress(STAGE_PARSING_SCENES, 1, 1)
 
     yield ImportStageStarted(STAGE_SEGMENTING_BEATS)
+    cached_beats = _load_segment_checkpoints(checkpoint, len(spans))
     per_scene_beats = yield from _run_ordered_parallel(
         spans,
         lambda index, span: _segment_one(index, span, project_doc, llm),
         stage=STAGE_SEGMENTING_BEATS,
+        existing_results=cached_beats,
+        on_result=lambda index, beats: _write_checkpoint(
+            checkpoint_writer,
+            STAGE_SEGMENTING_BEATS,
+            _dump_imported_beats(beats),
+            index,
+        ),
     )
 
     # ── Infer the total act partition after all scenes have their semantic
     # summaries, but before scene assembly and every later LLM stage. ─────────
     yield ImportStageStarted(STAGE_INFERRING_ACTS)
     summaries = acts.scene_summaries(spans, per_scene_beats)
-    system, user = render.build_act_inference_prompt(project_doc, summaries, render.new_nonce())
-    inferred = llm.infer_act_breaks(
-        system=system,
-        user_message=user,
-        prompt_version=render.PROMPT_VERSION,
-    )
-    selected_inference = inferred
-    retried_acts = False
-    try:
-        scene_acts = acts.expand_act_starts(
-            inferred,
-            scene_count=len(spans),
-            format_dict=project_doc["format"],
+    cached_scene_acts = _load_scene_acts_checkpoint(checkpoint, len(spans))
+    if cached_scene_acts is not None:
+        scene_acts = cached_scene_acts
+        retried_acts = False
+        boundary_count = 0
+        yield ImportStageProgress(STAGE_INFERRING_ACTS, 1, 1)
+    else:
+        yield ImportStageProgress(STAGE_INFERRING_ACTS, 0, 1)
+        system, user = render.build_act_inference_prompt(
+            project_doc, summaries, render.new_nonce()
         )
-    except acts.ActInferenceError as first_error:
-        retried_acts = True
-        retry_system, retry_user = render.build_act_inference_retry_prompt(
-            project_doc,
-            summaries,
-            first_error.diagnostics,
-            render.new_nonce(),
-        )
-        repaired = llm.infer_act_breaks(
-            system=retry_system,
-            user_message=retry_user,
+        inferred = llm.infer_act_breaks(
+            system=system,
+            user_message=user,
             prompt_version=render.PROMPT_VERSION,
         )
-        selected_inference = repaired
+        selected_inference = inferred
+        retried_acts = False
         try:
             scene_acts = acts.expand_act_starts(
-                repaired,
+                inferred,
                 scene_count=len(spans),
                 format_dict=project_doc["format"],
             )
-        except acts.ActInferenceError as second_error:
-            raise SchemaInvalidLlmError("infer_act_breaks") from second_error
+        except acts.ActInferenceError as first_error:
+            retried_acts = True
+            retry_system, retry_user = render.build_act_inference_retry_prompt(
+                project_doc,
+                summaries,
+                first_error.diagnostics,
+                render.new_nonce(),
+            )
+            repaired = llm.infer_act_breaks(
+                system=retry_system,
+                user_message=retry_user,
+                prompt_version=render.PROMPT_VERSION,
+            )
+            selected_inference = repaired
+            try:
+                scene_acts = acts.expand_act_starts(
+                    repaired,
+                    scene_count=len(spans),
+                    format_dict=project_doc["format"],
+                )
+            except acts.ActInferenceError as second_error:
+                raise SchemaInvalidLlmError("infer_act_breaks") from second_error
+        boundary_count = len(selected_inference.starts)
+        _write_checkpoint(
+            checkpoint_writer,
+            STAGE_INFERRING_ACTS,
+            {"sceneActs": scene_acts},
+        )
+        yield ImportStageProgress(STAGE_INFERRING_ACTS, 1, 1)
     _logger.info(
         "import_infer_acts scenes=%d boundaries=%d retried=%s prompt_version=%s",
         len(spans),
-        len(selected_inference.starts),
+        boundary_count,
         retried_acts,
         render.PROMPT_VERSION,
     )
@@ -261,7 +322,7 @@ def analyze_import(
     speaker_names = cues_from_scenes(scene_docs)
     characters = merge_characters_into_bible(bible, speaker_names)
 
-    # ── Entity inference (§5a, T7.15): classifier call(s) over compact
+    # ── Entity inference (§5a, T7.15): import_worker (Sonnet) calls over compact
     # scene summaries + the cue-derived speaker floor, merged into the bible
     # (characters incl. non-speaking ones + aliases, relationships, world
     # elements as worldQA) before extraction so extract/scan see the fuller
@@ -274,41 +335,80 @@ def analyze_import(
     yield ImportStageStarted(STAGE_INFERRING_ENTITIES)
     scene_summaries = _entity_scene_summaries(scene_docs)
     summary_chunks = chunk_entity_scene_summaries(
-        scene_summaries, speaker_names, budget=ENTITY_INFER_USER_CHAR_BUDGET
+        scene_summaries,
+        # Each request receives only speakers appearing in its own scenes.
+        # Passing the global cast here previously asked every chunk to emit
+        # evidence for every cue-derived speaker, even when absent.
+        [],
+        budget=ENTITY_INFER_USER_CHAR_BUDGET,
+        max_scenes=ENTITY_INFER_MAX_SCENES_PER_CHUNK,
+    )
+    entity_parts = _load_model_unit_checkpoints(
+        checkpoint,
+        STAGE_INFERRING_ENTITIES,
+        len(summary_chunks),
+        StoryEntities,
+    )
+    completed_entity_chunks = sum(part is not None for part in entity_parts)
+    yield ImportStageProgress(
+        STAGE_INFERRING_ENTITIES,
+        completed_entity_chunks,
+        len(summary_chunks),
     )
     # WARNING (not INFO): uvicorn's default app log level often hides INFO,
     # and these lines are the only signal that chunking ran on a large import.
     _logger.warning(
-        "import_infer_entities_start scenes=%d chunks=%d speakers=%d "
-        "budget=%d prompt_version=%s",
+        "import_infer_entities_start scenes=%d chunks=%d speakers=%d budget=%d "
+        "max_scenes_per_chunk=%d prompt_version=%s",
         len(scene_docs),
         len(summary_chunks),
         len(speaker_names),
         ENTITY_INFER_USER_CHAR_BUDGET,
+        ENTITY_INFER_MAX_SCENES_PER_CHUNK,
         render.PROMPT_VERSION,
     )
-    entity_parts = []
+    scene_docs_by_id = {scene["id"]: scene for scene in scene_docs}
     for chunk_index, chunk in enumerate(summary_chunks):
+        if entity_parts[chunk_index] is not None:
+            continue
+        chunk_scene_docs = [
+            scene_docs_by_id[summary["id"]]
+            for summary in chunk
+            if summary["id"] in scene_docs_by_id
+        ]
+        chunk_speakers = cues_from_scenes(chunk_scene_docs)
         system, user = render.build_entity_prompt(
-            new_doc, chunk, speaker_names, render.new_nonce()
+            new_doc, chunk, chunk_speakers, render.new_nonce()
         )
         _logger.warning(
-            "import_infer_entities_chunk chunk=%d/%d scenes=%d "
+            "import_infer_entities_chunk chunk=%d/%d scenes=%d speakers=%d "
             "user_chars=%d system_chars=%d",
             chunk_index + 1,
             len(summary_chunks),
             len(chunk),
+            len(chunk_speakers),
             len(user),
             len(system),
         )
-        entity_parts.append(
-            llm.infer_story_entities(
-                system=system,
-                user_message=user,
-                prompt_version=render.PROMPT_VERSION,
-            )
+        entity_part = llm.infer_story_entities(
+            system=system,
+            user_message=user,
+            prompt_version=render.PROMPT_VERSION,
         )
-    entities = combine_story_entities(entity_parts)
+        entity_parts[chunk_index] = entity_part
+        _write_checkpoint(
+            checkpoint_writer,
+            STAGE_INFERRING_ENTITIES,
+            entity_part.model_dump(by_alias=True, mode="json"),
+            chunk_index,
+        )
+        completed_entity_chunks += 1
+        yield ImportStageProgress(
+            STAGE_INFERRING_ENTITIES,
+            completed_entity_chunks,
+            len(summary_chunks),
+        )
+    entities = combine_story_entities([cast(StoryEntities, part) for part in entity_parts])
     characters, relationship_states = merge_inferred_entities(bible, entities)
     _episode_ref(new_doc, episode_id)["relationshipStates"] = relationship_states
     _logger.info(
@@ -321,37 +421,52 @@ def analyze_import(
         render.PROMPT_VERSION,
     )
 
-    # ── Narrative promises (P2, T7.20): one classifier call over the same
-    # scene summaries, now with the fuller cast resolved, so thread owners
-    # and scene motivations can name any character entities just minted.
+    # ── Narrative promises (P2, T7.20): one import_analyst (Opus) call over a
+    # beat-complete semantic spine with bounded server-selected evidence excerpts.
+    # The fuller cast is resolved first, so thread owners and scene motivations can
+    # name any character entities just minted without replaying a full screenplay.
     # Merges threads onto the episode, motivations onto matching scenes, and
     # new (non-duplicate) world rules onto the bible — never overwriting or
     # duplicating a locked rule's text (drama_manager.promises). Same
     # schema-invalid-after-retry atomic-failure contract as every other
     # import LLM stage.
-    #
-    # Follow-up: `infer_narrative_promises` is still one-shot over all
-    # scenes and can hit the same prompt-too-long class of failure on very
-    # large imports. Do not naively reuse entity chunking — threads are
-    # cross-scene by design (setup in chunk A / payoff in chunk B). A later
-    # pass should choose overlapping windows or a second reduce step before
-    # splitting. ─────────────────────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────
     yield ImportStageStarted(STAGE_INFERRING_PROMISES)
     known_cast = [c["name"] for c in characters if c.get("name")]
-    existing_world_rule_texts = [
-        r["text"] for r in bible.get("worldRules") or [] if r.get("text")
-    ]
-    system, user = render.build_promises_prompt(
-        new_doc,
-        _entity_scene_summaries(scene_docs),
-        known_cast,
-        existing_world_rule_texts,
-        render.new_nonce(),
+    existing_world_rule_texts = [r["text"] for r in bible.get("worldRules") or [] if r.get("text")]
+    narrative_promises = _load_model_checkpoint(
+        checkpoint, STAGE_INFERRING_PROMISES, NarrativePromises
     )
-    narrative_promises = llm.infer_narrative_promises(
-        system=system, user_message=user, prompt_version=render.PROMPT_VERSION
-    )
+    if narrative_promises is None:
+        yield ImportStageProgress(STAGE_INFERRING_PROMISES, 0, 2)
+        promises_spine = _promises_prompt_spine(scene_docs)
+        system, user = render.build_promises_prompt(
+            new_doc,
+            promises_spine,
+            known_cast,
+            existing_world_rule_texts,
+            render.new_nonce(),
+        )
+        _logger.info(
+            "import_infer_promises_start scenes=%d beats=%d evidence_chars=%d prompt_chars=%d "
+            "prompt_version=%s",
+            len(promises_spine),
+            sum(len(scene["beats"]) for scene in promises_spine),
+            sum(len(scene["evidenceExcerpt"]) for scene in promises_spine),
+            len(user),
+            render.PROMPT_VERSION,
+        )
+        yield ImportStageProgress(STAGE_INFERRING_PROMISES, 1, 2)
+        narrative_promises = llm.infer_narrative_promises(
+            system=system, user_message=user, prompt_version=render.PROMPT_VERSION
+        )
+        _write_checkpoint(
+            checkpoint_writer,
+            STAGE_INFERRING_PROMISES,
+            narrative_promises.model_dump(by_alias=True, mode="json"),
+        )
     merge_narrative_promises(new_doc, episode_id, narrative_promises)
+    yield ImportStageProgress(STAGE_INFERRING_PROMISES, 2, 2)
     _logger.info(
         "import_infer_promises threads=%d scene_motivations=%d world_rules=%d prompt_version=%s",
         len(narrative_promises.threads),
@@ -360,24 +475,34 @@ def analyze_import(
         render.PROMPT_VERSION,
     )
 
-
-    # ── Story overview (T7.28): one classifier call after promises so the
+    # ── Story overview (T7.28): one import_analyst (Opus) call after promises so the
     # synopsis can reflect thread/motivation tone without depending on the
     # fact wall. Merges Episode.storyOverview; backfills empty premises from
     # the logline; preserves locked overview (drama_manager.overview). ─────
     yield ImportStageStarted(STAGE_INFERRING_OVERVIEW)
     scene_spine, known_beats = _overview_prompt_inputs(scene_docs)
-    system, user = render.build_overview_prompt(
-        new_doc,
-        scene_spine,
-        known_beats,
-        render.new_nonce(),
-        known_cast=known_cast,
+    story_overview = _load_model_checkpoint(
+        checkpoint, STAGE_INFERRING_OVERVIEW, InferredStoryOverview
     )
-    story_overview = llm.infer_story_overview(
-        system=system, user_message=user, prompt_version=render.PROMPT_VERSION
-    )
+    if story_overview is None:
+        yield ImportStageProgress(STAGE_INFERRING_OVERVIEW, 0, 1)
+        system, user = render.build_overview_prompt(
+            new_doc,
+            scene_spine,
+            known_beats,
+            render.new_nonce(),
+            known_cast=known_cast,
+        )
+        story_overview = llm.infer_story_overview(
+            system=system, user_message=user, prompt_version=render.PROMPT_VERSION
+        )
+        _write_checkpoint(
+            checkpoint_writer,
+            STAGE_INFERRING_OVERVIEW,
+            story_overview.model_dump(by_alias=True, mode="json"),
+        )
     merge_story_overview(new_doc, episode_id, story_overview)
+    yield ImportStageProgress(STAGE_INFERRING_OVERVIEW, 1, 1)
     _logger.info(
         "import_infer_overview outline=%d beat_sheet=%d prompt_version=%s",
         len(story_overview.outline),
@@ -389,10 +514,23 @@ def analyze_import(
     # pending_review, regardless of confidence. Fresh ledger → no existing
     # facts to contradict. ───────────────────────────────────────────────────
     yield ImportStageStarted(STAGE_EXTRACTING_FACTS)
+    cached_extractions = _load_model_unit_checkpoints(
+        checkpoint,
+        STAGE_EXTRACTING_FACTS,
+        len(scene_docs),
+        LedgerExtraction,
+    )
     extractions = yield from _run_ordered_parallel(
         scene_docs,
         lambda index, scene: _extract_one(index, scene, new_doc, episode_id, characters, llm),
         stage=STAGE_EXTRACTING_FACTS,
+        existing_results=cached_extractions,
+        on_result=lambda index, extraction: _write_checkpoint(
+            checkpoint_writer,
+            STAGE_EXTRACTING_FACTS,
+            extraction.model_dump(by_alias=True, mode="json"),
+            index,
+        ),
     )
     new_facts: list[dict] = []
     fact_minter = IdMinter([], "fact-")
@@ -426,16 +564,40 @@ def analyze_import(
 
     # ── Consistency scan (§4 step 3): one sweep across the imported episode. ──
     yield ImportStageStarted(STAGE_CHECKING_CONSISTENCY)
-    scene_summaries = [
-        {"id": s["id"], "location": s["location"], "whatHappens": s["whatHappens"]}
-        for s in scene_docs
+    scene_summaries = _entity_scene_summaries(scene_docs)
+    fact_summaries = [
+        {
+            "id": fact["id"],
+            "fact": fact["fact"],
+            "factType": fact["factType"],
+            "sourceSpan": fact["sourceSpan"],
+            "knownBy": fact["knownBy"],
+            "audienceKnows": fact["audienceKnows"],
+        }
+        for fact in new_facts
     ]
-    system, user = render.build_scan_prompt(
-        new_doc, "imported script", scene_summaries, [], characters, render.new_nonce()
+    scan = _load_model_checkpoint(
+        checkpoint, STAGE_CHECKING_CONSISTENCY, ConsistencyScan
     )
-    scan = llm.scan_consistency(
-        system=system, user_message=user, prompt_version=render.PROMPT_VERSION
-    )
+    if scan is None:
+        yield ImportStageProgress(STAGE_CHECKING_CONSISTENCY, 0, 1)
+        system, user = render.build_scan_prompt(
+            new_doc,
+            "imported script",
+            scene_summaries,
+            fact_summaries,
+            characters,
+            render.new_nonce(),
+        )
+        scan = llm.scan_consistency(
+            system=system, user_message=user, prompt_version=render.PROMPT_VERSION
+        )
+        _write_checkpoint(
+            checkpoint_writer,
+            STAGE_CHECKING_CONSISTENCY,
+            scan.model_dump(by_alias=True, mode="json"),
+        )
+    yield ImportStageProgress(STAGE_CHECKING_CONSISTENCY, 1, 1)
 
     flag_minter = IdMinter([], "flag-")
     raw_flags: list[dict] = []
@@ -481,11 +643,211 @@ def analyze_import(
     return ImportAnalysis(new_doc=new_doc, new_facts=new_facts, raw_flags=raw_flags)
 
 
+def analyze_narrative_map(project_doc: dict, llm: LlmClient) -> dict:
+    """Return a copy of ``project_doc`` with a fresh, grounded Narrative Map.
+
+    Narrative mapping is intentionally not part of the atomic script import:
+    it is a large optional synthesis request, while scenes, facts, and the
+    story overview are the restart-sensitive import result. Running it as a
+    separate snapshot mutation means a timeout can never discard those
+    completed import calls or make a retry re-send the source script.
+    """
+    new_doc = copy.deepcopy(project_doc)
+    episode = next(
+        (
+            episode
+            for season in new_doc.get("seasons") or []
+            for episode in season.get("episodes") or []
+        ),
+        None,
+    )
+    if episode is None or not episode.get("scenes"):
+        raise CoverageError("a narrative map requires an imported script")
+
+    episode_id = episode["id"]
+    scene_docs = episode["scenes"]
+    characters = (new_doc.get("seriesBible") or {}).get("characters") or []
+    # The map grounds claims through beat IDs; it does not need to re-read the
+    # full screenplay after segmentation has already supplied beat semantics.
+    # Keeping raw scriptText out avoids a large duplicate prompt and makes the
+    # explicit map action reliably bounded for long episodes.
+    narrative_spine = _narrative_map_scene_spine(scene_docs, include_script_text=False)
+    cast = [
+        {"id": character["id"], "name": character["name"], "aliases": character.get("aliases", [])}
+        for character in characters
+        if character.get("id") and character.get("name")
+    ]
+    system, user = render.build_narrative_map_prompt(
+        new_doc,
+        narrative_spine,
+        cast,
+        episode.get("threads") or [],
+        render.new_nonce(),
+    )
+    narrative_map = llm.infer_narrative_map(
+        system=system, user_message=user, prompt_version=render.PROMPT_VERSION
+    )
+    retried = False
+    try:
+        merge_narrative_map(new_doc, episode_id, narrative_map)
+    except NarrativeMapValidationError as first_error:
+        retried = True
+        retry_system, retry_user = render.build_narrative_map_retry_prompt(
+            new_doc,
+            narrative_spine,
+            cast,
+            episode.get("threads") or [],
+            first_error.diagnostics,
+            render.new_nonce(),
+        )
+        repaired_map = llm.infer_narrative_map(
+            system=retry_system,
+            user_message=retry_user,
+            prompt_version=render.PROMPT_VERSION,
+        )
+        try:
+            merge_narrative_map(new_doc, episode_id, repaired_map)
+            narrative_map = repaired_map
+        except NarrativeMapValidationError as second_error:
+            raise SchemaInvalidLlmError("infer_narrative_map") from second_error
+
+    _logger.info(
+        "narrative_map_generated scenes=%d themes=%d acts=%d arcs=%d scene_turns=%d retried=%s "
+        "prompt_version=%s",
+        len(scene_docs),
+        len(narrative_map.themes),
+        len(narrative_map.acts),
+        len(narrative_map.character_arcs),
+        len(narrative_map.scene_turns),
+        retried,
+        render.PROMPT_VERSION,
+    )
+    return new_doc
+
+
+def _write_checkpoint(
+    writer: ImportCheckpointWriter | None,
+    stage: str,
+    value: dict | list,
+    unit_index: int | None = None,
+) -> None:
+    if writer is not None:
+        writer(stage, value, unit_index)
+
+
+def _dump_imported_beats(beats: list[ImportedBeat]) -> list[dict]:
+    return [asdict(beat) for beat in beats]
+
+
+def _load_imported_beats(value: object) -> list[ImportedBeat] | None:
+    if not isinstance(value, list):
+        return None
+    beats: list[ImportedBeat] = []
+    try:
+        for raw in value:
+            if not isinstance(raw, dict):
+                return None
+            issues = [
+                SegmentationIssue(**issue)
+                for issue in raw.get("review_issues", [])
+                if isinstance(issue, dict)
+            ]
+            beats.append(
+                ImportedBeat(
+                    what_happens=str(raw["what_happens"]),
+                    audience_learns=str(raw["audience_learns"]),
+                    audience_feels=str(raw["audience_feels"]),
+                    script_text=str(raw["script_text"]),
+                    unassigned=[
+                        (int(pair[0]), int(pair[1]))
+                        for pair in raw.get("unassigned", [])
+                    ],
+                    review_issues=issues,
+                )
+            )
+    except (KeyError, TypeError, ValueError):
+        return None
+    return beats
+
+
+def _load_segment_checkpoints(
+    checkpoint: dict, scene_count: int
+) -> list[list[ImportedBeat] | None]:
+    results: list[list[ImportedBeat] | None] = [None] * scene_count
+    units = checkpoint.get(STAGE_SEGMENTING_BEATS)
+    if not isinstance(units, dict):
+        return results
+    for raw_index, value in units.items():
+        try:
+            index = int(raw_index)
+        except (TypeError, ValueError):
+            continue
+        if 0 <= index < scene_count:
+            results[index] = _load_imported_beats(value)
+    return results
+
+
+def _load_scene_acts_checkpoint(
+    checkpoint: dict, scene_count: int
+) -> list[int] | None:
+    value = checkpoint.get(STAGE_INFERRING_ACTS)
+    if not isinstance(value, dict):
+        return None
+    scene_acts = value.get("sceneActs")
+    if (
+        not isinstance(scene_acts, list)
+        or len(scene_acts) != scene_count
+        or any(not isinstance(act, int) for act in scene_acts)
+    ):
+        return None
+    return list(scene_acts)
+
+
+def _load_model_checkpoint[T: BaseModel](
+    checkpoint: dict,
+    stage: str,
+    model_type: type[T],
+) -> T | None:
+    value = checkpoint.get(stage)
+    if not isinstance(value, dict):
+        return None
+    try:
+        return model_type.model_validate(value)
+    except ValueError:
+        return None
+
+
+def _load_model_unit_checkpoints[T: BaseModel](
+    checkpoint: dict,
+    stage: str,
+    unit_count: int,
+    model_type: type[T],
+) -> list[T | None]:
+    results: list[T | None] = [None] * unit_count
+    units = checkpoint.get(stage)
+    if not isinstance(units, dict):
+        return results
+    for raw_index, value in units.items():
+        try:
+            index = int(raw_index)
+        except (TypeError, ValueError):
+            continue
+        if not 0 <= index < unit_count or not isinstance(value, dict):
+            continue
+        try:
+            results[index] = model_type.model_validate(value)
+        except ValueError:
+            continue
+    return results
+
+
 def _run_ordered_parallel[T, R](
     items: list[T],
     worker: Callable[[int, T], R],
     *,
     stage: str,
+    existing_results: list[R | None] | None = None,
+    on_result: Callable[[int, R], None] | None = None,
 ) -> Generator[ImportPipelineEvent, None, list[R]]:
     """Run per-scene LLM work concurrently while returning results by source index.
 
@@ -496,18 +858,50 @@ def _run_ordered_parallel[T, R](
     if not items:
         return []
 
-    results: list[R | None] = [None] * len(items)
+    if existing_results is not None and len(existing_results) != len(items):
+        raise ValueError("existing result count must match item count")
+    results: list[R | None] = (
+        list(existing_results) if existing_results is not None else [None] * len(items)
+    )
+    done = sum(result is not None for result in results)
+    yield ImportStageProgress(stage, done, len(items))
+    missing = [
+        (index, item)
+        for index, item in enumerate(items)
+        if results[index] is None
+    ]
+    if not missing:
+        return [cast(R, result) for result in results]
+
     pool = ThreadPoolExecutor(max_workers=IMPORT_LLM_CONCURRENCY)
     try:
-        futures = {pool.submit(worker, index, item): index for index, item in enumerate(items)}
-        done = 0
+        futures = {
+            pool.submit(worker, index, item): index
+            for index, item in missing
+        }
         for future in as_completed(futures):
             index = futures[future]
-            results[index] = future.result()
+            result = future.result()
+            if on_result is not None:
+                on_result(index, result)
+            results[index] = result
             done += 1
             yield ImportStageProgress(stage, done, len(items))
     except BaseException:
-        pool.shutdown(wait=False, cancel_futures=True)
+        # A provider request can fail while other submitted calls have already
+        # completed or are about to complete. Persist those results before
+        # surfacing the failure so a retry never pays for them a second time.
+        pool.shutdown(wait=True, cancel_futures=True)
+        for future, index in futures.items():
+            if results[index] is not None or future.cancelled() or not future.done():
+                continue
+            try:
+                completed_result = future.result()
+            except BaseException:
+                continue
+            if on_result is not None:
+                on_result(index, completed_result)
+            results[index] = completed_result
         raise
     else:
         pool.shutdown(wait=True)
@@ -557,20 +951,41 @@ def _extract_one(
     characters: list[dict],
     llm: LlmClient,
 ) -> LedgerExtraction:
-    del index
     system, user = render.build_extract_prompt(
         new_doc, episode_id, scene, [], characters, render.new_nonce()
     )
-    return llm.extract_ledger_facts(
-        system=system, user_message=user, prompt_version=render.PROMPT_VERSION
-    )
+    try:
+        return llm.extract_ledger_facts(
+            system=system, user_message=user, prompt_version=render.PROMPT_VERSION
+        )
+    except Exception as exc:
+        reason_class, _reason = classify_llm_unavailable_reason(exc)
+        if reason_class != "other_invalid_request":
+            raise
+        _logger.warning(
+            "import_extract_retry scene_index=%d beat_count=%d script_chars=%d "
+            "reason_class=%s prompt_version=%s",
+            index,
+            len(scene.get("beats") or []),
+            sum(len(beat.get("scriptText") or "") for beat in scene.get("beats") or []),
+            reason_class,
+            render.PROMPT_VERSION,
+        )
+        # Anthropic occasionally returns a request-level 400 for an otherwise
+        # valid per-scene tool request. It has no generated content to charge
+        # or checkpoint, so one clean reissue is safe; any second failure is
+        # still surfaced and preserves every completed scene checkpoint.
+        return llm.extract_ledger_facts(
+            system=system, user_message=user, prompt_version=render.PROMPT_VERSION
+        )
 
 
 _ENTITY_PROMPT_EARLY_LINES = 40
 
 
-
 _OVERVIEW_SCRIPT_EXCERPT_LINES = 12
+_PROMISES_EVIDENCE_LINES = 6
+_PROMISES_EVIDENCE_LINE_CHARS = 160
 
 
 def _overview_prompt_inputs(scene_docs: list[dict]) -> tuple[list[dict], list[dict]]:
@@ -586,19 +1001,11 @@ def _overview_prompt_inputs(scene_docs: list[dict]) -> tuple[list[dict], list[di
     known_beats: list[dict] = []
     for scene in scene_docs:
         beats = scene.get("beats") or []
-        what_happens = " ".join(
-            b["whatHappens"] for b in beats if b.get("whatHappens")
-        )
-        learns = " ".join(
-            b["audienceLearns"] for b in beats if b.get("audienceLearns")
-        )
-        feels = " ".join(
-            b["audienceFeels"] for b in beats if b.get("audienceFeels")
-        )
+        what_happens = " ".join(b["whatHappens"] for b in beats if b.get("whatHappens"))
+        learns = " ".join(b["audienceLearns"] for b in beats if b.get("audienceLearns"))
+        feels = " ".join(b["audienceFeels"] for b in beats if b.get("audienceFeels"))
         full_text = "\n".join(b.get("scriptText", "") for b in beats)
-        excerpt = "\n".join(
-            full_text.split("\n")[:_OVERVIEW_SCRIPT_EXCERPT_LINES]
-        )
+        excerpt = "\n".join(full_text.split("\n")[:_OVERVIEW_SCRIPT_EXCERPT_LINES])
         scene_spine.append(
             {
                 "sceneId": scene["id"],
@@ -623,6 +1030,70 @@ def _overview_prompt_inputs(scene_docs: list[dict]) -> tuple[list[dict], list[di
                 }
             )
     return scene_spine, known_beats
+
+
+def _promises_prompt_spine(scene_docs: list[dict]) -> list[dict]:
+    """Return every semantic beat with bounded, distributed raw evidence.
+
+    Narrative threads need the whole episode, but re-sending every scene's
+    screenplay text after segmentation turns a long import into one oversized
+    request. The semantic beat fields preserve complete story coverage while
+    six sampled non-blank lines per scene give the model on-page material for
+    the required quote fields.
+    """
+    scene_spine = _narrative_map_scene_spine(scene_docs, include_script_text=False)
+    for scene, spine_scene in zip(scene_docs, scene_spine, strict=True):
+        lines = [
+            line.strip()
+            for beat in scene.get("beats") or []
+            for line in (beat.get("scriptText") or "").splitlines()
+            if line.strip()
+        ]
+        if len(lines) <= _PROMISES_EVIDENCE_LINES:
+            indexes = range(len(lines))
+        else:
+            middle = len(lines) // 2
+            indexes = (0, 1, middle, middle + 1, len(lines) - 2, len(lines) - 1)
+        selected_lines = [
+            lines[index][:_PROMISES_EVIDENCE_LINE_CHARS]
+            for index in dict.fromkeys(indexes)
+        ]
+        spine_scene["evidenceExcerpt"] = "\n".join(selected_lines)
+    return scene_spine
+
+
+def _narrative_map_scene_spine(
+    scene_docs: list[dict], *, include_script_text: bool = True
+) -> list[dict]:
+    """Return a beat-complete semantic spine, optionally with raw script text.
+
+    Import narrative promises and the Narrative Map both rely on the complete
+    beat plan to discover late setup/payoff moves. The Narrative Map cites
+    beat IDs, while promises adds its own bounded scene evidence excerpts;
+    neither path needs a duplicate full-screenplay payload by default.
+    """
+    scene_spine: list[dict] = []
+    for scene in scene_docs:
+        beats: list[dict] = []
+        for beat in scene.get("beats") or []:
+            beat_data = {
+                "beatId": beat["id"],
+                "whatHappens": beat.get("whatHappens", ""),
+                "audienceLearns": beat.get("audienceLearns", ""),
+                "audienceFeels": beat.get("audienceFeels", ""),
+            }
+            if include_script_text:
+                beat_data["scriptText"] = beat.get("scriptText", "")
+            beats.append(beat_data)
+        scene_spine.append(
+            {
+                "sceneId": scene["id"],
+                "act": scene.get("act", 0),
+                "location": scene.get("location", ""),
+                "beats": beats,
+            }
+        )
+    return scene_spine
 
 
 def _entity_scene_summaries(scene_docs: list[dict]) -> list[dict]:
@@ -764,6 +1235,9 @@ def _install_scenes(project_doc: dict, scene_docs: list[dict]) -> tuple[dict, st
         episode = seasons[0]["episodes"][0]
         episode["scenes"] = scene_docs
         episode["timelineAnchors"] = timeline_anchors
+        # Re-import invalidates any beat-grounded map. The writer can request
+        # a fresh map after the new script snapshot has safely committed.
+        episode["narrativeMap"] = None
         return doc, episode["id"]
 
     episode = {
@@ -776,6 +1250,7 @@ def _install_scenes(project_doc: dict, scene_docs: list[dict]) -> tuple[dict, st
         "storylines": [],
         "scenes": scene_docs,
         "timelineAnchors": timeline_anchors,
+        "narrativeMap": None,
     }
     if seasons:
         seasons[0]["episodes"] = [episode]

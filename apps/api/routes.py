@@ -38,8 +38,15 @@ from drama_manager import (
 from drama_manager import (
     suggest as suggest_mod,
 )
+from drama_manager.narrative_map_analysis import NarrativeMapReadinessError
+from drama_manager.narrative_map_runs import (
+    create_or_resume_run,
+    enqueue_run,
+    mark_interrupted_run,
+    serialize_run,
+)
 from errors import ApiError
-from fountain import create_import, pdf_extract
+from fountain import create_import, import_runs, pdf_extract
 from fountain.export import to_fountain
 from fountain.parse import CoverageError
 from fountain.pipeline import run_import
@@ -57,6 +64,7 @@ from schemas import (
     LedgerBatchRequest,
     LedgerFact,
     LedgerFactEdit,
+    NarrativeMapRun,
     PdfExtractResult,
     Project,
     ProjectCreateRequest,
@@ -68,7 +76,13 @@ from schemas import (
 )
 from storage import project_scaffold, snapshots
 from storage.db import get_session
-from storage.models import ConsistencyFlagRow, LedgerFactRow, ProjectRow, SnapshotRow
+from storage.models import (
+    ConsistencyFlagRow,
+    LedgerFactRow,
+    NarrativeMapRunRow,
+    ProjectRow,
+    SnapshotRow,
+)
 from storage.patching import PatchError, apply_json_patch
 from storage.snapshots import MutationState
 
@@ -180,9 +194,7 @@ def _resolve_create_idempotency(
     translating its `IdempotencyConflict` into the JSON 409 envelope and
     unwrapping the row to the bare doc this route returns."""
     try:
-        existing = snapshots.resolve_creation_idempotency(
-            session, idempotency_key, request_hash
-        )
+        existing = snapshots.resolve_creation_idempotency(session, idempotency_key, request_hash)
     except snapshots.IdempotencyConflict as exc:
         raise ApiError(409, "IDEMPOTENCY_CONFLICT", str(exc)) from exc
     return existing.doc if existing is not None else None
@@ -204,9 +216,7 @@ def create_project(
         raise ApiError(400, "VALIDATION", "Idempotency-Key must not be empty")
 
     request_hash = _creation_request_hash(body)
-    if existing_doc := _resolve_create_idempotency(
-        session, idempotency_key, request_hash
-    ):
+    if existing_doc := _resolve_create_idempotency(session, idempotency_key, request_hash):
         return existing_doc
 
     doc = project_scaffold.initial_project_doc(
@@ -223,9 +233,7 @@ def create_project(
         )
     except IntegrityError:
         session.rollback()
-        if existing_doc := _resolve_create_idempotency(
-            session, idempotency_key, request_hash
-        ):
+        if existing_doc := _resolve_create_idempotency(session, idempotency_key, request_hash):
             return existing_doc
         raise
     return project.doc
@@ -255,9 +263,7 @@ def create_and_import_project(
 
     request_hash = _creation_request_hash(body)
     try:
-        existing = snapshots.resolve_creation_idempotency(
-            session, idempotency_key, request_hash
-        )
+        existing = snapshots.resolve_creation_idempotency(session, idempotency_key, request_hash)
     except snapshots.IdempotencyConflict as exc:
         raise ApiError(409, "IDEMPOTENCY_CONFLICT", str(exc)) from exc
 
@@ -266,6 +272,16 @@ def create_and_import_project(
             create_import.replay_events(session, existing.id),
             media_type="text/event-stream",
         )
+
+    try:
+        import_run, should_execute = import_runs.create_or_resume_run(
+            session,
+            idempotency_key=idempotency_key,
+            request_hash=request_hash,
+            content=body.source.content,
+        )
+    except import_runs.ImportRunConflict as exc:
+        raise ApiError(409, "IDEMPOTENCY_CONFLICT", str(exc)) from exc
 
     events = create_import.create_and_import_events(
         session,
@@ -277,8 +293,14 @@ def create_and_import_project(
         llm=llm,
         creation_idempotency_key=idempotency_key,
         creation_request_hash=request_hash,
+        import_run=import_run,
+        should_execute=should_execute,
     )
-    return StreamingResponse(events, media_type="text/event-stream")
+    return StreamingResponse(
+        events,
+        media_type="text/event-stream",
+        headers={"X-Table-Read-Import-Run-Id": import_run.id},
+    )
 
 
 @router.post("/import/extract-pdf", response_model=PdfExtractResult)
@@ -340,9 +362,7 @@ def patch_project(
     except PatchError as exc:
         raise ApiError(400, "VALIDATION", str(exc)) from exc
     except ValidationError as exc:
-        raise ApiError(
-            400, "VALIDATION", "patch produced an invalid project document"
-        ) from exc
+        raise ApiError(400, "VALIDATION", "patch produced an invalid project document") from exc
 
     try:
         locks.assert_no_locked_writes(project.doc, new_doc)
@@ -371,9 +391,7 @@ def patch_project(
             session,
             pid,
             "Direct edit",
-            lambda state: MutationState(
-                doc=new_doc, ledger=state.ledger, flags=state.flags
-            ),
+            lambda state: MutationState(doc=new_doc, ledger=state.ledger, flags=state.flags),
             expected_head_snapshot_id=if_match,
         )
     except snapshots.StaleHead as exc:
@@ -412,9 +430,7 @@ def get_ledger(
         try:
             fact_dicts = ledger_as_of.facts_as_of(scenes, fact_dicts, as_of_scene)
         except KeyError as exc:
-            raise ApiError(
-                400, "VALIDATION", f"asOfScene {as_of_scene!r} not found"
-            ) from exc
+            raise ApiError(400, "VALIDATION", f"asOfScene {as_of_scene!r} not found") from exc
         fact_dicts = [
             {**f, "knownByAsOf": ledger_as_of.knowers_as_of(f, scenes, as_of_scene)}
             for f in fact_dicts
@@ -456,19 +472,14 @@ def dismiss_consistency_flag(
     if row is None:
         raise ApiError(404, "NOT_FOUND", f"consistency flag {fid!r} not found")
     if row.status != "open":
-        raise ApiError(
-            409, "VALIDATION", f"consistency flag {fid!r} is not open"
-        )
+        raise ApiError(409, "VALIDATION", f"consistency flag {fid!r} is not open")
 
     project_id = row.project_id
 
     def mutator(state: MutationState) -> MutationState:
         # Doc + ledger pass through unchanged — only the matching flag's
         # status flips. Mutator must not mutate `doc` in place (snapshots.py).
-        next_flags = [
-            {**f, "status": "dismissed"} if f["id"] == fid else f
-            for f in state.flags
-        ]
+        next_flags = [{**f, "status": "dismissed"} if f["id"] == fid else f for f in state.flags]
         return MutationState(
             doc=state.doc,
             ledger=state.ledger,
@@ -521,9 +532,7 @@ def import_script(
 ) -> dict:
     project = _get_project_or_404(session, pid)
     if format not in _IMPORT_FORMATS:
-        raise ApiError(
-            400, "VALIDATION", f"format must be one of {sorted(_IMPORT_FORMATS)}"
-        )
+        raise ApiError(400, "VALIDATION", f"format must be one of {sorted(_IMPORT_FORMATS)}")
     try:
         return run_import(
             session,
@@ -549,6 +558,79 @@ def import_script(
         # errors.py: mapping SDK transport failures to LLM_UNAVAILABLE is the
         # route layer's job. Log the type only, never prompt/response content.
         raise ApiError(503, "LLM_UNAVAILABLE", "the language model is unavailable") from exc
+
+
+@router.post("/{pid}/narrative-map", response_model=NarrativeMapRun, status_code=202)
+def generate_narrative_map(
+    pid: str,
+    session: Session = Depends(get_session),
+    llm: LlmClient = Depends(get_llm_client),
+    if_match: str | None = Header(default=None, alias="If-Match"),
+) -> dict:
+    """Start or resume one idempotent, source-versioned Narrative Map run."""
+    project = _get_project_or_404(session, pid)
+    expected_head = _expected_head(if_match) or project.head_snapshot_id
+    if expected_head != project.head_snapshot_id:
+        raise ApiError(
+            409,
+            "CONFLICT_STALE_HEAD",
+            (
+                f"expected headSnapshotId {expected_head!r} but project head is "
+                f"{project.head_snapshot_id!r}"
+            ),
+        )
+    try:
+        run, should_enqueue = create_or_resume_run(
+            session, project, source_snapshot_id=expected_head
+        )
+    except NarrativeMapReadinessError as exc:
+        raise ApiError(
+            409,
+            "NARRATIVE_MAP_SOURCE_NOT_READY",
+            "The saved script is missing source text required for an evidence-grounded map.",
+            details={"diagnostics": exc.diagnostics},
+        ) from exc
+    if should_enqueue:
+        enqueue_run(run.id, llm)
+    return serialize_run(run)
+
+
+@router.get(
+    "/{pid}/narrative-map/runs/latest",
+    response_model=NarrativeMapRun | None,
+)
+def get_latest_narrative_map_run(
+    pid: str,
+    session: Session = Depends(get_session),
+) -> dict | None:
+    """Restore the latest durable run after a browser refresh."""
+    _get_project_or_404(session, pid)
+    run = (
+        session.query(NarrativeMapRunRow)
+        .filter_by(project_id=pid)
+        .order_by(
+            NarrativeMapRunRow.updated_at.desc(),
+            NarrativeMapRunRow.created_at.desc(),
+        )
+        .first()
+    )
+    if run is None:
+        return None
+    mark_interrupted_run(session, run)
+    return serialize_run(run)
+
+
+@router.get("/{pid}/narrative-map/runs/{run_id}", response_model=NarrativeMapRun)
+def get_narrative_map_run(
+    pid: str,
+    run_id: str,
+    session: Session = Depends(get_session),
+) -> dict:
+    run = session.get(NarrativeMapRunRow, run_id)
+    if run is None or run.project_id != pid:
+        raise ApiError(404, "NOT_FOUND", f"narrative map run {run_id!r} not found")
+    mark_interrupted_run(session, run)
+    return serialize_run(run)
 
 
 @router.post("/{pid}/scenes/{sid}/candidates")
@@ -582,8 +664,7 @@ def generate_candidates(
         raise ApiError(400, "VALIDATION", f"unknown craftLevel {level!r}")
 
     ledger = [
-        row.to_wire_dict()
-        for row in session.query(LedgerFactRow).filter_by(project_id=pid).all()
+        row.to_wire_dict() for row in session.query(LedgerFactRow).filter_by(project_id=pid).all()
     ]
     events = candidates.generate_candidate_events(
         llm,
@@ -622,8 +703,7 @@ def tune_candidate(
         raise ApiError(404, "NOT_FOUND", f"scene {sid!r} not found") from exc
 
     ledger = [
-        row.to_wire_dict()
-        for row in session.query(LedgerFactRow).filter_by(project_id=pid).all()
+        row.to_wire_dict() for row in session.query(LedgerFactRow).filter_by(project_id=pid).all()
     ]
     events = candidates.generate_tune_events(
         llm,
@@ -704,15 +784,12 @@ def create_change_set(
     rule 8). Target id is validated before any LLM call."""
     project = _get_project_or_404(session, pid)
     ledger = [
-        row.to_wire_dict()
-        for row in session.query(LedgerFactRow).filter_by(project_id=pid).all()
+        row.to_wire_dict() for row in session.query(LedgerFactRow).filter_by(project_id=pid).all()
     ]
     try:
         change_sets.validate_target(project.doc, ledger, target_object_id)
     except change_sets.TargetNotFound as exc:
-        raise ApiError(
-            404, "NOT_FOUND", f"targetObjectId {target_object_id!r} not found"
-        ) from exc
+        raise ApiError(404, "NOT_FOUND", f"targetObjectId {target_object_id!r} not found") from exc
 
     try:
         return change_sets.create_change_set(
@@ -763,9 +840,7 @@ def generate_scene_skeleton_candidates(
         raise ApiError(503, "LLM_UNAVAILABLE", "the language model is unavailable") from exc
 
 
-@router.post(
-    "/{pid}/scene-skeleton/change-sets", response_model=ChangeSet, status_code=200
-)
+@router.post("/{pid}/scene-skeleton/change-sets", response_model=ChangeSet, status_code=200)
 def create_scene_skeleton_change_set(
     pid: str,
     body: InitialSceneSkeletonCandidate,
@@ -813,9 +888,7 @@ def preview_change_set(
             cid,
             approved_object_ids=body.approved_object_ids,
             llm=llm,
-            craft_level=(
-                body.craft_level.value if body.craft_level is not None else None
-            ),
+            craft_level=(body.craft_level.value if body.craft_level is not None else None),
         )
     except change_sets.ChangeSetNotFound as exc:
         raise ApiError(404, "NOT_FOUND", f"change set {cid!r} not found") from exc
@@ -862,9 +935,7 @@ def apply_change_set(
 
 
 @change_sets_router.post("/{cid}/discard", response_model=ChangeSet, status_code=200)
-def discard_change_set(
-    cid: str, session: Session = Depends(get_session)
-) -> dict:
+def discard_change_set(cid: str, session: Session = Depends(get_session)) -> dict:
     """Mark the ChangeSet discarded; no project mutation (Review UI Agent E)."""
     try:
         return change_sets.discard_change_set(session, cid)
@@ -873,9 +944,7 @@ def discard_change_set(
 
 
 @change_sets_router.post("/{cid}/flag", response_model=ChangeSet, status_code=200)
-def flag_change_set(
-    cid: str, session: Session = Depends(get_session)
-) -> dict:
+def flag_change_set(cid: str, session: Session = Depends(get_session)) -> dict:
     """Mark the ChangeSet flagged (record concerns without applying)."""
     try:
         return change_sets.flag_change_set(session, cid)
@@ -947,8 +1016,7 @@ def suggest_instructions(
     the client inserts into an input on click only."""
     project = _get_project_or_404(session, pid)
     ledger = [
-        row.to_wire_dict()
-        for row in session.query(LedgerFactRow).filter_by(project_id=pid).all()
+        row.to_wire_dict() for row in session.query(LedgerFactRow).filter_by(project_id=pid).all()
     ]
     try:
         suggestions = suggest_mod.suggest_for_surface(
@@ -1047,9 +1115,7 @@ def patch_character(
             pid,
             "Rename character",
             lambda state: MutationState(
-                doc=characters.rename_character(
-                    state.doc, cid, name=name, aliases=aliases
-                ),
+                doc=characters.rename_character(state.doc, cid, name=name, aliases=aliases),
                 ledger=state.ledger,
                 flags=state.flags,
             ),
@@ -1097,8 +1163,7 @@ def merge_character(
         raise ApiError(409, "LOCKED_OBJECT", "cannot merge a locked character")
 
     ledger = [
-        row.to_wire_dict()
-        for row in session.query(LedgerFactRow).filter_by(project_id=pid).all()
+        row.to_wire_dict() for row in session.query(LedgerFactRow).filter_by(project_id=pid).all()
     ]
     try:
         new_doc, new_ledger = characters.merge_character(project.doc, ledger, cid, target_id)

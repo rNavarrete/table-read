@@ -34,6 +34,7 @@
 ### Task 1: Add the synchronized act-inference operation contract
 
 **Files:**
+
 - Modify: `packages/contract/src/index.ts`
 - Modify: `packages/contract/src/index.test.ts`
 - Modify: `apps/api/schemas.py`
@@ -52,6 +53,7 @@
 - Create: `config/tool_schemas/infer_act_breaks.json` (generated)
 
 **Interfaces:**
+
 - Produces Zod/Pydantic `InferredActBreaks`.
 - Produces `LlmClient.infer_act_breaks(*, system, user_message, prompt_version) -> InferredActBreaks`.
 - Registers tool name `infer_act_breaks`, schema name `InferredActBreaks`, role `classifier`.
@@ -273,12 +275,14 @@ git commit -m "contract: add import act-break inference operation"
 ### Task 2: Build pure act normalization and safe prompts
 
 **Files:**
+
 - Create: `apps/api/fountain/acts.py`
 - Create: `apps/api/tests/test_import_acts.py`
 - Modify: `apps/api/drama_manager/render.py`
 - Modify: `apps/api/tests/test_render.py`
 
 **Interfaces:**
+
 - Produces `ActInferenceError(diagnostics: list[dict])`.
 - Produces `scene_summaries(spans, per_scene_beats) -> list[dict]`.
 - Produces `expand_act_starts(inferred, *, scene_count, format_dict) -> list[int]`.
@@ -596,11 +600,13 @@ git commit -m "import: normalize inferred act boundaries"
 ### Task 3: Integrate inference into the atomic import pipeline
 
 **Files:**
+
 - Modify: `apps/api/fountain/pipeline.py`
 - Modify: `apps/api/tests/test_import.py`
 - Modify: `apps/api/tests/test_import_create.py`
 
 **Interfaces:**
+
 - Consumes Task 1's `llm.infer_act_breaks`.
 - Consumes Task 2's summaries, prompt builders, normalizer, and diagnostics.
 - Produces `STAGE_INFERRING_ACTS = "inferring_acts"`.
@@ -780,11 +786,13 @@ git commit -m "import: infer acts from scene summaries"
 ### Task 4: Show the truthful import cost
 
 **Files:**
+
 - Modify: `apps/web/src/projects/wizard/importCostEstimate.ts`
 - Modify: `apps/web/src/projects/wizard/importCostEstimate.test.ts`
 - Modify: `apps/web/src/projects/wizard/importSourceStats.test.ts`
 
 **Interfaces:**
+
 - Produces nominal call estimate `2 * sceneCount + 2`.
 
 - [ ] **Step 1: Add RED cost assertions**
@@ -846,6 +854,7 @@ git commit -m "web: include act inference in import cost"
 ### Task 5: Let writers correct scene acts in Plan
 
 **Files:**
+
 - Modify: `apps/web/src/plan/planTree.ts`
 - Modify: `apps/web/src/plan/planTree.test.ts`
 - Modify: `apps/web/src/plan/Inspector.tsx`
@@ -856,6 +865,7 @@ git commit -m "web: include act inference in import cost"
 - Modify: `apps/web/e2e/plan.spec.ts`
 
 **Interfaces:**
+
 - Produces `actNumbersForFormat(format: ShowFormat) -> number[]`.
 - Changes `onSaveSceneField` to accept `field: keyof Scene, value: unknown`.
 - Reuses `buildScenePatch`, `withSceneField`, and `useProjectPatch`.
@@ -1058,6 +1068,7 @@ git commit -m "plan: let writers correct scene acts"
 ### Task 6: Add act-boundary eval coverage and finalize authority docs
 
 **Files:**
+
 - Modify: `apps/api/evals/probes.py`
 - Modify: `apps/api/evals/checks.py`
 - Modify: `apps/api/evals/suite.py`
@@ -1071,6 +1082,7 @@ git commit -m "plan: let writers correct scene acts"
 - Modify: `docs/tableread-handoff.md`
 
 **Interfaces:**
+
 - Adds schema-validity probe for `infer_act_breaks`.
 - Adds hard eval key `act-validity`, result `act-boundary-validity`, gate `1.0`.
 - Adds soft eval key `act-boundaries`, result `act-boundary-quality`, gate `0.80`.

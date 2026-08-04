@@ -35,9 +35,9 @@ describe('AppShell', () => {
     const title = screen.getByRole('heading', { name: 'Long Pour' })
 
     expect(shell.className).toContain('h-shell-height')
-    expect(title.className).toContain('font-display')
-    expect(title.className).toContain('text-17')
-    expect(title.className).toContain('font-semibold')
+    expect(title.className).toContain('font-script')
+    expect(title.className).toContain('text-[14px]')
+    expect(title.className).toContain('font-medium')
   })
 
   it('opens undo history and restores a selected ancestor', async () => {

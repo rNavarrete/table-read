@@ -13,13 +13,13 @@ Redesign **everything** visually. **Do not change** product logic, API contracts
 
 ## 2. Decisions (locked)
 
-| Decision | Choice |
-|---|---|
-| Product authority for visuals | Quiet Tool **replaces** the current warm-ivory / coral / Fraunces UI language in `tableread-ui-spec.md` |
-| Review interaction | **Keep what we built** — Review stays a full mode (`/review`), with draft/`previewing` list, preview/apply/flag/discard, Undo all after apply |
-| Handoff Review modal over Plan | **Out of scope** for this redesign (visual language only). Impact-map radial diagram also deferred |
-| Rollout order | Tokens → shell → Write → Plan → Ledger → Review (least error-prone; full redesign, sequenced) |
-| Accent | Slate-blue `#5B79A6` / hover `#4A6690` (handoff default). No alternate accent switcher in MVP |
+| Decision                       | Choice                                                                                                                                        |
+| ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| Product authority for visuals  | Quiet Tool **replaces** the current warm-ivory / coral / Fraunces UI language in `tableread-ui-spec.md`                                       |
+| Review interaction             | **Keep what we built** — Review stays a full mode (`/review`), with draft/`previewing` list, preview/apply/flag/discard, Undo all after apply |
+| Handoff Review modal over Plan | **Out of scope** for this redesign (visual language only). Impact-map radial diagram also deferred                                            |
+| Rollout order                  | Tokens → shell → Write → Plan → Ledger → Review (least error-prone; full redesign, sequenced)                                                 |
+| Accent                         | Slate-blue `#5B79A6` / hover `#4A6690` (handoff default). No alternate accent switcher in MVP                                                 |
 
 ## 3. Non-goals
 
@@ -36,37 +36,37 @@ Keep existing `--tr-*` **names**. Update **values** in `apps/web/src/styles/toke
 
 ### 4.1 Color remapping
 
-| Token | New value | Role |
-|---|---|---|
-| `--tr-surface-page` | `#F6F6F3` | App background |
-| `--tr-surface-raised` | `#FFFFFF` | Cards, script sheet |
-| `--tr-surface-sunken` | `#F0F0EC` | Top bar, rails, board wrappers |
-| `--tr-surface-clay` | `#EBEBE6` | Mode-switcher track, act frames, hover fills |
-| `--tr-border` | `#E8E8E2` | Hairline borders |
-| `--tr-border-strong` | `#D9D9D2` | Stronger outlines (buttons, focus-adjacent) |
-| `--tr-text-primary` | `#26272B` | Body / titles |
-| `--tr-text-secondary` | `#84857D` | Secondary |
-| `--tr-text-muted` | `#9a9b92` | Hints / placeholders |
-| `--tr-coral` | `#5B79A6` | Primary actions / accent (name retained) |
-| `--tr-coral-hover` | `#4A6690` | Accent hover |
-| `--tr-coral-soft` | `#DEE5EE` | Selected nav / soft accent fill |
-| `--tr-sage` | `#7D9678` | Confirmed / high confidence |
-| `--tr-sage-soft` | `#E7EEE4` | Sage chip bg |
-| `--tr-sky` | `#41608A` | Info / flag-only / links |
-| `--tr-sky-soft` | `#E4EBF2` | Sky chip bg |
-| `--tr-amber` | `#8A6120` | Pending / speculative text |
-| `--tr-amber-soft` | `#FBF4E6` | Amber banner / chip bg (border `#EAD9B8` where needed) |
-| `--tr-danger` | keep destructive role; retune if needed for contrast on cool paper (prefer existing `#B0503C` unless illegible) | Errors only |
+| Token                 | New value                                                                                                       | Role                                                   |
+| --------------------- | --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| `--tr-surface-page`   | `#F6F6F3`                                                                                                       | App background                                         |
+| `--tr-surface-raised` | `#FFFFFF`                                                                                                       | Cards, script sheet                                    |
+| `--tr-surface-sunken` | `#F0F0EC`                                                                                                       | Top bar, rails, board wrappers                         |
+| `--tr-surface-clay`   | `#EBEBE6`                                                                                                       | Mode-switcher track, act frames, hover fills           |
+| `--tr-border`         | `#E8E8E2`                                                                                                       | Hairline borders                                       |
+| `--tr-border-strong`  | `#D9D9D2`                                                                                                       | Stronger outlines (buttons, focus-adjacent)            |
+| `--tr-text-primary`   | `#26272B`                                                                                                       | Body / titles                                          |
+| `--tr-text-secondary` | `#84857D`                                                                                                       | Secondary                                              |
+| `--tr-text-muted`     | `#9a9b92`                                                                                                       | Hints / placeholders                                   |
+| `--tr-coral`          | `#5B79A6`                                                                                                       | Primary actions / accent (name retained)               |
+| `--tr-coral-hover`    | `#4A6690`                                                                                                       | Accent hover                                           |
+| `--tr-coral-soft`     | `#DEE5EE`                                                                                                       | Selected nav / soft accent fill                        |
+| `--tr-sage`           | `#7D9678`                                                                                                       | Confirmed / high confidence                            |
+| `--tr-sage-soft`      | `#E7EEE4`                                                                                                       | Sage chip bg                                           |
+| `--tr-sky`            | `#41608A`                                                                                                       | Info / flag-only / links                               |
+| `--tr-sky-soft`       | `#E4EBF2`                                                                                                       | Sky chip bg                                            |
+| `--tr-amber`          | `#8A6120`                                                                                                       | Pending / speculative text                             |
+| `--tr-amber-soft`     | `#FBF4E6`                                                                                                       | Amber banner / chip bg (border `#EAD9B8` where needed) |
+| `--tr-danger`         | keep destructive role; retune if needed for contrast on cool paper (prefer existing `#B0503C` unless illegible) | Errors only                                            |
 
 **Selected text on soft accent:** when using `--tr-coral-soft` as a selected pill background, text should read as `#33445E` (add `--tr-accent-ink` **or** document that selected segments use `text-tr-text-primary` with sufficient contrast — prefer a new token `--tr-accent-ink: #33445E` if contrast fails WCAG on soft fill).
 
 ### 4.2 Typography
 
-| Token | New value |
-|---|---|
-| `--tr-font-ui` | `"Instrument Sans", system-ui, sans-serif` |
-| `--tr-font-display` | same as UI (drop Fraunces) |
-| `--tr-font-script` | `"Courier Prime", "Courier New", monospace` (unchanged) |
+| Token               | New value                                               |
+| ------------------- | ------------------------------------------------------- |
+| `--tr-font-ui`      | `"Instrument Sans", system-ui, sans-serif`              |
+| `--tr-font-display` | same as UI (drop Fraunces)                              |
+| `--tr-font-script`  | `"Courier Prime", "Courier New", monospace` (unchanged) |
 
 Load Instrument Sans + Courier Prime (Google Fonts or self-hosted — match existing font-loading pattern in the web app).
 
@@ -74,19 +74,19 @@ Font-size scale: keep 12/13/15/17/22/28; Quiet Tool’s 10–11px uppercase sect
 
 ### 4.3 Radius, shadow, motion, layout widths
 
-| Token | New / keep |
-|---|---|
-| `--tr-radius-card` | `10px` → `12px` (Quiet Tool 8–12; pick 12 for cards) |
-| `--tr-radius-chip` | `999px` (keep) |
-| `--tr-radius-frame` | `12px` (was 14) |
-| `--tr-shadow-raised` | soft ambient; prefer near-invisible at rest |
-| `--tr-shadow-lift` | `0 4px 16px rgb(38 39 43 / 0.08)` (card hover) |
-| Motion | keep 160ms ease-out |
-| `--tr-script-col` | ~600px sheet width per handoff (was 720) — update if Write layout adopts 600 |
-| `--tr-panel-story-layers` | `232px` |
-| `--tr-panel-inspector` | `296px` |
-| `--tr-card-scene` | `214px` |
-| `--tr-panel-ledger-filters` | `198px` |
+| Token                       | New / keep                                                                   |
+| --------------------------- | ---------------------------------------------------------------------------- |
+| `--tr-radius-card`          | `10px` → `12px` (Quiet Tool 8–12; pick 12 for cards)                         |
+| `--tr-radius-chip`          | `999px` (keep)                                                               |
+| `--tr-radius-frame`         | `12px` (was 14)                                                              |
+| `--tr-shadow-raised`        | soft ambient; prefer near-invisible at rest                                  |
+| `--tr-shadow-lift`          | `0 4px 16px rgb(38 39 43 / 0.08)` (card hover)                               |
+| Motion                      | keep 160ms ease-out                                                          |
+| `--tr-script-col`           | ~600px sheet width per handoff (was 720) — update if Write layout adopts 600 |
+| `--tr-panel-story-layers`   | `232px`                                                                      |
+| `--tr-panel-inspector`      | `296px`                                                                      |
+| `--tr-card-scene`           | `214px`                                                                      |
+| `--tr-panel-ledger-filters` | `198px`                                                                      |
 
 Modal scrim (if any future overlay): `rgb(38 39 43 / 0.34)` + `backdrop-filter: blur(2px)` — not required for this pass.
 
@@ -95,6 +95,7 @@ Modal scrim (if any future overlay): `rgb(38 39 43 / 0.34)` + `backdrop-filter: 
 **Behavior unchanged:** project title, mode switcher (Write · Plan · Review · Ledger), Undo / Export / Settings, ⌘1–4, Review amber dot when open Change Set exists, Ledger amber count when `pending_review` > 0, Settings privacy copy.
 
 **Visual:**
+
 - Top bar height **52px** (tokenize if needed, e.g. `--tr-shell-height: 52px`)
 - Bar background `--tr-surface-sunken`
 - Mode switcher on clay track; **active** segment uses `--tr-coral-soft` + accent ink (not old coral-soft-on-warm)
@@ -108,6 +109,7 @@ Modal scrim (if any future overlay): `rgb(38 39 43 / 0.34)` + `backdrop-filter: 
 Keep: script canvas + candidate dock + command bar; quiet-AI dimming; Accept / Tune / Skip; Next Beat empty state; SSE streaming.
 
 Restyle:
+
 - Script sheet white card, Courier Prime, handoff-like slug/character/dialogue density (indents via existing ScriptCanvas structure — adjust CSS, don’t invent a second parser)
 - Dock ~332px; candidate cards white, 12px radius, hairline border; Accept = solid accent; Tune = outlined; Skip = text ~60% opacity
 - Command bar floating pill, placeholder “Tell the scene where to go…”
@@ -117,6 +119,7 @@ Restyle:
 Keep: Story Layers · Board · Inspector; Open Review / Save field only; locks; reorder; consistency flag dots on scenes.
 
 Restyle:
+
 - Panel widths per §4.3
 - Act frames on sunken/clay; scene cards 214px; selected = soft accent fill or 2px accent outline (prefer soft fill to match handoff “tsel” pills)
 - Lock control as pill switch (existing LockToggle restyled)
@@ -126,6 +129,7 @@ Restyle:
 Keep: filter rail, review queue, batch accept, fact cards, confirm/edit/reject, confidence bar, superseded strike.
 
 Restyle:
+
 - Rail ~198px; accent-tint active filter
 - Amber awaiting-review banner; Accept all high-confidence
 - 2-column fact grid; status/type chips; known-by initial chips; sage confidence bar
@@ -135,6 +139,7 @@ Restyle:
 Keep: `/review` route; list `draft,previewing`; single auto-open; ChangeSetPanel preview/apply/flag/discard; locked / flag_only rows; post-apply Undo all; continuity / post-apply flags.
 
 Restyle:
+
 - Quieter header (instruction + target chip + status)
 - Row density closer to handoff table: checkbox · element · lock · reason · confidence · before→after chips (adapt `ChangeSetRow` / `DiffPane` — no new API fields)
 - Footer: Preview / Apply (accent) / Flag only / Discard; reassurance line optional (“Nothing changes until you confirm”) where it doesn’t contradict preview-then-apply

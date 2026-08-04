@@ -23,6 +23,7 @@
 ### Task 1: Contract — Thread, WorldRule fields, NarrativePromises, stage
 
 **Files:**
+
 - `packages/contract/src/index.ts`
 - `apps/api/schemas.py`
 - `docs/tableread-data-contract.md`, `docs/tableread-prompt-spec.md`
@@ -86,6 +87,7 @@ export const NarrativePromises = z.object({
 ### Task 2: Prompt + merge helpers + pipeline
 
 **Files:**
+
 - `apps/api/drama_manager/render.py` — `build_promises_prompt`, PROMPT_VERSION 0.13.0
 - `apps/api/drama_manager/promises.py` — `merge_narrative_promises(doc, result) -> doc`
 - `apps/api/fountain/pipeline.py` — stage after entities
@@ -94,6 +96,7 @@ export const NarrativePromises = z.object({
 - Wizard: stage label in `ImportWizard.tsx`
 
 **`merge_narrative_promises`:**
+
 - Mint `thread-{uuid.hex[:12]}` via IdMinter pattern
 - Resolve ownerNames / characterName via alias-aware lookup (reuse fountain/characters or drama_manager/characters helpers)
 - Set `episode["threads"]` (replace import-derived list for that episode)
@@ -109,6 +112,7 @@ export const NarrativePromises = z.object({
 ### Task 3: Ledger Threads UI
 
 **Files:**
+
 - `apps/web/src/ledger/ThreadsPanel.tsx` (+ test)
 - Wire into `LedgerScreen` / FilterRail lens **Threads** or Atlas chapter
 - Jump: setup/payoff scene → Plan or Write `?scene=`
@@ -122,6 +126,7 @@ export const NarrativePromises = z.object({
 ### Task 4: Eval fixture + docs
 
 **Files:**
+
 - `fixtures/narrative-promises.fountain` + planted JSON (1 setup/payoff pair, 1 open thread, 1 motivation, 1 world rule with limit)
 - Wire soft family in evals suite
 - `docs/tableread-build-plan.md` T7.19–T7.22, test-plan, roadmap P2 note

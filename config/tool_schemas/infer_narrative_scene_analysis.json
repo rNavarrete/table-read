@@ -1,0 +1,100 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "scenes": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "conflict": {
+            "description": "The scene's immediate opposition or pressure. For a connective scene, state that there is no independent confrontation and name the pressure carried forward.",
+            "type": "string"
+          },
+          "dramaticFunction": {
+            "description": "The specific job this scene performs in the episode's developing story.",
+            "type": "string"
+          },
+          "focalCharacterName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A name copied from known_cast when one perspective clearly leads; otherwise null."
+          },
+          "keyMoments": {
+            "description": "One or more decisive on-page moments, each tied to an allowed beatId.",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "beatId": {
+                  "description": "A beatId copied from allowedBeatIds for the supplied scene.",
+                  "type": "string"
+                },
+                "consequence": {
+                  "description": "What becomes newly true or must be addressed after this moment.",
+                  "type": "string"
+                },
+                "dramaticFunction": {
+                  "description": "How this moment changes pressure, information, power, or choice in the scene.",
+                  "type": "string"
+                },
+                "summary": {
+                  "description": "Concrete on-page action or decision at this moment; never a placeholder.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "beatId",
+                "summary",
+                "dramaticFunction",
+                "consequence"
+              ],
+              "type": "object"
+            },
+            "minItems": 1,
+            "type": "array"
+          },
+          "sceneId": {
+            "description": "The single supplied sceneId, copied exactly.",
+            "type": "string"
+          },
+          "stakes": {
+            "description": "What can be gained, lost, exposed, or made harder by the scene's action.",
+            "type": "string"
+          },
+          "summary": {
+            "description": "A concrete present-tense summary naming the scene's on-page action.",
+            "type": "string"
+          },
+          "turn": {
+            "description": "The concrete change in information, decision, value, or power by scene end.",
+            "type": "string"
+          },
+          "turnBeatId": {
+            "description": "The allowed beatId where the scene's main change is clearest.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sceneId",
+          "summary",
+          "focalCharacterName",
+          "dramaticFunction",
+          "conflict",
+          "stakes",
+          "turnBeatId",
+          "turn",
+          "keyMoments"
+        ],
+        "type": "object"
+      },
+      "minItems": 1,
+      "type": "array"
+    }
+  },
+  "required": ["scenes"],
+  "type": "object"
+}

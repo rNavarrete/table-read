@@ -19,7 +19,12 @@ import pytest
 from llm.anthropic_client import DEFAULT_LLM_CALL_TIMEOUT_SECONDS, AnthropicClient
 from llm.errors import LlmTimeoutError, SchemaInvalidLlmError, log_llm_unavailable
 
-_MODELS = {"writer": "m", "classifier": "m"}
+_MODELS = {
+    "writer": "m",
+    "classifier": "m",
+    "import_worker": "m",
+    "import_analyst": "m",
+}
 
 
 class _HangSdk:
@@ -56,6 +61,7 @@ def test_anthropic_client_times_out_hung_create(caplog):
     assert "llm_unavailable" in joined
     assert "LlmTimeoutError" in joined
     assert "generate_beat_candidates" in joined
+    assert "timeout_seconds=0.2" in joined
 
 
 def test_log_llm_unavailable_rate_limit_metadata_not_message(caplog):

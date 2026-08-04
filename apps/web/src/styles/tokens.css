@@ -41,6 +41,8 @@
   --tr-font-ui:      "Instrument Sans", system-ui, sans-serif;
   --tr-font-script:  "Courier Prime", "Courier New", monospace; /* teleplay */
   --tr-font-display: "Instrument Sans", system-ui, sans-serif; /* headings, mode titles */
+  /* Ledger story-bible display title (redesign handoff — Newsreader). */
+  --tr-font-ledger-display: "Newsreader", "Instrument Sans", Georgia, serif;
 
   /*
    * §1's comment-only scales, tokenized per controller ruling on T0.4:
@@ -56,31 +58,66 @@
   --tr-font-size-17: 17px;
   --tr-font-size-22: 22px;
   --tr-font-size-28: 28px;
+  --tr-font-size-30: 30px; /* Ledger story-bible title */
 
   /* Radius: cards 12px, chips 999px, canvas frames 12px. */
   --tr-radius-card:  12px;
   --tr-radius-chip:  999px;
   --tr-radius-frame: 12px;
+  --tr-radius-ledger-card: 15px; /* Atlas fact cards */
+  --tr-radius-control: 9px; /* search, pills, segmented track */
 
   /* Shadow: soft ambient at rest, lift on hover/drag. */
   --tr-shadow-raised: 0 1px 2px rgb(38 39 43 / 0.04);
   --tr-shadow-lift:   0 4px 16px rgb(38 39 43 / 0.08);
+  /* Atlas fact-card hover lift (redesign handoff). */
+  --tr-shadow-ledger-card: 0 12px 30px -18px rgb(38 39 43 / 0.28);
+  /* Story overview card (Ledger handoff 2). */
+  --tr-shadow-overview-card: 0 12px 34px -26px rgb(38 39 43 / 0.35);
+  --tr-overview-icon-bg:#E6EBF5;
+  --tr-overview-ready-ink:#3D8A5A;
+  --tr-overview-ready-bg:#E8F5EC;
+  --tr-overview-expand-bg:#F6F4F1;
+  /* Write page sheet / co-writer card / command bar (redesign handoff). */
+  --tr-shadow-write-page: 0 30px 70px -44px rgb(38 39 43 / 0.35);
+  --tr-shadow-write-card: 0 16px 40px -28px rgb(38 39 43 / 0.35);
+  --tr-shadow-write-bar: 0 20px 50px -24px rgb(38 39 43 / 0.4);
+  --tr-shadow-write-cta: 0 8px 20px -12px rgb(91 121 166 / 0.55);
 
   /* Motion: 160ms ease-out standard; streaming text has no animation. */
   --tr-motion-duration-standard: 160ms;
   --tr-motion-ease-standard:     ease-out;
 
-  /* Layout: Write mode (§3) script column / candidate dock. */
+  /* Layout: Write mode (§4) — redesign handoff column widths. */
   --tr-script-col: 600px;
-  --tr-panel-candidate-dock: 332px;
+  --tr-script-page: 680px; /* paper sheet max-width */
+  --tr-command-bar: 560px;
+  --tr-panel-write-outline: 296px; /* ON THE PAGE scene list */
+  --tr-panel-candidate-dock:392px;
 
-  /* Layout: Plan mode board (§4) panel/card widths. */
+  /* Write surfaces (redesign handoff ≈oklch warm paper). */
+  --tr-write-panel:#F7F5F2; /* outline + co-writer */
+  --tr-write-desk:#F1EEEA; /* scrollport behind page */
+  --tr-write-selected:#E6EBF5; /* active scene row */
+  --tr-write-dot-int:#6F93D6;
+  --tr-write-dot-ext:#4FA877;
+  --tr-write-dot-other:#C4C0B8;
+
+  /* Layout: Plan mode board (§5) panel/card widths. */
   --tr-panel-story-layers: 232px;
   --tr-panel-inspector: 296px;
   --tr-card-scene: 214px;
 
-  /* Layout: Ledger mode filter rail (§6). */
-  --tr-panel-ledger-filters: 198px;
+  /* Layout: Ledger CAST rail (§7b). */
+  --tr-panel-ledger-filters:236px;
+
+  /* Ledger story-bible surfaces (redesign handoff ≈oklch warm paper). */
+  --tr-ledger-content:#F3F1EE; /* main column behind cards */
+  --tr-ledger-secret-surface:#F8F2E8; /* secret fact card fill */
+  --tr-ledger-secret-border:#E9DCC6;
+  --tr-ledger-secret-ink:#9A6B2F;
+  --tr-ledger-secret-badge:#F0E2C8;
+  --tr-ledger-selected:#E8E4DF; /* CAST row / All facts selected */
 
   /* Outline: §4's "Selected = 2px accent outline" — width only (color is --tr-coral). */
   --tr-outline-selected: 2px;
@@ -90,7 +127,7 @@
 
   /* Quiet Tool: selected-pill ink on soft accent fill; app shell top bar height. */
   --tr-accent-ink: #33445E;
-  --tr-shell-height: 52px;
+  --tr-shell-height:56px;
 
   /* Spacing: no other --tr-* spacing tokens — Tailwind's default 4px-base scale
      already matches spec §1 (4/8/12/16/24/32/48/64), per controller ruling. */
@@ -126,6 +163,7 @@
   --font-ui:      var(--tr-font-ui);
   --font-script:  var(--tr-font-script);
   --font-display: var(--tr-font-display);
+  --font-ledger-display: var(--tr-font-ledger-display);
 
   --text-11: var(--tr-font-size-11);
   --text-12: var(--tr-font-size-12);
@@ -134,25 +172,54 @@
   --text-17: var(--tr-font-size-17);
   --text-22: var(--tr-font-size-22);
   --text-28: var(--tr-font-size-28);
+  --text-30: var(--tr-font-size-30);
 
   --radius-card:  var(--tr-radius-card);
   --radius-chip:  var(--tr-radius-chip);
   --radius-frame: var(--tr-radius-frame);
+  --radius-ledger-card: var(--tr-radius-ledger-card);
+  --radius-control: var(--tr-radius-control);
 
   --shadow-raised: var(--tr-shadow-raised);
   --shadow-lift:   var(--tr-shadow-lift);
+  --shadow-ledger-card: var(--tr-shadow-ledger-card);
+  --shadow-overview-card: var(--tr-shadow-overview-card);
+
+  --color-tr-overview-icon-bg: var(--tr-overview-icon-bg);
+  --color-tr-overview-ready-ink: var(--tr-overview-ready-ink);
+  --color-tr-overview-ready-bg: var(--tr-overview-ready-bg);
+  --color-tr-overview-expand-bg: var(--tr-overview-expand-bg);
+  --shadow-write-page: var(--tr-shadow-write-page);
+  --shadow-write-card: var(--tr-shadow-write-card);
+  --shadow-write-bar: var(--tr-shadow-write-bar);
+  --shadow-write-cta: var(--tr-shadow-write-cta);
+
+  --color-tr-ledger-content: var(--tr-ledger-content);
+  --color-tr-ledger-secret-surface: var(--tr-ledger-secret-surface);
+  --color-tr-ledger-secret-border: var(--tr-ledger-secret-border);
+  --color-tr-ledger-secret-ink: var(--tr-ledger-secret-ink);
+  --color-tr-ledger-secret-badge: var(--tr-ledger-secret-badge);
+  --color-tr-ledger-selected: var(--tr-ledger-selected);
+
+  --color-tr-write-panel: var(--tr-write-panel);
+  --color-tr-write-desk: var(--tr-write-desk);
+  --color-tr-write-selected: var(--tr-write-selected);
+  --color-tr-write-dot-int: var(--tr-write-dot-int);
+  --color-tr-write-dot-ext: var(--tr-write-dot-ext);
+  --color-tr-write-dot-other: var(--tr-write-dot-other);
 
   /* ease-standard utility + 160ms as the default transition duration. */
   --ease-standard: var(--tr-motion-ease-standard);
   --default-transition-duration: var(--tr-motion-duration-standard);
 
-  /* max-w-script-col (Tailwind v4 --container-* namespace backs max-w-*). */
+  /* max-w-script-col / max-w-script-page / max-w-command-bar */
   --container-script-col: var(--tr-script-col);
+  --container-script-page: var(--tr-script-page);
+  --container-command-bar: var(--tr-command-bar);
 
-  /* w-panel-story-layers / w-panel-inspector / w-card-scene / h-shell-height.
-     Tailwind v4's --spacing-* namespace backs w-, h-, p-, m-, gap- (etc.)
-     utilities for named values, verified empirically — see the T3.1 task report. */
+  /* w-panel-* / h-shell-height — Tailwind v4 --spacing-* backs w-/h-/p-/m-/gap. */
   --spacing-panel-story-layers: var(--tr-panel-story-layers);
+  --spacing-panel-write-outline: var(--tr-panel-write-outline);
   --spacing-panel-candidate-dock: var(--tr-panel-candidate-dock);
   --spacing-panel-inspector: var(--tr-panel-inspector);
   --spacing-panel-ledger-filters: var(--tr-panel-ledger-filters);

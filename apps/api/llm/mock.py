@@ -15,6 +15,9 @@ scenario call `set_response(op, value)` to override the default for that op.
 
 from __future__ import annotations
 
+import html
+import json
+import re
 import threading
 from collections.abc import Iterator
 
@@ -26,10 +29,14 @@ from schemas import (
     BlastRadius,
     ConsistencyScan,
     InferredActBreaks,
+    InferredNarrativeMap,
+    InferredNarrativeMapSynthesis,
+    InferredNarrativeSceneAnalysisBatch,
+    InferredStoryOverview,
     InitialSceneSkeleton,
     InstructionSuggestions,
     LedgerExtraction,
-    InferredStoryOverview,
+    NarrativeMapVerification,
     NarrativePromises,
     RegeneratedElements,
     SegmentedScene,
@@ -173,9 +180,7 @@ def _default_responses() -> dict[str, BaseModel]:
                 "Cut the scene short with an interruption from Reyes.",
             ]
         ),
-        "infer_act_breaks": InferredActBreaks(
-            starts=[{"act": 0, "startSceneIndex": 0}]
-        ),
+        "infer_act_breaks": InferredActBreaks(starts=[{"act": 0, "startSceneIndex": 0}]),
         # §5a infer_story_entities placeholder (T-continuity Task 1; Task 2
         # wires the real prompt call). Fixture-consistent: "Marta" resolves
         # against the existing char-marta, "Sal" is a non-speaking minor
@@ -194,9 +199,7 @@ def _default_responses() -> dict[str, BaseModel]:
                     "aliases": ["the regular"],
                     "role": "minor",
                     "traits": "A silent fixture at the end of the bar.",
-                    "evidence": [
-                        {"sceneId": "scene-1", "quote": "Sal nods from his usual stool."}
-                    ],
+                    "evidence": [{"sceneId": "scene-1", "quote": "Sal nods from his usual stool."}],
                 },
             ],
             relationships=[
@@ -290,6 +293,47 @@ def _default_responses() -> dict[str, BaseModel]:
                 "to collapse around them."
             ),
         ),
+        "infer_narrative_map": InferredNarrativeMap(
+            dramaticQuestion="Can Marta force the truth into the open?",
+            centralConflict="Marta presses Dan while he protects a damaging secret.",
+            controllingIdea="Trust survives only when the hidden cost is faced.",
+            themes=[
+                {
+                    "label": "Trust under pressure",
+                    "statement": "Secrecy corrodes a partnership when accountability is delayed.",
+                    "evidence": [{"beatId": "beat-1-1"}],
+                }
+            ],
+            acts=[
+                {
+                    "act": 1,
+                    "dramaticQuestion": "Will Marta get Dan to explain the transfer?",
+                    "escalation": "The proof turns suspicion into confrontation.",
+                    "turnBeatId": "beat-1-1",
+                }
+            ],
+            heroJourney={
+                "applies": False,
+                "protagonistName": None,
+                "rationale": (
+                    "The fixture is a partial ensemble episode rather than a complete monomyth."
+                ),
+                "stages": [],
+            },
+            characterArcs=[],
+            sceneTurns=[
+                {
+                    "sceneId": "scene-1",
+                    "focalCharacterName": None,
+                    "dramaticFunction": "Set the pressure.",
+                    "conflict": "Marta challenges Dan's secrecy.",
+                    "stakes": "Their partnership is at risk.",
+                    "turnBeatId": "beat-1-1",
+                    "turn": "Suspicion becomes a direct challenge.",
+                }
+            ],
+            threadMovements=[],
+        ),
         "segment_scene": SegmentedScene(
             segments=[
                 {
@@ -374,7 +418,262 @@ def _default_responses() -> dict[str, BaseModel]:
                 }
             ]
         ),
+        "infer_narrative_scene_analysis": InferredNarrativeSceneAnalysisBatch(
+            scenes=[
+                {
+                    "sceneId": "scene-1",
+                    "summary": "Marta's discovery creates immediate pressure.",
+                    "focalCharacterName": "Marta",
+                    "dramaticFunction": "Establish the episode's central pressure.",
+                    "conflict": "Marta must decide how to confront Dan about the transfer.",
+                    "stakes": "Their partnership could fracture if the transfer is exposed.",
+                    "turnBeatId": "beat-1-1",
+                    "turn": "Marta's private discovery becomes a problem she cannot ignore.",
+                    "keyMoments": [
+                        {
+                            "beatId": "beat-1-1",
+                            "summary": "Marta sees the unexplained transfer.",
+                            "dramaticFunction": "Plant the episode's central question.",
+                            "consequence": "It gives Marta a concrete reason to confront Dan.",
+                        }
+                    ],
+                }
+            ]
+        ),
+        "infer_narrative_map_synthesis": InferredNarrativeMapSynthesis(
+            dramaticQuestion="Will Marta expose the transfer before Dan can explain it away?",
+            centralConflict=(
+                "Marta needs the truth while Dan tries to contain the transfer's consequences."
+            ),
+            controllingIdea="Pressure reveals whether loyalty protects people or protects a lie.",
+            themes=[
+                {
+                    "label": "Loyalty under pressure",
+                    "statement": "Loyalty becomes a liability when it prevents the truth.",
+                    "evidence": [{"beatId": "beat-1-1"}],
+                }
+            ],
+            acts=[
+                {
+                    "act": 0,
+                    "dramaticQuestion": "What does Marta do with the transfer?",
+                    "escalation": (
+                        "The unexplained transaction gives her a concrete reason to challenge Dan."
+                    ),
+                    "turnBeatId": "beat-1-1",
+                }
+            ],
+            heroJourney={
+                "applies": False,
+                "protagonistName": None,
+                "rationale": (
+                    "This fixture is better read as an ensemble pressure story than a complete "
+                    "monomyth."
+                ),
+                "stages": [],
+            },
+            characterArcs=[],
+            threadMovements=[],
+        ),
+        "verify_narrative_map": NarrativeMapVerification(
+            approved=True,
+            unsupportedPaths=[],
+            missingSceneIds=[],
+            issues=[],
+        ),
     }
+
+
+def _source_data_value(user_message: str, kind: str):
+    match = re.search(
+        rf'<source_data_[^\s>]+ kind="{re.escape(kind)}">\n(.*?)\n</source_data_[^>]+>',
+        user_message,
+        flags=re.DOTALL,
+    )
+    if match is None:
+        return None
+    return json.loads(html.unescape(match.group(1)))
+
+
+def _mock_narrative_map(user_message: str) -> InferredNarrativeMap:
+    """Build a source-valid default map for arbitrary import test scripts."""
+    scene_spine = _source_data_value(user_message, "scene_spine") or []
+    first_by_act: dict[int, tuple[dict, dict]] = {}
+    scene_turns: list[dict] = []
+    first_beat: dict | None = None
+
+    for scene in scene_spine:
+        beats = scene.get("beats") or []
+        if not beats:
+            continue
+        beat = beats[0]
+        # The production map prompt carries beat-plan semantics and ids, not
+        # duplicate screenplay text; merge_narrative_map validates the actual
+        # source excerpt from the persisted project doc.
+        if not beat.get("beatId"):
+            continue
+        first_beat = first_beat or beat
+        first_by_act.setdefault(int(scene.get("act", 0)), (scene, beat))
+        scene_turns.append(
+            {
+                "sceneId": scene["sceneId"],
+                "focalCharacterName": None,
+                "dramaticFunction": "Advance the immediate dramatic pressure.",
+                "conflict": "The scene tests what each character will do next.",
+                "stakes": "The episode's unresolved pressure intensifies.",
+                "turnBeatId": beat["beatId"],
+                "turn": str(beat.get("whatHappens") or "A new story beat changes the scene."),
+            }
+        )
+
+    if first_beat is None or not scene_turns:
+        # Empty input cannot produce source-grounded coverage; production import rejects it.
+        return _default_responses()["infer_narrative_map"]  # pragma: no cover
+
+    acts = []
+    for act, (_scene, beat) in sorted(first_by_act.items()):
+        acts.append(
+            {
+                "act": act,
+                "dramaticQuestion": "What will the characters risk to change the situation?",
+                "escalation": str(beat.get("whatHappens") or "The pressure advances."),
+                "turnBeatId": beat["beatId"],
+            }
+        )
+    return InferredNarrativeMap(
+        dramaticQuestion="What choice will resolve the episode's central pressure?",
+        centralConflict="The characters pursue incompatible goals under escalating pressure.",
+        controllingIdea="The script tests what its characters are willing to risk.",
+        themes=[
+            {
+                "label": "Pressure and choice",
+                "statement": "Character is revealed by the choices made under pressure.",
+                "evidence": [{"beatId": first_beat["beatId"]}],
+            }
+        ],
+        acts=acts,
+        heroJourney={
+            "applies": False,
+            "protagonistName": None,
+            "rationale": "The mock does not impose a Hero's Journey on arbitrary source text.",
+            "stages": [],
+        },
+        characterArcs=[],
+        sceneTurns=scene_turns,
+        threadMovements=[],
+    )
+
+
+def _mock_narrative_scene_analysis(user_message: str) -> InferredNarrativeSceneAnalysisBatch:
+    """Produce deterministic, source-backed packets for Narrative Map tests."""
+    scene_sources = _source_data_value(user_message, "narrative_scene_sources") or []
+    analyses: list[dict] = []
+    for scene in scene_sources:
+        beats = scene.get("beats") or []
+        if not beats:
+            continue
+        beat = beats[0]
+        beat_id = beat.get("beatId")
+        scene_id = scene.get("sceneId")
+        script_text = str(beat.get("scriptText") or "")
+        if not beat_id or not scene_id or not script_text.strip():
+            continue
+        semantic_summary = str(beat.get("whatHappens") or "").strip()
+        # Import recovery can leave placeholder one-letter semantic fields
+        # while preserving the screenplay. Prefer a semantic summary only
+        # when it is publishable; otherwise heal the packet from raw source.
+        summary = (
+            semantic_summary if len(semantic_summary) >= 8 else _short_source_quote(script_text)
+        )
+        analyses.append(
+            {
+                "sceneId": scene_id,
+                "summary": summary,
+                "focalCharacterName": None,
+                "dramaticFunction": "Establish the scene's immediate dramatic pressure.",
+                "conflict": f"The scene's action centers on: {summary}",
+                "stakes": "The immediate situation changes if the action is not resolved.",
+                "turnBeatId": beat_id,
+                "turn": summary,
+                "keyMoments": [
+                    {
+                        "beatId": beat_id,
+                        "summary": summary,
+                        "dramaticFunction": "Advance the scene's immediate situation.",
+                        "consequence": "It establishes the next pressure in the episode.",
+                    }
+                ],
+            }
+        )
+    if not analyses:
+        raise ValueError("narrative scene analysis requires source-backed scenes")
+    return InferredNarrativeSceneAnalysisBatch.model_validate({"scenes": analyses})
+
+
+def _mock_narrative_map_synthesis(user_message: str) -> InferredNarrativeMapSynthesis:
+    """Keep default map-run tests grounded to packet ids instead of fixtures."""
+    packets = _source_data_value(user_message, "narrative_scene_packets") or []
+    first = packets[0] if packets else None
+    if not first:
+        raise ValueError("narrative map synthesis requires scene packets")
+
+    first_beat_id = first["turnBeatId"]
+    first_summary = first["summary"]
+    acts: list[dict] = []
+    seen_acts: set[int] = set()
+    for packet in packets:
+        act = int(packet.get("act", 0))
+        if act in seen_acts:
+            continue
+        seen_acts.add(act)
+        acts.append(
+            {
+                "act": act,
+                "dramaticQuestion": (
+                    f"How will the pressure created by {packet['summary']} develop?"
+                ),
+                "escalation": packet["turn"],
+                "turnBeatId": packet["turnBeatId"],
+            }
+        )
+    return InferredNarrativeMapSynthesis.model_validate(
+        {
+            "dramaticQuestion": f"What follows from {first_summary}?",
+            "centralConflict": (f"The episode's immediate pressure begins with {first_summary}."),
+            "controllingIdea": (
+                "The episode tests how characters respond when immediate pressure changes "
+                "their choices."
+            ),
+            "themes": [
+                {
+                    "label": "Pressure and choice",
+                    "statement": (
+                        "The story follows how immediate pressure changes a character's choices."
+                    ),
+                    "evidence": [{"beatId": first_beat_id}],
+                }
+            ],
+            "acts": acts,
+            "heroJourney": {
+                "applies": False,
+                "protagonistName": None,
+                "rationale": (
+                    "The available episode material is analyzed as scene-based dramatic pressure, "
+                    "not forced into a monomyth."
+                ),
+                "stages": [],
+            },
+            "characterArcs": [],
+            "threadMovements": [],
+        }
+    )
+
+
+def _short_source_quote(script_text: str) -> str:
+    for line in script_text.splitlines():
+        if line.strip():
+            return line.strip()[:200]
+    return script_text.strip()[:200]
 
 
 class MockLlmClient:
@@ -388,6 +687,7 @@ class MockLlmClient:
         # the next queued response, falling back to the single default when the
         # queue is empty. Left empty, the mock behaves exactly as before.
         self._queues: dict[str, list[BaseModel]] = {}
+        self._explicit_responses: set[str] = set()
         # Per-call raw-fragment streams for stream_beat_candidate (§8a harness):
         # each entry is the exact list of raw tool-input JSON fragments one
         # streamed call should yield, so tests can force mid-escape splits,
@@ -424,6 +724,7 @@ class MockLlmClient:
             raise KeyError(f"unknown LLM operation {op!r}")
         with self._lock:
             self._responses[op] = response
+            self._explicit_responses.add(op)
 
     def set_responses(self, op: str, responses: list[BaseModel]) -> None:
         """Queue a sequence of responses for ``op``, returned one per call in
@@ -582,6 +883,71 @@ class MockLlmClient:
             system=system,
             user_message=user_message,
             prompt_version=prompt_version,
+        )
+
+    def infer_narrative_map(
+        self, *, system: str, user_message: str, prompt_version: str
+    ) -> InferredNarrativeMap:
+        del system, prompt_version
+        with self._lock:
+            self._invocations["infer_narrative_map"] += 1
+            queue = self._queues.get("infer_narrative_map")
+            if queue:
+                return queue.pop(0)
+            if "infer_narrative_map" in self._explicit_responses:
+                return self._responses["infer_narrative_map"]
+        return _mock_narrative_map(user_message)
+
+    def infer_narrative_scene_analysis(
+        self, *, system: str, user_message: str, prompt_version: str
+    ) -> InferredNarrativeSceneAnalysisBatch:
+        del system, prompt_version
+        with self._lock:
+            self._invocations["infer_narrative_scene_analysis"] += 1
+            queue = self._queues.get("infer_narrative_scene_analysis")
+            if queue:
+                return queue.pop(0)  # type: ignore[return-value]
+            if "infer_narrative_scene_analysis" in self._explicit_responses:
+                return self._responses["infer_narrative_scene_analysis"]  # type: ignore[return-value]
+        try:
+            return _mock_narrative_scene_analysis(user_message)
+        except ValueError:
+            # Generic protocol tests intentionally do not carry screenplay
+            # source. Product-path calls still use the dynamic grounded mock.
+            return _default_responses()["infer_narrative_scene_analysis"]  # type: ignore[return-value]
+
+    def infer_narrative_map_synthesis(
+        self, *, system: str, user_message: str, prompt_version: str
+    ) -> InferredNarrativeMapSynthesis:
+        del system, prompt_version
+        with self._lock:
+            self._invocations["infer_narrative_map_synthesis"] += 1
+            queue = self._queues.get("infer_narrative_map_synthesis")
+            if queue:
+                return queue.pop(0)  # type: ignore[return-value]
+            if "infer_narrative_map_synthesis" in self._explicit_responses:
+                return self._responses["infer_narrative_map_synthesis"]  # type: ignore[return-value]
+        try:
+            return _mock_narrative_map_synthesis(user_message)
+        except ValueError:
+            return _default_responses()["infer_narrative_map_synthesis"]  # type: ignore[return-value]
+
+    def verify_narrative_map(
+        self, *, system: str, user_message: str, prompt_version: str
+    ) -> NarrativeMapVerification:
+        del system, user_message, prompt_version
+        with self._lock:
+            self._invocations["verify_narrative_map"] += 1
+            queue = self._queues.get("verify_narrative_map")
+            if queue:
+                return queue.pop(0)  # type: ignore[return-value]
+            if "verify_narrative_map" in self._explicit_responses:
+                return self._responses["verify_narrative_map"]  # type: ignore[return-value]
+        return NarrativeMapVerification(
+            approved=True,
+            unsupportedPaths=[],
+            missingSceneIds=[],
+            issues=[],
         )
 
     def segment_scene(

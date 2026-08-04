@@ -4,7 +4,7 @@
 
 **Goal:** Restyle the entire Table Read web app to the Quiet Tool visual language (cool neutrals, slate-blue accent, Instrument Sans) while keeping all existing product logic and Review-as-a-full-mode behavior.
 
-**Architecture:** Remap `--tr-*` token *values* (keep names so Tailwind classes like `bg-tr-coral` keep working). Update UI spec §1 to match. Then restyle shell and each mode against the handoff chrome, without changing routes, APIs, or Change Set flows. Source of truth: `docs/superpowers/specs/2026-07-09-quiet-tool-redesign-design.md`.
+**Architecture:** Remap `--tr-*` token _values_ (keep names so Tailwind classes like `bg-tr-coral` keep working). Update UI spec §1 to match. Then restyle shell and each mode against the handoff chrome, without changing routes, APIs, or Change Set flows. Source of truth: `docs/superpowers/specs/2026-07-09-quiet-tool-redesign-design.md`.
 
 **Tech Stack:** React 18 + TypeScript + Vite + Tailwind v4 (`apps/web`), CSS custom properties in `tokens.css`, Vitest + Playwright.
 
@@ -21,20 +21,21 @@
 
 ## File map
 
-| Area | Primary files |
-|---|---|
+| Area   | Primary files                                                                                                                                                                 |
+| ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Tokens | `apps/web/src/styles/tokens.css`, `tokens.expected.ts`, `tokens.test.ts`, `dev/TokensPage.tsx`, `dev/TokensPage.test.tsx`, `apps/web/index.html`, `docs/tableread-ui-spec.md` |
-| Shell | `shell/AppShell.tsx`, `shell/ModeSwitcher.tsx`, `shell/ModeSwitcher.test.tsx`, `shell/SettingsPanel.tsx` |
-| Write | `write/WriteScreen.tsx`, `ScriptCanvas.tsx`, `CandidateCard.tsx`, `CandidateDock.tsx`, `CommandBar.tsx` |
-| Plan | `plan/PlanScreen.tsx`, `Board.tsx`, `SceneCard.tsx`, `StoryLayersPanel.tsx`, `Inspector.tsx`, `Card.tsx`, `Chip.tsx`, `LockToggle.tsx`, `BeatCard.tsx` |
-| Ledger | `ledger/LedgerScreen.tsx`, `FilterRail.tsx`, `FactCard.tsx`, `ConfidenceBar.tsx` |
-| Review | `review/ReviewScreen.tsx`, `ChangeSetPanel.tsx`, `ChangeSetRow.tsx`, `DiffPane.tsx` |
+| Shell  | `shell/AppShell.tsx`, `shell/ModeSwitcher.tsx`, `shell/ModeSwitcher.test.tsx`, `shell/SettingsPanel.tsx`                                                                      |
+| Write  | `write/WriteScreen.tsx`, `ScriptCanvas.tsx`, `CandidateCard.tsx`, `CandidateDock.tsx`, `CommandBar.tsx`                                                                       |
+| Plan   | `plan/PlanScreen.tsx`, `Board.tsx`, `SceneCard.tsx`, `StoryLayersPanel.tsx`, `Inspector.tsx`, `Card.tsx`, `Chip.tsx`, `LockToggle.tsx`, `BeatCard.tsx`                        |
+| Ledger | `ledger/LedgerScreen.tsx`, `FilterRail.tsx`, `FactCard.tsx`, `ConfidenceBar.tsx`                                                                                              |
+| Review | `review/ReviewScreen.tsx`, `ChangeSetPanel.tsx`, `ChangeSetRow.tsx`, `DiffPane.tsx`                                                                                           |
 
 ---
 
 ### Task 1: Tokens, fonts, UI spec §1
 
 **Files:**
+
 - Modify: `apps/web/src/styles/tokens.expected.ts`
 - Modify: `apps/web/src/styles/tokens.css`
 - Modify: `apps/web/index.html`
@@ -43,6 +44,7 @@
 - Test: `apps/web/src/styles/tokens.test.ts`, `apps/web/src/dev/TokensPage.test.tsx`
 
 **Interfaces:**
+
 - Produces: Quiet Tool values for every existing `--tr-*` token; optional new `--tr-accent-ink: #33445E` and `--tr-shell-height: 52px` if added (must appear in `EXPECTED_TOKENS` + `@theme` if used by utilities)
 
 - [ ] **Step 1: Update `EXPECTED_TOKENS` to Quiet Tool values (failing test first)**
@@ -170,12 +172,14 @@ EOF
 ### Task 2: App shell + mode switcher
 
 **Files:**
+
 - Modify: `apps/web/src/shell/AppShell.tsx`
 - Modify: `apps/web/src/shell/ModeSwitcher.tsx`
 - Modify: `apps/web/src/shell/ModeSwitcher.test.tsx` (only if assertions depend on old class names)
 - Modify: `docs/tableread-ui-spec.md` §2 (56px → 52px, accent-tint active segment)
 
 **Interfaces:**
+
 - Consumes: `--tr-shell-height`, `--tr-coral-soft`, `--tr-accent-ink`, `--tr-surface-clay`
 - Produces: Quiet Tool chrome; behavior unchanged (Undo/Export/Settings/⌘1–4/dots)
 
@@ -229,6 +233,7 @@ EOF
 ### Task 3: Write mode chrome
 
 **Files:**
+
 - Modify: `apps/web/src/write/WriteScreen.tsx`
 - Modify: `apps/web/src/write/ScriptCanvas.tsx`
 - Modify: `apps/web/src/write/CandidateCard.tsx`
@@ -238,6 +243,7 @@ EOF
 - Test: existing `write/*.test.tsx` (update class assertions only if they pin old widths/colors)
 
 **Interfaces:**
+
 - Consumes: `--tr-script-col` (600px), `--tr-coral*`, raised surface, lift shadow
 - Produces: Quiet Tool Write layout; Accept/Tune/Skip/SSE/quiet-AI logic unchanged
 
@@ -276,11 +282,13 @@ EOF
 ### Task 4: Plan mode chrome
 
 **Files:**
+
 - Modify: `apps/web/src/plan/Board.tsx`, `SceneCard.tsx`, `StoryLayersPanel.tsx`, `Inspector.tsx`, `Card.tsx`, `Chip.tsx`, `LockToggle.tsx`, `BeatCard.tsx`, `PlanScreen.tsx` as needed
 - Modify: `docs/tableread-ui-spec.md` §4
 - Test: `plan/*.test.tsx` (e.g. `Board.test.tsx` may assert `outline-tr-coral` — keep valid since accent is still `--tr-coral`)
 
 **Interfaces:**
+
 - Consumes: `--tr-panel-story-layers` 232px, `--tr-panel-inspector` 296px, `--tr-card-scene` 214px, `--tr-coral-soft`, `--tr-accent-ink`
 - Produces: Quiet Tool Plan chrome; Open Review / PATCH / locks unchanged
 
@@ -315,11 +323,13 @@ EOF
 ### Task 5: Ledger mode chrome
 
 **Files:**
+
 - Modify: `apps/web/src/ledger/LedgerScreen.tsx`, `FilterRail.tsx`, `FactCard.tsx`, `ConfidenceBar.tsx`
 - Modify: `docs/tableread-ui-spec.md` §6
 - Test: `ledger/*.test.tsx`
 
 **Interfaces:**
+
 - Consumes: `--tr-panel-ledger-filters` 198px, amber/sage soft tokens
 - Produces: Quiet Tool Ledger chrome; confirm/edit/reject/batch unchanged
 
@@ -354,11 +364,13 @@ EOF
 ### Task 6: Review mode chrome (full mode, not modal)
 
 **Files:**
+
 - Modify: `apps/web/src/review/ReviewScreen.tsx`, `ChangeSetPanel.tsx`, `ChangeSetRow.tsx`, `DiffPane.tsx`
 - Modify: `docs/tableread-ui-spec.md` §5 (Quiet Tool chrome; **keep** “Entered via mode switcher… One Change Set at a time” — do not convert to modal)
 - Test: `review/*.test.tsx`, optionally `make e2e` review spec if environment allows
 
 **Interfaces:**
+
 - Consumes: accent buttons, sage/amber chips, locked opacity
 - Produces: denser Quiet Tool Review UI; preview/apply/flag/discard/list logic unchanged
 
@@ -398,16 +410,16 @@ EOF
 
 ## Self-review (plan vs spec)
 
-| Spec section | Task coverage |
-|---|---|
-| §4 Tokens | Task 1 |
-| §5 App shell | Task 2 |
-| §6.1 Write | Task 3 |
-| §6.2 Plan | Task 4 |
-| §6.3 Ledger | Task 5 |
-| §6.4 Review (full mode) | Task 6 |
+| Spec section                | Task coverage          |
+| --------------------------- | ---------------------- |
+| §4 Tokens                   | Task 1                 |
+| §5 App shell                | Task 2                 |
+| §6.1 Write                  | Task 3                 |
+| §6.2 Plan                   | Task 4                 |
+| §6.3 Ledger                 | Task 5                 |
+| §6.4 Review (full mode)     | Task 6                 |
 | Deferred modal / impact map | Explicitly out of plan |
-| Sequence tokens→shell→modes | Task order 1–6 |
+| Sequence tokens→shell→modes | Task order 1–6         |
 
 No TBD placeholders. `--tr-coral*` name retention called out. New tokens (`accent-ink`, `shell-height`, optional candidate dock) must stay in `EXPECTED_TOKENS` + `@theme`.
 
@@ -419,7 +431,7 @@ Plan complete and saved to `docs/superpowers/plans/2026-07-09-quiet-tool-redesig
 
 **Two execution options:**
 
-1. **Subagent-Driven (recommended)** — fresh subagent per task, review between tasks  
-2. **Inline Execution** — execute tasks in this session with checkpoints  
+1. **Subagent-Driven (recommended)** — fresh subagent per task, review between tasks
+2. **Inline Execution** — execute tasks in this session with checkpoints
 
 Which approach?

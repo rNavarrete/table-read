@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- Trust promise (verbatim): *Every AI step is explicit, reviewable, and begins only after you confirm the source material.*
+- Trust promise (verbatim): _Every AI step is explicit, reviewable, and begins only after you confirm the source material._
 - No AI on upload/paste/blur/navigation/project create — only on explicit **Create & analyze script** / **Generate scene skeleton**.
 - Clients never mint IDs; server assigns.
 - Every mutation snapshots; create-and-import = **exactly one** root snapshot with imported doc/ledger/flags.
@@ -26,22 +26,23 @@
 
 ## File map
 
-| Area | Primary files |
-|---|---|
-| Contract | `packages/contract/src/index.ts`, export scripts, `apps/api/schemas.py`, `docs/tableread-data-contract.md` |
-| API list/create | `apps/api/routes.py`, `apps/api/storage/models.py`, `apps/api/storage/snapshots.py`, `apps/api/tests/test_projects.py` |
-| Import create | `apps/api/fountain/pipeline.py`, new create-import helper, `apps/api/tests/test_import.py` |
-| Scene skeleton | `apps/api/drama_manager/`, `apps/api/llm/`, `config/tool_schemas/`, prompt templates, Change Set apply |
-| Web dashboard | `apps/web/src/projects/` (new), `App.tsx`, `api/client.ts` |
-| Routing/resume | `WriteScreen`, `PlanScreen`, `ReviewScreen`, `LedgerScreen`, `AppShell`, `modeNavigation` |
-| Wizard | `apps/web/src/projects/wizard/` |
-| Docs | `tableread-ui-spec.md`, `narrative-sidekick-design-doc.md`, `tableread-test-plan.md`, `tableread-build-plan.md`, prompt-spec (Task 6) |
+| Area            | Primary files                                                                                                                         |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| Contract        | `packages/contract/src/index.ts`, export scripts, `apps/api/schemas.py`, `docs/tableread-data-contract.md`                            |
+| API list/create | `apps/api/routes.py`, `apps/api/storage/models.py`, `apps/api/storage/snapshots.py`, `apps/api/tests/test_projects.py`                |
+| Import create   | `apps/api/fountain/pipeline.py`, new create-import helper, `apps/api/tests/test_import.py`                                            |
+| Scene skeleton  | `apps/api/drama_manager/`, `apps/api/llm/`, `config/tool_schemas/`, prompt templates, Change Set apply                                |
+| Web dashboard   | `apps/web/src/projects/` (new), `App.tsx`, `api/client.ts`                                                                            |
+| Routing/resume  | `WriteScreen`, `PlanScreen`, `ReviewScreen`, `LedgerScreen`, `AppShell`, `modeNavigation`                                             |
+| Wizard          | `apps/web/src/projects/wizard/`                                                                                                       |
+| Docs            | `tableread-ui-spec.md`, `narrative-sidekick-design-doc.md`, `tableread-test-plan.md`, `tableread-build-plan.md`, prompt-spec (Task 6) |
 
 ---
 
 ### Task 1: Contract + `GET /projects` + dashboard shell
 
 **Files:**
+
 - Modify: `packages/contract/src/index.ts` — add `ProjectSummary`
 - Modify: `apps/api/schemas.py` — Pydantic mirror
 - Modify: `docs/tableread-data-contract.md` — `GET /projects`, `ProjectSummary`
@@ -54,6 +55,7 @@
 - Modify: `docs/tableread-ui-spec.md` — dashboard section
 
 **Interfaces:**
+
 - Produces: `ProjectSummary { id, title, format, updatedAt, pendingReviewCount, setupState: "incomplete"|"ready" }`
 - `GET /api/v1/projects` → `ProjectSummary[]` sorted by `updatedAt` desc
 - `setupState === "ready"` iff ≥1 scene with ≥1 beat
@@ -110,6 +112,7 @@ EOF
 ### Task 2: Routing cleanup + resume context
 
 **Files:**
+
 - Modify: `WriteScreen.tsx`, `PlanScreen.tsx`, `ReviewScreen.tsx`, `LedgerScreen.tsx` — remove `DEFAULT_PROJECT_ID`
 - Create: `apps/web/src/projects/resumeContext.ts` (+ test)
 - Modify: `AppShell.tsx` — wordmark → `/projects`; require `projectId`
@@ -117,6 +120,7 @@ EOF
 - Test: unit tests for redirect + resume fallback
 
 **Interfaces:**
+
 - Consumes: `ProjectSummary` / project id from URL
 - Produces: `loadResume(projectId)`, `saveResume(projectId, { mode, sceneId })` in `localStorage` key `tr.resume.v1.<projectId>`
 - Missing `?project=` on mode routes → `location.assign('/projects')`
@@ -142,11 +146,13 @@ EOF
 ### Task 3: Shared wizard shell + format presets + local drafts
 
 **Files:**
+
 - Create: `apps/web/src/projects/wizard/WizardShell.tsx`, `FormatPresets.tsx`, `wizardDraft.ts`, tests
 - Modify: `DashboardScreen` — `+ New project` opens path chooser; cards deep-link `/projects/new/idea` and `/projects/new/import`
 - Modify: `App.tsx` — routes for wizard paths (placeholder step content OK)
 
 **Interfaces:**
+
 - Produces: `FORMAT_PRESETS` mapping to `ShowFormat`; `saveDraft(path, data)`, `loadDraft(path)`, `clearDraft(path)` under `tr.wizard.v1.*`
 - WizardShell: steps, Back/Continue/Cancel, trust note slot, focus-first-invalid
 
@@ -181,7 +187,7 @@ export const FORMAT_PRESETS = {
 } as const
 ```
 
-Trust note copy (verbatim): *Every AI step is explicit, reviewable, and begins only after you confirm the source material.*
+Trust note copy (verbatim): _Every AI step is explicit, reviewable, and begins only after you confirm the source material._
 
 - [ ] **Step 1: Failing tests for draft round-trip and preset shapes**
 
@@ -202,6 +208,7 @@ EOF
 ### Task 4: Idea path + foundation-aware create
 
 **Files:**
+
 - Modify: `packages/contract/src/index.ts` — `CharacterSeed`, `ProjectFoundationInput`, `ProjectCreateRequest`
 - Modify: `apps/api/schemas.py`, data-contract
 - Modify: `apps/api/routes.py` — accept body model; optional foundation; `Idempotency-Key` header
@@ -210,6 +217,7 @@ EOF
 - Modify: `client.ts` — `createProject(body, { idempotencyKey })`
 
 **Interfaces:**
+
 - `CharacterSeed { name: string, traits?: string }`
 - `ProjectFoundationInput { existentialQuestion?: string, storiesToAvoid?: string[], characters?: CharacterSeed[] }`
 - `ProjectCreateRequest { title, format, premise, foundation? }`
@@ -237,6 +245,7 @@ EOF
 ### Task 5: Import path + atomic create-and-import + SSE progress
 
 **Files:**
+
 - Contract: `ProjectImportCreateRequest`, `ProjectImportProgressEvent`, `ProjectImportResult`
 - Modify: `fountain/pipeline.py` — extract assemble/import-into-doc helpers usable before any project row exists
 - Create: `apps/api/fountain/create_import.py` (or similar) — one transaction: create project row + root snapshot with imported state
@@ -245,6 +254,7 @@ EOF
 - Tests: fault injection at each stage → zero rows; success → one root snapshot; idempotency
 
 **Interfaces:**
+
 - Request: title, format, premise?, `{ format: "fountain"|"text", content }` + Idempotency-Key
 - SSE events: `stage { name: "parsing_scenes"|"segmenting_beats"|"extracting_facts"|"checking_consistency"|"saving" }`, `complete { result }`, `failed { error }`
 - Result: `{ project, newFacts, consistencyFlags }` (same shape as existing import)
@@ -273,6 +283,7 @@ EOF
 ### Task 6: Guided Plan setup + scene-skeleton Change Set (prompt-changing)
 
 **Files:**
+
 - Contract: `InitialSceneSkeleton`, Change Set preview variant `initial_scene_skeleton`, proposalId handles
 - Prompt: new/updated template, bump `PROMPT_VERSION`, regenerate `config/tool_schemas/`
 - API: generate 3 candidates; select → draft Change Set; apply via existing preview/apply with proposal IDs
@@ -280,6 +291,7 @@ EOF
 - **Lock-violation test BEFORE feature tests**
 
 **Interfaces:**
+
 - Three candidates; each scene addition has server `proposalId` (not final scene id)
 - Apply maps `approvedObjectIds` (proposal IDs) → new scene/beat IDs; stale `basedOnSnapshotId` → 409
 - No `scriptText` in skeleton
@@ -309,6 +321,7 @@ EOF
 ### Task 7: E2E, docs authority sync, verification
 
 **Files:**
+
 - `apps/web/e2e/` — dashboard, idea, import, resume, delete
 - Docs: `narrative-sidekick-design-doc.md` (dashboard + import exception), `tableread-test-plan.md`, `tableread-build-plan.md`, UI spec polish
 - Delete confirmation UI if not done earlier (typed title → `DELETE /projects/{pid}`)
@@ -331,18 +344,18 @@ EOF
 
 ## Spec coverage checklist
 
-| Spec § | Task(s) |
-|---|---|
-| Dashboard / Story Launcher | 1, 2 |
-| Resume / no seeded fallback | 2 |
-| Wizard shell / presets / drafts | 3 |
-| Idea path / foundation create | 4 |
-| Import upload+paste / atomic create-import / SSE | 5 |
-| AI trust note / explicit triggers | 3–6 |
-| Guided setup + 3-candidate skeleton Change Set | 6 |
-| Idempotency | 4, 5 |
-| E2E + authority docs | 7 |
-| Non-goals (PDF, multi-ep, etc.) | out of plan |
+| Spec §                                           | Task(s)     |
+| ------------------------------------------------ | ----------- |
+| Dashboard / Story Launcher                       | 1, 2        |
+| Resume / no seeded fallback                      | 2           |
+| Wizard shell / presets / drafts                  | 3           |
+| Idea path / foundation create                    | 4           |
+| Import upload+paste / atomic create-import / SSE | 5           |
+| AI trust note / explicit triggers                | 3–6         |
+| Guided setup + 3-candidate skeleton Change Set   | 6           |
+| Idempotency                                      | 4, 5        |
+| E2E + authority docs                             | 7           |
+| Non-goals (PDF, multi-ep, etc.)                  | out of plan |
 
 ## Placeholder scan
 

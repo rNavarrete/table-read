@@ -1,5 +1,5 @@
 import type { Scene } from 'contract'
-import { whimsy, whimsyPick } from './writeWhimsy'
+import { sceneLocationType, sceneTypeDotClass } from './sceneType'
 
 export function formatSceneSlug(scene: Scene): string {
   const location = scene.location.trim()
@@ -36,7 +36,8 @@ export function outlinePitch(scene: Scene): string {
       const t = line.trim()
       if (!t) continue
       if (SCENE_HEADING.test(t)) continue
-      if (/^[A-Z0-9 .'\-]{1,45}$/.test(t) && !/[a-z]/.test(t)) continue // character cue
+      // Trailing `-` in the class is already literal — no escape needed.
+      if (/^[A-Z0-9 .'-]{1,45}$/.test(t) && !/[a-z]/.test(t)) continue // character cue
       if (t.startsWith('(') && t.endsWith(')')) continue
       return t
     }
@@ -51,8 +52,8 @@ export interface SceneOutlineProps {
 }
 
 /**
- * Left navigator for Write script-home (T2.4): episode scene list,
- * navigate-only. Active row uses Plan selection tokens.
+ * Left navigator for Write (UI spec §4 / redesign handoff): ON THE PAGE
+ * scene list with INT/EXT dots. Navigate-only.
  */
 export function SceneOutline({
   scenes,
@@ -61,26 +62,16 @@ export function SceneOutline({
 }: SceneOutlineProps) {
   return (
     <nav
-      className={whimsyPick(
-        'flex w-panel-story-layers shrink-0 flex-col border-r border-tr-border bg-tr-surface-sunken',
-        'flex w-panel-story-layers shrink-0 flex-col border-r border-tr-border bg-tr-amber-soft',
-      )}
+      className="flex w-panel-write-outline shrink-0 flex-col border-r border-tr-border bg-tr-write-panel"
       aria-label="Scenes"
       data-testid="write-scene-outline"
     >
-      <div
-        className={whimsyPick(
-          'sticky top-0 z-10 border-b border-tr-border bg-tr-surface-sunken px-4 py-3',
-          'sticky top-0 z-10 border-b border-tr-border bg-tr-amber-soft px-4 py-3',
-        )}
-      >
-        <p
-          className={whimsyPick(
-            'text-12 uppercase tracking-wide text-tr-text-muted',
-            'font-display text-13 text-tr-text-secondary',
-          )}
-        >
-          {whimsyPick('Scenes', 'On the page')} · {scenes.length}
+      <div className="sticky top-0 z-10 flex items-center justify-between gap-2 border-b border-tr-border bg-tr-write-panel px-3.5 py-3">
+        <p className="font-script text-11 font-medium uppercase tracking-[0.1em] text-tr-text-muted">
+          On the page
+        </p>
+        <p className="font-script text-11 tabular-nums text-tr-text-muted">
+          {scenes.length} scene{scenes.length === 1 ? '' : 's'}
         </p>
       </div>
       <ul className="flex flex-1 flex-col gap-0.5 overflow-y-auto p-2">
@@ -89,6 +80,7 @@ export function SceneOutline({
           const slug = formatSceneSlug(scene)
           const pitch = outlinePitch(scene)
           const title = pitch ? `${slug} — ${pitch}` : slug
+          const type = sceneLocationType(scene)
           return (
             <li key={scene.id}>
               <button
@@ -97,26 +89,37 @@ export function SceneOutline({
                 aria-current={active ? 'true' : undefined}
                 title={title}
                 onClick={() => onSelect(scene.id)}
-                className={whimsy(
-                  'w-full rounded-card px-2.5 py-1.5 text-left transition-colors' +
-                    (active
-                      ? ' bg-tr-coral-soft text-tr-accent-ink'
-                      : ' text-tr-text-primary hover:bg-tr-surface-clay'),
+                className={
+                  'flex w-full items-start gap-[11px] rounded-[10px] border-l-2 py-2.5 pl-2.5 pr-2.5 text-left transition-colors duration-standard ease-standard motion-reduce:transition-none ' +
                   (active
-                    ? 'border-l-2 border-tr-coral pl-2'
-                    : 'border-l-2 border-transparent pl-2') +
-                    ' duration-standard ease-standard hover:translate-x-0.5 motion-reduce:transition-none motion-reduce:hover:translate-x-0',
-                )}
+                    ? 'border-tr-coral bg-tr-write-selected text-tr-accent-ink'
+                    : 'border-transparent text-tr-text-primary hover:bg-tr-surface-clay')
+                }
               >
-                <span className="block truncate text-13 leading-snug">
-                  <span className="text-tr-text-muted">{index + 1}.</span>{' '}
-                  {slug}
+                <span className="w-4 shrink-0 pt-0.5 text-right font-script text-11 tabular-nums text-tr-text-muted">
+                  {index + 1}
                 </span>
-                {pitch ? (
-                  <span className="mt-0.5 block truncate text-11 leading-snug text-tr-text-muted">
-                    {pitch}
+                <span className="min-w-0 flex-1">
+                  <span className="flex items-center gap-1.5">
+                    <span
+                      className={`h-1.5 w-1.5 shrink-0 rounded-[1px] ${sceneTypeDotClass(type)}`}
+                      aria-hidden
+                    />
+                    <span
+                      className={
+                        'truncate text-[12.5px] font-semibold leading-snug ' +
+                        (active ? 'text-tr-accent-ink' : 'text-tr-text-primary')
+                      }
+                    >
+                      {slug}
+                    </span>
                   </span>
-                ) : null}
+                  {pitch ? (
+                    <span className="mt-0.5 block truncate text-12 leading-snug text-tr-text-muted">
+                      {pitch}
+                    </span>
+                  ) : null}
+                </span>
               </button>
             </li>
           )

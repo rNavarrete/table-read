@@ -1,10 +1,12 @@
 """`AnthropicClient` -- the real, Anthropic-backed `LlmClient` implementation.
 
-Tool-forced JSON per docs/tableread-prompt-spec.md header + §8: every op call
-sends exactly one `strict: true` tool and forces it via
-`tool_choice: {"type": "tool", "name": op_name}`. On a schema-invalid (or
-missing) tool_use response, retries **exactly once** with the validation
-error appended as an `is_error` tool_result, then raises
+Strict tool JSON per docs/tableread-prompt-spec.md header + §8: every op call
+sends exactly one `strict: true` tool. Scene analysis uses auto tool selection
+with adaptive thinking; Narrative Map synthesis and verification disable
+thinking and force their strict tools so a required structured response is not
+consumed by hidden reasoning.
+On a schema-invalid (or missing) tool_use response, retries **exactly once**
+with the validation error appended as an `is_error` tool_result, then raises
 `SchemaInvalidLlmError` -- never a fabricated fallback (CLAUDE.md hard rule
 9). Logs only op name, PROMPT_VERSION, model id, retry/failure flags,
 token counts, and a short sha256 hash of the user message
@@ -43,10 +45,15 @@ from schemas import (
     BlastRadius,
     ConsistencyScan,
     InferredActBreaks,
+    InferredNarrativeMap,
+    InferredNarrativeMapSynthesis,
+    InferredNarrativeSceneAnalysisBatch,
+    InferredStoryOverview,
     InitialSceneSkeleton,
     InstructionSuggestions,
     LedgerExtraction,
-    InferredStoryOverview, NarrativePromises,
+    NarrativeMapVerification,
+    NarrativePromises,
     RegeneratedElements,
     SegmentedScene,
     StoryEntities,
@@ -84,18 +91,96 @@ def _create_with_timeout(sdk_client: Any, timeout: float, op: str, **kwargs: Any
             return future.result(timeout=timeout)
         except FuturesTimeoutError:
             future.cancel()
-            timeout_exc = LlmTimeoutError(op)
+            timeout_exc = LlmTimeoutError(op, timeout)
             log_llm_unavailable(
-                _logger, timeout_exc, where="anthropic_client", op=op
+                _logger,
+                timeout_exc,
+                where="anthropic_client",
+                op=op,
+                model=kwargs.get("model"),
             )
             raise timeout_exc from None
         except Exception as exc:
             mod = getattr(type(exc), "__module__", "") or ""
             if mod.startswith("anthropic"):
-                log_llm_unavailable(_logger, exc, where="anthropic_client", op=op)
+                log_llm_unavailable(
+                    _logger,
+                    exc,
+                    where="anthropic_client",
+                    op=op,
+                    model=kwargs.get("model"),
+                )
             raise
     finally:
         executor.shutdown(wait=False)
+
+
+def _stream_final_with_timeout(sdk_client: Any, timeout: float, op: str, **kwargs: Any) -> Any:
+    """Consume an SDK Messages stream and return its accumulated final Message.
+
+    Long, high-effort responses can legitimately exceed the safe idle period
+    for a non-streaming request. Anthropic's stream emits SSE ping events while
+    the model works, and ``get_final_message`` preserves the same Message shape
+    used by the existing strict-tool validator.
+    """
+
+    active_stream: dict[str, Any] = {}
+
+    def consume() -> Any:
+        with sdk_client.messages.stream(**kwargs) as stream:
+            active_stream["value"] = stream
+            try:
+                return stream.get_final_message()
+            finally:
+                active_stream.pop("value", None)
+
+    executor = ThreadPoolExecutor(max_workers=1)
+    future = executor.submit(consume)
+    try:
+        try:
+            return future.result(timeout=timeout)
+        except FuturesTimeoutError:
+            future.cancel()
+            stream = active_stream.get("value")
+            close = getattr(stream, "close", None)
+            if close is not None:
+                try:
+                    close()
+                except Exception:
+                    pass
+            timeout_exc = LlmTimeoutError(op, timeout)
+            log_llm_unavailable(
+                _logger,
+                timeout_exc,
+                where="anthropic_client_stream",
+                op=op,
+                model=kwargs.get("model"),
+            )
+            raise timeout_exc from None
+        except Exception as exc:
+            mod = getattr(type(exc), "__module__", "") or ""
+            if mod.startswith("anthropic"):
+                log_llm_unavailable(
+                    _logger,
+                    exc,
+                    where="anthropic_client_stream",
+                    op=op,
+                    model=kwargs.get("model"),
+                )
+            raise
+    finally:
+        executor.shutdown(wait=False)
+
+
+def _response_with_timeout(
+    sdk_client: Any,
+    timeout: float,
+    op: LlmOp,
+    **kwargs: Any,
+) -> Any:
+    if op.stream_response:
+        return _stream_final_with_timeout(sdk_client, timeout, op.name, **kwargs)
+    return _create_with_timeout(sdk_client, timeout, op.name, **kwargs)
 
 
 class _RecoverableLlmError(Exception):
@@ -191,9 +276,12 @@ class AnthropicClient:
         input_hash: str | None = None,
     ) -> None:
         usage = getattr(response, "usage", None)
+        content = getattr(response, "content", []) or []
+        content_types = ",".join(str(getattr(block, "type", "unknown")) for block in content)
         _logger.info(
             "llm_call op=%s prompt_version=%s model=%s retried=%s failed=%s "
-            "input_tokens=%s output_tokens=%s input_hash=%s",
+            "input_tokens=%s output_tokens=%s stop_reason=%s response_id=%s "
+            "request_id=%s content_types=%s input_hash=%s",
             op.name,
             prompt_version,
             model,
@@ -201,6 +289,10 @@ class AnthropicClient:
             failed,
             getattr(usage, "input_tokens", None),
             getattr(usage, "output_tokens", None),
+            getattr(response, "stop_reason", None),
+            getattr(response, "id", None),
+            getattr(response, "_request_id", None),
+            content_types or "none",
             input_hash,
         )
 
@@ -222,16 +314,23 @@ class AnthropicClient:
             "max_tokens": op.max_tokens if op.max_tokens is not None else self._max_tokens,
             "system": system,
             "tools": [tool],
-            "tool_choice": {"type": "tool", "name": op.name},
+            "tool_choice": (
+                {"type": "tool", "name": op.name}
+                if op.tool_choice_mode == "forced"
+                else {"type": "auto"}
+            ),
             "messages": messages,
         }
-        # Prompt spec §3/§5/§6/§7/§8c: classifier-role ops run at temperature 0.
-        # Writer-role ops must omit `temperature` — current writer tier
-        # (Sonnet 5) rejects non-default sampling with 400 invalid_request_error
-        # (same issue that moved §7 segmentation classifier-side). Classifier
-        # stays on Haiku, which accepts temperature=0. `infer_story_overview`
-        # is writer-role synthesis, so it uses model default temperature.
-        # `segment_scene` remains classifier so §7's temperature-0 mandate holds.
+        if op.adaptive_thinking:
+            kwargs["thinking"] = {"type": "adaptive"}
+        elif op.thinking_disabled:
+            kwargs["thinking"] = {"type": "disabled"}
+        if op.effort is not None:
+            kwargs["output_config"] = {"effort": op.effort}
+        # Prompt spec §3/§5/§6/§8c: classifier-role ops run at temperature 0.
+        # Writer, import_worker, and import_analyst ops omit `temperature` —
+        # Sonnet 5 / Opus 5 reject non-default sampling. Classifier stays on
+        # Haiku, which accepts temperature=0.
         if op.role == "classifier":
             kwargs["temperature"] = 0
 
@@ -240,10 +339,21 @@ class AnthropicClient:
             if op.call_timeout_seconds is not None
             else self._call_timeout_seconds
         )
-        response = _create_with_timeout(self._sdk, timeout, op.name, **kwargs)
+        response = _response_with_timeout(self._sdk, timeout, op, **kwargs)
         try:
             result = _validate_tool_response(response, op)
         except _RecoverableLlmError as first_error:
+            if not op.retry_schema_once:
+                self._log(
+                    op,
+                    prompt_version,
+                    model,
+                    response,
+                    retried=False,
+                    failed=True,
+                    input_hash=input_hash,
+                )
+                raise SchemaInvalidLlmError(op.name) from None
             result = self._retry_once(
                 op, kwargs, response, first_error, prompt_version, model, input_hash
             )
@@ -318,9 +428,7 @@ class AnthropicClient:
             if op.call_timeout_seconds is not None
             else self._call_timeout_seconds
         )
-        response2 = _create_with_timeout(
-            self._sdk, retry_timeout, op.name, **retry_kwargs
-        )
+        response2 = _response_with_timeout(self._sdk, retry_timeout, op, **retry_kwargs)
         try:
             result = _validate_tool_response(response2, op)
         except _RecoverableLlmError:
@@ -335,9 +443,7 @@ class AnthropicClient:
             )
             raise SchemaInvalidLlmError(op.name) from None
 
-        self._log(
-            op, prompt_version, model, response2, retried=True, input_hash=input_hash
-        )
+        self._log(op, prompt_version, model, response2, retried=True, input_hash=input_hash)
         return result
 
     def generate_beat_candidates(
@@ -557,6 +663,46 @@ class AnthropicClient:
     ) -> InferredStoryOverview:
         return self._call(
             "infer_story_overview",
+            system=system,
+            user_message=user_message,
+            prompt_version=prompt_version,
+        )
+
+    def infer_narrative_map(
+        self, *, system: str, user_message: str, prompt_version: str
+    ) -> InferredNarrativeMap:
+        return self._call(
+            "infer_narrative_map",
+            system=system,
+            user_message=user_message,
+            prompt_version=prompt_version,
+        )
+
+    def infer_narrative_scene_analysis(
+        self, *, system: str, user_message: str, prompt_version: str
+    ) -> InferredNarrativeSceneAnalysisBatch:
+        return self._call(
+            "infer_narrative_scene_analysis",
+            system=system,
+            user_message=user_message,
+            prompt_version=prompt_version,
+        )
+
+    def infer_narrative_map_synthesis(
+        self, *, system: str, user_message: str, prompt_version: str
+    ) -> InferredNarrativeMapSynthesis:
+        return self._call(
+            "infer_narrative_map_synthesis",
+            system=system,
+            user_message=user_message,
+            prompt_version=prompt_version,
+        )
+
+    def verify_narrative_map(
+        self, *, system: str, user_message: str, prompt_version: str
+    ) -> NarrativeMapVerification:
+        return self._call(
+            "verify_narrative_map",
             system=system,
             user_message=user_message,
             prompt_version=prompt_version,

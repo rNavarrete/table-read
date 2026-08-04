@@ -9,11 +9,15 @@ EXPECTED_OPS = {
     "regenerate_elements": "writer",
     "extract_ledger_facts": "classifier",
     "suggest_instructions": "classifier",
-    "infer_act_breaks": "classifier",
-    "infer_story_entities": "classifier",  # §5a import-time entity inference (T-continuity)
-    "infer_narrative_promises": "classifier",  # §5b threads/motivations/world rules (T7.19)
-    "infer_story_overview": "writer",  # §5c synthesis (logline/synopsis/beat turns) on Sonnet
-    "segment_scene": "classifier",  # T6.1 escalation: moved writer->classifier for temperature 0
+    "infer_act_breaks": "import_analyst",  # import story breakdown on Opus
+    "infer_story_entities": "import_worker",  # bounded Sonnet extraction
+    "infer_narrative_promises": "import_analyst",  # §5b
+    "infer_story_overview": "import_analyst",  # §5c
+    "infer_narrative_map": "writer",  # bounded post-import synthesis on Sonnet
+    "infer_narrative_scene_analysis": "import_analyst",
+    "infer_narrative_map_synthesis": "import_analyst",
+    "verify_narrative_map": "writer",
+    "segment_scene": "import_worker",  # high-volume Sonnet import work
     "scan_consistency": "classifier",
     "generate_scene_skeleton": "writer",  # §9.4 guided-setup scene skeleton
 }

@@ -55,6 +55,7 @@ class _OneOpFails:
 
     def __getattr__(self, name):
         if name == self._failing_op:
+
             def _raise(**_kwargs):
                 raise SchemaInvalidLlmError(name)
 
@@ -70,6 +71,7 @@ class _OneOpRaises:
 
     def __getattr__(self, name):
         if name == self._failing_op:
+
             def _raise(**_kwargs):
                 raise self._error_type(name)
 
@@ -259,9 +261,7 @@ def _assert_act_detail_is_privacy_safe(detail: dict) -> None:
 
 
 def test_act_boundary_validity_accepts_semantically_valid_partitions():
-    result = checks.act_boundary_validity_eval(
-        MockLlmClient(), load_fixture_ctx(), runs=1
-    )
+    result = checks.act_boundary_validity_eval(MockLlmClient(), load_fixture_ctx(), runs=1)
     assert result.score == 1.0
     assert result.detail == {
         "runs": 1,
@@ -349,9 +349,7 @@ def test_act_boundary_quality_semantic_invalid_scores_zero_without_text_leak():
 
 
 def test_act_boundary_quality_excludes_scene_zero_anchors():
-    result = checks.act_boundary_quality_eval(
-        MockLlmClient(), load_fixture_ctx(), runs=1
-    )
+    result = checks.act_boundary_quality_eval(MockLlmClient(), load_fixture_ctx(), runs=1)
     assert result.score == 0.0
     assert result.detail["matched"] == 0
     assert result.detail["expected"] == 6
@@ -421,6 +419,8 @@ def test_run_suite_full_includes_soft_families(session_factory):
         "alias-resolution",
         "narrative-promises",
         "narrative-promises-merge",
+        "story-overview",
+        "story-overview-merge",
     ]
 
 
@@ -444,6 +444,8 @@ def test_default_run_map_tiers_hard_and_soft():
     assert m["aliasResolution"] == 5
     assert m["narrativePromises"] == 5
     assert m["narrativePromisesMerge"] == 5
+    assert m["storyOverview"] == 5
+    assert m["storyOverviewMerge"] == 5
 
 
 def test_resolve_run_map_override_is_uniform():
@@ -451,7 +453,7 @@ def test_resolve_run_map_override_is_uniform():
 
     m = resolve_run_map(1)
     assert set(m.values()) == {1}
-    assert len(m) == 13
+    assert len(m) == 15
 
 
 def test_nominal_call_estimate_core_defaults():
@@ -463,11 +465,11 @@ def test_nominal_call_estimate_core_defaults():
     )
 
     core = filter_call_estimate(nominal_call_estimate(default_run_map()), CORE_EVAL_KEYS)
-    assert core["schemaValidity"] == 45  # 9 probes × 5
+    assert core["schemaValidity"] == 65  # 13 probes × 5
     assert core["actBoundaryValidity"] == 10
     assert core["lockViolation"] == 20
     assert core["continuityAdherence"] == 13
-    assert core["totalNominal"] == 88
+    assert core["totalNominal"] == 108
     assert "subtextFidelity" not in core
     assert "actBoundaryQuality" not in core
 
@@ -481,7 +483,7 @@ def test_nominal_call_estimate_uniform_one():
     )
 
     core = filter_call_estimate(nominal_call_estimate(resolve_run_map(1)), CORE_EVAL_KEYS)
-    assert core["totalNominal"] == 20
+    assert core["totalNominal"] == 24
 
 
 def test_run_suite_report_carries_call_estimate(session_factory):
@@ -643,7 +645,5 @@ def test_capture_dir_is_gitignored():
 
     repo = Path(__file__).resolve().parents[3]
     probe = "apps/api/evals/captures/20260101T000000/continuity-failure-001.txt"
-    out = subprocess.run(
-        ["git", "check-ignore", probe], cwd=repo, capture_output=True, text=True
-    )
+    out = subprocess.run(["git", "check-ignore", probe], cwd=repo, capture_output=True, text=True)
     assert out.returncode == 0, "capture dir is not git-ignored"

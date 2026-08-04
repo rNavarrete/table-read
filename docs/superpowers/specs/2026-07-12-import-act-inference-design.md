@@ -12,19 +12,19 @@ Act-marker parsing is not a sufficient fix: most uploaded scripts do not contain
 
 ## 2. Locked decisions
 
-| Decision | Choice |
-|---|---|
-| Boundary source | AI inference during the explicit **Create & analyze script** gesture |
-| Inference context | Ordered compact scene summaries produced by the existing per-scene segmentation stage |
-| Output shape | Ordered act starts: `{ act, startSceneIndex }`; the server derives the total scene partition |
-| Format constraint | Only acts valid for the selected `ShowFormat` may be returned |
-| Empty sections | Allowed; omitted act numbers represent empty sections |
-| Failure | Schema-invalid tool output keeps the client's existing one retry; semantic boundary invalidity gets one pipeline retry, then the atomic import fails with `SCHEMA_INVALID_LLM` |
-| Persistence | Still one write after all analysis succeeds; no partial project on failure |
-| Writer correction | Editable Act selector in the Plan inspector |
-| Correction side effects | One normal snapshot; lock enforcement applies; no consistency scan because story text and facts are unchanged |
-| Model role | `classifier`, temperature 0 |
-| Prompt policy | New operation schema and prompt; bump `PROMPT_VERSION`; real eval sign-off required |
+| Decision                | Choice                                                                                                                                                                         |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Boundary source         | AI inference during the explicit **Create & analyze script** gesture                                                                                                           |
+| Inference context       | Ordered compact scene summaries produced by the existing per-scene segmentation stage                                                                                          |
+| Output shape            | Ordered act starts: `{ act, startSceneIndex }`; the server derives the total scene partition                                                                                   |
+| Format constraint       | Only acts valid for the selected `ShowFormat` may be returned                                                                                                                  |
+| Empty sections          | Allowed; omitted act numbers represent empty sections                                                                                                                          |
+| Failure                 | Schema-invalid tool output keeps the client's existing one retry; semantic boundary invalidity gets one pipeline retry, then the atomic import fails with `SCHEMA_INVALID_LLM` |
+| Persistence             | Still one write after all analysis succeeds; no partial project on failure                                                                                                     |
+| Writer correction       | Editable Act selector in the Plan inspector                                                                                                                                    |
+| Correction side effects | One normal snapshot; lock enforcement applies; no consistency scan because story text and facts are unchanged                                                                  |
+| Model role              | `classifier`, temperature 0                                                                                                                                                    |
+| Prompt policy           | New operation schema and prompt; bump `PROMPT_VERSION`; real eval sign-off required                                                                                            |
 
 ## 3. Pipeline and data flow
 

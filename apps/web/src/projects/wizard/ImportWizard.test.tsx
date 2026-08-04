@@ -406,8 +406,8 @@ describe('ImportWizard', () => {
     const segmentingProgress = screen.getByRole('progressbar', {
       name: 'Segmenting beats progress',
     })
-    expect(segmentingProgress.getAttribute('aria-valuenow')).toBe('5')
-    expect(segmentingProgress.getAttribute('aria-valuemax')).toBe('10')
+    expect(segmentingProgress.getAttribute('aria-valuenow')).toBe('50')
+    expect(segmentingProgress.getAttribute('aria-valuemax')).toBe('100')
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(4_000)
@@ -465,7 +465,7 @@ describe('ImportWizard', () => {
     expect(screen.queryByText(/min left/)).toBeNull()
   })
 
-  it('does not render a determinate progressbar for zero or unknown totals', async () => {
+  it('renders an indeterminate progressbar until a stage reports progress', async () => {
     const user = userEvent.setup()
     mockedStreamSse.mockImplementation(() =>
       timedFramesFrom([
@@ -506,12 +506,12 @@ describe('ImportWizard', () => {
       await vi.advanceTimersByTimeAsync(0)
     })
 
-    expect(screen.getAllByText('0 of 0').length).toBeGreaterThan(0)
-    expect(
-      screen.queryByRole('progressbar', {
-        name: 'Segmenting beats progress',
-      }),
-    ).toBeNull()
+    const progress = screen.getByRole('progressbar', {
+      name: 'Segmenting beats progress',
+    })
+    expect(progress.getAttribute('aria-valuenow')).toBeNull()
+    expect(screen.getByTestId('segmenting_beats-indeterminate')).not.toBeNull()
+    expect(screen.getAllByRole('progressbar')).toHaveLength(9)
   })
 
   it('on failure preserves the draft, creates no project, and offers recovery actions', async () => {
@@ -540,6 +540,11 @@ describe('ImportWizard', () => {
     )
     expect(screen.getByText(/model calls/)).not.toBeNull()
     expect(screen.getByText(/Est\. \$/)).not.toBeNull()
+    expect(
+      screen.getByText(
+        'Retry reuses compatible saved analysis and runs only the unfinished stages.',
+      ),
+    ).not.toBeNull()
     expect(screen.getByRole('button', { name: 'Retry' })).not.toBeNull()
     expect(screen.getByRole('button', { name: 'Edit source' })).not.toBeNull()
     expect(

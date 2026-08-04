@@ -123,7 +123,7 @@ describe('ledger filters', () => {
     ])
   })
 
-  it('filterFacts applies status, character, and type', () => {
+  it('filterFacts applies status, character, type, and secretsOnly', () => {
     expect(
       filterFacts(facts, {
         ...DEFAULT_FILTERS,
@@ -144,6 +144,35 @@ describe('ledger filters', () => {
         factType: 'event',
       }).map((f) => f.id),
     ).toEqual(['fact-hi', 'fact-01'])
+
+    const withSecret = [
+      ...facts,
+      fact({
+        id: 'secret-1',
+        audienceKnows: false,
+        knownBy: ['char-reyes'],
+      }),
+    ]
+    expect(
+      filterFacts(withSecret, {
+        ...DEFAULT_FILTERS,
+        secretsOnly: true,
+      }).map((f) => f.id),
+    ).toEqual(['secret-1'])
+  })
+
+  it('can hide superseded history without changing the selected status filter', () => {
+    const withHistory = [
+      ...facts,
+      fact({ id: 'old-fact', status: 'superseded' }),
+    ]
+
+    expect(
+      filterFacts(withHistory, {
+        ...DEFAULT_FILTERS,
+        hideSuperseded: true,
+      }).map((fact) => fact.id),
+    ).not.toContain('old-fact')
   })
 
   it('supersedeChain walks supersededBy links', () => {

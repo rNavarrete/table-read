@@ -14,9 +14,8 @@ export interface ModeSwitcherProps {
 const MODES: Mode[] = ['Write', 'Plan', 'Review', 'Ledger']
 
 /**
- * The segmented mode control (UI spec §2). All four modes are built (T4.3 /
- * T5.1). Clicking an inactive mode navigates (`navigateToMode`); the active
- * tab is inert.
+ * Mode tabs (UI spec §3): freestanding pills. Active = soft selected surface
+ * (chrome, not primary action — coral reserved for CTAs).
  */
 export function ModeSwitcher({
   active,
@@ -28,7 +27,7 @@ export function ModeSwitcher({
       role="tablist"
       aria-label="Mode"
       data-testid="mode-switcher"
-      className="flex items-center gap-1 rounded-card bg-tr-surface-clay p-1"
+      className="flex items-center gap-0.5"
     >
       {MODES.map((mode) => {
         const isActive = mode === active
@@ -44,12 +43,12 @@ export function ModeSwitcher({
             title={disabled ? `${mode} mode is not built yet` : undefined}
             onClick={builtElsewhere ? () => navigateToMode(mode) : undefined}
             className={
-              'flex items-center gap-1.5 rounded-card px-3 py-1 text-13 transition-colors motion-reduce:transition-none' +
+              'flex items-center gap-1.5 rounded-[8px] px-3.5 py-1.5 text-13 transition-colors duration-standard ease-standard motion-reduce:transition-none' +
               (isActive
-                ? ' bg-tr-coral-soft text-tr-accent-ink'
+                ? ' bg-tr-ledger-selected font-medium text-tr-text-primary'
                 : disabled
                   ? ' cursor-not-allowed text-tr-text-muted'
-                  : ' text-tr-text-secondary hover:bg-tr-surface-raised')
+                  : ' text-tr-text-secondary hover:bg-tr-surface-clay')
             }
           >
             {mode}

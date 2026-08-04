@@ -1,0 +1,489 @@
+// @vitest-environment jsdom
+import { cleanup, render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import type { NarrativeMap, Project } from 'contract'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { NarrativeMapCard } from './NarrativeMapCard'
+
+afterEach(cleanup)
+
+function project(): Project {
+  return {
+    id: 'proj-1',
+    format: {
+      genre: 'drama',
+      runtimeMinutes: 60,
+      actCount: 2,
+      coldOpen: false,
+      tag: false,
+      serialization: 0.5,
+    },
+    seriesBible: {
+      characters: [{ id: 'char-nora', name: 'Nora', aliases: [] }],
+    },
+    seasons: [
+      {
+        episodes: [
+          {
+            id: 'ep-1',
+            threads: [{ id: 'thread-letter', label: 'The unsent letter' }],
+            scenes: [
+              { id: 'scene-1', act: 0, beats: [{ id: 'beat-1-1' }] },
+              { id: 'scene-2', act: 1, beats: [{ id: 'beat-2-1' }] },
+            ],
+          },
+        ],
+      },
+    ],
+  } as unknown as Project
+}
+
+function narrativeMap(): NarrativeMap {
+  return {
+    dramaticQuestion: 'Can Nora uncover the letter before Cass destroys it?',
+    centralConflict: 'Nora wants the truth while Cass protects the secret.',
+    controllingIdea: 'Love becomes destructive when it hides the truth.',
+    themes: [
+      {
+        label: 'Truth and protection',
+        statement: 'Secrecy turns care into control.',
+        evidence: [{ beatId: 'beat-1-1', quote: 'Nora finds the letter.' }],
+      },
+    ],
+    acts: [
+      {
+        act: 0,
+        dramaticQuestion: 'What did Nora find?',
+        escalation: 'The letter opens the mystery.',
+        turnBeatId: 'beat-1-1',
+        evidenceQuote: 'Nora finds the letter.',
+      },
+      {
+        act: 1,
+        dramaticQuestion: 'Will Cass let Nora learn the truth?',
+        escalation: 'Cass burns the evidence.',
+        turnBeatId: 'beat-2-1',
+        evidenceQuote: 'Cass burns the letter.',
+      },
+    ],
+    heroJourney: {
+      applies: true,
+      protagonistCharacterId: 'char-nora',
+      rationale: 'Nora is called into a search for truth.',
+      stages: [
+        {
+          stage: 'call_to_adventure',
+          beatId: 'beat-1-1',
+          summary: "The letter disrupts Nora's ordinary world.",
+          evidenceQuote: 'Nora finds the letter.',
+        },
+      ],
+    },
+    characterArcs: [
+      {
+        characterId: 'char-nora',
+        want: 'Read the letter.',
+        need: 'Face the truth about Cass.',
+        internalConflict: 'She fears losing Cass.',
+        externalPressure: 'Cass controls the evidence.',
+        arcSummary: 'Nora chooses truth over comfort.',
+        turningPoints: [
+          {
+            beatId: 'beat-1-1',
+            change: 'Curiosity becomes a pursuit.',
+            quote: 'Nora finds the letter.',
+          },
+        ],
+      },
+    ],
+    sceneTurns: [
+      {
+        sceneId: 'scene-1',
+        focalCharacterId: 'char-nora',
+        dramaticFunction: 'Plant the mystery.',
+        conflict: 'Nora meets the secret.',
+        stakes: 'Trust is at risk.',
+        turnBeatId: 'beat-1-1',
+        turn: 'Nora commits to finding out what the letter means.',
+        evidenceQuote: 'Nora finds the letter.',
+      },
+      {
+        sceneId: 'scene-2',
+        focalCharacterId: null,
+        dramaticFunction: 'Escalate the cover-up.',
+        conflict: 'Cass chooses secrecy.',
+        stakes: 'The relationship may break.',
+        turnBeatId: 'beat-2-1',
+        turn: 'The secret becomes an active betrayal.',
+        evidenceQuote: 'Cass burns the letter.',
+      },
+    ],
+    threadMovements: [
+      {
+        threadId: 'thread-letter',
+        beatId: 'beat-2-1',
+        phase: 'escalation',
+        summary: 'Cass makes the letter unrecoverable.',
+        evidenceQuote: 'Cass burns the letter.',
+      },
+    ],
+    provenance: 'inferred',
+    locked: false,
+  }
+}
+
+describe('NarrativeMapCard', () => {
+  it('shows an empty state before a map exists', () => {
+    render(
+      <NarrativeMapCard
+        project={project()}
+        narrativeMap={null}
+        onJumpToScene={vi.fn()}
+      />,
+    )
+    expect(screen.getByTestId('narrative-map-empty')).not.toBeNull()
+  })
+
+  it('makes the expensive map generation an explicit action', async () => {
+    const user = userEvent.setup()
+    const onGenerateNarrativeMap = vi.fn()
+    render(
+      <NarrativeMapCard
+        project={project()}
+        narrativeMap={null}
+        onJumpToScene={vi.fn()}
+        onGenerateNarrativeMap={onGenerateNarrativeMap}
+      />,
+    )
+
+    await user.click(screen.getByTestId('generate-narrative-map'))
+
+    expect(onGenerateNarrativeMap).toHaveBeenCalledOnce()
+    expect(screen.getByText(/bounded Opus 5 scene passes/i)).not.toBeNull()
+  })
+
+  it('shows scene-by-scene run progress and prevents duplicate starts', () => {
+    render(
+      <NarrativeMapCard
+        project={project()}
+        narrativeMap={null}
+        narrativeMapRun={{
+          id: 'nmap-1',
+          projectId: 'proj-1',
+          sourceSnapshotId: 'snap-1',
+          sourceHash: 'source-hash',
+          analysisVersion: '2.0',
+          status: 'running',
+          phase: 'scene_analysis',
+          sceneCount: 8,
+          completedSceneCount: 3,
+          attemptCount: 1,
+          retryAllowed: false,
+          estimatedCostUsd: null,
+          actualInputTokens: null,
+          actualOutputTokens: null,
+          resultSnapshotId: null,
+          errorCode: null,
+          errorMessage: null,
+          createdAt: '2026-07-24T00:00:00Z',
+          updatedAt: '2026-07-24T00:00:01Z',
+        }}
+        onJumpToScene={vi.fn()}
+        onGenerateNarrativeMap={vi.fn()}
+      />,
+    )
+
+    expect(
+      screen.getByTestId('narrative-map-run-status').textContent,
+    ).toContain('3 of 8')
+    expect(screen.getByRole('progressbar').getAttribute('aria-valuenow')).toBe(
+      '33',
+    )
+    expect(screen.getByText(/3 of 8 scenes checkpointed/i)).not.toBeNull()
+    expect(screen.queryByTestId('generate-narrative-map')).toBeNull()
+  })
+
+  it('shows synthesis as a distinct long-running phase', () => {
+    render(
+      <NarrativeMapCard
+        project={project()}
+        narrativeMap={null}
+        narrativeMapRun={{
+          id: 'nmap-1',
+          projectId: 'proj-1',
+          sourceSnapshotId: 'snap-1',
+          sourceHash: 'source-hash',
+          analysisVersion: '2.5',
+          status: 'running',
+          phase: 'synthesis',
+          sceneCount: 29,
+          completedSceneCount: 29,
+          attemptCount: 1,
+          retryAllowed: false,
+          estimatedCostUsd: null,
+          actualInputTokens: null,
+          actualOutputTokens: null,
+          resultSnapshotId: null,
+          errorCode: null,
+          errorMessage: null,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        }}
+        onJumpToScene={vi.fn()}
+        onGenerateNarrativeMap={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByRole('progressbar').getAttribute('aria-valuenow')).toBe(
+      '84',
+    )
+    expect(screen.getByText(/29 of 29 scenes checkpointed/i)).not.toBeNull()
+    expect(screen.getByText(/can take several minutes/i)).not.toBeNull()
+  })
+
+  it('keeps timed-out checkpoints visible and enables safe resume', () => {
+    render(
+      <NarrativeMapCard
+        project={project()}
+        narrativeMap={null}
+        narrativeMapRun={{
+          id: 'nmap-1',
+          projectId: 'proj-1',
+          sourceSnapshotId: 'snap-1',
+          sourceHash: 'source-hash',
+          analysisVersion: '2.5',
+          status: 'failed',
+          phase: 'failed',
+          sceneCount: 29,
+          completedSceneCount: 29,
+          attemptCount: 1,
+          retryAllowed: true,
+          estimatedCostUsd: null,
+          actualInputTokens: null,
+          actualOutputTokens: null,
+          resultSnapshotId: null,
+          errorCode: 'LLM_TIMEOUT',
+          errorMessage: 'Analysis did not finish in time.',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        }}
+        onJumpToScene={vi.fn()}
+        onGenerateNarrativeMap={vi.fn()}
+      />,
+    )
+
+    expect(
+      screen.getByText(/continue from the next unfinished phase/i),
+    ).not.toBeNull()
+    const button = screen.getByTestId('generate-narrative-map')
+    expect(button.textContent).toContain('Resume saved map run')
+    expect(button.hasAttribute('disabled')).toBe(false)
+  })
+
+  it('offers one corrected verifier call after a malformed verifier response', () => {
+    render(
+      <NarrativeMapCard
+        project={project()}
+        narrativeMap={null}
+        narrativeMapRun={{
+          id: 'nmap-1',
+          projectId: 'proj-1',
+          sourceSnapshotId: 'snap-1',
+          sourceHash: 'source-hash',
+          analysisVersion: '2.5',
+          status: 'failed',
+          phase: 'failed',
+          sceneCount: 29,
+          completedSceneCount: 29,
+          attemptCount: 4,
+          retryAllowed: true,
+          estimatedCostUsd: null,
+          actualInputTokens: null,
+          actualOutputTokens: null,
+          resultSnapshotId: null,
+          errorCode: 'SCHEMA_INVALID_LLM',
+          errorMessage:
+            'A corrected strict verifier is available. Only one verification call remains.',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        }}
+        onJumpToScene={vi.fn()}
+        onGenerateNarrativeMap={vi.fn()}
+      />,
+    )
+
+    const button = screen.getByTestId('generate-narrative-map')
+    expect(button.textContent).toContain('Run corrected verifier')
+    expect(button.hasAttribute('disabled')).toBe(false)
+  })
+
+  it('labels cached evidence pruning as a no-cost local finish', () => {
+    render(
+      <NarrativeMapCard
+        project={project()}
+        narrativeMap={null}
+        narrativeMapRun={{
+          id: 'nmap-1',
+          projectId: 'proj-1',
+          sourceSnapshotId: 'snap-1',
+          sourceHash: 'source-hash',
+          analysisVersion: '2.5',
+          status: 'rejected',
+          phase: 'failed',
+          sceneCount: 29,
+          completedSceneCount: 29,
+          attemptCount: 5,
+          retryAllowed: true,
+          estimatedCostUsd: null,
+          actualInputTokens: null,
+          actualOutputTokens: null,
+          resultSnapshotId: null,
+          errorCode: 'EVIDENCE_REJECTED',
+          errorMessage:
+            'A no-cost local evidence repair is available. No model call will run.',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        }}
+        onJumpToScene={vi.fn()}
+        onGenerateNarrativeMap={vi.fn()}
+      />,
+    )
+
+    const button = screen.getByTestId('generate-narrative-map')
+    expect(button.textContent).toContain(
+      'Finish from saved analysis (no model call)',
+    )
+    expect(button.hasAttribute('disabled')).toBe(false)
+  })
+
+  it('offers a compact re-verification after repairing a saved scene packet', () => {
+    render(
+      <NarrativeMapCard
+        project={project()}
+        narrativeMap={null}
+        narrativeMapRun={{
+          id: 'nmap-1',
+          projectId: 'proj-1',
+          sourceSnapshotId: 'snap-1',
+          sourceHash: 'source-hash',
+          analysisVersion: '2.6',
+          status: 'rejected',
+          phase: 'failed',
+          sceneCount: 29,
+          completedSceneCount: 29,
+          attemptCount: 2,
+          retryAllowed: true,
+          estimatedCostUsd: null,
+          actualInputTokens: null,
+          actualOutputTokens: null,
+          resultSnapshotId: null,
+          errorCode: 'EVIDENCE_REJECTED',
+          errorMessage:
+            'A saved scene-packet repair is available. Only one compact verification call remains.',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        }}
+        onJumpToScene={vi.fn()}
+        onGenerateNarrativeMap={vi.fn()}
+      />,
+    )
+
+    const button = screen.getByTestId('generate-narrative-map')
+    expect(button.textContent).toContain('Repair saved map & verify')
+    expect(button.hasAttribute('disabled')).toBe(false)
+  })
+
+  it('blocks same-version evidence retries to prevent repeat charges', () => {
+    render(
+      <NarrativeMapCard
+        project={project()}
+        narrativeMap={null}
+        narrativeMapRun={{
+          id: 'nmap-1',
+          projectId: 'proj-1',
+          sourceSnapshotId: 'snap-1',
+          sourceHash: 'source-hash',
+          analysisVersion: '2.3',
+          status: 'rejected',
+          phase: 'failed',
+          sceneCount: 29,
+          completedSceneCount: 6,
+          attemptCount: 2,
+          retryAllowed: false,
+          estimatedCostUsd: null,
+          actualInputTokens: null,
+          actualOutputTokens: null,
+          resultSnapshotId: null,
+          errorCode: 'EVIDENCE_REJECTED',
+          errorMessage:
+            'The evidence gate rejected this analysis. No Narrative Map was saved.',
+          createdAt: '2026-07-24T00:00:00Z',
+          updatedAt: '2026-07-24T00:00:01Z',
+        }}
+        onJumpToScene={vi.fn()}
+        onGenerateNarrativeMap={vi.fn()}
+      />,
+    )
+
+    const button = screen.getByTestId('generate-narrative-map')
+    expect(button.textContent).toContain(
+      'Retry blocked to prevent another charge',
+    )
+    expect(button.hasAttribute('disabled')).toBe(true)
+  })
+
+  it('does not present a placeholder map as usable analysis', () => {
+    render(
+      <NarrativeMapCard
+        project={project()}
+        narrativeMap={{ ...narrativeMap(), dramaticQuestion: '<UNKNOWN>' }}
+        onJumpToScene={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByTestId('narrative-map-empty').textContent).toContain(
+      'did not meet the evidence standard',
+    )
+  })
+
+  it('shows an honest coverage notice instead of inventing character arcs', () => {
+    render(
+      <NarrativeMapCard
+        project={project()}
+        narrativeMap={{ ...narrativeMap(), characterArcs: [] }}
+        onJumpToScene={vi.fn()}
+      />,
+    )
+
+    expect(
+      screen.getByTestId('narrative-character-coverage').textContent,
+    ).toContain('did not produce evidence-supported character arc profiles')
+  })
+
+  it('renders macro, character, thread, and source-jump analysis', async () => {
+    const user = userEvent.setup()
+    const onJumpToScene = vi.fn()
+    render(
+      <NarrativeMapCard
+        project={project()}
+        narrativeMap={narrativeMap()}
+        onJumpToScene={onJumpToScene}
+      />,
+    )
+
+    expect(screen.getByTestId('narrative-map-card').textContent).toContain(
+      'Can Nora',
+    )
+    expect(screen.getByTestId('narrative-themes').textContent).toContain(
+      'Truth and protection',
+    )
+    expect(screen.getByTestId('narrative-hero-journey').textContent).toContain(
+      'Call to adventure',
+    )
+    expect(screen.getByText('Nora')).not.toBeNull()
+    expect(screen.getByText('The unsent letter')).not.toBeNull()
+
+    await user.click(screen.getAllByTestId('narrative-evidence-beat-1-1')[0]!)
+    expect(onJumpToScene).toHaveBeenCalledWith('scene-1')
+  })
+})

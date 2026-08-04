@@ -12,6 +12,7 @@ from fountain.parse import (
     normalize_and_slice,
     reconstruct,
     split_into_scenes,
+    strip_screenplay_front_matter,
     validate_and_slice,
 )
 from schemas import SegmentedScene
@@ -71,6 +72,85 @@ def test_split_with_no_sluglines_is_one_bucket():
 def test_split_recognizes_int_ext_variants():
     for heading in ("INT. X", "EXT. X", "int. x", "EST. X", "INT./EXT. X", "I/E. X"):
         assert split_into_scenes(heading)[0].location == heading
+
+
+def test_strip_front_matter_removes_title_sets_and_cast_through_fade_in():
+    source = "\n".join(
+        [
+            "THE WEST WING",
+            '"Pilot"',
+            "Written by",
+            "FINAL DRAFT",
+            "INT. GLASS OFFICE BUILDING",
+            "Office Corridor",
+            "CAST",
+            "SAM",
+            "LEO",
+            "TEASER",
+            "FADE IN:",
+            "",
+            "INT. FOUR SEASONS HOTEL - NIGHT",
+            "Sam sits at the bar.",
+        ]
+    )
+
+    result = strip_screenplay_front_matter(source)
+
+    assert result.content == "INT. FOUR SEASONS HOTEL - NIGHT\nSam sits at the bar."
+    assert result.removed_line_count == 12
+    assert result.removed_char_count > 0
+    assert [scene.location for scene in split_into_scenes(result.content)] == [
+        "INT. FOUR SEASONS HOTEL - NIGHT"
+    ]
+
+
+def test_strip_front_matter_removes_recognized_fountain_title_page_without_fade_in():
+    source = "\n".join(
+        [
+            "Title: The Long Pour",
+            "Credit: Written by",
+            "Author: Example Writer",
+            "Draft date: July 24, 2026",
+            "",
+            "INT. BAR - NIGHT",
+            "Dan pours a drink.",
+        ]
+    )
+
+    result = strip_screenplay_front_matter(source)
+
+    assert result.content == "INT. BAR - NIGHT\nDan pours a drink."
+    assert result.removed_line_count == 5
+
+
+def test_strip_front_matter_leaves_a_script_without_front_matter_byte_identical():
+    source = "INT. BAR - NIGHT\nDan pours.\n\nEXT. STREET - DAY\nReyes waits."
+
+    result = strip_screenplay_front_matter(source)
+
+    assert result.content == source
+    assert result.removed_line_count == 0
+    assert result.removed_char_count == 0
+
+
+def test_strip_front_matter_does_not_cut_at_a_later_fade_in_inside_the_script():
+    source = "\n".join(
+        [
+            "INT. STAGE - NIGHT",
+            "The lights go dark.",
+            "FADE IN:",
+            "INT. STAGE - MORNING",
+            "The room is empty.",
+        ]
+    )
+
+    assert strip_screenplay_front_matter(source).content == source
+
+
+def test_strip_front_matter_preserves_unrecognized_pre_slug_story_text():
+    source = "A BLACK SCREEN.\nA phone rings.\n\nINT. OFFICE - NIGHT\nNora answers."
+
+    assert strip_screenplay_front_matter(source).content == source
 
 
 # ── stage 2: typed-start normalization ─────────────────────────────────────

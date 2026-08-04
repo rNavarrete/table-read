@@ -1,0 +1,38 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "approved": {
+      "type": "boolean"
+    },
+    "issues": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": ["path", "reason"],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "missingSceneIds": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "unsupportedPaths": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    }
+  },
+  "required": ["approved", "unsupportedPaths", "missingSceneIds", "issues"],
+  "type": "object"
+}

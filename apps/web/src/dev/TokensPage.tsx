@@ -119,6 +119,11 @@ const TOKEN_GROUPS: TokenGroup[] = [
         description: 'headings, mode titles',
         kind: 'font',
       },
+      {
+        cssVar: '--tr-font-ledger-display',
+        description: 'Ledger story-bible titles',
+        kind: 'font',
+      },
     ],
   },
   {
@@ -131,6 +136,70 @@ const TOKEN_GROUPS: TokenGroup[] = [
       { cssVar: '--tr-font-size-17', kind: 'size' },
       { cssVar: '--tr-font-size-22', kind: 'size' },
       { cssVar: '--tr-font-size-28', kind: 'size' },
+      {
+        cssVar: '--tr-font-size-30',
+        description: 'Ledger display title',
+        kind: 'size',
+      },
+    ],
+  },
+  {
+    title: 'Write redesign (script home)',
+    tokens: [
+      {
+        cssVar: '--tr-write-desk',
+        description: 'surface behind the script sheet',
+        kind: 'color',
+      },
+      {
+        cssVar: '--tr-write-panel',
+        description: 'ON THE PAGE outline rail',
+        kind: 'color',
+      },
+      {
+        cssVar: '--tr-write-selected',
+        description: 'active scene row in the outline',
+        kind: 'color',
+      },
+      {
+        cssVar: '--tr-write-dot-int',
+        description: 'INT. slugline marker',
+        kind: 'color',
+      },
+      {
+        cssVar: '--tr-write-dot-ext',
+        description: 'EXT. slugline marker',
+        kind: 'color',
+      },
+      {
+        cssVar: '--tr-write-dot-other',
+        description: 'neither INT. nor EXT.',
+        kind: 'color',
+      },
+    ],
+  },
+  {
+    title: 'Ledger redesign',
+    tokens: [
+      { cssVar: '--tr-ledger-content', kind: 'color' },
+      { cssVar: '--tr-ledger-selected', kind: 'color' },
+      {
+        cssVar: '--tr-ledger-secret-surface',
+        description: 'secret card fill',
+        kind: 'color',
+      },
+      { cssVar: '--tr-ledger-secret-border', kind: 'color' },
+      { cssVar: '--tr-ledger-secret-badge', kind: 'color' },
+      { cssVar: '--tr-ledger-secret-ink', kind: 'color' },
+    ],
+  },
+  {
+    title: 'Overview panel',
+    tokens: [
+      { cssVar: '--tr-overview-expand-bg', kind: 'color' },
+      { cssVar: '--tr-overview-icon-bg', kind: 'color' },
+      { cssVar: '--tr-overview-ready-bg', kind: 'color' },
+      { cssVar: '--tr-overview-ready-ink', kind: 'color' },
     ],
   },
   {
@@ -143,6 +212,16 @@ const TOKEN_GROUPS: TokenGroup[] = [
         description: 'canvas frames',
         kind: 'radius',
       },
+      {
+        cssVar: '--tr-radius-control',
+        description: 'controls',
+        kind: 'radius',
+      },
+      {
+        cssVar: '--tr-radius-ledger-card',
+        description: 'Ledger cards',
+        kind: 'radius',
+      },
     ],
   },
   {
@@ -152,6 +231,36 @@ const TOKEN_GROUPS: TokenGroup[] = [
       {
         cssVar: '--tr-shadow-lift',
         description: 'lift on drag',
+        kind: 'shadow',
+      },
+      {
+        cssVar: '--tr-shadow-write-page',
+        description: 'script sheet',
+        kind: 'shadow',
+      },
+      {
+        cssVar: '--tr-shadow-write-card',
+        description: 'candidate card',
+        kind: 'shadow',
+      },
+      {
+        cssVar: '--tr-shadow-write-bar',
+        description: 'floating command bar',
+        kind: 'shadow',
+      },
+      {
+        cssVar: '--tr-shadow-write-cta',
+        description: 'primary action',
+        kind: 'shadow',
+      },
+      {
+        cssVar: '--tr-shadow-ledger-card',
+        description: 'Ledger card',
+        kind: 'shadow',
+      },
+      {
+        cssVar: '--tr-shadow-overview-card',
+        description: 'Overview card',
         kind: 'shadow',
       },
     ],
@@ -181,7 +290,22 @@ const TOKEN_GROUPS: TokenGroup[] = [
       },
       {
         cssVar: '--tr-panel-candidate-dock',
-        description: 'Write mode candidate dock width (UI spec §3)',
+        description: 'Write mode CO-WRITER dock width (UI spec §3)',
+        kind: 'width',
+      },
+      {
+        cssVar: '--tr-panel-write-outline',
+        description: 'Write mode ON THE PAGE outline width (UI spec §3)',
+        kind: 'width',
+      },
+      {
+        cssVar: '--tr-script-page',
+        description: 'Write mode script sheet max-width (UI spec §3)',
+        kind: 'width',
+      },
+      {
+        cssVar: '--tr-command-bar',
+        description: 'Write mode floating command bar width (UI spec §3)',
         kind: 'width',
       },
       {

@@ -1,10 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { BeatCandidate, CraftLevel, Project, Scene } from 'contract'
 import { getLedger, getProject, patchProject } from '../api/client'
 import { requireProjectId } from '../projects/projectRouting'
@@ -22,8 +16,6 @@ import { useQuietAi } from './useQuietAi'
 import { useWriteKeyboard } from './useWriteKeyboard'
 import { allScenes, findScene, pickDefaultScene } from './projectTree'
 import { isEditingInScrollport, pickTopIntersectingSceneId } from './scrollSpy'
-import { whimsyPick } from './writeWhimsy'
-
 function useUrlParam(name: string): string | null {
   return useMemo(
     () => new URLSearchParams(window.location.search).get(name),
@@ -157,9 +149,7 @@ export function WriteScreen() {
     if (!root || scenes.length === 0) return
     if (typeof IntersectionObserver === 'undefined') return
     const sections = scenes
-      .map((s) =>
-        root.querySelector(`[data-testid="write-scene-${s.id}"]`),
-      )
+      .map((s) => root.querySelector(`[data-testid="write-scene-${s.id}"]`))
       .filter((el): el is HTMLElement => el instanceof HTMLElement)
     if (sections.length === 0) return
 
@@ -372,29 +362,37 @@ export function WriteScreen() {
           {llmUnavailableMessage}
         </Toast>
       )}
-      <div className="flex h-[calc(100vh-3.5rem)] min-h-0 overflow-hidden bg-tr-surface-page">
+      <div className="flex h-[calc(100vh-var(--tr-shell-height))] min-h-0 overflow-hidden bg-tr-surface-raised">
         <SceneOutline
           scenes={scenes}
           activeSceneId={activeSceneId}
           onSelect={(id) => selectScene(id)}
         />
-        <div
-          ref={scrollportRef}
-          data-testid="write-scrollport"
-          className={whimsyPick(
-            'min-h-0 min-w-0 flex-1 overflow-y-auto px-8 py-8 pb-28',
-            'min-h-0 min-w-0 flex-1 overflow-y-auto bg-tr-surface-clay px-8 py-10 pb-28',
-          )}
-        >
-          <ScriptCanvas
-            scenes={scenes}
-            canvasHandlers={wrappedCanvasHandlers}
-            highlightBeatId={highlightBeatId}
-            onSceneFocus={(id) => selectScene(id, { scroll: false })}
+        <div className="relative min-h-0 min-w-0 flex-1">
+          <div
+            ref={scrollportRef}
+            data-testid="write-scrollport"
+            className="h-full min-h-0 overflow-y-auto bg-tr-write-desk px-6 pb-28"
+          >
+            <ScriptCanvas
+              scenes={scenes}
+              canvasHandlers={wrappedCanvasHandlers}
+              highlightBeatId={highlightBeatId}
+              activeSceneId={activeSceneId}
+              onSceneFocus={(id) => selectScene(id, { scroll: false })}
+            />
+          </div>
+          <CommandBar
+            ref={commandBarRef}
+            onSubmit={handleCommandBarSubmit}
+            disabled={streaming || !activeSceneId}
+            hidden={quiet}
+            projectId={projectId}
+            sceneId={activeSceneId ?? ''}
           />
         </div>
         <div
-          className="flex h-full min-h-0 shrink-0 flex-col overflow-hidden border-l border-tr-border bg-tr-surface-sunken p-4"
+          className="flex h-full min-h-0 shrink-0 flex-col overflow-hidden border-l border-tr-border"
           data-testid="write-candidate-rail"
         >
           <CandidateDock
@@ -418,14 +416,6 @@ export function WriteScreen() {
           />
         </div>
       </div>
-      <CommandBar
-        ref={commandBarRef}
-        onSubmit={handleCommandBarSubmit}
-        disabled={streaming || !activeSceneId}
-        hidden={quiet}
-        projectId={projectId}
-        sceneId={activeSceneId ?? ''}
-      />
     </AppShell>
   )
 }

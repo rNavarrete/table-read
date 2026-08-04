@@ -26,7 +26,28 @@ from typing import Any
 
 # Prompt spec §8 / hard rule 7: every template carries a PROMPT_VERSION (semver);
 # it is logged with each call and bumped on any template change. Bumped to
-# 0.18.0 for story-overview *TV label harden* (post-0.17.0 West Wing): stronger
+# 0.32.0 gives Narrative Map verification a bounded, citation-only source
+# packet rather than replaying every raw screenplay scene, and instructs the
+# verifier to separate blocking evidence failures from editorial advisories.
+# 0.31.0 bounds Narrative Map synthesis to a concise, evidence-addressable
+# scene spine and requires a small, complete macro reading so a feature-length
+# script cannot consume its structured response budget before required fields.
+# 0.30.0 bounds the import narrative-promises read to the full semantic beat
+# spine plus short server-selected evidence excerpts, avoiding a second full
+# screenplay payload on long imports. 0.29.0 separates verifier evidence
+# failures from optional coverage advice and makes the saved screenplay
+# authoritative over fallback packet quality. 0.26.0
+# makes Narrative Map evidence excerpts server-owned and removes the
+# paid semantic retry. 0.24.0 classifies Narrative Map front matter and establishing blocks before
+# model analysis. 0.23.0 makes Narrative Map anchors server-owned. 0.22.0
+# makes scene reads single-scene and adds a targeted evidence-repair prompt.
+# 0.21.0 replaces the
+# source-backed scene packets,
+# a smaller synthesis, and an independent verification read. 0.20.0 moves
+# Narrative Map quote selection server-side, keeping the model
+# focused on source beat IDs. 0.19.0 adds the evidence-grounded Narrative Map
+# import operation. 0.18.0
+# hardened story-overview TV labels (post-0.17.0 West Wing): stronger
 # ban on film/STC beat labels, positive TV-only exemplars, Tag = last module
 # when format.tag (not Act Four). Requires `make evals` sign-off before merge
 # (not run until authorized).
@@ -36,7 +57,7 @@ from typing import Any
 # 0.10.0 typed segment starts; 0.9.0 lock-aware narrative repair. Earlier:
 # 0.8.0 suggest; 0.7.0 scene skeleton; 0.6.0 continuity; 0.5.0 regenerate;
 # 0.4.0 blast; 0.3.0 tune; 0.2.0 candidate + §0 system prompt.
-PROMPT_VERSION = "0.18.0"
+PROMPT_VERSION = "0.32.0"
 
 
 def new_nonce() -> str:
@@ -107,10 +128,7 @@ def build_system_prompt(project: dict, nonce: str) -> str:
 def build_segment_prompt(project: dict, scene_lines: list[str], nonce: str) -> tuple[str, str]:
     """`segment_scene` (§7 stage 2): one scene's line-numbered text; the model
     returns typed segment starts; the server derives every end boundary."""
-    numbered = [
-        {"lineNumber": i, "text": line}
-        for i, line in enumerate(scene_lines, start=1)
-    ]
+    numbered = [{"lineNumber": i, "text": line} for i, line in enumerate(scene_lines, start=1)]
     user = (
         source_data("imported_script", numbered, nonce)
         + f"\nSegment this {len(scene_lines)}-line scene using typed segment starts. "
@@ -144,9 +162,7 @@ def build_segment_retry_prompt(
     )
 
 
-def build_act_inference_prompt(
-    project: dict, summaries: list[dict], nonce: str
-) -> tuple[str, str]:
+def build_act_inference_prompt(project: dict, summaries: list[dict], nonce: str) -> tuple[str, str]:
     fmt = project["format"]
     max_act = fmt["actCount"] if fmt["coldOpen"] else fmt["actCount"] - 1
     payload = {
@@ -215,38 +231,45 @@ def build_entity_prompt(
 
 def build_promises_prompt(
     project: dict,
-    scene_summaries: list[dict],
+    scene_spine: list[dict],
     known_cast: list[str],
     existing_world_rule_texts: list[str],
     nonce: str,
 ) -> tuple[str, str]:
     """`infer_narrative_promises` (design doc
-    `2026-07-16-narrative-promises-design.md`, T7.20): the same compact
-    per-scene summaries `build_entity_prompt` uses, plus the cast already
-    resolved by entity inference (names only — the model never mints or
-    knows ids) and the bible's existing world-rule text (so the model
-    extends the rule set rather than re-deriving rules it already covers).
-    Runs after `infer_story_entities` so motivations/thread owners can
-    resolve against the fuller cast."""
+    `2026-07-16-narrative-promises-design.md`, T7.20): a beat-complete,
+    semantic scene spine with a short server-selected evidence excerpt for
+    each scene. This keeps the story-wide read bounded on feature-length
+    scripts while retaining all setup/payoff beats and auditable on-page
+    evidence. The cast is already resolved by entity inference (names only
+    — the model never mints or knows ids), alongside the bible's existing
+    world-rule text (so the model extends the rule set rather than
+    re-deriving rules it already covers). Runs after `infer_story_entities`
+    so motivations/thread owners can resolve against the fuller cast.
+    """
     user = (
-        source_data("import_scene_summaries", scene_summaries, nonce)
+        source_data("import_story_spine", scene_spine, nonce)
         + "\n"
         + source_data("known_cast", known_cast, nonce)
         + "\n"
         + source_data("existing_world_rules", existing_world_rule_texts, nonce)
-        + "\nIdentify narrative setup/payoff story threads across these "
-        "scenes in source order (a thread may be open with only a setup — "
+        + "\nIdentify narrative setup/payoff story threads across every beat in "
+        "these scenes in source order (a thread may be open with only a setup — "
         "do not invent a payoff that isn't on the page), fill each "
         "character's scene-level motivations where the script supports it, "
         "and extract structured world rules — a stated limit, its cost, "
         "and any exception — each with one short source-evidence quote. "
+        "The beat fields cover every scene; use each scene's bounded "
+        "evidenceExcerpt for a verbatim quote when one is needed. Only "
+        "return a scene motivation when the source establishes that "
+        "character's objective, stakes, and obstacle; omit unsupported or "
+        "routine scene entries rather than filling every scene. "
         "Do not repeat a rule already present in existing_world_rules; "
         "only report new ones. Refer to every character only by a name "
         "string from known_cast, never an id — the server resolves and "
         "mints ids, not you."
     )
     return build_system_prompt(project, nonce), user
-
 
 
 def build_overview_prompt(
@@ -295,9 +318,9 @@ def build_overview_prompt(
         "source. Do not invent people, places, or plot.\n"
         "- Ban location-theater boilerplate: never write summaries that "
         "only restate a slugline/room, or empty templates like "
-        "\"becomes a space for…\", \"raises the stakes\", \"deepens "
-        "character dynamics\", \"action shifts to…\", \"a crucial "
-        "confrontation\", \"final reversal or commitment\".\n"
+        '"becomes a space for…", "raises the stakes", "deepens '
+        'character dynamics", "action shifts to…", "a crucial '
+        'confrontation", "final reversal or commitment".\n'
         "- If source fields are thin, still extract the specific action "
         "from scriptExcerpt; never pad with generic political/crisis "
         "prose.\n"
@@ -337,6 +360,208 @@ def build_overview_prompt(
         "concrete incidents; paragraph 2 = escalation/climax/resolution "
         "with the same specificity. Spoil the ending when the script has "
         "one. No scene-by-scene laundry list and no vague crisis filler."
+    )
+    return build_system_prompt(project, nonce), user
+
+
+def build_narrative_map_prompt(
+    project: dict,
+    scene_spine: list[dict],
+    known_cast: list[dict],
+    threads: list[dict],
+    nonce: str,
+) -> tuple[str, str]:
+    """Build the macro/micro reading prompt for `infer_narrative_map`.
+
+    `scene_spine` is intentionally beat-complete at the semantic level: the
+    model can make a rich dramaturgical read from the segmented beat plans,
+    while the merge layer verifies every cited beat and attaches the
+    authoritative script excerpt before it is stored.
+    """
+    user = (
+        source_data("show_format", project.get("format") or {}, nonce)
+        + "\n"
+        + source_data("known_cast", known_cast, nonce)
+        + "\n"
+        + source_data("story_threads", threads, nonce)
+        + "\n"
+        + source_data("scene_spine", scene_spine, nonce)
+        + "\nCreate a rigorous narrative map grounded only in the supplied source. "
+        "This is an analytical reading, not a rewrite. Use the supplied beat "
+        "semantics, then cite every claim by selecting "
+        "the beatId that directly supports it; Table Read will attach the exact source "
+        "excerpt from that beat. Use only supplied beatIds, sceneIds, and threadIds.\n"
+        "MACRO:\n"
+        "- State the episode's dramaticQuestion, centralConflict, and controllingIdea "
+        "with concrete names, decisions, and pressure from the page.\n"
+        "- Return exactly one acts row for every act represented in scene_spine. Its "
+        "turnBeatId must be a beat from that act.\n"
+        "- Identify the most consequential themes. Each needs at least one source "
+        "citation; do not use generic labels such as 'good versus evil'.\n"
+        "- Treat Hero's Journey as an optional lens, never a template. Set applies=false "
+        "for ensemble, procedural, anti-hero, or otherwise non-monomyth material when "
+        "the page does not earn a single protagonist transformation. When applies=true, "
+        "use only supported stages and cite each one by beatId.\n"
+        "CHARACTER:\n"
+        "- For each character with a meaningful on-page arc, name their want, need, "
+        "internal conflict, external pressure, and change. Use names from known_cast "
+        "only, and cite every turning point by beatId.\n"
+        "MICRO:\n"
+        "- Return exactly one sceneTurns row for every sceneId in scene_spine. Explain "
+        "the scene's dramatic function, central conflict, stakes, focal perspective "
+        "when clear, and the value/decision/power turn at its cited turnBeatId.\n"
+        "- For each established story_threads id, map only the actual setup, escalation, "
+        "reversal, reveal, payoff, or aftermath beats that occur on the page. Omit a "
+        "movement rather than inventing one.\n"
+        "Never infer demographics, off-page backstory, or outcomes the script does not "
+        "support. Do not make claims just because a familiar story template suggests them."
+    )
+    return build_system_prompt(project, nonce), user
+
+
+def build_narrative_map_retry_prompt(
+    project: dict,
+    scene_spine: list[dict],
+    known_cast: list[dict],
+    threads: list[dict],
+    diagnostics: list[dict],
+    nonce: str,
+) -> tuple[str, str]:
+    system, user = build_narrative_map_prompt(project, scene_spine, known_cast, threads, nonce)
+    return (
+        system,
+        user
+        + "\nYour previous map failed these server grounding checks:\n"
+        + source_data("narrative_map_repairs", diagnostics, nonce)
+        + "\nReturn a corrected complete map. Do not omit any scene or populated act; "
+        "replace unsupported claims with claims grounded in valid supplied ids.",
+    )
+
+
+def build_narrative_scene_analysis_prompt(
+    project: dict,
+    scene_sources: list[dict],
+    known_cast: list[dict],
+    nonce: str,
+) -> tuple[str, str]:
+    """Build one bounded, raw-source scene-analysis request for a map run.
+
+    Import segmentation is useful context but cannot be treated as authoritative:
+    an imported scene may be fully preserved while its semantic beat fields are
+    blank. These packets always include saved `scriptText` and repair that gap
+    before any macro-level claims are allowed.
+    """
+    required_anchors = [
+        {
+            "sceneId": scene.get("sceneId"),
+            "allowedBeatIds": [beat.get("beatId") for beat in scene.get("beats") or []],
+        }
+        for scene in scene_sources
+    ]
+    user = (
+        source_data("show_format", project.get("format") or {}, nonce)
+        + "\n"
+        + source_data("known_cast", known_cast, nonce)
+        + "\n"
+        + source_data("narrative_scene_sources", scene_sources, nonce)
+        + "\n"
+        + source_data(
+            "required_scene_anchors",
+            required_anchors,
+            nonce,
+        )
+        + "\nReturn exactly one scene row for the single supplied scene. "
+        "The screenplay text is the "
+        "authoritative source; existing whatHappens/audience fields may be empty "
+        "or incomplete hints. Copy the supplied sceneId and beatIds into the required "
+        "schema fields, but spend your reasoning on the analysis rather than identifiers. "
+        "Return a "
+        "concrete summary, focal character when clear, dramatic function, conflict, "
+        "stakes, and a value/decision/power turn. Return one or more keyMoments "
+        "for the scene. "
+        "Table Read resolves evidence excerpts from the supplied beatId; do not transcribe "
+        "screenplay text into the response. If a scene is subtle or connective, say so "
+        "plainly and describe the observable "
+        "behavior and pressure; never substitute UNKNOWN, generic boilerplate, or "
+        "an assertion that the source is insufficient. Every prose field must contain "
+        "scene-specific people, actions, choices, or consequences from the screenplay. "
+        "Use names from known_cast only when naming a focal character. Call the "
+        "infer_narrative_scene_analysis tool once with the complete result."
+    )
+    return build_system_prompt(project, nonce), user
+
+
+def build_narrative_map_synthesis_prompt(
+    project: dict,
+    scene_packets: list[dict],
+    known_cast: list[dict],
+    threads: list[dict],
+    story_overview: dict | None,
+    nonce: str,
+) -> tuple[str, str]:
+    """Build the macro pass from verified scene packets, not empty beat plans."""
+    user = (
+        source_data("show_format", project.get("format") or {}, nonce)
+        + "\n"
+        + source_data("known_cast", known_cast, nonce)
+        + "\n"
+        + source_data("story_threads", threads, nonce)
+        + "\n"
+        + source_data("story_overview", story_overview or {}, nonce)
+        + "\n"
+        + source_data("narrative_scene_macro_spine", scene_packets, nonce)
+        + "\nCreate a concise, complete, evidence-grounded macro reading from the "
+        "verified scene spine. Cite every theme, act, character turning point, Hero's Journey "
+        "stage, and thread movement with the supporting beatId. Use concrete names, "
+        "choices, and pressure from the spine. Packets marked sourceKind=front_matter "
+        "are production metadata, not story evidence: never use them to infer themes, "
+        "acts, character arcs, threads, conflict, or Hero's Journey stages. Packets marked "
+        "sourceKind=establishing provide location/time orientation only; do not invent "
+        "dramatic conflict or character change from them. Packets marked "
+        "analysisStatus=source_fallback preserve chronology from a source-backed imported "
+        "outline after a weak scene response; use them for the event they state, but never "
+        "as the sole support for a theme, character arc, or inferred motive. Return exactly "
+        "one act row for every "
+        "act represented by the packets. Hero's Journey is optional: set applies=false "
+        "when the episode is better understood as ensemble, procedural, or otherwise "
+        "non-monomyth storytelling, and explain that conclusion from the evidence. "
+        "Do not invent off-page backstory, outcomes, characters, or threads. Never use "
+        "UNKNOWN, insufficient-source language, or generic theme labels. Keep every prose "
+        "field to one concise sentence. Return 2-4 themes, character arcs only for up to six "
+        "characters with sustained on-page change, and at most one movement for each supplied "
+        "story thread. Prefer fewer, well-supported claims to exhaustive or repetitive coverage."
+    )
+    return build_system_prompt(project, nonce), user
+
+
+def build_narrative_map_verification_prompt(
+    project: dict,
+    audit_evidence: dict,
+    candidate: dict,
+    nonce: str,
+    story_threads: list[dict] | None = None,
+) -> tuple[str, str]:
+    """Audit cited claims without replaying the whole screenplay to the model."""
+    user = (
+        source_data("narrative_map_audit_evidence", audit_evidence, nonce)
+        + "\n"
+        + source_data("story_threads", story_threads or [], nonce)
+        + "\n"
+        + source_data("narrative_map_candidate", candidate, nonce)
+        + "\nAudit the candidate as a skeptical story editor. The server has already "
+        "checked scene coverage, character/thread ids, and that every cited beatId exists. "
+        "Use the exact excerpts in narrative_map_audit_evidence to judge only material "
+        "claims that cite those beats. Reject placeholders, generic filler, invented "
+        "characters/events, and claims that contradict or materially exceed the supplied "
+        "excerpts. Treat sourceKind=front_matter as production metadata and sourceKind="
+        "establishing as orientation, never as evidence of dramatic conflict or character "
+        "change. Use unsupportedPaths only for present blocking claims and missingSceneIds "
+        "only when the candidate omits a supplied scene. An empty optional section is an "
+        "advisory, never a rejection by itself. Set approved=false only when unsupportedPaths "
+        "or missingSceneIds is nonempty. Set approved=true when both lists are empty, even if "
+        "issues contains an editorial advisory. Keep issues limited to genuine non-blocking "
+        "advice; do not add confirmed, consistent, or 'not an issue' observations. Do not "
+        "rewrite the map."
     )
     return build_system_prompt(project, nonce), user
 
@@ -446,15 +671,21 @@ def build_candidate_prompt(
     locked-beat constraints — product logic in `drama_manager/candidates.py`);
     this function is the single place that interpolates them into a prompt.
     """
-    avoid_lines = "; ".join(
-        f"{a.get('label', '')} — {a.get('summary', '')}" for a in avoid
-    )
+    avoid_lines = "; ".join(f"{a.get('label', '')} — {a.get('summary', '')}" for a in avoid)
     user = (
         _context_blocks(
-            series, characters, episode, scene_plan,
-            continuity_facts, locked_beats, previous_script, next_beat_plan, nonce,
+            series,
+            characters,
+            episode,
+            scene_plan,
+            continuity_facts,
+            locked_beats,
+            previous_script,
+            next_beat_plan,
+            nonce,
         )
-        + "\n" + _CONTINUITY_CONSTRAINT
+        + "\n"
+        + _CONTINUITY_CONSTRAINT
         + f"\nWRITER INSTRUCTION (may be empty): {instruction}"
         + f"\nAVOID (prior candidates this round): {avoid_lines}"
         + "\nWrite the next beat."
@@ -486,8 +717,15 @@ def build_tune_prompt(
     tags, exactly as WRITER INSTRUCTION does for §1."""
     user = (
         _context_blocks(
-            series, characters, episode, scene_plan,
-            continuity_facts, locked_beats, previous_script, next_beat_plan, nonce,
+            series,
+            characters,
+            episode,
+            scene_plan,
+            continuity_facts,
+            locked_beats,
+            previous_script,
+            next_beat_plan,
+            nonce,
         )
         + "\n"
         + source_data("current_candidate", current_candidate, nonce)
@@ -569,9 +807,7 @@ def build_scene_skeleton_prompt(
     beat-candidate loop (drama_manager/candidates.py). Source content is
     wrapped (§8b); AVOID sits outside the tags like WRITER INSTRUCTION does
     for §1, since it is server-derived, not writer/import data."""
-    avoid_lines = "; ".join(
-        f"{a.get('label', '')} — {a.get('summary', '')}" for a in avoid
-    )
+    avoid_lines = "; ".join(f"{a.get('label', '')} — {a.get('summary', '')}" for a in avoid)
     user = (
         source_data("series", series, nonce)
         + "\n"

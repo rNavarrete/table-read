@@ -10,10 +10,15 @@ server ships.
 
 from __future__ import annotations
 
+import copy
 from collections.abc import Callable
 from dataclasses import dataclass
 
 from drama_manager import candidates, change_sets, render
+from drama_manager.narrative_map_analysis import (
+    prepare_narrative_map_source,
+    verification_audit_evidence,
+)
 from storage.seed import load_fixture
 
 # The two fixture beats with real, multi-line scriptText — used to reconstruct
@@ -81,7 +86,15 @@ def fixture_text_fragments(min_length: int = 20) -> list[str]:
 
     add(doc.get("premise"))
     for c in doc.get("seriesBible", {}).get("characters", []):
-        for key in ("embodiment", "presentation", "hiding", "traits", "seriesArc", "summary", "bio"):
+        for key in (
+            "embodiment",
+            "presentation",
+            "hiding",
+            "traits",
+            "seriesArc",
+            "summary",
+            "bio",
+        ):
             add(c.get(key))
     for _e, scene in _iter_scenes(doc):
         for key in ("whatHappens", "audienceLearns", "audienceFeels", "socialSituation"):
@@ -157,9 +170,7 @@ def act_boundary_cases(ctx: FixtureCtx) -> list[dict]:
     previous_act = None
     for index, (_episode, scene) in enumerate(_iter_scenes(ctx.doc)):
         if scene["act"] != previous_act:
-            one_hour_expected.append(
-                {"act": scene["act"], "startSceneIndex": index}
-            )
+            one_hour_expected.append({"act": scene["act"], "startSceneIndex": index})
             previous_act = scene["act"]
     return [
         {
@@ -301,7 +312,6 @@ def _suggest_prompt(ctx: FixtureCtx) -> tuple[str, str]:
     )
 
 
-
 def _overview_prompt(ctx: FixtureCtx) -> tuple[str, str]:
     scene = ctx.scene("scene-1")
     beats = scene.get("beats") or []
@@ -338,6 +348,109 @@ def _overview_prompt(ctx: FixtureCtx) -> tuple[str, str]:
     )
 
 
+def _narrative_scene_packet(ctx: FixtureCtx) -> tuple[dict, object, dict]:
+    """One deterministic raw-source packet shared by the map-op probes."""
+    # The historical fixture predates source preservation for some beats. The
+    # map path correctly rejects that incomplete document in production; this
+    # schema probe instead retains its source-backed subset so it exercises the
+    # exact raw-screenplay prompt builders without manufacturing writer text.
+    probe_doc = copy.deepcopy(ctx.doc)
+    episode = probe_doc["seasons"][0]["episodes"][0]
+    source_scenes: list[dict] = []
+    for scene in episode["scenes"]:
+        source_beats = [beat for beat in scene["beats"] if beat.get("scriptText", "").strip()]
+        if source_beats:
+            scene["beats"] = source_beats
+            source_scenes.append(scene)
+    episode["scenes"] = source_scenes
+    source = prepare_narrative_map_source(probe_doc)
+    scene = source.scene_sources[0]
+    beat = scene["beats"][0]
+    script_text = str(beat["scriptText"])
+    quote = next((line.strip() for line in script_text.splitlines() if line.strip()), script_text)
+    packet = {
+        "sceneId": scene["sceneId"],
+        "act": scene["act"],
+        "location": scene["location"],
+        "summary": "The opening scene establishes the episode's immediate dramatic pressure.",
+        "focalCharacterName": None,
+        "dramaticFunction": "Establish the situation that the episode must resolve.",
+        "conflict": "The scene introduces pressure that demands a decision.",
+        "stakes": "The initial pressure will shape what the characters risk next.",
+        "turnBeatId": beat["beatId"],
+        "turn": "The opening action makes the episode's immediate problem unavoidable.",
+        "keyMoments": [
+            {
+                "beatId": beat["beatId"],
+                "summary": "The source establishes the scene's triggering action.",
+                "dramaticFunction": "Introduce the scene's initial dramatic pressure.",
+                "consequence": "The episode now has a concrete problem to investigate.",
+                "sourceQuote": quote[:200],
+            }
+        ],
+    }
+    return probe_doc, source, packet
+
+
+def _narrative_scene_analysis_prompt(ctx: FixtureCtx) -> tuple[str, str]:
+    probe_doc, source, _packet = _narrative_scene_packet(ctx)
+    return render.build_narrative_scene_analysis_prompt(
+        probe_doc, source.scene_sources[:1], source.known_cast, render.new_nonce()
+    )
+
+
+def _narrative_map_synthesis_prompt(ctx: FixtureCtx) -> tuple[str, str]:
+    probe_doc, source, packet = _narrative_scene_packet(ctx)
+    return render.build_narrative_map_synthesis_prompt(
+        probe_doc,
+        [packet],
+        source.known_cast,
+        source.threads,
+        source.story_overview,
+        render.new_nonce(),
+    )
+
+
+def _narrative_map_verification_prompt(ctx: FixtureCtx) -> tuple[str, str]:
+    probe_doc, source, packet = _narrative_scene_packet(ctx)
+    beat_id = packet["turnBeatId"]
+    candidate = {
+        "dramaticQuestion": "Will the opening pressure force a decisive response?",
+        "centralConflict": "The characters must confront the problem the opening scene introduces.",
+        "controllingIdea": "Pressure reveals what characters are willing to risk.",
+        "themes": [
+            {
+                "label": "Pressure and choice",
+                "statement": "Pressure reveals character through the choices it demands.",
+                "evidence": [{"beatId": beat_id}],
+            }
+        ],
+        "acts": [
+            {
+                "act": packet["act"],
+                "dramaticQuestion": "How will the opening problem develop?",
+                "escalation": packet["turn"],
+                "turnBeatId": beat_id,
+            }
+        ],
+        "heroJourney": {
+            "applies": False,
+            "protagonistName": None,
+            "rationale": "One scene alone cannot establish a complete Hero's Journey.",
+            "stages": [],
+        },
+        "characterArcs": [],
+        "sceneTurns": [packet],
+        "threadMovements": [],
+    }
+    return render.build_narrative_map_verification_prompt(
+        probe_doc,
+        verification_audit_evidence(source.scene_sources[:1], [packet], candidate),
+        candidate,
+        render.new_nonce(),
+    )
+
+
 # op name -> prompt builder. Every op here has a real render builder + call site
 # in the product code.
 SCHEMA_PROBES: dict[str, PromptBuilder] = {
@@ -351,4 +464,7 @@ SCHEMA_PROBES: dict[str, PromptBuilder] = {
     "scan_consistency": _scan_prompt,
     "suggest_instructions": _suggest_prompt,
     "infer_story_overview": _overview_prompt,
+    "infer_narrative_scene_analysis": _narrative_scene_analysis_prompt,
+    "infer_narrative_map_synthesis": _narrative_map_synthesis_prompt,
+    "verify_narrative_map": _narrative_map_verification_prompt,
 }

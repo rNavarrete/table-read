@@ -24,33 +24,35 @@
 
 ## File map
 
-| File | Role |
-|---|---|
-| `apps/api/fountain/parse.py` | Gap heal in `validate_and_slice` |
-| `apps/api/tests/test_fountain_parse.py` | Gap heal / overlap / OOB tests |
-| `config/llm_pricing.json` | Classifier $/MTok + heuristic constants |
-| `apps/web/vite.config.ts` | Allow/import repo `config/` JSON |
-| `apps/web/src/projects/wizard/importCostEstimate.ts` | Pure call + $ estimate |
-| `apps/web/src/projects/wizard/importCostEstimate.test.ts` | Formula tests |
-| `apps/web/src/projects/wizard/importSourceStats.ts` | Attach estimate fields to stats |
-| `apps/web/src/projects/wizard/importSourceStats.test.ts` | Updated expectations |
-| `apps/web/src/projects/wizard/ImportWizard.tsx` | Review + Analyze copy |
-| `apps/web/src/projects/wizard/ImportWizard.test.tsx` | Assert cost line renders |
-| `docs/tableread-prompt-spec.md` | §7 gap wording |
-| `docs/tableread-ui-spec.md` | Review / Analyze cost line |
-| `docs/tableread-test-plan.md` | Gaps heal; overlaps still reject |
-| `docs/tableread-build-plan.md` | Tracking task / T1.3 accept tweak |
+| File                                                      | Role                                    |
+| --------------------------------------------------------- | --------------------------------------- |
+| `apps/api/fountain/parse.py`                              | Gap heal in `validate_and_slice`        |
+| `apps/api/tests/test_fountain_parse.py`                   | Gap heal / overlap / OOB tests          |
+| `config/llm_pricing.json`                                 | Classifier $/MTok + heuristic constants |
+| `apps/web/vite.config.ts`                                 | Allow/import repo `config/` JSON        |
+| `apps/web/src/projects/wizard/importCostEstimate.ts`      | Pure call + $ estimate                  |
+| `apps/web/src/projects/wizard/importCostEstimate.test.ts` | Formula tests                           |
+| `apps/web/src/projects/wizard/importSourceStats.ts`       | Attach estimate fields to stats         |
+| `apps/web/src/projects/wizard/importSourceStats.test.ts`  | Updated expectations                    |
+| `apps/web/src/projects/wizard/ImportWizard.tsx`           | Review + Analyze copy                   |
+| `apps/web/src/projects/wizard/ImportWizard.test.tsx`      | Assert cost line renders                |
+| `docs/tableread-prompt-spec.md`                           | §7 gap wording                          |
+| `docs/tableread-ui-spec.md`                               | Review / Analyze cost line              |
+| `docs/tableread-test-plan.md`                             | Gaps heal; overlaps still reject        |
+| `docs/tableread-build-plan.md`                            | Tracking task / T1.3 accept tweak       |
 
 ---
 
 ### Task 1: Heal coverage gaps in `validate_and_slice`
 
 **Files:**
+
 - Modify: `apps/api/fountain/parse.py`
 - Modify: `apps/api/tests/test_fountain_parse.py`
 - Modify: `docs/tableread-prompt-spec.md` (gap sentence only — can land in Task 3 if preferred; include here so API behavior matches docs in same commit)
 
 **Interfaces:**
+
 - Consumes: existing `validate_and_slice(scene, segmented)`, `SegmentedSceneUnassigned`, `_merge`
 - Produces: gap lines become unassigned with `reason="coverage_gap"`; overlaps/OOB/empty still raise `CoverageError`
 
@@ -173,6 +175,7 @@ EOF
 ### Task 2: Pricing config + client cost estimate helper
 
 **Files:**
+
 - Create: `config/llm_pricing.json`
 - Create: `apps/web/src/projects/wizard/importCostEstimate.ts`
 - Create: `apps/web/src/projects/wizard/importCostEstimate.test.ts`
@@ -181,6 +184,7 @@ EOF
 - Modify: `apps/web/src/projects/wizard/importSourceStats.test.ts`
 
 **Interfaces:**
+
 - Consumes: `detectedSceneCount`, `charCount` from `analyzeSource`
 - Produces:
   - `estimateImportCost({ sceneCount, charCount }) → { estimatedModelCalls, estimatedCostUsd: { low, high } | null }`
@@ -213,7 +217,10 @@ In `apps/web/vite.config.ts`:
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
+const rootDir = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  '../..',
+)
 
 export default defineConfig({
   // ...existing plugins/server/test
@@ -253,7 +260,9 @@ describe('estimateImportCost', () => {
     expect(r.estimatedModelCalls).toBe(221)
     expect(r.estimatedCostUsd).not.toBeNull()
     expect(r.estimatedCostUsd!.low).toBeGreaterThan(0)
-    expect(r.estimatedCostUsd!.high).toBeGreaterThanOrEqual(r.estimatedCostUsd!.low)
+    expect(r.estimatedCostUsd!.high).toBeGreaterThanOrEqual(
+      r.estimatedCostUsd!.low,
+    )
   })
 })
 ```
@@ -373,6 +382,7 @@ EOF
 ### Task 3: Wizard UI + docs
 
 **Files:**
+
 - Modify: `apps/web/src/projects/wizard/ImportWizard.tsx`
 - Modify: `apps/web/src/projects/wizard/ImportWizard.test.tsx`
 - Modify: `docs/tableread-ui-spec.md`
@@ -380,6 +390,7 @@ EOF
 - Modify: `docs/tableread-build-plan.md`
 
 **Interfaces:**
+
 - Consumes: `stats.detectedSceneCount`, `stats.estimatedModelCalls`, `stats.estimatedCostUsd` from Task 2
 - Produces: Review source + Analyze idle/failed show the estimate line
 
@@ -434,10 +445,10 @@ Review source body — replace the lone scene-count paragraph with:
 Analyze body — above the stage `<ol>`, when showing estimate is useful (`session.phase === 'idle' || session.phase === 'failed'`):
 
 ```tsx
-{(session.phase === 'idle' || session.phase === 'failed') &&
-  stats.estimatedModelCalls > 0 && (
-    <p>{formatImportCostLine(stats)}</p>
-  )}
+{
+  ;(session.phase === 'idle' || session.phase === 'failed') &&
+    stats.estimatedModelCalls > 0 && <p>{formatImportCostLine(stats)}</p>
+}
 ```
 
 - [ ] **Step 5: Run wizard + cost tests**
@@ -456,7 +467,7 @@ Expected: PASS
 
 ```markdown
 **T7.9 Import coverage heal + cost estimate.** Server fills beat-line gaps as `coverage_gap` unassigned; Review/Analyze show scene count, ~2N+1 calls, and Est. $ range from `config/llm_pricing.json`.
-*Accept:* trailing/mid gaps no longer abort import; overlaps still `VALIDATION`; wizard shows the three estimate figures before Create & analyze.
+_Accept:_ trailing/mid gaps no longer abort import; overlaps still `VALIDATION`; wizard shows the three estimate figures before Create & analyze.
 ```
 
 Also soften T1.3 accept text that says gapped ranges reject — point to T7.9 (gaps heal; overlaps reject).
@@ -506,16 +517,16 @@ No empty commit.
 
 ## Spec coverage checklist
 
-| Spec item | Task |
-|---|---|
-| Gap heal as `coverage_gap` | Task 1 |
-| Overlap / OOB / empty still fail | Task 1 |
-| Prompt-spec §7 wording | Task 1 |
-| `2N+1` calls + $ range | Task 2 |
-| `config/llm_pricing.json` | Task 2 |
-| Review + Analyze UI | Task 3 |
-| UI / test / build plan docs | Task 3 |
-| Actual SSE usage | Deferred (spec §8) |
+| Spec item                        | Task               |
+| -------------------------------- | ------------------ |
+| Gap heal as `coverage_gap`       | Task 1             |
+| Overlap / OOB / empty still fail | Task 1             |
+| Prompt-spec §7 wording           | Task 1             |
+| `2N+1` calls + $ range           | Task 2             |
+| `config/llm_pricing.json`        | Task 2             |
+| Review + Analyze UI              | Task 3             |
+| UI / test / build plan docs      | Task 3             |
+| Actual SSE usage                 | Deferred (spec §8) |
 
 ## Placeholder scan
 

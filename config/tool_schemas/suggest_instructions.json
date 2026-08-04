@@ -9,8 +9,6 @@
       "type": "array"
     }
   },
-  "required": [
-    "suggestions"
-  ],
+  "required": ["suggestions"],
   "type": "object"
 }

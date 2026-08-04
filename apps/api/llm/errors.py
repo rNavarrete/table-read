@@ -18,6 +18,8 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from import_diagnostics import current_import_run_id
+
 # Boilerplate substrings safe to echo (truncated). Never used as a gateway for
 # free-form Anthropic messages that may echo request/prompt fragments.
 _SAFE_REASON_EXCERPT_RE = re.compile(
@@ -58,8 +60,9 @@ class LlmTimeoutError(Exception):
     that raced a create() against the timeout raise this immediately and skip
     straight to surfacing the failure."""
 
-    def __init__(self, op: str) -> None:
+    def __init__(self, op: str, timeout_seconds: float | None = None) -> None:
         self.op = op
+        self.timeout_seconds = timeout_seconds
         super().__init__(f"{op}: LLM call timed out")
 
 
@@ -220,6 +223,7 @@ def log_llm_unavailable(
     *,
     where: str,
     op: str | None = None,
+    model: str | None = None,
 ) -> None:
     """Log structured metadata when mapping a transport/timeout failure to
     `LLM_UNAVAILABLE`. Logs class name, HTTP status, Anthropic error type,
@@ -228,14 +232,17 @@ def log_llm_unavailable(
     resolved_op = op if op is not None else getattr(exc, "op", None)
     reason_class, reason = classify_llm_unavailable_reason(exc)
     logger.warning(
-        "llm_unavailable where=%s cause=%s op=%s status=%s error_type=%s "
-        "request_id=%s reason_class=%s reason=%s",
+        "llm_unavailable run_id=%s where=%s cause=%s op=%s model=%s status=%s error_type=%s "
+        "request_id=%s timeout_seconds=%s reason_class=%s reason=%s",
+        current_import_run_id(),
         where,
         type(exc).__name__,
         resolved_op,
+        model,
         getattr(exc, "status_code", None),
         _anthropic_error_type(exc),
         getattr(exc, "request_id", None),
+        getattr(exc, "timeout_seconds", None),
         reason_class,
         reason,
     )

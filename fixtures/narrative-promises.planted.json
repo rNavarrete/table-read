@@ -7,7 +7,11 @@
       "status": "paid_off",
       "ownerNameMatchAny": ["Nora"],
       "labelOrSummaryMatchAny": ["compass", "promise", "debt", "tide"],
-      "setupQuoteMatchAny": ["tide turns", "not keeping what isn't mine", "isn't mine"],
+      "setupQuoteMatchAny": [
+        "tide turns",
+        "not keeping what isn't mine",
+        "isn't mine"
+      ],
       "payoffQuoteMatchAny": ["paid in full", "paid"]
     },
     {
@@ -21,7 +25,15 @@
     {
       "id": "planted-motivation-nora",
       "characterNameMatchAny": ["Nora"],
-      "fieldsMatchAny": ["compass", "promise", "debt", "father", "papa", "tide", "let go"]
+      "fieldsMatchAny": [
+        "compass",
+        "promise",
+        "debt",
+        "father",
+        "papa",
+        "tide",
+        "let go"
+      ]
     }
   ],
   "plantedWorldRules": [
@@ -32,6 +44,13 @@
     }
   ],
   "hallucinationGuard": {
-    "forbiddenWithoutBasis": ["shipwreck", "murder", "affair", "smuggling", "coast guard arrest", "drowned"]
+    "forbiddenWithoutBasis": [
+      "shipwreck",
+      "murder",
+      "affair",
+      "smuggling",
+      "coast guard arrest",
+      "drowned"
+    ]
   }
 }

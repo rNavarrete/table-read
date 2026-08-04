@@ -33,8 +33,27 @@ body {
     var(--tr-motion-ease-standard) both;
 }
 
+@keyframes tr-import-progress {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(250%);
+  }
+}
+
+.tr-import-progress-indeterminate {
+  width: 40%;
+  animation: tr-import-progress 1.2s ease-in-out infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .tr-ledger-view-enter {
     animation: none;
+  }
+
+  .tr-import-progress-indeterminate {
+    animation: none;
+    transform: translateX(75%);
   }
 }

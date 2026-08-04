@@ -22,7 +22,11 @@ from evals.harness import EvalResult
 from evals.suite import load_model_roles, resolve_run_map, run_suite
 from llm.mock import MockLlmClient
 
-_MODELS = {"writer": "claude-writer-mock", "classifier": "claude-classifier-mock"}
+_MODELS = {
+    "writer": "claude-writer-mock",
+    "classifier": "claude-classifier-mock",
+    "import_analyst": "claude-import-analyst-mock",
+}
 _RUNS = resolve_run_map(1)
 
 
@@ -54,6 +58,8 @@ def _complete_results() -> list[EvalResult]:
         _result(name="alias-resolution", hard=False),
         _result(name="narrative-promises", hard=False),
         _result(name="narrative-promises-merge", hard=False),
+        _result(name="story-overview", hard=False),
+        _result(name="story-overview-merge", hard=False),
     ]
 
 
@@ -119,7 +125,11 @@ def test_resume_refuses_models_mismatch():
         assert_checkpoint_matches(
             cp,
             prompt_version="0.9.0",
-            models={"writer": "other", "classifier": "other"},
+            models={
+                "writer": "other",
+                "classifier": "other",
+                "import_analyst": "other",
+            },
             dry_run=True,
             runs=_RUNS,
         )
@@ -184,6 +194,8 @@ def test_resume_skips_completed_family(tmp_path, session_factory, monkeypatch):
         "alias-resolution",
         "narrative-promises",
         "narrative-promises-merge",
+        "story-overview",
+        "story-overview-merge",
     ]
     # the resumed family is the exact prior object, not recomputed
     assert report.results[0] is prior[0]
@@ -224,7 +236,7 @@ def test_incomplete_family_never_written(tmp_path, session_factory, monkeypatch)
             session_factory,
             runs=_RUNS,
             dry_run=True,
-        full=True,
+            full=True,
             checkpoint_path=cp_path,
         )
     cp = load_checkpoint(cp_path)
@@ -236,14 +248,14 @@ def test_incomplete_family_never_written(tmp_path, session_factory, monkeypatch)
 
 def test_resume_merges_prior_and_new_in_stable_suite_order(session_factory, monkeypatch):
     monkeypatch.setattr(
-        checks, "schema_validity_eval", lambda *a, **kw: (_ for _ in ()).throw(
-            AssertionError("must not recompute schema")
-        )
+        checks,
+        "schema_validity_eval",
+        lambda *a, **kw: (_ for _ in ()).throw(AssertionError("must not recompute schema")),
     )
     monkeypatch.setattr(
-        checks, "lock_violation_eval", lambda *a, **kw: (_ for _ in ()).throw(
-            AssertionError("must not recompute lock")
-        )
+        checks,
+        "lock_violation_eval",
+        lambda *a, **kw: (_ for _ in ()).throw(AssertionError("must not recompute lock")),
     )
     prior = [
         _result(name="schema-validity", score=0.42),
@@ -274,6 +286,8 @@ def test_resume_merges_prior_and_new_in_stable_suite_order(session_factory, monk
         "alias-resolution",
         "narrative-promises",
         "narrative-promises-merge",
+        "story-overview",
+        "story-overview-merge",
     ]
     assert report.results[0].score == 0.42
     assert report.results[2].score == 0.99
@@ -322,6 +336,8 @@ def test_resume_complete_checkpoint_writes_fresh_checkpoint_without_reinvoking_f
     monkeypatch.setattr(checks, "act_boundary_quality_eval", _fail_if_called)
     monkeypatch.setattr(adoption, "entity_inference_eval", _fail_if_called)
     monkeypatch.setattr(adoption, "alias_resolution_eval", _fail_if_called)
+    monkeypatch.setattr(adoption, "story_overview_eval", _fail_if_called)
+    monkeypatch.setattr(adoption, "story_overview_merge_eval", _fail_if_called)
 
     prior = _complete_results()
     cp_path = tmp_path / "checkpoint-fresh.json"

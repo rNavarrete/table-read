@@ -47,11 +47,7 @@
                 "type": "integer"
               }
             },
-            "required": [
-              "kind",
-              "startLine",
-              "reason"
-            ],
+            "required": ["kind", "startLine", "reason"],
             "type": "object"
           }
         ]
@@ -59,8 +55,6 @@
       "type": "array"
     }
   },
-  "required": [
-    "segments"
-  ],
+  "required": ["segments"],
   "type": "object"
 }

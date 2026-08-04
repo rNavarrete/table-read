@@ -420,5 +420,4 @@ describe('KnowledgeWeb', () => {
     expect(row.className).toContain('shadow-raised')
     expect(row.innerHTML).toContain('text-15')
   })
-
 })

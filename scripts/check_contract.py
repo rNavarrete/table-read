@@ -64,6 +64,17 @@ SCHEMA_NAMES = [
     "StoryOverviewOutlineItem",
     "StoryOverviewBeatItem",
     "StoryOverview",
+    "NarrativeEvidence",
+    "NarrativeTheme",
+    "NarrativeAct",
+    "HeroJourneyStage",
+    "HeroJourney",
+    "CharacterArcTurningPoint",
+    "NarrativeCharacterArc",
+    "SceneTurn",
+    "ThreadMovement",
+    "NarrativeMap",
+    "NarrativeMapRun",
     "WorldRule",
     "Episode",
     "Season",
@@ -109,6 +120,10 @@ SCHEMA_NAMES = [
     "StoryEntities",
     "NarrativePromises",
     "InferredStoryOverview",
+    "InferredNarrativeMap",
+    "InferredNarrativeSceneAnalysisBatch",
+    "InferredNarrativeMapSynthesis",
+    "NarrativeMapVerification",
 ]
 
 # JSON Schema keys that are cosmetic/library-specific noise, not part of the

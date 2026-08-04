@@ -5,26 +5,42 @@
     {
       "id": "planted-siblings",
       "kind": "relationship",
-      "mustMatchAny": ["sibling", "brother", "sister", "same father", "their father", "share a father"]
+      "mustMatchAny": [
+        "sibling",
+        "brother",
+        "sister",
+        "same father",
+        "their father",
+        "share a father"
+      ]
     },
     {
       "id": "planted-rem-lives-here",
       "kind": "location",
-      "mustMatchAny": ["lives", "home", "stays", "bedroom", "this house", "the house"]
+      "mustMatchAny": [
+        "lives",
+        "home",
+        "stays",
+        "bedroom",
+        "this house",
+        "the house"
+      ]
     },
     {
       "id": "planted-rem-unaware-envelope",
       "kind": "knowledge",
-      "mustMatchAny": ["does not know", "doesn't know", "unaware", "never seen", "envelope", "letter", "drawer"]
+      "mustMatchAny": [
+        "does not know",
+        "doesn't know",
+        "unaware",
+        "never seen",
+        "envelope",
+        "letter",
+        "drawer"
+      ]
     }
   ],
   "hallucinationGuard": {
-    "forbiddenWithoutBasis": [
-      "murder",
-      "casino",
-      "police",
-      "aldan",
-      "vegas"
-    ]
+    "forbiddenWithoutBasis": ["murder", "casino", "police", "aldan", "vegas"]
   }
 }

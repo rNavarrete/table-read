@@ -33,9 +33,15 @@ describe('parseFountainLines', () => {
 
   it('strips lone PDF element labels like ACTION', () => {
     const lines = parseFountainLines(
-      ['INT. OFFICE - DAY', '', 'ACTION', 'Leo eats cereal.', '', 'LEO', 'Hi.'].join(
-        '\n',
-      ),
+      [
+        'INT. OFFICE - DAY',
+        '',
+        'ACTION',
+        'Leo eats cereal.',
+        '',
+        'LEO',
+        'Hi.',
+      ].join('\n'),
     )
     expect(lines.map((l) => [l.type, l.text])).toEqual([
       ['scene_heading', 'INT. OFFICE - DAY'],

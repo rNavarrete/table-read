@@ -26,7 +26,8 @@ const TRANSITION =
   /^(FADE (IN|OUT)|CUT TO|DISSOLVE TO|SMASH CUT|MATCH CUT|CONTINUED:?|\(.*CONTINUED.*\)|.* TO:)\s*$/i
 
 /** PDF / bad-import element labels that are not screenplay content. */
-const JUNK_LABEL = /^(ACTION|CHARACTER|DIALOGUE|PARENTHETICAL|TRANSITION|SCENE HEADING|SHOT)$/i
+const JUNK_LABEL =
+  /^(ACTION|CHARACTER|DIALOGUE|PARENTHETICAL|TRANSITION|SCENE HEADING|SHOT)$/i
 
 /** Lone page numbers left in from print PDFs. */
 const PAGE_NUMBER = /^\d{1,3}$/

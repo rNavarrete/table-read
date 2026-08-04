@@ -16,7 +16,7 @@ T7.18 covers “what was true.” Remaining work covers “who knew it,” plus 
 
 ### T7.23 — Knowledge transitions (priority; unblocks exit)
 
-**Problem:** `knownBy` is a flat list on each fact. As-of-scene cannot show who knew a fact *at scene k* vs later.
+**Problem:** `knownBy` is a flat list on each fact. As-of-scene cannot show who knew a fact _at scene k_ vs later.
 
 **Model:** Add optional `knowledgeEvents` on `LedgerFact`:
 
@@ -31,12 +31,12 @@ knowledgeEvents: [{
 
 **Semantics for as-of:**
 
-- At establishment scene, `knownBy` is the baseline knower set.  
-- For scene k ≥ establish: start from baseline `knownBy`, then apply all `knowledgeEvents` with `sceneId` index ≤ k (`learns` ∪, `forgets` ∖).  
-- Helper: `knowers_as_of(fact, scenes, asOfSceneId) -> Id[]`.  
+- At establishment scene, `knownBy` is the baseline knower set.
+- For scene k ≥ establish: start from baseline `knownBy`, then apply all `knowledgeEvents` with `sceneId` index ≤ k (`learns` ∪, `forgets` ∖).
+- Helper: `knowers_as_of(fact, scenes, asOfSceneId) -> Id[]`.
 - Extend `GET /ledger?asOfScene=` response: either rewrite `knownBy` in the returned payload for display, or add `knownByAsOf` — prefer **`knownByAsOf`** so baseline `knownBy` stays canonical for edits. UI Knowledge Web uses `knownByAsOf` when as-of is set.
 
-**Import:** Extend fact extraction *or* a small post-pass in `infer_narrative_promises` deferred — **prefer extending `ExtractedFact`** with optional `knowledgeEvents` (names → ids server-side) so extract stays one call. If that busts extract quality, add classifier op `infer_knowledge_events` later. First cut: optional field on `ExtractedFact` + prompt note; empty array OK.
+**Import:** Extend fact extraction _or_ a small post-pass in `infer_narrative_promises` deferred — **prefer extending `ExtractedFact`** with optional `knowledgeEvents` (names → ids server-side) so extract stays one call. If that busts extract quality, add classifier op `infer_knowledge_events` later. First cut: optional field on `ExtractedFact` + prompt note; empty array OK.
 
 **PROMPT_VERSION:** bump only if extract prompt changes (likely 0.12.0 → 0.13.0). Track eval debt; no unauthorized `make evals`.
 
@@ -56,13 +56,13 @@ Lightweight checks (not full compiler): for facts typed `state`/`event` that men
 
 ## Non-goals (still P2/P3)
 
-- Threads / setups-payoffs  
-- Structured world-rule schema beyond today’s text  
-- Full Compile Story UI  
+- Threads / setups-payoffs
+- Structured world-rule schema beyond today’s text
+- Full Compile Story UI
 
 ## Acceptance (P1 complete)
 
-1. With as-of scene set, Knowledge Web / fact detail shows knowers at that scene (`knownByAsOf`), not only baseline.  
-2. At least one import path can populate `knowledgeEvents` (mock + fixture).  
-3. Timeline anchors, relationship states, and object states extract or merge on import with tests.  
+1. With as-of scene set, Knowledge Web / fact detail shows knowers at that scene (`knownByAsOf`), not only baseline.
+2. At least one import path can populate `knowledgeEvents` (mock + fixture).
+3. Timeline anchors, relationship states, and object states extract or merge on import with tests.
 4. `make check-contract` green; prompt bump only when prompts change; real evals on authorization.

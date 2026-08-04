@@ -22,11 +22,13 @@
 ### Task 1: SceneOutline
 
 **Files:**
+
 - Create: `apps/web/src/write/SceneOutline.tsx`
 - Create: `apps/web/src/write/SceneOutline.test.tsx`
 - Modify: none yet
 
 **Interfaces:**
+
 - Consumes: `Scene[]` via `allScenes`-shaped list; `activeSceneId: string`
 - Produces: `SceneOutline({ scenes, activeSceneId, onSelect })` with `data-testid="write-scene-outline"` and row `write-outline-{id}`
 
@@ -49,11 +51,13 @@ cd apps/web && npx vitest run src/write/SceneOutline.test.tsx
 ### Task 2: Multi-scene ScriptCanvas
 
 **Files:**
+
 - Modify: `apps/web/src/write/ScriptCanvas.tsx`
 - Modify: `apps/web/src/write/ScriptCanvas.test.tsx`
 
 **Interfaces:**
-- Consumes: either keep `scene: Scene` for back-compat *or* switch to `scenes: Scene[]` + `activeSceneId` + `onSceneFocus(sceneId)` + `highlightBeatId`
+
+- Consumes: either keep `scene: Scene` for back-compat _or_ switch to `scenes: Scene[]` + `activeSceneId` + `onSceneFocus(sceneId)` + `highlightBeatId`
 - Produces: each scene section `data-testid="write-scene-{id}"`; existing beat testids unchanged
 
 - [ ] **Step 1: Extend tests** — two scenes render two headers/sections; focusing a beat textarea calls `onSceneFocus` with that scene’s id.
@@ -71,10 +75,12 @@ cd apps/web && npx vitest run src/write/SceneOutline.test.tsx
 ### Task 3: WriteScreen layout + active scene + scrollport
 
 **Files:**
+
 - Modify: `apps/web/src/write/WriteScreen.tsx`
 - Create: `apps/web/src/write/WriteScreen.test.tsx` (if none) or extend
 
 **Interfaces:**
+
 - Consumes: Task 1–2 components; `allScenes`, `pickDefaultScene`, resume helpers
 - Produces: scrollport wrapper `data-testid="write-scrollport"`; outline wired; generation uses `activeSceneId`
 
@@ -103,6 +109,7 @@ CommandBar → activeSceneId
 ### Task 4: Scroll spy + deep-link polish
 
 **Files:**
+
 - Modify: `apps/web/src/write/WriteScreen.tsx`
 - Modify: `apps/web/src/write/WriteScreen.test.tsx` / ScriptCanvas highlight tests
 
@@ -116,6 +123,7 @@ CommandBar → activeSceneId
 ### Task 5: Authority docs
 
 **Files:**
+
 - Modify: `docs/tableread-ui-spec.md` §4
 - Modify: `docs/narrative-sidekick-design-doc.md` §4.3
 - Modify: `docs/tableread-build-plan.md` (add T2.4)

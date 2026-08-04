@@ -14,6 +14,14 @@ const project = {
       { id: 'char-dan', name: 'Dan Vega' },
       { id: 'char-slug', name: 'INT. KITCHEN - DAY' },
       { id: 'char-extra', name: 'Waiter' },
+      { id: 'char-a', name: 'Alice' },
+      { id: 'char-b', name: 'Bob' },
+      { id: 'char-c', name: 'Carol' },
+      { id: 'char-d', name: 'Dave' },
+      { id: 'char-e', name: 'Eve' },
+      { id: 'char-f', name: 'Frank' },
+      { id: 'char-g', name: 'Grace' },
+      { id: 'char-h', name: 'Hank' },
     ],
   },
 } as Project
@@ -26,7 +34,7 @@ function fact(
     sourceSpan: {
       episodeId: 'ep-1',
       sceneId: 'scene-3',
-      beatId: null,
+      beatId: 'beat-3-1',
       startLine: null,
       endLine: null,
       charStart: null,
@@ -61,145 +69,110 @@ const sampleFacts: LedgerFact[] = [
   fact({ id: 'f3', factType: 'event', knownBy: ['char-dan'] }),
 ]
 
+const defaultFilters = {
+  status: 'all' as const,
+  characterId: null,
+  factType: 'all' as const,
+  secretsOnly: false,
+}
+
 describe('FilterRail', () => {
-  it('shows writer-facing status and browse labels', () => {
+  it('shows CAST chrome with All facts and Manage', () => {
     render(
       <FilterRail
         project={project}
-        filters={{
-          status: 'all',
-          characterId: null,
-          factType: 'all',
-        }}
+        filters={defaultFilters}
+        onChange={vi.fn()}
+        onManageCast={vi.fn()}
+        facts={sampleFacts}
+      />,
+    )
+
+    expect(screen.getByText('Cast')).toBeTruthy()
+    expect(screen.getByText('All facts')).toBeTruthy()
+    expect(screen.getByTestId('manage-cast-button').textContent).toMatch(
+      /Manage/,
+    )
+    expect(screen.queryByText('Browse')).toBeNull()
+  })
+
+  it('sorts people by fact count and shows avatar pills', () => {
+    render(
+      <FilterRail
+        project={project}
+        filters={defaultFilters}
         onChange={vi.fn()}
         facts={sampleFacts}
       />,
     )
 
-    expect(screen.getByText('Needs review')).toBeTruthy()
-    expect(screen.getByText('Browse')).toBeTruthy()
-    expect(screen.getByText('People')).toBeTruthy()
-    expect(screen.getByText('All truths')).toBeTruthy()
-    expect(screen.getByText('World rules')).toBeTruthy()
+    const marta = screen.getByTestId('cast-person-char-marta')
+    const dan = screen.getByTestId('cast-person-char-dan')
+    expect(marta.textContent).toMatch(/Marta Vega/)
+    expect(marta.textContent).toMatch(/2/)
+    expect(dan.textContent).toMatch(/2/)
+    // Fact-holders sort above zero-count cast (Dan/Marta before Alice).
+    const rail = screen.getByTestId('ledger-filter-rail').textContent ?? ''
+    expect(rail.indexOf('Dan Vega')).toBeLessThan(rail.indexOf('Alice'))
+    expect(rail.indexOf('Marta Vega')).toBeLessThan(rail.indexOf('Alice'))
   })
 
-  it('puts People and Browse before Status in the rail', () => {
+  it('filters people via search and reveals all matches', async () => {
+    const user = userEvent.setup()
     render(
       <FilterRail
         project={project}
-        filters={{
-          status: 'all',
-          characterId: null,
-          factType: 'all',
-        }}
+        filters={defaultFilters}
         onChange={vi.fn()}
         facts={sampleFacts}
       />,
     )
 
-    const rail = screen.getByTestId('ledger-filter-rail')
-    const text = rail.textContent ?? ''
-    expect(text.indexOf('People')).toBeLessThan(text.indexOf('Browse'))
-    expect(text.indexOf('Browse')).toBeLessThan(text.indexOf('Status'))
+    await user.type(screen.getByTestId('cast-search'), 'wait')
+    expect(screen.getByTestId('cast-person-char-extra')).toBeTruthy()
+    expect(screen.queryByTestId('cast-person-char-marta')).toBeNull()
+    expect(screen.queryByTestId('cast-expand-toggle')).toBeNull()
   })
 
-  it('shows People and Browse counts from facts', () => {
+  it('collapses people beyond the top 10 with Show all', async () => {
+    const user = userEvent.setup()
     render(
       <FilterRail
         project={project}
-        filters={{
-          status: 'all',
-          characterId: null,
-          factType: 'all',
-        }}
+        filters={defaultFilters}
         onChange={vi.fn()}
         facts={sampleFacts}
       />,
     )
 
-    expect(screen.getByText(/Marta Vega/).textContent).toContain('(2)')
-    expect(screen.getByText(/Dan Vega/).textContent).toContain('(2)')
-    expect(screen.getByText(/Knowledge/).textContent).toContain('(2)')
-    expect(screen.getByText(/Events/).textContent).toContain('(1)')
-  })
-
-  it('keeps zero-count people under a collapsed disclosure', () => {
-    render(
-      <FilterRail
-        project={project}
-        filters={{
-          status: 'all',
-          characterId: null,
-          factType: 'all',
-        }}
-        onChange={vi.fn()}
-        facts={sampleFacts}
-      />,
+    expect(screen.getByTestId('cast-expand-toggle').textContent).toMatch(
+      /Show all 12/,
     )
-
-    const rail = screen.getByTestId('ledger-filter-rail')
-    const primaryPeople = rail.querySelector('fieldset')
-    expect(primaryPeople?.textContent).toMatch(/Marta Vega/)
-    expect(primaryPeople?.textContent).toMatch(/Dan Vega/)
-
-    const zero = screen.getByTestId('filter-rail-people-zero')
-    expect(zero.hasAttribute('open')).toBe(false)
-    expect(zero.textContent).toMatch(/No linked facts \(2\)/)
-    expect(zero.textContent).toMatch(/INT\. KITCHEN - DAY/)
-    expect(zero.textContent).toMatch(/Waiter/)
-
-    // Zero-count names are not in the primary radio list above the disclosure.
-    const primaryLabels = Array.from(
-      primaryPeople?.querySelectorAll(':scope > div > label') ?? [],
-    ).map((el) => el.textContent ?? '')
-    expect(primaryLabels.some((t) => t.includes('Waiter'))).toBe(false)
-    expect(primaryLabels.some((t) => t.includes('INT. KITCHEN'))).toBe(false)
-  })
-
-  it('expands zero-count people when one of them is selected', () => {
-    render(
-      <FilterRail
-        project={project}
-        filters={{
-          status: 'all',
-          characterId: 'char-extra',
-          factType: 'all',
-        }}
-        onChange={vi.fn()}
-        facts={sampleFacts}
-      />,
-    )
-
-    const zero = screen.getByTestId('filter-rail-people-zero')
-    expect(zero.hasAttribute('open')).toBe(true)
-    expect(screen.getByLabelText(/Waiter/).parentElement?.className).toContain(
-      'bg-tr-coral-soft',
+    // Zero-count names sort after fact-holders; 11th/12th stay collapsed.
+    expect(screen.queryByTestId('cast-person-char-extra')).toBeNull()
+    expect(screen.queryByTestId('cast-person-char-slug')).toBeNull()
+    await user.click(screen.getByTestId('cast-expand-toggle'))
+    expect(screen.getByTestId('cast-person-char-extra')).toBeTruthy()
+    expect(screen.getByTestId('cast-expand-toggle').textContent).toMatch(
+      /Show fewer/,
     )
   })
 
-  it('still allows selecting a zero-count person from the disclosure', async () => {
+  it('selects a character from the CAST list', async () => {
     const user = userEvent.setup()
     const onChange = vi.fn()
     render(
       <FilterRail
         project={project}
-        filters={{
-          status: 'all',
-          characterId: null,
-          factType: 'all',
-        }}
+        filters={defaultFilters}
         onChange={onChange}
         facts={sampleFacts}
       />,
     )
 
-    const zero = screen.getByTestId('filter-rail-people-zero')
-    await user.click(screen.getByText(/No linked facts \(2\)/))
-    expect(zero.hasAttribute('open')).toBe(true)
-
-    await user.click(screen.getByLabelText(/Waiter/))
+    await user.click(screen.getByTestId('cast-person-char-marta'))
     expect(onChange).toHaveBeenCalledWith(
-      expect.objectContaining({ characterId: 'char-extra' }),
+      expect.objectContaining({ characterId: 'char-marta' }),
     )
   })
 
@@ -207,11 +180,7 @@ describe('FilterRail', () => {
     render(
       <FilterRail
         project={project}
-        filters={{
-          status: 'all',
-          characterId: null,
-          factType: 'all',
-        }}
+        filters={defaultFilters}
         onChange={vi.fn()}
         facts={sampleFacts}
       />,
@@ -222,17 +191,41 @@ describe('FilterRail', () => {
     expect(status.textContent).toMatch(/1 to review/)
   })
 
+  it('exposes secret and superseded-history visibility controls with counts', () => {
+    render(
+      <FilterRail
+        project={project}
+        filters={defaultFilters}
+        onChange={vi.fn()}
+        facts={[
+          ...sampleFacts,
+          fact({
+            id: 'f-secret',
+            factType: 'knowledge',
+            audienceKnows: false,
+          }),
+          fact({ id: 'f-old', factType: 'event', status: 'superseded' }),
+        ]}
+      />,
+    )
+
+    expect(screen.getByTestId('secrets-only-toggle')).toBeTruthy()
+    expect(screen.getByTestId('hide-superseded-toggle')).toBeTruthy()
+    expect(
+      screen.getByText('◆ Secrets only').parentElement?.textContent,
+    ).toMatch(/1/)
+    expect(
+      screen.getByText('Hide superseded').parentElement?.textContent,
+    ).toMatch(/1/)
+  })
+
   it('uses a compact As-of select instead of a radio list', async () => {
     const user = userEvent.setup()
     const onAsOfSceneChange = vi.fn()
     render(
       <FilterRail
         project={project}
-        filters={{
-          status: 'all',
-          characterId: null,
-          factType: 'all',
-        }}
+        filters={defaultFilters}
         onChange={vi.fn()}
         facts={sampleFacts}
         sceneOptions={[
@@ -246,52 +239,32 @@ describe('FilterRail', () => {
 
     const select = screen.getByLabelText('As of')
     expect(select.tagName).toBe('SELECT')
-    expect(screen.queryByLabelText('Latest (all)')).toBeNull()
 
     await user.selectOptions(select, 'scene-3')
     expect(onAsOfSceneChange).toHaveBeenCalledWith('scene-3')
   })
 
-  it('marks active filters with Quiet Tool soft accent chrome', () => {
+  it('marks selected CAST row and expands Status when non-default', () => {
     render(
       <FilterRail
         project={project}
         filters={{
+          ...defaultFilters,
           status: 'pending_review',
-          characterId: null,
-          factType: 'all',
+          characterId: 'char-marta',
         }}
         onChange={vi.fn()}
         facts={sampleFacts}
       />,
     )
 
-    expect(screen.getByTestId('ledger-filter-rail').className).toMatch(
-      /border-tr-border/,
+    expect(screen.getByTestId('cast-person-char-marta').className).toContain(
+      'bg-tr-ledger-selected',
     )
-    // Status expands when non-default so the active option is visible.
     const status = screen.getByTestId('filter-rail-status')
     expect(status.hasAttribute('open')).toBe(true)
     expect(
       screen.getByLabelText('Needs review').parentElement?.className,
-    ).toContain('bg-tr-coral-soft')
-    expect(
-      screen.getByLabelText('Needs review').parentElement?.className,
-    ).toContain('text-tr-accent-ink')
+    ).toContain('bg-tr-ledger-selected')
   })
-
-  it('creative polish: filter options use standard motion and focus outline', () => {
-    render(
-      <FilterRail
-        project={project}
-        filters={{ status: 'all', characterId: null, factType: 'all' }}
-        onChange={vi.fn()}
-        facts={sampleFacts}
-      />,
-    )
-    const label = screen.getByTestId('ledger-filter-rail').querySelector('label')
-    expect(label?.className).toContain('duration-standard')
-    expect(label?.className).toContain('focus-within:outline-tr-coral')
-  })
-
 })

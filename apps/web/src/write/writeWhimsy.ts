@@ -1,11 +1,11 @@
 /**
- * Soft personality layer for Write mode. Tokens only — no new colors.
+ * Soft personality layer for Write mode — superseded by the Write redesign
+ * handoff (defaults now match the former whimsy copy/chrome). Kept so older
+ * call sites can import without breaking; prefer updating callers to drop it.
  *
- * Rollback options (pick one):
- * 1. Set `WRITE_WHIMSY` to `false` and reload.
- * 2. `git revert` the commit that introduced this file / wiring.
+ * Rollback: `git revert` the redesign commit rather than flipping this flag.
  */
-export const WRITE_WHIMSY = true
+export const WRITE_WHIMSY = false
 
 /** Append whimsy classes when the flag is on; otherwise return `base` only. */
 export function whimsy(base: string, extra: string): string {

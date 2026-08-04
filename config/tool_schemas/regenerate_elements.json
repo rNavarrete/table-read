@@ -23,11 +23,7 @@
                     "type": "string"
                   }
                 },
-                "required": [
-                  "whatHappens",
-                  "audienceLearns",
-                  "audienceFeels"
-                ],
+                "required": ["whatHappens", "audienceLearns", "audienceFeels"],
                 "type": "object"
               },
               {
@@ -46,11 +42,7 @@
             ]
           }
         },
-        "required": [
-          "beatId",
-          "beatPlan",
-          "scriptText"
-        ],
+        "required": ["beatId", "beatPlan", "scriptText"],
         "type": "object"
       },
       "type": "array"
@@ -69,11 +61,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "factId",
-          "objectId",
-          "explanation"
-        ],
+        "required": ["factId", "objectId", "explanation"],
         "type": "object"
       },
       "type": "array"
@@ -160,19 +148,12 @@
             "type": "string"
           }
         },
-        "required": [
-          "sceneId",
-          "fields"
-        ],
+        "required": ["sceneId", "fields"],
         "type": "object"
       },
       "type": "array"
     }
   },
-  "required": [
-    "beats",
-    "scenes",
-    "continuityConflicts"
-  ],
+  "required": ["beats", "scenes", "continuityConflicts"],
   "type": "object"
 }

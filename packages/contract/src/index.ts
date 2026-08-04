@@ -198,7 +198,6 @@ export const StoryThread = z.object({
 })
 export type StoryThread = z.infer<typeof StoryThread>
 
-
 // T7.27 — episode-level story overview (logline, scene outline, named beat
 // sheet, two-paragraph synopsis). Import mints no ids; outline/beatSheet
 // rows must reference scene/beat ids from the imported partition. Defaults
@@ -230,6 +229,167 @@ export const StoryOverview = z.object({
 })
 export type StoryOverview = z.infer<typeof StoryOverview>
 
+// A source-grounded, multi-scale reading of an imported episode. Every
+// interpretive claim carries a beat id and an exact quote that the server
+// verifies before persisting it.
+export const NarrativeEvidence = z.object({
+  beatId: Id,
+  quote: z.string().min(1).max(200),
+})
+export type NarrativeEvidence = z.infer<typeof NarrativeEvidence>
+
+export const NarrativeTheme = z.object({
+  label: z.string(),
+  statement: z.string(),
+  evidence: z.array(NarrativeEvidence).min(1),
+})
+export type NarrativeTheme = z.infer<typeof NarrativeTheme>
+
+export const NarrativeAct = z.object({
+  act: z.number().int().min(0),
+  dramaticQuestion: z.string(),
+  escalation: z.string(),
+  turnBeatId: Id,
+  evidenceQuote: z.string().min(1).max(200),
+})
+export type NarrativeAct = z.infer<typeof NarrativeAct>
+
+export const HeroJourneyStageName = z.enum([
+  'ordinary_world',
+  'call_to_adventure',
+  'refusal',
+  'meeting_the_mentor',
+  'crossing_the_threshold',
+  'tests_allies_enemies',
+  'approach',
+  'ordeal',
+  'reward',
+  'road_back',
+  'resurrection',
+  'return_with_elixir',
+])
+export type HeroJourneyStageName = z.infer<typeof HeroJourneyStageName>
+
+export const HeroJourneyStage = z.object({
+  stage: HeroJourneyStageName,
+  beatId: Id,
+  summary: z.string(),
+  evidenceQuote: z.string().min(1).max(200),
+})
+export type HeroJourneyStage = z.infer<typeof HeroJourneyStage>
+
+export const HeroJourney = z.object({
+  applies: z.boolean(),
+  protagonistCharacterId: Id.nullable(),
+  rationale: z.string(),
+  stages: z.array(HeroJourneyStage),
+})
+export type HeroJourney = z.infer<typeof HeroJourney>
+
+export const CharacterArcTurningPoint = z.object({
+  beatId: Id,
+  change: z.string(),
+  quote: z.string().min(1).max(200),
+})
+export type CharacterArcTurningPoint = z.infer<typeof CharacterArcTurningPoint>
+
+export const NarrativeCharacterArc = z.object({
+  characterId: Id,
+  want: z.string(),
+  need: z.string(),
+  internalConflict: z.string(),
+  externalPressure: z.string(),
+  arcSummary: z.string(),
+  turningPoints: z.array(CharacterArcTurningPoint).min(1),
+})
+export type NarrativeCharacterArc = z.infer<typeof NarrativeCharacterArc>
+
+export const SceneTurn = z.object({
+  sceneId: Id,
+  focalCharacterId: Id.nullable(),
+  dramaticFunction: z.string(),
+  conflict: z.string(),
+  stakes: z.string(),
+  turnBeatId: Id,
+  turn: z.string(),
+  evidenceQuote: z.string().min(1).max(200),
+})
+export type SceneTurn = z.infer<typeof SceneTurn>
+
+export const ThreadMovementPhase = z.enum([
+  'setup',
+  'escalation',
+  'reversal',
+  'reveal',
+  'payoff',
+  'aftermath',
+])
+export type ThreadMovementPhase = z.infer<typeof ThreadMovementPhase>
+
+export const ThreadMovement = z.object({
+  threadId: Id,
+  beatId: Id,
+  phase: ThreadMovementPhase,
+  summary: z.string(),
+  evidenceQuote: z.string().min(1).max(200),
+})
+export type ThreadMovement = z.infer<typeof ThreadMovement>
+
+export const NarrativeMap = z.object({
+  dramaticQuestion: z.string(),
+  centralConflict: z.string(),
+  controllingIdea: z.string(),
+  themes: z.array(NarrativeTheme).min(1),
+  acts: z.array(NarrativeAct).min(1),
+  heroJourney: HeroJourney,
+  characterArcs: z.array(NarrativeCharacterArc),
+  sceneTurns: z.array(SceneTurn).min(1),
+  threadMovements: z.array(ThreadMovement),
+  provenance: z.enum(['inferred', 'writer_authored']).default('inferred'),
+  locked: z.boolean().default(false),
+})
+export type NarrativeMap = z.infer<typeof NarrativeMap>
+
+/** A durable, source-versioned Narrative Map job. The job is intentionally
+ * separate from `NarrativeMap`: analysis may be in flight, rejected by the
+ * evidence gate, or stale without ever changing the writer's project. */
+export const NarrativeMapRun = z.object({
+  id: Id,
+  projectId: Id,
+  sourceSnapshotId: Id,
+  sourceHash: z.string().min(1),
+  analysisVersion: z.string().min(1),
+  status: z.enum([
+    'queued',
+    'running',
+    'completed',
+    'rejected',
+    'failed',
+    'stale',
+  ]),
+  phase: z.enum([
+    'readiness',
+    'scene_analysis',
+    'synthesis',
+    'verification',
+    'saving',
+    'complete',
+    'failed',
+  ]),
+  sceneCount: z.number().int().min(0),
+  completedSceneCount: z.number().int().min(0),
+  attemptCount: z.number().int().min(0),
+  retryAllowed: z.boolean(),
+  estimatedCostUsd: z.number().nonnegative().nullable(),
+  actualInputTokens: z.number().int().nonnegative().nullable(),
+  actualOutputTokens: z.number().int().nonnegative().nullable(),
+  resultSnapshotId: Id.nullable(),
+  errorCode: z.string().nullable(),
+  errorMessage: z.string().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+})
+export type NarrativeMapRun = z.infer<typeof NarrativeMapRun>
 
 export const Episode = z.object({
   id: Id,
@@ -260,6 +420,9 @@ export const Episode = z.object({
   // T7.27 episode story overview (import-inferred logline/outline/beat sheet/
   // synopsis). Defaults to null so pre-existing docs validate.
   storyOverview: StoryOverview.nullable().default(null),
+  // Import-time macro/micro analysis. The map is evidence-grounded to imported
+  // beats and remains nullable for existing projects.
+  narrativeMap: NarrativeMap.nullable().default(null),
 })
 export type Episode = z.infer<typeof Episode>
 
@@ -824,6 +987,187 @@ export const InferredStoryOverview = z.object({
 })
 export type InferredStoryOverview = z.infer<typeof InferredStoryOverview>
 
+// Import-time narrative map. The model chooses only source beat ids; the server
+// resolves character names and attaches exact excerpts before it persists the
+// public NarrativeMap shape.
+const InferredNarrativeEvidence = z.object({
+  beatId: Id,
+})
+
+const InferredNarrativeTheme = z.object({
+  label: z.string(),
+  statement: z.string(),
+  evidence: z.array(InferredNarrativeEvidence).min(1),
+})
+
+const InferredNarrativeAct = z.object({
+  act: z.number().int().min(0),
+  dramaticQuestion: z.string(),
+  escalation: z.string(),
+  turnBeatId: Id,
+})
+
+const InferredHeroJourneyStage = z.object({
+  stage: HeroJourneyStageName,
+  beatId: Id,
+  summary: z.string(),
+})
+
+const InferredCharacterArcTurningPoint = z.object({
+  beatId: Id,
+  change: z.string(),
+})
+
+const InferredThreadMovement = z.object({
+  threadId: Id,
+  beatId: Id,
+  phase: ThreadMovementPhase,
+  summary: z.string(),
+})
+
+// Character references are names at inference time; the server resolves them
+// against the imported cast before it persists the map.
+const InferredNarrativeCharacterArc = z.object({
+  characterName: z.string(),
+  want: z.string(),
+  need: z.string(),
+  internalConflict: z.string(),
+  externalPressure: z.string(),
+  arcSummary: z.string(),
+  turningPoints: z.array(InferredCharacterArcTurningPoint).min(1),
+})
+
+const InferredSceneTurn = z.object({
+  sceneId: Id,
+  focalCharacterName: z.string().nullable(),
+  dramaticFunction: z.string(),
+  conflict: z.string(),
+  stakes: z.string(),
+  turnBeatId: Id,
+  turn: z.string(),
+})
+
+const InferredHeroJourney = z.object({
+  applies: z.boolean(),
+  protagonistName: z.string().nullable(),
+  rationale: z.string(),
+  stages: z.array(InferredHeroJourneyStage),
+})
+
+export const InferredNarrativeMap = z.object({
+  dramaticQuestion: z.string(),
+  centralConflict: z.string(),
+  controllingIdea: z.string(),
+  themes: z.array(InferredNarrativeTheme).min(1),
+  acts: z.array(InferredNarrativeAct).min(1),
+  heroJourney: InferredHeroJourney,
+  characterArcs: z.array(InferredNarrativeCharacterArc),
+  sceneTurns: z.array(InferredSceneTurn).min(1),
+  threadMovements: z.array(InferredThreadMovement),
+})
+export type InferredNarrativeMap = z.infer<typeof InferredNarrativeMap>
+
+// Accuracy-first Narrative Map pipeline. Scene analysis reads bounded chunks
+// of the actual saved screenplay; global synthesis works from those grounded
+// packets, then an independent verifier can reject unsupported conclusions.
+const InferredNarrativeMoment = z.object({
+  beatId: Id.describe(
+    'A beatId copied from allowedBeatIds for the supplied scene.',
+  ),
+  summary: z
+    .string()
+    .describe(
+      'Concrete on-page action or decision at this moment; never a placeholder.',
+    ),
+  dramaticFunction: z
+    .string()
+    .describe(
+      'How this moment changes pressure, information, power, or choice in the scene.',
+    ),
+  consequence: z
+    .string()
+    .describe(
+      'What becomes newly true or must be addressed after this moment.',
+    ),
+})
+
+const InferredNarrativeSceneAnalysis = z.object({
+  sceneId: Id.describe('The single supplied sceneId, copied exactly.'),
+  summary: z
+    .string()
+    .describe(
+      "A concrete present-tense summary naming the scene's on-page action.",
+    ),
+  focalCharacterName: z
+    .string()
+    .nullable()
+    .describe(
+      'A name copied from known_cast when one perspective clearly leads; otherwise null.',
+    ),
+  dramaticFunction: z
+    .string()
+    .describe(
+      "The specific job this scene performs in the episode's developing story.",
+    ),
+  conflict: z
+    .string()
+    .describe(
+      "The scene's immediate opposition or pressure. For a connective scene, state that there is no independent confrontation and name the pressure carried forward.",
+    ),
+  stakes: z
+    .string()
+    .describe(
+      "What can be gained, lost, exposed, or made harder by the scene's action.",
+    ),
+  turnBeatId: Id.describe(
+    "The allowed beatId where the scene's main change is clearest.",
+  ),
+  turn: z
+    .string()
+    .describe(
+      'The concrete change in information, decision, value, or power by scene end.',
+    ),
+  keyMoments: z
+    .array(InferredNarrativeMoment)
+    .min(1)
+    .describe(
+      'One or more decisive on-page moments, each tied to an allowed beatId.',
+    ),
+})
+
+export const InferredNarrativeSceneAnalysisBatch = z.object({
+  scenes: z.array(InferredNarrativeSceneAnalysis).min(1),
+})
+export type InferredNarrativeSceneAnalysisBatch = z.infer<
+  typeof InferredNarrativeSceneAnalysisBatch
+>
+
+export const InferredNarrativeMapSynthesis = z.object({
+  dramaticQuestion: z.string(),
+  centralConflict: z.string(),
+  controllingIdea: z.string(),
+  themes: z.array(InferredNarrativeTheme).min(1),
+  acts: z.array(InferredNarrativeAct).min(1),
+  heroJourney: InferredHeroJourney,
+  characterArcs: z.array(InferredNarrativeCharacterArc),
+  threadMovements: z.array(InferredThreadMovement),
+})
+export type InferredNarrativeMapSynthesis = z.infer<
+  typeof InferredNarrativeMapSynthesis
+>
+
+export const NarrativeMapVerification = z.object({
+  approved: z.boolean(),
+  unsupportedPaths: z.array(z.string()),
+  missingSceneIds: z.array(Id),
+  issues: z.array(
+    z.object({
+      path: z.string(),
+      reason: z.string(),
+    }),
+  ),
+})
+export type NarrativeMapVerification = z.infer<typeof NarrativeMapVerification>
 
 // T7.23 extract-time counterpart to `KnowledgeEvent`: the model names
 // characters, never ids (same convention as `knownBy`/`InferredCharacter`);

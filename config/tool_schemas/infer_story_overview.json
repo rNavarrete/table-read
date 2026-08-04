@@ -35,13 +35,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "beatId",
-          "label",
-          "summary",
-          "sceneId",
-          "act"
-        ],
+        "required": ["beatId", "label", "summary", "sceneId", "act"],
         "type": "object"
       },
       "type": "array"
@@ -60,10 +54,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "sceneId",
-          "summary"
-        ],
+        "required": ["sceneId", "summary"],
         "type": "object"
       },
       "type": "array"
@@ -72,11 +63,6 @@
       "type": "string"
     }
   },
-  "required": [
-    "logline",
-    "outline",
-    "beatSheet",
-    "summary"
-  ],
+  "required": ["logline", "outline", "beatSheet", "summary"],
   "type": "object"
 }

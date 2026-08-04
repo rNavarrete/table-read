@@ -15,22 +15,22 @@ Unchanged trust posture: analyze is still the single explicit AI gesture; the im
 
 ## 2. Locked decisions
 
-| Decision | Choice |
-|---|---|
-| Parallelism scope | Within-stage only; stage barriers stay (segment all → extract all → scan) |
-| Mechanism | `concurrent.futures.ThreadPoolExecutor` (pipeline + Anthropic client are sync) |
-| Worker count | Default **4**, one module constant (`IMPORT_LLM_CONCURRENCY`) |
-| Ordering | Results gathered by scene index; document order, `scene-<i>` / `beat-<i>-<j>` ids, and flag attribution unchanged and deterministic |
-| Per-scene retry | Stays inside the scene's worker task (typed-start repair retry, unchanged semantics) |
-| Error handling | First hard failure cancels remaining work and fails the import (existing semantics — nothing persisted) |
-| Progress event | `{ "type": "progress", "stage": <stageName>, "done": n, "total": m }` emitted by the coordinator as workers finish |
-| Emission guarantee | Monotonic `done` per stage; emitted from the SSE generator thread (workers push to a queue / callback; only the coordinator writes to the stream) |
-| Stage Done semantics (UI fix) | A stage is In progress from its `stage` event until the *next* `stage` event (or `complete`); Done only after that |
-| ETA | Client-side: rolling average of last 10 per-scene completions × remaining scene-units across segment+extract stages; shown after ≥5 completions, else "estimating…" |
-| Elapsed time | Always shown once streaming starts |
-| a11y | `aria-live` progress announcements throttled to every ~10 scenes |
-| Schema homes | `ProjectImportProgressEvent` union gains the `progress` variant in Zod + Pydantic + data-contract §9.3; `make check-contract` green |
-| Evals | Not required (no prompt/tool-schema change) |
+| Decision                      | Choice                                                                                                                                                              |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Parallelism scope             | Within-stage only; stage barriers stay (segment all → extract all → scan)                                                                                           |
+| Mechanism                     | `concurrent.futures.ThreadPoolExecutor` (pipeline + Anthropic client are sync)                                                                                      |
+| Worker count                  | Default **4**, one module constant (`IMPORT_LLM_CONCURRENCY`)                                                                                                       |
+| Ordering                      | Results gathered by scene index; document order, `scene-<i>` / `beat-<i>-<j>` ids, and flag attribution unchanged and deterministic                                 |
+| Per-scene retry               | Stays inside the scene's worker task (typed-start repair retry, unchanged semantics)                                                                                |
+| Error handling                | First hard failure cancels remaining work and fails the import (existing semantics — nothing persisted)                                                             |
+| Progress event                | `{ "type": "progress", "stage": <stageName>, "done": n, "total": m }` emitted by the coordinator as workers finish                                                  |
+| Emission guarantee            | Monotonic `done` per stage; emitted from the SSE generator thread (workers push to a queue / callback; only the coordinator writes to the stream)                   |
+| Stage Done semantics (UI fix) | A stage is In progress from its `stage` event until the _next_ `stage` event (or `complete`); Done only after that                                                  |
+| ETA                           | Client-side: rolling average of last 10 per-scene completions × remaining scene-units across segment+extract stages; shown after ≥5 completions, else "estimating…" |
+| Elapsed time                  | Always shown once streaming starts                                                                                                                                  |
+| a11y                          | `aria-live` progress announcements throttled to every ~10 scenes                                                                                                    |
+| Schema homes                  | `ProjectImportProgressEvent` union gains the `progress` variant in Zod + Pydantic + data-contract §9.3; `make check-contract` green                                 |
+| Evals                         | Not required (no prompt/tool-schema change)                                                                                                                         |
 
 ## 3. Non-goals
 
@@ -83,15 +83,15 @@ Zod: extend the import progress event union in `packages/contract/src/index.ts`.
 
 ## 7. Tests
 
-| Case | Expect |
-|---|---|
-| Pipeline emits progress | Mock LLM, 3 scenes: progress events `(1..3)/3` for segment and extract stages, monotonic, coordinator-emitted |
-| Order independence | Concurrency 2 with staggered mock latencies: assembled scenes/beats identical to sequential run (ids by scene index) |
-| Failure cancels | One scene's mock raises: import fails, nothing persisted, no further progress events after failure |
-| Contract | Zod/Pydantic progress event round-trips; `make check-contract` green |
-| Wizard stage semantics | Stage row not Done while its own stage events still arriving; Done after next stage event |
-| Wizard counters + ETA | Progress frames drive `x of y`; ETA appears after 5 completions; elapsed always renders |
-| a11y throttle | announcements at scene 10, 20 … not every frame |
+| Case                    | Expect                                                                                                               |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| Pipeline emits progress | Mock LLM, 3 scenes: progress events `(1..3)/3` for segment and extract stages, monotonic, coordinator-emitted        |
+| Order independence      | Concurrency 2 with staggered mock latencies: assembled scenes/beats identical to sequential run (ids by scene index) |
+| Failure cancels         | One scene's mock raises: import fails, nothing persisted, no further progress events after failure                   |
+| Contract                | Zod/Pydantic progress event round-trips; `make check-contract` green                                                 |
+| Wizard stage semantics  | Stage row not Done while its own stage events still arriving; Done after next stage event                            |
+| Wizard counters + ETA   | Progress frames drive `x of y`; ETA appears after 5 completions; elapsed always renders                              |
+| a11y throttle           | announcements at scene 10, 20 … not every frame                                                                      |
 
 ## 8. Rollout notes
 

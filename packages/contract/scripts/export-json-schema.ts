@@ -24,6 +24,17 @@ const SCHEMA_NAMES = [
   'StoryOverviewOutlineItem',
   'StoryOverviewBeatItem',
   'StoryOverview',
+  'NarrativeEvidence',
+  'NarrativeTheme',
+  'NarrativeAct',
+  'HeroJourneyStage',
+  'HeroJourney',
+  'CharacterArcTurningPoint',
+  'NarrativeCharacterArc',
+  'SceneTurn',
+  'ThreadMovement',
+  'NarrativeMap',
+  'NarrativeMapRun',
   'WorldRule',
   'Episode',
   'Season',
@@ -69,6 +80,10 @@ const SCHEMA_NAMES = [
   'StoryEntities',
   'NarrativePromises',
   'InferredStoryOverview',
+  'InferredNarrativeMap',
+  'InferredNarrativeSceneAnalysisBatch',
+  'InferredNarrativeMapSynthesis',
+  'NarrativeMapVerification',
 ] as const
 
 const { z } = await import('zod')

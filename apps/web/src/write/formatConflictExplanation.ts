@@ -15,7 +15,8 @@ export function formatConflictExplanation(explanation: string): string {
     .replace(/\.\s*\./g, '.')
     .trim()
 
-  if (!text) return 'This beat may disagree with something already in the Ledger.'
+  if (!text)
+    return 'This beat may disagree with something already in the Ledger.'
 
   // Prefer a single readable sentence for the card.
   if (text.length > 140) {

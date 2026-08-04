@@ -26,9 +26,7 @@ function characterInitials(project: Project, id: string): string {
 }
 
 function characterName(project: Project, id: string): string {
-  return (
-    project.seriesBible.characters.find((c) => c.id === id)?.name ?? id
-  )
+  return project.seriesBible.characters.find((c) => c.id === id)?.name ?? id
 }
 
 /**

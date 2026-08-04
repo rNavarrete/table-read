@@ -4,11 +4,14 @@ export interface LedgerViewSwitcherProps {
   projectId: string
   value: LedgerViewId
   onChange: (view: LedgerViewId) => void
+  threadCount?: number
 }
 
 const OPTIONS: { value: LedgerViewId; label: string }[] = [
+  { value: 'story', label: 'Story' },
   { value: 'atlas', label: 'Atlas' },
   { value: 'web', label: 'Web' },
+  { value: 'threads', label: 'Threads' },
 ]
 
 /**
@@ -19,6 +22,7 @@ export function LedgerViewSwitcher({
   projectId,
   value,
   onChange,
+  threadCount = 0,
 }: LedgerViewSwitcherProps) {
   const handleChange = (view: LedgerViewId) => {
     saveLedgerView(projectId, view)
@@ -40,6 +44,9 @@ export function LedgerViewSwitcher({
             type="button"
             aria-pressed={active}
             onClick={() => handleChange(opt.value)}
+            data-testid={
+              opt.value === 'threads' ? 'view-threads-button' : undefined
+            }
             className={
               'rounded-card px-3 py-1.5 text-13 transition-colors duration-standard ease-standard motion-reduce:transition-none focus-visible:outline focus-visible:outline-selected focus-visible:outline-offset-2 focus-visible:outline-tr-coral' +
               (active
@@ -47,7 +54,9 @@ export function LedgerViewSwitcher({
                 : ' text-tr-text-secondary hover:bg-tr-surface-raised hover:text-tr-text-primary')
             }
           >
-            {opt.label}
+            {opt.value === 'threads' && threadCount > 0
+              ? `${opt.label} (${threadCount})`
+              : opt.label}
           </button>
         )
       })}

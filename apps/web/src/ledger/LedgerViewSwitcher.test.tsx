@@ -7,7 +7,7 @@ import { loadLedgerView } from './viewPreference'
 
 afterEach(() => {
   cleanup()
-  localStorage.clear()
+  window.localStorage?.clear()
 })
 
 describe('LedgerViewSwitcher', () => {
@@ -27,11 +27,7 @@ describe('LedgerViewSwitcher', () => {
 
   it('marks the active segment with coral-soft accent chrome', () => {
     render(
-      <LedgerViewSwitcher
-        projectId="proj-1"
-        value="web"
-        onChange={vi.fn()}
-      />,
+      <LedgerViewSwitcher projectId="proj-1" value="web" onChange={vi.fn()} />,
     )
 
     expect(screen.getByRole('button', { name: 'Web' }).className).toContain(

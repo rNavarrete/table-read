@@ -49,6 +49,7 @@ from storage.models import (
     ChangeSetRow,
     ConsistencyFlagRow,
     LedgerFactRow,
+    NarrativeMapRunRow,
     ProjectRow,
     SnapshotRow,
     SuggestionHistoryRow,
@@ -507,6 +508,7 @@ def purge_project(session: Session, project_id: str) -> None:
             ChangeSetRow,
             ConsistencyFlagRow,
             SuggestionHistoryRow,
+            NarrativeMapRunRow,
         ):
             session.query(model).filter_by(project_id=project_id).delete(
                 synchronize_session=False

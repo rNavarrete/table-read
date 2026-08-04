@@ -4,7 +4,6 @@ import { FormattedScript } from './FormattedScript'
 import { parseFountainLines } from './fountainFormat'
 import { formatSceneSlug } from './SceneOutline'
 import type { QuietAiCanvasHandlers } from './useQuietAi'
-import { WRITE_WHIMSY, whimsy, whimsyPick } from './writeWhimsy'
 
 function autosize(el: HTMLTextAreaElement) {
   el.style.height = 'auto'
@@ -120,32 +119,22 @@ function BeatRow({
       data-testid={`beat-row-${beat.id}`}
     >
       <div
-        className={whimsyPick(
-          'w-6 shrink-0 pt-1 text-right text-12 text-tr-text-muted opacity-0 transition-opacity group-hover:opacity-100',
-          'w-6 shrink-0 pt-1 text-right text-12 text-tr-text-muted opacity-60 transition-opacity group-hover:opacity-100',
-        )}
+        className="w-6 shrink-0 pt-1 text-right text-12 text-tr-text-muted opacity-60 transition-opacity group-hover:opacity-100"
         aria-hidden="true"
       >
         {locked ? (
           <LockGlyph />
-        ) : WRITE_WHIMSY ? (
-          <span className="inline-flex h-5 w-5 items-center justify-center rounded-chip bg-tr-sage-soft text-12 text-tr-text-secondary">
+        ) : (
+          <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-tr-surface-clay font-script text-11 text-tr-text-secondary">
             {index + 1}
           </span>
-        ) : (
-          index + 1
         )}
       </div>
       <div className="min-w-0 flex-1">
         {showPlan ? (
           <div data-testid={`beat-plan-${beat.id}`} className="mb-3">
-            <p
-              className={whimsyPick(
-                'text-12 font-medium uppercase tracking-wide text-tr-text-secondary',
-                'font-display text-13 text-tr-text-secondary',
-              )}
-            >
-              {whimsyPick('Beat plan', 'What happens here')}
+            <p className="font-script text-11 font-medium uppercase tracking-[0.1em] text-tr-text-muted">
+              What happens here
             </p>
             <p className="mt-1 text-15 leading-6 text-tr-text-primary">
               {planPitch}
@@ -207,7 +196,9 @@ function BeatRow({
           </p>
         ) : null}
         {locked && (
-          <p className="mt-1 text-12 text-tr-text-muted">Locked — unlock to edit</p>
+          <p className="mt-1 text-12 text-tr-text-muted">
+            Locked — unlock to edit
+          </p>
         )}
       </div>
     </div>
@@ -222,10 +213,16 @@ function sceneScriptOpensWithHeading(scene: Scene): boolean {
 
 function SceneBlock({
   scene,
+  sceneNumber,
+  active,
   highlightBeatId,
   onSceneFocus,
 }: {
   scene: Scene
+  /** 1-based index matching the ON THE PAGE outline (document order). */
+  sceneNumber: number
+  /** True when this scene is the Write active scene. */
+  active: boolean
   highlightBeatId: string | null
   onSceneFocus?: (sceneId: string) => void
 }) {
@@ -235,48 +232,64 @@ function SceneBlock({
   // Avoid INT. … twice: once in chrome, once in Fountain body (imports).
   const showSlug =
     !sceneScriptOpensWithHeading(scene) && slug !== 'Untitled scene'
-  const showHeader = showSlug || scenePitch.length > 0
+  const showHeader = true
 
   return (
     <section
       data-testid={`write-scene-${scene.id}`}
       data-scene-id={scene.id}
-      aria-label={`Script — ${scene.location || slug}`}
-      className={whimsy(
-        'border-b border-tr-border py-8 last:border-b-0',
-        'relative border-b-0 py-10 last:pb-4',
-      )}
+      aria-label={`Script — scene ${sceneNumber}, ${scene.location || slug}`}
+      className="relative border-b-0 py-10 last:pb-4"
       onFocusCapture={focus}
     >
-      {WRITE_WHIMSY ? (
-        <div
-          className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-center text-12 tracking-[0.35em] text-tr-text-muted"
-          aria-hidden
-        >
-          · · ·
-        </div>
-      ) : null}
+      <div
+        className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-center text-12 tracking-[0.5em] text-tr-text-muted"
+        aria-hidden
+      >
+        · · ·
+      </div>
       {showHeader ? (
-        <header className={scenePitch || scene.beats.length === 0 ? 'mb-5' : 'mb-2'}>
-          {showSlug ? (
-            <p
-              data-testid={`script-scene-slug-${scene.id}`}
-              className="font-script text-12 font-bold uppercase tracking-wide text-tr-text-primary"
-            >
-              {slug}
-            </p>
-          ) : null}
-          {scenePitch ? (
-            <p
-              data-testid={`script-scene-pitch-${scene.id}`}
-              className={
-                'text-15 leading-6 text-tr-text-secondary' +
-                (showSlug ? ' mt-2' : '')
-              }
-            >
-              {scenePitch}
-            </p>
-          ) : null}
+        <header
+          className={
+            'relative flex items-start gap-3 ' +
+            (scenePitch || scene.beats.length === 0 || showSlug
+              ? 'mb-5'
+              : 'mb-2')
+          }
+        >
+          <span
+            data-testid={`script-scene-number-${scene.id}`}
+            className={
+              'flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full font-script text-11 tabular-nums ' +
+              (active
+                ? 'bg-tr-coral-soft text-tr-coral'
+                : 'bg-tr-surface-clay text-tr-text-muted')
+            }
+            aria-hidden
+          >
+            {sceneNumber}
+          </span>
+          <div className="min-w-0 flex-1">
+            {showSlug ? (
+              <p
+                data-testid={`script-scene-slug-${scene.id}`}
+                className="font-script text-15 font-bold uppercase tracking-[0.02em] leading-[1.65] text-tr-text-primary"
+              >
+                {slug}
+              </p>
+            ) : null}
+            {scenePitch ? (
+              <p
+                data-testid={`script-scene-pitch-${scene.id}`}
+                className={
+                  'text-15 leading-6 text-tr-text-secondary' +
+                  (showSlug ? ' mt-2' : '')
+                }
+              >
+                {scenePitch}
+              </p>
+            ) : null}
+          </div>
         </header>
       ) : null}
 
@@ -312,6 +325,8 @@ export interface ScriptCanvasProps {
   highlightBeatId?: string | null
   /** Focus/caret inside a scene sets the Write active scene. */
   onSceneFocus?: (sceneId: string) => void
+  /** Active scene id — drives scene-number badge accent (matches outline). */
+  activeSceneId?: string | null
 }
 
 /**
@@ -326,24 +341,21 @@ export function ScriptCanvas({
   canvasHandlers,
   highlightBeatId = null,
   onSceneFocus,
+  activeSceneId = null,
 }: ScriptCanvasProps) {
   return (
     <div
-      // max-w-script-col = --tr-script-col (600px, UI spec §3), minted per
-      // controller ruling on T2.3 review.
-      className={whimsyPick(
-        'mx-auto max-w-script-col w-full rounded-card bg-tr-surface-raised px-10 py-10 shadow-raised',
-        'mx-auto max-w-script-col w-full rounded-card bg-tr-surface-raised px-10 py-10 shadow-lift ring-1 ring-tr-border',
-      )}
+      className="mx-auto mt-[34px] mb-40 w-full max-w-script-page rounded-[6px] border border-tr-border bg-tr-surface-raised px-[76px] py-16 shadow-write-page"
       aria-label="Episode script"
       data-testid="script-canvas"
-      data-whimsy={WRITE_WHIMSY ? 'true' : 'false'}
       {...canvasHandlers}
     >
-      {scenes.map((scene) => (
+      {scenes.map((scene, index) => (
         <SceneBlock
           key={scene.id}
           scene={scene}
+          sceneNumber={index + 1}
+          active={scene.id === activeSceneId}
           highlightBeatId={highlightBeatId}
           onSceneFocus={onSceneFocus}
         />

@@ -21,12 +21,12 @@
 
 ## File map
 
-| Area | Files |
-|---|---|
+| Area     | Files                                                                                                                                                                                                                                                                                    |
+| -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Contract | `packages/contract/src/index.ts`, `export-json-schema.ts`, `apps/api/schemas.py`, `scripts/check_contract.py`, `docs/tableread-data-contract.md`, `docs/tableread-prompt-spec.md`, `docs/tableread-fixture.json`, `config/tool_schemas/infer_story_overview.json`, `apps/api/llm/ops.py` |
-| Import | `apps/api/drama_manager/render.py`, `apps/api/drama_manager/overview.py`, `apps/api/fountain/pipeline.py`, `apps/api/llm/{protocol,mock,anthropic_client}.py`, `apps/web/.../ImportWizard.tsx` |
-| UI | `apps/web/src/ledger/{OverviewPanel,FilterRail,LedgerScreen}.tsx` (+ tests) |
-| Evals | `fixtures/story-overview.{fountain,planted.json}`, `apps/api/evals/{adoption,suite,run}.py` |
+| Import   | `apps/api/drama_manager/render.py`, `apps/api/drama_manager/overview.py`, `apps/api/fountain/pipeline.py`, `apps/api/llm/{protocol,mock,anthropic_client}.py`, `apps/web/.../ImportWizard.tsx`                                                                                           |
+| UI       | `apps/web/src/ledger/{OverviewPanel,FilterRail,LedgerScreen}.tsx` (+ tests)                                                                                                                                                                                                              |
+| Evals    | `fixtures/story-overview.{fountain,planted.json}`, `apps/api/evals/{adoption,suite,run}.py`                                                                                                                                                                                              |
 
 ---
 
@@ -58,12 +58,14 @@ export const StoryOverview = z.object({
 export const InferredStoryOverview = z.object({
   logline: z.string(),
   outline: z.array(z.object({ sceneId: Id, summary: z.string() })),
-  beatSheet: z.array(z.object({
-    beatId: Id,
-    label: z.string(),
-    summary: z.string(),
-    sceneId: Id.nullable(),
-  })),
+  beatSheet: z.array(
+    z.object({
+      beatId: Id,
+      label: z.string(),
+      summary: z.string(),
+      sceneId: Id.nullable(),
+    }),
+  ),
   summary: z.string(),
 })
 // ProjectImportStageName inserts 'inferring_overview' after 'inferring_promises'
@@ -81,6 +83,7 @@ export const InferredStoryOverview = z.object({
 ### Task 2: Import inference (T7.28)
 
 **`merge_story_overview(doc, episode_id, result) -> doc`:**
+
 - If episode missing → KeyError
 - If `episode.locked` or existing `storyOverview.locked` → no-op (log counts only)
 - Else build overview: drop unknown sceneIds/beatIds; set provenance inferred, locked false
@@ -122,4 +125,3 @@ Implemented on main after T7.30: optional `act` on beat-sheet rows; prompt 0.16.
 ## Follow-up — content quality (2026-07-17)
 
 Prompt **0.17.0**: ban location-theater; require names/events; richer spine (learns/feels/scriptExcerpt + known_cast); merge soft-replaces boilerplate with beat `whatHappens`; `max_tokens` 16384; outline UI leads with action. Real `make evals` still deferred.
-

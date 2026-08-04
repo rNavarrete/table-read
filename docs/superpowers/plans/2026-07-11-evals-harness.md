@@ -22,21 +22,22 @@
 
 ## File map
 
-| Area | Files |
-|---|---|
-| Run map + estimate | `apps/api/evals/suite.py`, `apps/api/evals/run.py` |
-| Report shape | `apps/api/evals/harness.py` |
-| Progress | new `apps/api/evals/progress.py`; wire `checks.py`, `adoption.py`, `suite.py`, `run.py` |
-| Timeout | `apps/api/llm/errors.py`, `apps/api/llm/anthropic_client.py`, `apps/api/evals/graders.py`; catch in `checks.py` / `adoption.py` |
-| Checkpoint (v1.1) | new `apps/api/evals/checkpoint.py`; `suite.py`, `run.py` |
-| Docs | `Makefile`, `docs/tableread-test-plan.md` §3 |
-| Tests | `apps/api/tests/test_evals_checks.py`, `test_evals_harness.py`, new `test_evals_progress.py`, `test_llm_timeout.py`, `test_evals_checkpoint.py` |
+| Area               | Files                                                                                                                                           |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| Run map + estimate | `apps/api/evals/suite.py`, `apps/api/evals/run.py`                                                                                              |
+| Report shape       | `apps/api/evals/harness.py`                                                                                                                     |
+| Progress           | new `apps/api/evals/progress.py`; wire `checks.py`, `adoption.py`, `suite.py`, `run.py`                                                         |
+| Timeout            | `apps/api/llm/errors.py`, `apps/api/llm/anthropic_client.py`, `apps/api/evals/graders.py`; catch in `checks.py` / `adoption.py`                 |
+| Checkpoint (v1.1)  | new `apps/api/evals/checkpoint.py`; `suite.py`, `run.py`                                                                                        |
+| Docs               | `Makefile`, `docs/tableread-test-plan.md` §3                                                                                                    |
+| Tests              | `apps/api/tests/test_evals_checks.py`, `test_evals_harness.py`, new `test_evals_progress.py`, `test_llm_timeout.py`, `test_evals_checkpoint.py` |
 
 ---
 
 ### Task 1: Tiered run map + `SuiteReport.runs` dict
 
 **Files:**
+
 - Modify: `apps/api/evals/suite.py`
 - Modify: `apps/api/evals/harness.py` (`SuiteReport.runs: dict[str, int]`, markdown/JSON)
 - Modify: `apps/api/evals/run.py` (resolve map; print per-family runs)
@@ -44,6 +45,7 @@
 - Modify: `Makefile` evals cost comment (tiered ~183)
 
 **Interfaces:**
+
 - Produces:
   - `HARD_RUNS = 20`, `SOFT_RUNS = 5`
   - `HARD_FAMILY_KEYS = frozenset({"lockViolation", "continuityAdherence"})`
@@ -171,12 +173,14 @@ EOF
 ### Task 2: Progress lines + unbuffered Makefile
 
 **Files:**
+
 - Create: `apps/api/evals/progress.py`
 - Modify: `apps/api/evals/checks.py`, `apps/api/evals/adoption.py`, `apps/api/evals/suite.py`, `apps/api/evals/run.py`
 - Create: `apps/api/tests/test_evals_progress.py`
 - Modify: `Makefile` (`PYTHONUNBUFFERED=1` on `evals` / `evals-dry`)
 
 **Interfaces:**
+
 - Produces:
   - `ProgressFn = Callable[..., None]` — kwargs-only events
   - `def make_stdout_progress() -> ProgressFn` — prints + `flush=True`
@@ -302,6 +306,7 @@ EOF
 ### Task 3: Per-call 120s timeout
 
 **Files:**
+
 - Modify: `apps/api/llm/errors.py` — add `LlmTimeoutError`
 - Modify: `apps/api/llm/anthropic_client.py` — wrap `messages.create` (non-stream + stream entry if it also calls create)
 - Modify: `apps/api/evals/graders.py` — same wrap in `ContinuityJudge.grade`
@@ -310,6 +315,7 @@ EOF
 - Modify existing anthropic client tests if constructor gains `call_timeout_seconds`
 
 **Interfaces:**
+
 - Produces:
   - `DEFAULT_LLM_CALL_TIMEOUT_SECONDS = 120`
   - `class LlmTimeoutError(Exception):` with `.op: str` (op name or `"continuity_judge"`)
@@ -404,6 +410,7 @@ EOF
 ### Task 4: Docs sync (test plan §3 + spec status)
 
 **Files:**
+
 - Modify: `docs/tableread-test-plan.md` §3 — harness defaults note
 - Modify: `docs/superpowers/specs/2026-07-11-evals-harness-design.md` — Status → `approved`
 
@@ -435,11 +442,13 @@ EOF
 ### Task 5 (v1.1): Checkpoint + `--resume`
 
 **Files:**
+
 - Create: `apps/api/evals/checkpoint.py`
 - Modify: `apps/api/evals/suite.py`, `apps/api/evals/run.py`, `apps/api/evals/harness.py` (only if helpers help round-trip `EvalResult`)
 - Create: `apps/api/tests/test_evals_checkpoint.py`
 
 **Interfaces:**
+
 - Produces:
   - `def checkpoint_path(out_dir: Path, run_id: str) -> Path`
   - `def write_checkpoint(path, *, prompt_version, models, dry_run, runs, results, estimated_calls) -> None`
@@ -453,11 +462,23 @@ Checkpoint schema (JSON):
 ```json
 {
   "promptVersion": "…",
-  "models": {"writer": "…", "classifier": "…"},
+  "models": { "writer": "…", "classifier": "…" },
   "dryRun": false,
-  "runs": {"schemaValidity": 5, "lockViolation": 20},
-  "estimatedCalls": {"totalNominal": 183, "…": 0},
-  "results": [ { "name": "schema-validity", "metric": "…", "score": 1.0, "gate": 0.98, "hard": true, "status": "PASS", "errored": false, "detail": {}, "notes": [] } ]
+  "runs": { "schemaValidity": 5, "lockViolation": 20 },
+  "estimatedCalls": { "totalNominal": 183, "…": 0 },
+  "results": [
+    {
+      "name": "schema-validity",
+      "metric": "…",
+      "score": 1.0,
+      "gate": 0.98,
+      "hard": true,
+      "status": "PASS",
+      "errored": false,
+      "detail": {},
+      "notes": []
+    }
+  ]
 }
 ```
 
@@ -525,15 +546,15 @@ EOF
 
 ## Spec coverage checklist
 
-| Spec section | Task |
-|---|---|
-| Tiered defaults + `--runs` override | 1 |
-| `SuiteReport.runs` dict + estimate ~183 | 1 |
-| Progress lines + flush / PYTHONUNBUFFERED | 2 |
-| 120s timeout, no rule-9 on timeout | 3 |
-| Docs / Makefile cost notes | 1 (Makefile) + 4 (test plan) |
-| Checkpoint + `--resume` | 5 |
-| Non-goals (parallelism, new families, gate changes) | honored — no tasks |
+| Spec section                                        | Task                         |
+| --------------------------------------------------- | ---------------------------- |
+| Tiered defaults + `--runs` override                 | 1                            |
+| `SuiteReport.runs` dict + estimate ~183             | 1                            |
+| Progress lines + flush / PYTHONUNBUFFERED           | 2                            |
+| 120s timeout, no rule-9 on timeout                  | 3                            |
+| Docs / Makefile cost notes                          | 1 (Makefile) + 4 (test plan) |
+| Checkpoint + `--resume`                             | 5                            |
+| Non-goals (parallelism, new families, gate changes) | honored — no tasks           |
 
 ## Self-review notes
 
@@ -546,8 +567,8 @@ EOF
 
 **Plan complete and saved to `docs/superpowers/plans/2026-07-11-evals-harness.md`. Two execution options:**
 
-**1. Subagent-Driven (recommended)** — fresh subagent per task, review between tasks  
+**1. Subagent-Driven (recommended)** — fresh subagent per task, review between tasks
 
-**2. Inline Execution** — implement in this session with executing-plans checkpoints  
+**2. Inline Execution** — implement in this session with executing-plans checkpoints
 
 Which approach?

@@ -1,15 +1,18 @@
 // @vitest-environment jsdom
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import type { LedgerFact, Project } from 'contract'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { LedgerFact, NarrativeMapRun, Project } from 'contract'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { LedgerScreen } from './LedgerScreen'
 
 vi.mock('../api/client', () => ({
   batchLedgerReview: vi.fn(),
   confirmLedgerFact: vi.fn(),
   editLedgerFact: vi.fn(),
+  generateNarrativeMap: vi.fn(),
   getLedger: vi.fn(),
+  getLatestNarrativeMapRun: vi.fn(),
+  getNarrativeMapRun: vi.fn(),
   getProject: vi.fn(),
   rejectLedgerFact: vi.fn(),
   exportFountain: vi.fn(),
@@ -23,7 +26,18 @@ vi.mock('../projects/resumeContext', () => ({
   saveResume: vi.fn(),
 }))
 
-import { batchLedgerReview, getLedger, getProject } from '../api/client'
+import {
+  batchLedgerReview,
+  getLatestNarrativeMapRun,
+  getLedger,
+  getProject,
+} from '../api/client'
+import { saveLedgerView } from './viewPreference'
+
+beforeEach(() => {
+  vi.mocked(getLatestNarrativeMapRun).mockResolvedValue(null)
+  saveLedgerView('proj-1', 'atlas')
+})
 
 afterEach(() => {
   cleanup()
@@ -89,6 +103,56 @@ function pendingFact(id: string, sceneId: string, beatId: string): LedgerFact {
   }
 }
 
+function interruptedNarrativeMapRun(): NarrativeMapRun {
+  return {
+    id: 'nmap-1',
+    projectId: 'proj-1',
+    sourceSnapshotId: 'snap-1',
+    sourceHash: 'source-hash',
+    analysisVersion: '2.3',
+    status: 'failed',
+    phase: 'failed',
+    sceneCount: 29,
+    completedSceneCount: 6,
+    attemptCount: 1,
+    retryAllowed: true,
+    estimatedCostUsd: null,
+    actualInputTokens: null,
+    actualOutputTokens: null,
+    resultSnapshotId: null,
+    errorCode: 'WORKER_INTERRUPTED',
+    errorMessage:
+      'The analysis worker restarted. Saved scene checkpoints are safe; resume to continue from the last completed scene.',
+    createdAt: '2026-07-24T00:00:00Z',
+    updatedAt: '2026-07-24T00:05:00Z',
+  }
+}
+
+describe('LedgerScreen Narrative Map recovery', () => {
+  it('restores an interrupted run and offers checkpoint-safe resume after refresh', async () => {
+    vi.mocked(getProject).mockResolvedValue(project('snap-1'))
+    vi.mocked(getLedger).mockResolvedValue([])
+    vi.mocked(getLatestNarrativeMapRun).mockResolvedValue(
+      interruptedNarrativeMapRun(),
+    )
+
+    window.history.pushState({}, '', '/ledger?project=proj-1')
+    render(<LedgerScreen />)
+
+    await userEvent
+      .setup()
+      .click(await screen.findByRole('button', { name: 'Story' }))
+
+    expect(
+      await screen.findByRole('button', { name: 'Resume saved map run' }),
+    ).not.toBeNull()
+    expect(
+      screen.getByTestId('narrative-map-run-status').textContent,
+    ).toContain('6 of 29 scene checkpoints are saved')
+    expect(getLatestNarrativeMapRun).toHaveBeenCalledWith('proj-1')
+  })
+})
+
 describe('LedgerScreen batch concurrency', () => {
   it('refreshes headSnapshotId before a second scene-batch accept', async () => {
     const user = userEvent.setup()
@@ -117,6 +181,8 @@ describe('LedgerScreen batch concurrency', () => {
 
     window.history.pushState({}, '', '/ledger?project=proj-1')
     render(<LedgerScreen />)
+
+    await user.click(await screen.findByRole('button', { name: 'Story' }))
 
     await waitFor(() => {
       expect(screen.getByTestId('scene-accept-scene-3')).not.toBeNull()
@@ -192,7 +258,7 @@ describe('LedgerScreen dual views', () => {
     }
     vi.mocked(getProject).mockResolvedValue(project('snap-1'))
     vi.mocked(getLedger).mockResolvedValue([focusedFact])
-    localStorage.setItem('tr.ledger.view.proj-1', 'web')
+    saveLedgerView('proj-1', 'web')
 
     window.history.pushState({}, '', '/ledger?project=proj-1&fact=fact-a')
     render(<LedgerScreen />)
@@ -217,6 +283,8 @@ describe('LedgerScreen dual views', () => {
     render(<LedgerScreen />)
 
     await user.click(await screen.findByRole('button', { name: '1 to review' }))
-    expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' })
+    await waitFor(() => {
+      expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' })
+    })
   })
 })

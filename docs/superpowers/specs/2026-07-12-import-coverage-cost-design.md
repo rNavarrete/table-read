@@ -15,20 +15,20 @@ Trust promise stays intact: analyze is still the only AI gesture; PDF extract st
 
 ## 2. Locked decisions
 
-| Decision | Choice |
-|---|---|
-| Gap in beat/`unassigned` tiling | **Heal** → synthesize `unassigned` range(s) with stable reason `coverage_gap`; merge into nearest beat; flag for review |
-| Overlap | Still **hard-fail** `VALIDATION` |
-| Out-of-bounds range | Still **hard-fail** `VALIDATION` |
-| Empty claims (no beats, no unassigned) | Still **hard-fail** `VALIDATION` |
-| Schema-invalid LLM output | Unchanged (rule 9: one retry → `SCHEMA_INVALID_LLM`) |
-| Cost preview location | **Review source** step (primary) + same summary near **Create & analyze script** on Analyze |
-| Cost preview contents | **All three:** detected scene count · estimated model calls · estimated $ range |
-| Call-shape formula | `2N + 1` classifier calls for `N` detected scenes (segment + extract per scene, +1 consistency scan) |
-| Model for $ math | Pinned **classifier** role from `config/models.toml` (today Haiku 4.5) |
-| Rate source | `config/llm_pricing.json` (classifier $/MTok + heuristic constants) — updateable without `PROMPT_VERSION` bump; web imports or mirrors the same numbers |
-| Actual post-run spend | **Defer** unless usage is already easy to thread through SSE; estimate-only for this change |
-| PDF extract | Unchanged — no LLM / $0 model cost |
+| Decision                               | Choice                                                                                                                                                                      |
+| -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Gap in beat/`unassigned` tiling        | **Heal** → synthesize `unassigned` range(s) with stable reason `coverage_gap`; merge into nearest beat; flag for review                                                     |
+| Overlap                                | Still **hard-fail** `VALIDATION`                                                                                                                                            |
+| Out-of-bounds range                    | Still **hard-fail** `VALIDATION`                                                                                                                                            |
+| Empty claims (no beats, no unassigned) | Still **hard-fail** `VALIDATION`                                                                                                                                            |
+| Schema-invalid LLM output              | Unchanged (rule 9: one retry → `SCHEMA_INVALID_LLM`)                                                                                                                        |
+| Cost preview location                  | **Review source** step (primary) + same summary near **Create & analyze script** on Analyze                                                                                 |
+| Cost preview contents                  | **All three:** detected scene count · estimated model calls · estimated $ range                                                                                             |
+| Call-shape formula                     | `2N + 5` for `N` detected scenes (Opus `N+4` story breakdown + Haiku `N+1` facts/scan) — superseded upward as entities/promises/overview landed                             |
+| Model for $ math                       | Mixed: **import_analyst** (Opus 5) + **classifier** (Haiku 4.5) from `config/models.toml`                                                                                   |
+| Rate source                            | `config/llm_pricing.json` (`importAnalyst` + `classifier` $/MTok + heuristic constants) — updateable without `PROMPT_VERSION` bump; web imports or mirrors the same numbers |
+| Actual post-run spend                  | **Defer** unless usage is already easy to thread through SSE; estimate-only for this change                                                                                 |
+| PDF extract                            | Unchanged — no LLM / $0 model cost                                                                                                                                          |
 
 ## 3. Non-goals
 
@@ -100,8 +100,8 @@ Add `config/llm_pricing.json` with classifier rates and heuristic constants (`ch
 
 Initial rates (document as of 2026-07, classifier = Haiku 4.5):
 
-- `inputUsdPerMTok`: 1.00  
-- `outputUsdPerMTok`: 5.00  
+- `inputUsdPerMTok`: 1.00
+- `outputUsdPerMTok`: 5.00
 - `highMultiplier`: 1.75
 
 ### 5.4 UI copy
@@ -129,18 +129,18 @@ If Anthropic usage is already aggregated somewhere easy to attach to the import 
 
 ## 7. Tests
 
-| Case | Expect |
-|---|---|
+| Case                                             | Expect                                                                                                            |
+| ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------- |
 | Beat covers 1–33 of 34-line scene, no unassigned | Heal line 34 as `coverage_gap`; import path would not raise; beat scriptText includes line 34; unassigned flagged |
-| Mid-scene single-line gap | Heal that line; contiguity after heal |
-| Overlap | Still `CoverageError` |
-| OOB | Still `CoverageError` |
-| Empty claims | Still `CoverageError` |
-| `analyzeSource` / cost helper: N=110 | calls=221; cost low/high finite and low ≤ high |
-| Wizard Review source | Renders scene count, call count, and Est. $ range from fixture source |
+| Mid-scene single-line gap                        | Heal that line; contiguity after heal                                                                             |
+| Overlap                                          | Still `CoverageError`                                                                                             |
+| OOB                                              | Still `CoverageError`                                                                                             |
+| Empty claims                                     | Still `CoverageError`                                                                                             |
+| `analyzeSource` / cost helper: N=110             | calls=221; cost low/high finite and low ≤ high                                                                    |
+| Wizard Review source                             | Renders scene count, call count, and Est. $ range from fixture source                                             |
 
 ## 8. Open follow-ups (explicitly deferred)
 
-- SSE actual token usage on complete/failed  
-- Server-side estimate endpoint for perfect parity with `split_into_scenes`  
+- SSE actual token usage on complete/failed
+- Server-side estimate endpoint for perfect parity with `split_into_scenes`
 - Soft retry of `segment_scene` before heal (optional; heal alone may be enough)

@@ -11,10 +11,10 @@ The ledger can answer: **what was true as of scene N** — using data we already
 
 ## Non-goals (later P1 slices)
 
-- Relative-time extraction ("three days later") as first-class timeline anchors  
-- Scene-anchored `knownBy` *transitions* (who learns when) as separate rows  
-- Relationship-state history beyond today’s static bible relationships  
-- Object custody / location continuity compiler checks  
+- Relative-time extraction ("three days later") as first-class timeline anchors
+- Scene-anchored `knownBy` _transitions_ (who learns when) as separate rows
+- Relationship-state history beyond today’s static bible relationships
+- Object custody / location continuity compiler checks
 - Prompt / `PROMPT_VERSION` changes
 
 ## Semantics
@@ -35,8 +35,8 @@ Audience/character lenses and Atlas/Web continue to apply on the filtered set.
 
 `GET /projects/{pid}/ledger?asOfScene={sceneId}` (optional query param)
 
-- Omit → current behavior (no temporal filter).  
-- Present → filter with the semantics above, then existing `status` / character filters if any.  
+- Omit → current behavior (no temporal filter).
+- Present → filter with the semantics above, then existing `status` / character filters if any.
 - Unknown `sceneId` → 404 `NOT_FOUND` or 400 `VALIDATION` (match project conventions).
 
 No schema change to `LedgerFact`. Contract documents the query param.
@@ -47,7 +47,7 @@ Ledger FilterRail (or header): optional **As of** scene selector (episode scene 
 
 ## Acceptance
 
-- Unit tests cover: established later → excluded; superseded after → still in; superseded before → out; orphan scene → out.  
-- API integration test with fixture/long-pour ordering.  
-- UI: selecting a scene shrinks the fact list; clearing restores.  
+- Unit tests cover: established later → excluded; superseded after → still in; superseded before → out; orphan scene → out.
+- API integration test with fixture/long-pour ordering.
+- UI: selecting a scene shrinks the fact list; clearing restores.
 - No `PROMPT_VERSION` bump; `make check-contract` green if contract docs touch query docs only.

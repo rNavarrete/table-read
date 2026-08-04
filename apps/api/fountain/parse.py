@@ -40,6 +40,13 @@ class CoverageError(ValueError):
 
 
 @dataclass(frozen=True)
+class FrontMatterStrip:
+    content: str
+    removed_line_count: int
+    removed_char_count: int
+
+
+@dataclass(frozen=True)
 class SceneSpan:
     """One scene from the deterministic split: its slugline text (``""`` for
     a pre-slugline front-matter bucket) and the exact source lines it owns."""
@@ -116,6 +123,66 @@ class NormalizedScene:
 
 def is_slugline(line: str) -> bool:
     return bool(_SLUGLINE_RE.match(line))
+
+
+_TITLE_PAGE_FIELD_RE = re.compile(
+    r"^\s*(title|credit|author|authors|source|draft date|date|contact|copyright)\s*:",
+    re.IGNORECASE,
+)
+_FRONT_MATTER_SIGNAL_RE = re.compile(
+    r"^\s*(cast|cast list|sets|set list|locations|location list|written by|final draft)\s*:?\s*$",
+    re.IGNORECASE,
+)
+_FADE_IN_RE = re.compile(r"^\s*fade\s+in\s*[:.]?\s*$", re.IGNORECASE)
+
+
+def _strip_result(
+    source: str, retained_lines: list[str], removed_lines: list[str]
+) -> FrontMatterStrip:
+    while retained_lines and not retained_lines[0].strip():
+        removed_lines.append(retained_lines.pop(0))
+    content = "\n".join(retained_lines)
+    return FrontMatterStrip(
+        content=content,
+        removed_line_count=len(removed_lines),
+        removed_char_count=max(0, len(source) - len(content)),
+    )
+
+
+def strip_screenplay_front_matter(source: str) -> FrontMatterStrip:
+    """Remove production metadata before deterministic scene ownership begins.
+
+    The filter intentionally requires a structural boundary rather than trying
+    to understand arbitrary prose. An opening FADE IN is safe when it precedes
+    the first slugline, or when title/cast/set signals explain any slugline-like
+    entries before it. Without FADE IN, only a recognized Fountain title-page
+    prefix is removed.
+    """
+    lines = source.split("\n")
+    fade_index = next(
+        (index for index, line in enumerate(lines[:500]) if _FADE_IN_RE.match(line)),
+        None,
+    )
+    if fade_index is not None and any(line.strip() for line in lines[fade_index + 1 :]):
+        prefix = lines[: fade_index + 1]
+        slug_before_fade = any(is_slugline(line) for line in prefix)
+        metadata_signal = any(
+            _TITLE_PAGE_FIELD_RE.match(line) or _FRONT_MATTER_SIGNAL_RE.match(line)
+            for line in prefix
+        )
+        if not slug_before_fade or metadata_signal:
+            return _strip_result(source, lines[fade_index + 1 :], prefix)
+
+    first_slug = next((index for index, line in enumerate(lines) if is_slugline(line)), None)
+    if first_slug is not None and first_slug > 0:
+        prefix = lines[:first_slug]
+        meaningful = [line for line in prefix if line.strip()]
+        if meaningful and all(
+            _TITLE_PAGE_FIELD_RE.match(line) or line[:1].isspace() for line in meaningful
+        ):
+            return _strip_result(source, lines[first_slug:], prefix)
+
+    return FrontMatterStrip(content=source, removed_line_count=0, removed_char_count=0)
 
 
 def split_into_scenes(source: str) -> list[SceneSpan]:

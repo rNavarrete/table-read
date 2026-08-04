@@ -2,21 +2,21 @@
 
 Table Read is a structural co-writing tool for episodic TV writers. Read `docs/narrative-sidekick-design-doc.md` for product intent. Start with `docs/tableread-handoff.md` if this is your first session in this repo.
 
-**Authority split:** the docs in `docs/` are authoritative for *product intent and behavior*; `packages/contract` (Zod, with its Pydantic mirror and generated tool schemas) is authoritative for *executable schemas* — code must follow the contract package, never a schema transcribed from a doc. If the docs and the contract package disagree, or code needs behavior the docs don't define, stop and flag it — don't silently pick one.
+**Authority split:** the docs in `docs/` are authoritative for _product intent and behavior_; `packages/contract` (Zod, with its Pydantic mirror and generated tool schemas) is authoritative for _executable schemas_ — code must follow the contract package, never a schema transcribed from a doc. If the docs and the contract package disagree, or code needs behavior the docs don't define, stop and flag it — don't silently pick one.
 
 ## Doc map
 
-| Question | Doc |
-|---|---|
-| First session? Orientation, decisions, open questions | `docs/tableread-handoff.md` |
-| Why does this feature exist / how should it behave? | `docs/narrative-sidekick-design-doc.md` |
-| What are the types / endpoints? | `docs/tableread-data-contract.md` |
-| What exactly goes in an LLM prompt? | `docs/tableread-prompt-spec.md` |
-| What do I build next, and when is it done? | `docs/tableread-build-plan.md` (+ `docs/tableread-adoption-prd.md` for A-items) |
-| What should it look like? | `docs/tableread-ui-spec.md` |
-| What must tests cover? | `docs/tableread-test-plan.md` |
-| Sample data | `docs/tableread-fixture.json` ("The Long Pour") |
-| What the competition does / fails at | `docs/tableread-competitive-analysis.md` |
+| Question                                              | Doc                                                                             |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------- |
+| First session? Orientation, decisions, open questions | `docs/tableread-handoff.md`                                                     |
+| Why does this feature exist / how should it behave?   | `docs/narrative-sidekick-design-doc.md`                                         |
+| What are the types / endpoints?                       | `docs/tableread-data-contract.md`                                               |
+| What exactly goes in an LLM prompt?                   | `docs/tableread-prompt-spec.md`                                                 |
+| What do I build next, and when is it done?            | `docs/tableread-build-plan.md` (+ `docs/tableread-adoption-prd.md` for A-items) |
+| What should it look like?                             | `docs/tableread-ui-spec.md`                                                     |
+| What must tests cover?                                | `docs/tableread-test-plan.md`                                                   |
+| Sample data                                           | `docs/tableread-fixture.json` ("The Long Pour")                                 |
+| What the competition does / fails at                  | `docs/tableread-competitive-analysis.md`                                        |
 
 ## Commands
 

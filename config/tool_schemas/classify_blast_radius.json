@@ -6,41 +6,26 @@
         "additionalProperties": false,
         "properties": {
           "confidence": {
-            "enum": [
-              "high",
-              "speculative"
-            ],
+            "enum": ["high", "speculative"],
             "type": "string"
           },
           "objectId": {
             "type": "string"
           },
           "objectType": {
-            "enum": [
-              "scene",
-              "beat",
-              "character",
-              "ledgerFact"
-            ],
+            "enum": ["scene", "beat", "character", "ledgerFact"],
             "type": "string"
           },
           "reason": {
             "type": "string"
           }
         },
-        "required": [
-          "objectType",
-          "objectId",
-          "reason",
-          "confidence"
-        ],
+        "required": ["objectType", "objectId", "reason", "confidence"],
         "type": "object"
       },
       "type": "array"
     }
   },
-  "required": [
-    "impacted"
-  ],
+  "required": ["impacted"],
   "type": "object"
 }

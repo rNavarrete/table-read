@@ -43,9 +43,7 @@ EVAL_KEYS: dict[str, str] = {
 
 HARD_RUNS = 5
 SOFT_RUNS = 5
-HARD_FAMILY_KEYS = frozenset(
-    {"actBoundaryValidity", "lockViolation", "continuityAdherence"}
-)
+HARD_FAMILY_KEYS = frozenset({"actBoundaryValidity", "lockViolation", "continuityAdherence"})
 
 # Default `make evals` runs only these hard-gate families. Soft / adoption
 # families stay available via `--full` or `--only <family>`.
@@ -116,7 +114,7 @@ def nominal_call_estimate(runs: dict[str, int]) -> dict:
     """Nominal (retry-free) real-API call counts per eval family — cost
     visibility for the report header and the Makefile target.
 
-    Per family: schema = one call per probe per run (9 × schema runs). lock =
+    Per family: schema = one call per probe per run (13 × schema runs). lock =
     up to 3 product calls per regenerate attempt (preview's regenerate + apply's
     extract + scan; guard rejections stop after 1) plus 1 per candidate attempt
     → ≤ 4 × lock runs. continuity = 3 grader calibration calls + (1 generate +
@@ -127,10 +125,11 @@ def nominal_call_estimate(runs: dict[str, int]) -> dict:
     the other single-probe soft families; `narrativePromises` and
     `narrativePromisesMerge` (T7.22) each call `infer_narrative_promises`
     once per run, same shape; `storyOverview` / `storyOverviewMerge`
-    (T7.30) each call `infer_story_overview` once per run. Rule-9 retries can add up to one extra call
-    per product call (observed-worst budget ≈ 1.5× total). Core defaults
-    (schema/act-validity/lock/continuity, N=5): ≈88 nominal; `--full` adds
-    soft families (≈+50); `--runs 1` core ≈20."""
+    (T7.30) each call `infer_story_overview` once per run. Rule-9 retries can
+    add up to one extra call per product call (observed-worst budget ≈1.5×
+    total). Core defaults
+    (schema/act-validity/lock/continuity, N=5): ≈108 nominal; `--full` adds
+    soft families (≈50); `--runs 1` core ≈24."""
     schema = len(probes.SCHEMA_PROBES) * runs["schemaValidity"]
     act_validity = 2 * runs["actBoundaryValidity"]
     lock = 4 * runs["lockViolation"]

@@ -8,28 +8,28 @@
 
 Ledger today is correct but clinical: filter rail + amber queue + two-column fact cards read like a database admin tool. Writers open Ledger to understand **what is true in the story world**. The redesign keeps every existing capability (filters, review queue, accept/edit/reject/batch, source-span jump, confidence, known-by, supersede chains, versioned mutations) while presenting facts as a **delightful, scannable story bible** with two interchangeable views:
 
-| View | Job |
-|---|---|
-| **Story Atlas** (default) | Compact expandable rows grouped by storytelling meaning |
-| **Knowledge Web** | Who-knows-what graph focused on a character (or audience) |
+| View                      | Job                                                       |
+| ------------------------- | --------------------------------------------------------- |
+| **Story Atlas** (default) | Compact expandable rows grouped by storytelling meaning   |
+| **Knowledge Web**         | Who-knows-what graph focused on a character (or audience) |
 
 Writers swap views via a Quiet Tool segmented control. Preference persists per project in `localStorage` (same spirit as resume).
 
 ## 2. Locked decisions
 
-| Decision | Choice |
-|---|---|
-| Primary product job | Understand what is true (story bible), not inbox-first |
-| Default density | Balanced: compact rows that expand for detail |
-| Views | Atlas + Web only (Continuity Desk not a third mode) |
-| View switcher | Segmented control in page header: **Atlas · Web** |
-| Persistence | `localStorage` key scoped by project id (e.g. `tr.ledger.view.{projectId}`) |
-| Shared rail | “Lenses” + Status — same filter power as today, friendlier labels |
-| Review queue | Remains pinned at top when non-empty in **both** views |
-| Mutations | Unchanged APIs; Accept / Edit / Reject / batch / If-Match / undo |
-| Contract / API | No new endpoints; client-only presentation + local view preference |
-| Evals | Not required |
-| Graph library | No new dependency for MVP — CSS/absolute or simple layered layout |
+| Decision            | Choice                                                                      |
+| ------------------- | --------------------------------------------------------------------------- |
+| Primary product job | Understand what is true (story bible), not inbox-first                      |
+| Default density     | Balanced: compact rows that expand for detail                               |
+| Views               | Atlas + Web only (Continuity Desk not a third mode)                         |
+| View switcher       | Segmented control in page header: **Atlas · Web**                           |
+| Persistence         | `localStorage` key scoped by project id (e.g. `tr.ledger.view.{projectId}`) |
+| Shared rail         | “Lenses” + Status — same filter power as today, friendlier labels           |
+| Review queue        | Remains pinned at top when non-empty in **both** views                      |
+| Mutations           | Unchanged APIs; Accept / Edit / Reject / batch / If-Match / undo            |
+| Contract / API      | No new endpoints; client-only presentation + local view preference          |
+| Evals               | Not required                                                                |
+| Graph library       | No new dependency for MVP — CSS/absolute or simple layered layout           |
 
 ## 3. Non-goals
 
@@ -64,11 +64,11 @@ Writers swap views via a Quiet Tool segmented control. Preference persists per p
 
 Keep `LedgerFilters` model (`status`, `characterId`, `factType`). Relabel for writers:
 
-| Current | Writer-facing |
-|---|---|
-| Status → All / pending_review / active / … | Status → All / Needs review / Active / Superseded / Stale / Rejected |
-| Character → All / names | People → All / character names (also drives Web focus when Web is active) |
-| Fact type → All / event / state / … | Lenses → All truths / Events / States / Knowledge / Relationships / World rules |
+| Current                                    | Writer-facing                                                                   |
+| ------------------------------------------ | ------------------------------------------------------------------------------- |
+| Status → All / pending_review / active / … | Status → All / Needs review / Active / Superseded / Stale / Rejected            |
+| Character → All / names                    | People → All / character names (also drives Web focus when Web is active)       |
+| Fact type → All / event / state / …        | Lenses → All truths / Events / States / Knowledge / Relationships / World rules |
 
 Rail chrome: warm sunken panel (may share Write outline amber-soft wash if `WRITE_WHIMSY` / Ledger whimsy flag is on — optional; tokens only). Width stays `--tr-panel-ledger-filters` (198px).
 
@@ -89,13 +89,13 @@ Presentation polish only: friendlier scene labels (location slug when resolvable
 
 Group **filtered non-queue facts** (same exclusion rule as today: pending stay in queue unless status filter is pending_review) into chapters by `factType`:
 
-| Chapter | `factType` |
-|---|---|
+| Chapter            | `factType`                                                                                        |
+| ------------------ | ------------------------------------------------------------------------------------------------- |
 | People & knowledge | `knowledge` (+ optionally `state` that is character-tied — MVP: knowledge only; states in States) |
-| Events | `event` |
-| States | `state` |
-| Relationships | `relationship` |
-| World rules | `world_rule` |
+| Events             | `event`                                                                                           |
+| States             | `state`                                                                                           |
+| Relationships      | `relationship`                                                                                    |
+| World rules        | `world_rule`                                                                                      |
 
 Empty chapters omitted. Chapter header: display/secondary label + count.
 
@@ -167,18 +167,18 @@ Stay inside Quiet Tool + existing tokens (`--tr-*`):
 
 ## 8. Components / files
 
-| Unit | Responsibility |
-|---|---|
-| `ledger/LedgerScreen.tsx` | Load data, mutations, view state, queue, wire Atlas/Web |
-| `ledger/LedgerViewSwitcher.tsx` | Atlas · Web segmented control + persistence helper |
-| `ledger/LensesRail.tsx` | Relabeled FilterRail (or evolve `FilterRail.tsx` in place) |
-| `ledger/StoryAtlas.tsx` | Chapter grouping + expandable rows |
-| `ledger/KnowledgeWeb.tsx` | Focus graph + detail panel |
-| `ledger/FactCard.tsx` | Reuse / slim for detail panel + queue (avoid duplicating edit form) |
-| `ledger/factChapters.ts` | Pure grouping helpers + tests |
-| `ledger/knowledgeGraph.ts` | Pure node selection helpers + tests |
-| Tests | Switcher persistence; Atlas chapters; Web focus; existing mutation tests stay green |
-| Docs | UI spec §7, design doc §4.6, build plan T5.2, test plan |
+| Unit                            | Responsibility                                                                      |
+| ------------------------------- | ----------------------------------------------------------------------------------- |
+| `ledger/LedgerScreen.tsx`       | Load data, mutations, view state, queue, wire Atlas/Web                             |
+| `ledger/LedgerViewSwitcher.tsx` | Atlas · Web segmented control + persistence helper                                  |
+| `ledger/LensesRail.tsx`         | Relabeled FilterRail (or evolve `FilterRail.tsx` in place)                          |
+| `ledger/StoryAtlas.tsx`         | Chapter grouping + expandable rows                                                  |
+| `ledger/KnowledgeWeb.tsx`       | Focus graph + detail panel                                                          |
+| `ledger/FactCard.tsx`           | Reuse / slim for detail panel + queue (avoid duplicating edit form)                 |
+| `ledger/factChapters.ts`        | Pure grouping helpers + tests                                                       |
+| `ledger/knowledgeGraph.ts`      | Pure node selection helpers + tests                                                 |
+| Tests                           | Switcher persistence; Atlas chapters; Web focus; existing mutation tests stay green |
+| Docs                            | UI spec §7, design doc §4.6, build plan T5.2, test plan                             |
 
 ## 9. Acceptance criteria
 
@@ -193,14 +193,14 @@ Stay inside Quiet Tool + existing tokens (`--tr-*`):
 ## 10. Suggested build-plan task
 
 **T5.2 Ledger dual view (Atlas + Knowledge Web).** Client presentation redesign per this spec.  
-*Accept:* criteria in §9.
+_Accept:_ criteria in §9.
 
 ## 11. Open questions (resolved)
 
-| Question | Resolution |
-|---|---|
-| Primary job? | Story bible (“what’s true”) |
-| Density? | Balanced expand-to-detail |
-| Which mockups? | A + B with header swap |
-| Switcher chrome? | Segmented control in page header |
-| Third Continuity Desk mode? | Out of scope |
+| Question                    | Resolution                       |
+| --------------------------- | -------------------------------- |
+| Primary job?                | Story bible (“what’s true”)      |
+| Density?                    | Balanced expand-to-detail        |
+| Which mockups?              | A + B with header swap           |
+| Switcher chrome?            | Segmented control in page header |
+| Third Continuity Desk mode? | Out of scope                     |

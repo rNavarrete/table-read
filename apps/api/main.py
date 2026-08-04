@@ -3,6 +3,7 @@
 from fastapi import FastAPI
 
 from errors import register_error_handlers
+from import_diagnostics import configure_import_diagnostics_logging
 from routes import change_sets_router, flags_router, ledger_router, router
 from storage.db import Base, engine, ensure_storage_schema
 
@@ -12,6 +13,7 @@ from storage.db import Base, engine, ensure_storage_schema
 # (see tests/conftest.py), so this never touches the dev DB in tests.
 Base.metadata.create_all(bind=engine)
 ensure_storage_schema()
+configure_import_diagnostics_logging()
 
 app = FastAPI(title="Table Read API")
 register_error_handlers(app)

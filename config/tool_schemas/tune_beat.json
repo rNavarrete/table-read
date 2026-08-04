@@ -14,11 +14,7 @@
           "type": "string"
         }
       },
-      "required": [
-        "whatHappens",
-        "audienceLearns",
-        "audienceFeels"
-      ],
+      "required": ["whatHappens", "audienceLearns", "audienceFeels"],
       "type": "object"
     },
     "continuityConflicts": {
@@ -32,10 +28,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "factId",
-          "explanation"
-        ],
+        "required": ["factId", "explanation"],
         "type": "object"
       },
       "type": "array"
@@ -47,11 +40,6 @@
       "type": "string"
     }
   },
-  "required": [
-    "label",
-    "beatPlan",
-    "scriptText",
-    "continuityConflicts"
-  ],
+  "required": ["label", "beatPlan", "scriptText", "continuityConflicts"],
   "type": "object"
 }

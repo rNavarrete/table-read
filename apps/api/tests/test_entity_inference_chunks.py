@@ -8,6 +8,7 @@ merge name/alias-aware StoryEntities before bible fold.
 from __future__ import annotations
 
 from fountain.entity_inference import (
+    ENTITY_INFER_MAX_SCENES_PER_CHUNK,
     ENTITY_INFER_USER_CHAR_BUDGET,
     chunk_entity_scene_summaries,
     combine_story_entities,
@@ -36,9 +37,10 @@ def _entities(**overrides) -> StoryEntities:
 
 
 def test_budget_constant_is_documented_and_conservative():
-    # Tuned under the ~110×40-line failure; must stay below a full-feature
-    # classifier context after system + tool schema overhead.
-    assert ENTITY_INFER_USER_CHAR_BUDGET == 80_000
+    # A ~79k-character, 112-scene request hit the five-minute timeout. Keep
+    # both bounds low enough that latency, not just context size, stays safe.
+    assert ENTITY_INFER_USER_CHAR_BUDGET == 12_000
+    assert ENTITY_INFER_MAX_SCENES_PER_CHUNK == 12
 
 
 def test_small_script_is_single_chunk():
@@ -49,7 +51,7 @@ def test_small_script_is_single_chunk():
 
 
 def test_oversized_import_splits_into_multiple_chunks():
-    # Each scene ~9k chars of scriptText → a few scenes exceed 80k with overhead.
+    # Each scene ~9k chars of scriptText -> a few scenes exceed the budget.
     summaries = [_summary(i, script_chars=9_000) for i in range(1, 16)]
     chunks = chunk_entity_scene_summaries(summaries, speaker_names=["A", "B"])
     assert len(chunks) >= 2
@@ -67,6 +69,14 @@ def test_oversized_import_splits_into_multiple_chunks():
             estimate_entity_user_chars(chunk, ["A", "B"])
             <= ENTITY_INFER_USER_CHAR_BUDGET
         )
+
+
+def test_scene_count_limit_splits_small_payloads():
+    summaries = [_summary(i, script_chars=10) for i in range(1, 70)]
+
+    chunks = chunk_entity_scene_summaries(summaries, speaker_names=[])
+
+    assert [len(chunk) for chunk in chunks] == [12, 12, 12, 12, 12, 9]
 
 
 def test_combine_merges_characters_by_normalized_name_and_aliases():

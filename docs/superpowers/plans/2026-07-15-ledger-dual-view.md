@@ -21,25 +21,26 @@
 
 ## File structure
 
-| File | Role |
-|---|---|
-| `apps/web/src/ledger/viewPreference.ts` | load/save Atlas\|Web per projectId |
-| `apps/web/src/ledger/factChapters.ts` | group facts into storytelling chapters |
-| `apps/web/src/ledger/knowledgeGraph.ts` | select focus + fact nodes for Web |
-| `apps/web/src/ledger/LedgerViewSwitcher.tsx` | Atlas · Web segmented control |
-| `apps/web/src/ledger/StoryAtlas.tsx` | chapter list + expandable rows |
-| `apps/web/src/ledger/KnowledgeWeb.tsx` | graph + detail panel |
-| `apps/web/src/ledger/FilterRail.tsx` | writer-facing labels (Lenses) |
-| `apps/web/src/ledger/LedgerScreen.tsx` | wire switcher, views, shared queue |
-| `docs/tableread-ui-spec.md` §7 | document dual view |
-| `docs/tableread-build-plan.md` | add T5.2 |
-| matching `*.test.ts(x)` beside code | unit coverage |
+| File                                         | Role                                   |
+| -------------------------------------------- | -------------------------------------- |
+| `apps/web/src/ledger/viewPreference.ts`      | load/save Atlas\|Web per projectId     |
+| `apps/web/src/ledger/factChapters.ts`        | group facts into storytelling chapters |
+| `apps/web/src/ledger/knowledgeGraph.ts`      | select focus + fact nodes for Web      |
+| `apps/web/src/ledger/LedgerViewSwitcher.tsx` | Atlas · Web segmented control          |
+| `apps/web/src/ledger/StoryAtlas.tsx`         | chapter list + expandable rows         |
+| `apps/web/src/ledger/KnowledgeWeb.tsx`       | graph + detail panel                   |
+| `apps/web/src/ledger/FilterRail.tsx`         | writer-facing labels (Lenses)          |
+| `apps/web/src/ledger/LedgerScreen.tsx`       | wire switcher, views, shared queue     |
+| `docs/tableread-ui-spec.md` §7               | document dual view                     |
+| `docs/tableread-build-plan.md`               | add T5.2                               |
+| matching `*.test.ts(x)` beside code          | unit coverage                          |
 
 ---
 
 ### Task 1: Pure helpers — view preference, chapters, knowledge graph
 
 **Files:**
+
 - Create: `apps/web/src/ledger/viewPreference.ts`
 - Create: `apps/web/src/ledger/viewPreference.test.ts`
 - Create: `apps/web/src/ledger/factChapters.ts`
@@ -48,6 +49,7 @@
 - Create: `apps/web/src/ledger/knowledgeGraph.test.ts`
 
 **Interfaces:**
+
 - Produces:
   - `export type LedgerViewId = 'atlas' | 'web'`
   - `loadLedgerView(projectId: string): LedgerViewId`
@@ -73,12 +75,14 @@
 ### Task 2: View switcher + Lenses rail labels
 
 **Files:**
+
 - Create: `apps/web/src/ledger/LedgerViewSwitcher.tsx`
 - Create: `apps/web/src/ledger/LedgerViewSwitcher.test.tsx`
 - Modify: `apps/web/src/ledger/FilterRail.tsx`
 - Modify: `apps/web/src/ledger/FilterRail.test.tsx` (if present; else create minimal assertions)
 
 **Interfaces:**
+
 - Consumes: `LedgerViewId`, `saveLedgerView` / `loadLedgerView` from Task 1
 - Produces: `LedgerViewSwitcherProps { projectId: string; value: LedgerViewId; onChange: (v: LedgerViewId) => void }` — segmented **Atlas · Web**; `data-testid="ledger-view-switcher"`; active segment `bg-tr-coral-soft text-tr-accent-ink`; onChange also calls `saveLedgerView`
 - FilterRail: legend "Status" options show writer labels (Needs review, Active, …); "Character" legend → "People"; "Fact type" → "Lenses"; option text: All truths / Events / States / Knowledge / Relationships / World rules — keep radio `value`s as existing enum strings
@@ -96,10 +100,12 @@
 ### Task 3: Story Atlas
 
 **Files:**
+
 - Create: `apps/web/src/ledger/StoryAtlas.tsx`
 - Create: `apps/web/src/ledger/StoryAtlas.test.tsx`
 
 **Interfaces:**
+
 - Consumes: `groupFactsIntoChapters`, `FactCard` (or inline expand using FactCard when expanded)
 - Produces: `StoryAtlasProps { facts: LedgerFact[]; allFacts: LedgerFact[]; project: Project; busy: boolean; onAccept; onReject; onEdit; onSourceSpanClick }` — renders chapters; collapsed row shows type cue + clamped fact + muted known-by/scene; click expands **one** fact globally using `FactCard` without `queueActions` (or with if pending); `data-testid="story-atlas"` and `data-testid={fact-chapter-${id}}`
 
@@ -116,10 +122,12 @@
 ### Task 4: Knowledge Web
 
 **Files:**
+
 - Create: `apps/web/src/ledger/KnowledgeWeb.tsx`
 - Create: `apps/web/src/ledger/KnowledgeWeb.test.tsx`
 
 **Interfaces:**
+
 - Consumes: `buildKnowledgeGraph`, `FactCard`
 - Produces: `KnowledgeWebProps` same action props as Atlas + `characterId: string | null` — focus node + up to 24 fact node buttons; click selects detail (`FactCard`); empty state copy when no nodes; `data-testid="knowledge-web"`; fact nodes `data-testid={web-fact-${id}}`. Layout: CSS flex/absolute in a raised/clay panel; **no new dependencies**. Pending nodes: `bg-tr-amber-soft`.
 
@@ -136,10 +144,12 @@
 ### Task 5: Wire LedgerScreen
 
 **Files:**
+
 - Modify: `apps/web/src/ledger/LedgerScreen.tsx`
 - Modify: `apps/web/src/ledger/LedgerScreen.test.tsx` (extend)
 
 **Interfaces:**
+
 - Consumes: Tasks 1–4
 - Behavior:
   - Header above queue: title “What’s true in this story” (`font-display text-17` or `text-22`), `LedgerViewSwitcher`, optional amber “N to review” chip
@@ -161,6 +171,7 @@
 ### Task 6: Docs
 
 **Files:**
+
 - Modify: `docs/tableread-ui-spec.md` §7
 - Modify: `docs/narrative-sidekick-design-doc.md` §4.6 (brief)
 - Modify: `docs/tableread-build-plan.md` — add **T5.2** after existing Ledger tasks
@@ -174,12 +185,12 @@
 
 ## Spec coverage checklist
 
-| Spec § | Task |
-|---|---|
-| View switcher + persistence | 1, 2, 5 |
-| Lenses rail labels | 2 |
-| Review queue both views | 5 (preserve) |
-| Story Atlas chapters + expand | 3, 5 |
-| Knowledge Web + detail | 4, 5 |
-| No API/schema changes | all |
-| Docs / T5.2 | 6 |
+| Spec §                        | Task         |
+| ----------------------------- | ------------ |
+| View switcher + persistence   | 1, 2, 5      |
+| Lenses rail labels            | 2            |
+| Review queue both views       | 5 (preserve) |
+| Story Atlas chapters + expand | 3, 5         |
+| Knowledge Web + detail        | 4, 5         |
+| No API/schema changes         | all          |
+| Docs / T5.2                   | 6            |

@@ -31,11 +31,7 @@
                   "type": "string"
                 }
               },
-              "required": [
-                "whatHappens",
-                "audienceLearns",
-                "audienceFeels"
-              ],
+              "required": ["whatHappens", "audienceLearns", "audienceFeels"],
               "type": "object"
             },
             "type": "array"
@@ -60,12 +56,7 @@
                   "type": "string"
                 }
               },
-              "required": [
-                "characterId",
-                "objective",
-                "stakes",
-                "obstacle"
-              ],
+              "required": ["characterId", "objective", "stakes", "obstacle"],
               "type": "object"
             },
             "type": "array"
@@ -96,9 +87,6 @@
       "type": "array"
     }
   },
-  "required": [
-    "label",
-    "scenes"
-  ],
+  "required": ["label", "scenes"],
   "type": "object"
 }

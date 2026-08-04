@@ -38,6 +38,7 @@ export const EXPECTED_TOKENS: Record<string, string> = {
   '--tr-font-ui': '"Instrument Sans", system-ui, sans-serif',
   '--tr-font-script': '"Courier Prime", "Courier New", monospace',
   '--tr-font-display': '"Instrument Sans", system-ui, sans-serif',
+  '--tr-font-ledger-display': '"Newsreader", "Instrument Sans", Georgia, serif',
 
   '--tr-font-size-11': '11px',
   '--tr-font-size-12': '12px',
@@ -46,28 +47,62 @@ export const EXPECTED_TOKENS: Record<string, string> = {
   '--tr-font-size-17': '17px',
   '--tr-font-size-22': '22px',
   '--tr-font-size-28': '28px',
+  '--tr-font-size-30': '30px',
+
+  // Write redesign (T2.4 script home) — desk, paper sheet, slugline dots
+  '--tr-write-desk': '#F1EEEA',
+  '--tr-write-panel': '#F7F5F2',
+  '--tr-write-selected': '#E6EBF5',
+  '--tr-write-dot-int': '#6F93D6',
+  '--tr-write-dot-ext': '#4FA877',
+  '--tr-write-dot-other': '#C4C0B8',
+
+  // Ledger redesign — story-bible surfaces + secret/concealment accents
+  '--tr-ledger-content': '#F3F1EE',
+  '--tr-ledger-selected': '#E8E4DF',
+  '--tr-ledger-secret-surface': '#F8F2E8',
+  '--tr-ledger-secret-border': '#E9DCC6',
+  '--tr-ledger-secret-badge': '#F0E2C8',
+  '--tr-ledger-secret-ink': '#9A6B2F',
+
+  // Overview panel accents
+  '--tr-overview-expand-bg': '#F6F4F1',
+  '--tr-overview-icon-bg': '#E6EBF5',
+  '--tr-overview-ready-bg': '#E8F5EC',
+  '--tr-overview-ready-ink': '#3D8A5A',
 
   '--tr-radius-card': '12px',
   '--tr-radius-chip': '999px',
   '--tr-radius-frame': '12px',
+  '--tr-radius-control': '9px',
+  '--tr-radius-ledger-card': '15px',
 
   '--tr-shadow-raised': '0 1px 2px rgb(38 39 43 / 0.04)',
   '--tr-shadow-lift': '0 4px 16px rgb(38 39 43 / 0.08)',
+  '--tr-shadow-write-page': '0 30px 70px -44px rgb(38 39 43 / 0.35)',
+  '--tr-shadow-write-card': '0 16px 40px -28px rgb(38 39 43 / 0.35)',
+  '--tr-shadow-write-bar': '0 20px 50px -24px rgb(38 39 43 / 0.4)',
+  '--tr-shadow-write-cta': '0 8px 20px -12px rgb(91 121 166 / 0.55)',
+  '--tr-shadow-ledger-card': '0 12px 30px -18px rgb(38 39 43 / 0.28)',
+  '--tr-shadow-overview-card': '0 12px 34px -26px rgb(38 39 43 / 0.35)',
 
   '--tr-motion-duration-standard': '160ms',
   '--tr-motion-ease-standard': 'ease-out',
 
   '--tr-script-col': '600px',
-  '--tr-panel-candidate-dock': '332px',
+  '--tr-panel-candidate-dock': '392px',
+  '--tr-panel-write-outline': '296px',
+  '--tr-command-bar': '560px',
+  '--tr-script-page': '680px',
   '--tr-panel-story-layers': '232px',
   '--tr-panel-inspector': '296px',
   '--tr-card-scene': '214px',
-  '--tr-panel-ledger-filters': '198px',
+  '--tr-panel-ledger-filters': '236px',
 
   '--tr-outline-selected': '2px',
   '--tr-opacity-locked': '0.55',
 
   // Quiet Tool selected-pill ink + shell height
   '--tr-accent-ink': '#33445E',
-  '--tr-shell-height': '52px',
+  '--tr-shell-height': '56px',
 }

@@ -9,13 +9,12 @@ import {
 } from 'react'
 import { suggestInstructions } from '../api/client'
 import { SuggestionChips } from './SuggestionChips'
-import { whimsyPick } from './writeWhimsy'
 
 export interface CommandBarProps {
   onSubmit: (instruction: string) => void
   /** Streaming in progress — the command bar disables while a round is in flight. */
   disabled: boolean
-  /** Quiet-AI (UI spec §3): true while the script canvas is focused. The
+  /** Quiet-AI (UI spec §4): true while the script canvas is focused. The
    * command bar is itself an AI-generation trigger, so it goes fully
    * invisible (not just dimmed) alongside every other AI control. */
   hidden: boolean
@@ -30,11 +29,9 @@ export interface CommandBarHandle {
 }
 
 /**
- * The bottom command bar (UI spec §3): natural-language instructions,
- * command-palette feel, not a chat — no history thread, no assistant
- * bubbles, one instruction per submission. `/` and `W` focus it from
- * anywhere except another text input (adoption A8). Empty-state chips
- * from `POST /suggest` insert text only — never auto-generate (A4).
+ * Floating command bar (UI spec §4 / Write redesign): anchored over the
+ * editor column, not the viewport. Chips insert text only — never
+ * auto-generate (A4).
  */
 export const CommandBar = forwardRef<CommandBarHandle, CommandBarProps>(
   function CommandBar(
@@ -96,16 +93,13 @@ export const CommandBar = forwardRef<CommandBarHandle, CommandBarProps>(
     return (
       <div
         className={
-          'fixed inset-x-0 bottom-6 mx-auto w-full max-w-script-col' +
+          'pointer-events-none absolute inset-x-0 bottom-[26px] z-10 mx-auto w-full max-w-command-bar px-4' +
           (hidden ? ' invisible' : '')
         }
       >
         <form
           onSubmit={handleSubmit}
-          className={whimsyPick(
-            'flex h-14 w-full max-w-script-col items-center gap-3 rounded-chip border border-tr-border bg-tr-surface-raised px-4 shadow-raised',
-            'flex h-14 w-full max-w-script-col items-center gap-3 rounded-chip border border-tr-coral-soft bg-tr-surface-raised px-4 shadow-lift',
-          )}
+          className="pointer-events-auto flex w-full items-center gap-2.5 rounded-2xl border border-tr-border bg-tr-surface-raised py-2 pl-[18px] pr-2 shadow-write-bar"
           data-testid="command-bar"
         >
           <input
@@ -118,31 +112,42 @@ export const CommandBar = forwardRef<CommandBarHandle, CommandBarProps>(
             onFocus={() => void loadSuggestions()}
             onKeyDown={handleKeyDown}
             disabled={disabled}
-            placeholder={whimsyPick(
-              'Tell the scene where to go…  [/] or [W]',
-              'Whisper the next move…  [/] or [W]',
-            )}
-            aria-label="Tell the scene where to go"
+            placeholder="Whisper the next move…"
+            aria-label="Whisper the next move"
             className="min-w-0 flex-1 bg-transparent text-15 text-tr-text-primary outline-none placeholder:text-tr-text-muted disabled:opacity-50"
           />
+          <span
+            aria-hidden
+            className="rounded-[5px] border border-tr-border-strong bg-tr-surface-clay px-1.5 py-px font-script text-[10.5px] text-tr-text-secondary"
+          >
+            /
+          </span>
+          <span
+            aria-hidden
+            className="rounded-[5px] border border-tr-border-strong bg-tr-surface-clay px-1.5 py-px font-script text-[10.5px] text-tr-text-secondary"
+          >
+            W
+          </span>
           <button
             type="submit"
             disabled={disabled || !instruction.trim()}
-            className="rounded-chip bg-tr-coral px-4 py-1.5 text-13 text-tr-surface-raised transition-colors hover:bg-tr-coral-hover disabled:opacity-50 motion-reduce:transition-none"
+            className="rounded-[11px] bg-tr-coral px-[18px] py-2 text-13 font-medium text-tr-surface-raised transition-colors hover:bg-tr-coral-hover disabled:opacity-50 motion-reduce:transition-none"
           >
-            {whimsyPick('Generate', 'Write it')}
+            Write it
           </button>
         </form>
         {!instruction.trim() && (
-          <SuggestionChips
-            suggestions={suggestions}
-            disabled={disabled}
-            onPick={(text) => {
-              setInstruction(text)
-              setSuggestions([])
-              inputRef.current?.focus()
-            }}
-          />
+          <div className="pointer-events-auto">
+            <SuggestionChips
+              suggestions={suggestions}
+              disabled={disabled}
+              onPick={(text) => {
+                setInstruction(text)
+                setSuggestions([])
+                inputRef.current?.focus()
+              }}
+            />
+          </div>
         )}
       </div>
     )

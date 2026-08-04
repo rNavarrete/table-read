@@ -28,9 +28,9 @@
 export const KnowledgeEvent = z.object({
   sceneId: Id,
   characterIds: z.array(Id).default([]),
-  kind: z.enum(["learns", "forgets"]),
-  quote: z.string().default(""),
-});
+  kind: z.enum(['learns', 'forgets']),
+  quote: z.string().default(''),
+})
 // LedgerFact.knowledgeEvents: z.array(KnowledgeEvent).default([])
 // ExtractedFact optional knowledgeEvents with characterNames: string[] instead of ids — server resolves
 // Ledger GET items may include knownByAsOf?: Id[] when asOfScene set (document in §4; can be response-only enrichment not stored)

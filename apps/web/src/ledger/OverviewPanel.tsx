@@ -65,7 +65,9 @@ export function OverviewPanel({
   onJumpToScene,
   onClose,
 }: OverviewPanelProps) {
-  const paragraphs = overview?.summary ? summaryParagraphs(overview.summary) : []
+  const paragraphs = overview?.summary
+    ? summaryParagraphs(overview.summary)
+    : []
 
   return (
     <Card
@@ -95,7 +97,10 @@ export function OverviewPanel({
         </p>
       ) : (
         <div className="flex flex-col gap-4">
-          <section data-testid="overview-logline" className="flex flex-col gap-1">
+          <section
+            data-testid="overview-logline"
+            className="flex flex-col gap-1"
+          >
             <h3 className="text-12 uppercase tracking-wide text-tr-text-muted">
               Logline
             </h3>
@@ -104,7 +109,10 @@ export function OverviewPanel({
             </p>
           </section>
 
-          <section data-testid="overview-summary" className="flex flex-col gap-2">
+          <section
+            data-testid="overview-summary"
+            className="flex flex-col gap-2"
+          >
             <h3 className="text-12 uppercase tracking-wide text-tr-text-muted">
               Summary
             </h3>
@@ -115,7 +123,11 @@ export function OverviewPanel({
             ))}
           </section>
 
-          <details className="flex flex-col gap-2" open data-testid="overview-outline">
+          <details
+            className="flex flex-col gap-2"
+            open
+            data-testid="overview-outline"
+          >
             <summary className="cursor-pointer text-12 uppercase tracking-wide text-tr-text-muted">
               Outline
               <span className="ml-2 normal-case tracking-normal text-tr-text-muted">
@@ -151,7 +163,10 @@ export function OverviewPanel({
             )}
           </details>
 
-          <details className="flex flex-col gap-2" data-testid="overview-beat-sheet">
+          <details
+            className="flex flex-col gap-2"
+            data-testid="overview-beat-sheet"
+          >
             <summary className="cursor-pointer text-12 uppercase tracking-wide text-tr-text-muted">
               Beat sheet
               <span className="ml-2 normal-case tracking-normal text-tr-text-muted">
@@ -163,7 +178,8 @@ export function OverviewPanel({
             ) : (
               <ul className="flex flex-col gap-2">
                 {overview.beatSheet.map((row) => {
-                  const jumpScene = row.sceneId ?? beatSceneId(project, row.beatId)
+                  const jumpScene =
+                    row.sceneId ?? beatSceneId(project, row.beatId)
                   const moduleCue = beatModuleCue(row, project.format)
                   return (
                     <li
@@ -196,7 +212,9 @@ export function OverviewPanel({
                           </button>
                         ) : null}
                       </div>
-                      <p className="text-13 text-tr-text-secondary">{row.summary}</p>
+                      <p className="text-13 text-tr-text-secondary">
+                        {row.summary}
+                      </p>
                     </li>
                   )
                 })}

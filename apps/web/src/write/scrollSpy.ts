@@ -8,9 +8,7 @@ export function pickTopIntersectingSceneId(
 ): string | null {
   const visible = [...byTarget]
     .filter((entry) => entry.isIntersecting)
-    .sort(
-      (a, b) => a.boundingClientRect.top - b.boundingClientRect.top,
-    )
+    .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)
   const top = visible[0]?.target
   if (!(top instanceof HTMLElement)) return null
   return top.dataset.sceneId ?? null

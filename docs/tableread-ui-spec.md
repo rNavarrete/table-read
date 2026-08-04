@@ -9,44 +9,70 @@ Quiet Tool visual language: cool paper neutrals, slate-blue accent (`--tr-coral*
 ```css
 :root {
   /* Surfaces — cool paper */
-  --tr-surface-page:    #F6F6F3; /* app background, Write mode page area */
-  --tr-surface-raised:  #FFFFFF; /* cards, script canvas sheet */
-  --tr-surface-sunken:  #F0F0EC; /* panels, rails, command bar */
-  --tr-surface-clay:    #EBEBE6; /* frames on Plan canvas, hover fills */
-  --tr-border:          #E8E8E2;
-  --tr-border-strong:   #D9D9D2;
+  --tr-surface-page: #f6f6f3; /* app background, Write mode page area */
+  --tr-surface-raised: #ffffff; /* cards, script canvas sheet */
+  --tr-surface-sunken: #f0f0ec; /* panels, rails, command bar */
+  --tr-surface-clay: #ebebe6; /* frames on Plan canvas, hover fills */
+  --tr-border: #e8e8e2;
+  --tr-border-strong: #d9d9d2;
 
   /* Text — charcoal, never pure black */
-  --tr-text-primary:    #26272B;
-  --tr-text-secondary:  #84857D;
-  --tr-text-muted:      #9a9b92;
+  --tr-text-primary: #26272b;
+  --tr-text-secondary: #84857d;
+  --tr-text-muted: #9a9b92;
 
   /* Primary action — slate-blue (--tr-coral* names retained) */
-  --tr-coral:           #5B79A6;
-  --tr-coral-hover:     #4A6690;
-  --tr-coral-soft:      #DEE5EE; /* selected/active tints */
-  --tr-accent-ink:      #33445E; /* text on soft accent fill (selected pills) */
+  --tr-coral: #5b79a6;
+  --tr-coral-hover: #4a6690;
+  --tr-coral-soft: #dee5ee; /* selected/active tints */
+  --tr-accent-ink: #33445e; /* text on soft accent fill (selected pills) */
 
   /* Status hues */
-  --tr-sage:            #7D9678; /* confirmed, high-confidence, success */
-  --tr-sage-soft:       #E7EEE4;
-  --tr-sky:             #41608A; /* informational, links, setup/payoff connectors */
-  --tr-sky-soft:        #E4EBF2;
-  --tr-amber:           #8A6120; /* needs review, speculative, pending */
-  --tr-amber-soft:      #FBF4E6;
-  --tr-danger:          #B0503C; /* destructive, errors only — not for AI content */
+  --tr-sage: #7d9678; /* confirmed, high-confidence, success */
+  --tr-sage-soft: #e7eee4;
+  --tr-sky: #41608a; /* informational, links, setup/payoff connectors */
+  --tr-sky-soft: #e4ebf2;
+  --tr-amber: #8a6120; /* needs review, speculative, pending */
+  --tr-amber-soft: #fbf4e6;
+  --tr-danger: #b0503c; /* destructive, errors only — not for AI content */
 
   /* Type */
-  --tr-font-ui:     "Instrument Sans", system-ui, sans-serif;
-  --tr-font-script: "Courier Prime", "Courier New", monospace; /* teleplay */
-  --tr-font-display:"Instrument Sans", system-ui, sans-serif; /* headings, mode titles */
+  --tr-font-ui: 'Instrument Sans', system-ui, sans-serif;
+  --tr-font-script: 'Courier Prime', 'Courier New', monospace; /* teleplay */
+  --tr-font-display:
+    'Instrument Sans', system-ui, sans-serif; /* headings, mode titles */
+  --tr-font-ledger-display:
+    'Newsreader', 'Instrument Sans', Georgia, serif; /* Ledger story-bible titles */
 
-  /* Scale: 11/12/13/15/17/22/28. 11px = secondary chrome; script canvas 12pt Courier. */
+  /* Write redesign (T2.4 script home) — toned desk, paper sheet, slugline dots */
+  --tr-write-desk: #f1eeea; /* surface behind the script sheet */
+  --tr-write-panel: #f7f5f2; /* ON THE PAGE outline rail */
+  --tr-write-selected: #e6ebf5; /* active scene row in the outline */
+  --tr-write-dot-int: #6f93d6; /* INT. slugline marker */
+  --tr-write-dot-ext: #4fa877; /* EXT. slugline marker */
+  --tr-write-dot-other: #c4c0b8; /* neither INT. nor EXT. */
+
+  /* Ledger redesign — story-bible surfaces + secret/concealment accents */
+  --tr-ledger-content: #f3f1ee;
+  --tr-ledger-selected: #e8e4df;
+  --tr-ledger-secret-surface: #f8f2e8; /* secret card fill */
+  --tr-ledger-secret-border: #e9dcc6;
+  --tr-ledger-secret-badge: #f0e2c8;
+  --tr-ledger-secret-ink: #9a6b2f;
+
+  /* Overview panel accents */
+  --tr-overview-expand-bg: #f6f4f1;
+  --tr-overview-icon-bg: #e6ebf5;
+  --tr-overview-ready-bg: #e8f5ec;
+  --tr-overview-ready-ink: #3d8a5a;
+
+  /* Scale: 11/12/13/15/17/22/28, plus 30 for Ledger display titles. 11px = secondary chrome; script canvas 12pt Courier. */
   /* Spacing: 4-base — 4/8/12/16/24/32/48/64. Generous: default section pad 24. */
-  /* Radius: cards 12px, chips 999px, canvas frames 12px. */
+  /* Radius: cards 12px, chips 999px, canvas frames 12px, controls 9px, Ledger cards 15px. */
   /* Shadow: 0 1px 2px rgb(38 39 43 / 0.04), lift: 0 4px 16px rgb(38 39 43 / 0.08) */
+  /* Write/Ledger elevation: --tr-shadow-write-page/-card/-bar/-cta, --tr-shadow-ledger-card, --tr-shadow-overview-card. */
   /* Motion: 160ms ease-out standard; streaming text has no animation. */
-  /* Layout: --tr-script-col 600px; --tr-panel-candidate-dock 332px; Plan panels 232/296/214px; Ledger rail 198px; shell 52px. */
+  /* Layout: --tr-script-col 600px; --tr-panel-candidate-dock 392px (CO-WRITER dock, §3); --tr-panel-write-outline 296px; --tr-command-bar 560px; --tr-script-page 680px; Plan panels 232/296/214px; Ledger CAST rail 236px (--tr-panel-ledger-filters); shell 56px (§2). */
 }
 ```
 
@@ -79,26 +105,27 @@ Both creation paths (`/projects/new/idea`, `/projects/new/import`) share `Wizard
 1. **Add the script** — Upload (`.fountain`/`.txt`/`.pdf`, filename + detected format shown) / Paste tabs. Selecting or pasting Fountain/text never uploads or analyzes it. Selecting a PDF uploads only to the non-LLM extract endpoint (`POST /projects/import/extract-pdf`) and fills editable text; an unsupported extension or empty file fails locally with plain-language guidance.
 2. **Confirm source** — editable textarea containing pasted text, locally read Fountain/text, or server-extracted PDF text. PDF results show a muted method badge (`Text layer` / `OCR`), page count, and warning codes; writer edits here before any analysis.
 3. **Confirm basics** — title (prefilled from the filename when uploaded, editable) + the same `ShowFormat` presets as the idea path.
-4. **Review source** — source type/filename, byte/char/line counts, a deterministic detected-scene count (informational only — the server's own split during analysis is authoritative), plus the preflight estimate line: `N scene(s) detected · ~2N+2 model calls · Est. $low–$high`. The nominal total is segmentation `N` + act inference `1` + fact extraction `N` + consistency scan `1`; segmentation or act-inference repair may add calls. The trust note states the estimate uses the classifier model, actual usage may vary, and **Create & analyze script** is the only action that sends the source to the model.
+4. **Review source** — source type/filename, byte/char/line counts, a deterministic detected-scene count (informational only — the server's own split during analysis is authoritative), plus the preflight estimate line: `N scene(s) detected · ~2N+5 model calls · Est. $low–$high`. The nominal total is import_analyst (Opus) calls `N+4` (segment + acts + entities + promises + overview) plus classifier (Haiku) calls `N+1` (extract + consistency scan); entity chunking or repair may add calls. Narrative Map is an explicit saved-project action, so it is not included in the source-import estimate and a timeout cannot undo the import. The trust note states the estimate mixes Opus/Haiku rates from `config/llm_pricing.json`, actual usage may vary, and **Create & analyze script** is the only action that sends the source to the model.
 5. **Analyze** — before starting, and again after a failed attempt, repeats the same scene count / model-call / estimated-cost line so the writer can see expected classifier usage before retrying. The named stages stream over SSE (`POST /projects/import`, data contract §9.3) as truthful text rows with a status word each (Pending / In progress / Done — never a spinner-only wait, `aria-live="polite"` announces the current stage): parsing scenes → segmenting beats → **inferring act structure** → extracting facts → checking consistency → saving project. Scene-level analysis stages may complete scenes in parallel, but the UI shows ordered source results only after the terminal success. During analysis, stage rows show counters from progress frames (`done / total`) that only increase; a stage becomes **Done** only once all scenes for that stage have completed and the next stage begins (or the terminal result arrives for saving). Act inference is a singleton stage after all scene summaries exist; it uses normal stage start/completion semantics and no per-scene progress. The footer shows elapsed time immediately. ETA stays hidden until at least five scene completions have been observed, then appears as `ETA ~Xm`; if no new completion arrives for a long gap, hide the stale ETA and keep elapsed visible. PDF reaches this endpoint as the writer-confirmed `format: "text"` source. On the terminal `complete`, the draft clears and the writer lands in Plan with the imported scenes/beats and the Ledger pending-review badge. On `failed`, nothing was created — the draft (source + basics) stays intact and the step offers **Retry**, **Edit source** (jumps back to step 1 without losing the draft), and **Return to dashboard**.
 
 ## 3. App shell
 
-Top bar (52px, `--tr-shell-height`, `--tr-surface-sunken`): project title (Instrument Sans display font, 17px / 600) · mode switcher (clay segmented control: **Write · Plan · Review · Ledger**, active segment uses `--tr-coral-soft` + `--tr-accent-ink`) · undo (with history ▾) · export · settings. **Undo** reverts one step (`POST /undo`). The adjacent history control opens a dropdown of up to ~20 ancestor snapshots (`GET /snapshots`: instruction + relative time); choosing an entry restores that ancestor (`POST /restore`) and reloads — multi-step undo without a full branching UI (adoption A5). Review segment shows an amber dot when a draft Change Set exists. Ledger segment shows amber count badge when the review queue is non-empty. Keyboard: `⌘1–4` switch modes. Settings opens a privacy panel stating writing is not used for training (prompt spec §8); do not claim ZDR in product copy. When a project is loaded, Settings also offers **Export project JSON** (`GET /projects/{pid}/export.json` — adoption A6), downloading the full persisted-state envelope (distinct from the top-bar Fountain export), and a **Craft level** default (`fast` / `standard` / `considered`) on `Project.defaultCraftLevel` (adoption A3). Write candidate dock and Change Set preview share that default and can override per request.
+Top bar (56px, `--tr-shell-height`, `--tr-surface-raised`, bottom border): project title (mono / script font, 14px / 500) · mode tabs (**Write · Plan · Review · Ledger** — freestanding `<button role="tab">` pills; **active = soft `--tr-ledger-selected`** so coral stays for primary actions) · undo (with history ▾) · export · settings. Interactive chrome must be real buttons with focus-visible outlines and `aria-selected` / `aria-pressed` — never `div`/`span` click handlers. **Undo** reverts one step (`POST /undo`). The adjacent history control opens a dropdown of up to ~20 ancestor snapshots (`GET /snapshots`: instruction + relative time); choosing an entry restores that ancestor (`POST /restore`) and reloads — multi-step undo without a full branching UI (adoption A5). Review segment shows an amber dot when a draft Change Set exists. Ledger segment shows amber count badge when the review queue is non-empty. Keyboard: `⌘1–4` switch modes. Settings opens a privacy panel stating writing is not used for training (prompt spec §8); do not claim ZDR in product copy. When a project is loaded, Settings also offers **Export project JSON** (`GET /projects/{pid}/export.json` — adoption A6), downloading the full persisted-state envelope (distinct from the top-bar Fountain export), and a **Craft level** default (`fast` / `standard` / `considered`) on `Project.defaultCraftLevel` (adoption A3). Write candidate dock and Change Set preview share that default and can override per request.
 
 ## 4. Write mode
 
-Layout (T2.4 script home): left **scene outline** (232px, `--tr-panel-story-layers`, sunken, own scroll) · center **continuous episode script** in a scrollport · right dock (~332px, `--tr-panel-candidate-dock`) for candidates · bottom command bar (floating pill, 56px, max 600px). The script sheet is `--tr-surface-raised` with a subtle shadow — the hero. Structure edits (reorder, acts, locks UI) stay in Plan; the outline is navigate-only.
+Layout (T2.4 script home / Write redesign handoff): left **ON THE PAGE** scene outline (296px, `--tr-panel-write-outline`, `--tr-write-panel`) · center **continuous episode script** on a toned desk (`--tr-write-desk`) · right **CO-WRITER** dock (392px, `--tr-panel-candidate-dock`) · floating command bar anchored to the **editor column** (560px, `--tr-command-bar`, bottom 26px — not viewport-centered). Script sheet: max-width 680px (`--tr-script-page`), page padding ~64×76, `--tr-shadow-write-page`. Structure edits stay in Plan; the outline is navigate-only.
 
 - **Scene outline:** `Scenes · {n}`; each row = index + slug (location/time) + one-line whatHappens clamp. Active row uses coral-soft / accent ink (same selection language as Plan scene cards). Click sets the **active scene**, updates `?scene=`, saves resume, and scrolls that scene into view. Scroll spy (while not typing in a beat) keeps the outline in sync with the topmost visible scene.
-- **Script canvas:** Fountain rendered in `--tr-font-script` with teleplay indents (scene headings/action full-width; character ~22ch; dialogue ~10ch / 35ch measure; parentheticals ~16ch; transitions right-aligned). Lone PDF element labels (`ACTION`, etc.) are ignored. Click a beat to edit as plain Fountain text; blur returns to the formatted view. Locked beats stay formatted and non-editable. **All episode scenes are stacked** in document order inside one raised sheet; each scene has an in-flow header (slug + `whatHappens` in solid primary — never muted ghost copy) and its beats. Beats separated by faint 1px `--tr-border` rules with beat labels in the left gutter (11px, muted, visible on hover only). **Planned-but-unwritten beats** (empty `scriptText`, non-empty `whatHappens` — typical after scene-skeleton apply) show a **Beat plan** block in solid 15px primary (plus audience learns/feels when present) above an editable script area; the sheet must not look blank. **Direct typing is allowed only in unlocked ranges**: beats with `locked` or `scriptLocked` render read-only (lock glyph in the gutter; caret placement inside shows a brief "Locked — click the lock to edit" hint), while the insertion points immediately before and after a locked beat remain writable — you can write around locked material, never inside it. Unlocking is a one-click writer action on the gutter glyph (locks bind the AI *and* casual edits; they are the writer's own pins, so undoing one is deliberate, not accidental). This mirrors the data-contract guarantee: no mutation path, human or machine, writes into a locked range while the lock holds. Focus/caret inside a beat sets the active scene (wins over scroll spy).
-- **Active scene:** drives Next Beat, command-bar generate, and Accept insert. Changing active scene resets an in-flight candidate session. Deep links (`?scene=`, Ledger `highlightBeat`) set active scene and scroll/highlight the target.
-- **Candidate cards:** stacked in right dock. Card = label (15px display font, e.g. "Tense refusal") + beat plan summary (13px secondary) + script preview (script font, 12px, max 8 lines, fade-out). Streaming: text appears token-by-token, no spinner-only state. Actions per card: **Accept** (coral, solid; shortcut label `[↵]`) · **Tune** (ghost; opens inline one-line input) · **Skip** (text button). Accepting animates the card content into the script canvas (160ms). **Next Beat** shows `[Q]`. Dock header includes a **Craft level** segmented control (Fast / Standard / Considered — adoption A3); changing it updates `defaultCraftLevel` and the next generate request.
-- **Command bar:** raised white floating pill with placeholder *"Tell the scene where to go…"* (`[/]` / `[W]`). Submit = generate candidates with instruction for the **active scene**. `/` and `W` focus it. Not a chat: no history thread, no assistant bubbles. When empty and focused, three muted `~` suggestion chips appear below (adoption A4); click inserts text only — never auto-generates. Tune and empty scene what-happens fields use the same chip pattern.
-- **Keyboard (adoption A8):** `Q` Next Beat · `W`/`/` focus command bar · `[` / `]` previous/next scene · `1`/`2`/`3` select candidate · `Tab`/`Shift-Tab` cycle cards · `Enter` accept focused card · `Esc` dismiss dock. All disabled while the script canvas has focus (AI-quiet) or while typing in a text field.
+- **Script canvas:** Fountain rendered in `--tr-font-script` with teleplay indents (scene headings/action full-width; character ~22ch; dialogue ~10ch / 35ch measure; parentheticals ~16ch; transitions right-aligned). Lone PDF element labels (`ACTION`, etc.) are ignored. Click a beat to edit as plain Fountain text; blur returns to the formatted view. Locked beats stay formatted and non-editable. **All episode scenes are stacked** in document order inside one raised sheet; each scene has an in-flow header (slug + `whatHappens` in solid primary — never muted ghost copy) and its beats. Beats separated by faint 1px `--tr-border` rules with beat labels in the left gutter (11px, muted, visible on hover only). **Planned-but-unwritten beats** (empty `scriptText`, non-empty `whatHappens` — typical after scene-skeleton apply) show a **Beat plan** block in solid 15px primary (plus audience learns/feels when present) above an editable script area; the sheet must not look blank. **Direct typing is allowed only in unlocked ranges**: beats with `locked` or `scriptLocked` render read-only (lock glyph in the gutter; caret placement inside shows a brief "Locked — click the lock to edit" hint), while the insertion points immediately before and after a locked beat remain writable — you can write around locked material, never inside it. Unlocking is a one-click writer action on the gutter glyph (locks bind the AI _and_ casual edits; they are the writer's own pins, so undoing one is deliberate, not accidental). This mirrors the data-contract guarantee: no mutation path, human or machine, writes into a locked range while the lock holds. Focus/caret inside a beat sets the active scene (wins over scroll spy).
+- **Active scene:** drives Suggest next beat, command-bar generate, and Accept insert. Changing active scene resets an in-flight candidate session. Deep links (`?scene=`, Ledger `highlightBeat`) set active scene and scroll/highlight the target.
+- **Outline rows:** scene index (mono) · INT/EXT type dot (`--tr-write-dot-*`) · slug (semibold) · preview line. Selected: `--tr-write-selected` + coral left accent.
+- **Candidate cards:** stacked in CO-WRITER dock. Card = Beat N chip + craft context · Newsreader title (label) · description · script preview (Courier, fade) · **Accept** (coral + ↵ keycap) · **Tune** (outline) · **Skip** (text, right-aligned). Streaming: token-by-token, no spinner-only. **Suggest next beat** full-width CTA with `Q` keycap. Dock header: **CO-WRITER** + craft segmented control (Fast draft / Standard / Considered — A3).
+- **Command bar:** raised bar over the editor column; placeholder _"Whisper the next move…"_; keycaps `/` · `W`; submit **Write it**. Not a chat. Empty-focus chips insert text only (A4).
+- **Keyboard (adoption A8):** `Q` Suggest next beat · `W`/`/` focus command bar · `[` / `]` previous/next scene · `1`/`2`/`3` select candidate · `Tab`/`Shift-Tab` cycle cards · `Enter` accept focused card · `Esc` dismiss dock. All disabled while the script canvas has focus (AI-quiet) or while typing in a text field.
 - **Quiet AI rule (enforced):** while the script canvas has focus and the writer is typing, the dock dims to 40% opacity and never updates; no proactive generation ever.
 
-**States:** *Empty scene* (no beats) — scene slug + pitch when present, clear "No beats in this scene yet" copy, single coral **Next Beat** in the dock. *Planned beats, no script yet* — solid beat-plan copy on the sheet (see above). *Streaming* — cards fill sequentially; command bar disabled with subtle progress shimmer on the dock border. *Error* — dock card with `--tr-danger` left border, message + Retry; script canvas untouched. *Continuity conflict on a candidate* — amber callout "May conflict with the Ledger" with a short cleaned explanation (no raw `fact-…` ids or `audienceKnows` jargon) and a clear **I understand — unlock Accept** control; Accept stays disabled until that acknowledgment. After acknowledge, copy confirms Accept is unlocked and points to Tune if they want to resolve first.
+**States:** _Empty scene_ (no beats) — scene slug + pitch when present, clear "No beats in this scene yet" copy, single coral **Next Beat** in the dock. _Planned beats, no script yet_ — solid beat-plan copy on the sheet (see above). _Streaming_ — cards fill sequentially; command bar disabled with subtle progress shimmer on the dock border. _Error_ — dock card with `--tr-danger` left border, message + Retry; script canvas untouched. _Continuity conflict on a candidate_ — amber callout "May conflict with the Ledger" with a short cleaned explanation (no raw `fact-…` ids or `audienceKnows` jargon) and a clear **I understand — unlock Accept** control; Accept stays disabled until that acknowledgment. After acknowledge, copy confirms Accept is unlocked and points to Tune if they want to resolve first.
 
 ## 5. Plan mode (MVP: simplified board)
 
@@ -108,9 +135,9 @@ Layout: left Story Layers panel (232px, sunken) · center board (page surface, p
 - **Acts as frames:** horizontal bands in `--tr-surface-clay` with act labels ("COLD OPEN", "ACT ONE"…) in display font.
 - **Scene cards** (raised, 12px radius, 214px): index + location (13px strong) · whatHappens (2-line clamp) · chips: storyline letter (v2, hidden), beat count, lock. Selected = `--tr-coral-soft` fill with accent ink. Drag to reorder within/between acts; drop targets highlight clay. Expand (⌥click or chevron) reveals **beat cards** nested (sunken, script-font first line of scriptText). **Double-click** opens Write mode on that scene (`/?project=…&scene=…`) — single-click still only selects for the inspector.
 - **Connector lines:** v2. Reserve a toggle row in the panel footer, disabled with tooltip "Setup/payoff threads — v2".
-- **Inspector (right):** for selected scene — location, time, socialSituation, an editable **Act** selector, storyline (disabled, v2), whatHappens, audienceLearns, audienceFeels; motivations table (character / objective / stakes / obstacle); **Affected facts** list (ledger facts whose sourceSpan is this scene — click → Ledger mode); **lock toggle** as a pill switch (accent when locked; locks children, per data contract). The Act selector lists exactly the project's format-valid labels (`COLD OPEN` plus numbered acts when `coldOpen` is true; numbered acts beginning at `ACT ONE` otherwise), including empty destination acts that have no drag target. It is disabled for effectively locked scenes/episodes and while a save is pending. A change uses the normal optimistic scene-field PATCH, moves the card to the selected act frame, persists after reload, and rolls back on failure; it creates one snapshot and no LLM or consistency call. For selected beat — beat fields + scriptLocked toggle. Premise-level field edits show footer bar: *"Structural change — review impact?"* → **Open Review** (coral) / *Save field only* (text). **Save field only** means exactly that: the field is written as a direct PATCH with **no regeneration of anything else** — but the post-save consistency scan still runs (the flagging promise holds even when the writer skips Review), so any contradictions it creates surface as amber flags rather than silently persisting.
+- **Inspector (right):** for selected scene — location, time, socialSituation, an editable **Act** selector, storyline (disabled, v2), whatHappens, audienceLearns, audienceFeels; motivations table (character / objective / stakes / obstacle); **Affected facts** list (ledger facts whose sourceSpan is this scene — click → Ledger mode); **lock toggle** as a pill switch (accent when locked; locks children, per data contract). The Act selector lists exactly the project's format-valid labels (`COLD OPEN` plus numbered acts when `coldOpen` is true; numbered acts beginning at `ACT ONE` otherwise), including empty destination acts that have no drag target. It is disabled for effectively locked scenes/episodes and while a save is pending. A change uses the normal optimistic scene-field PATCH, moves the card to the selected act frame, persists after reload, and rolls back on failure; it creates one snapshot and no LLM or consistency call. For selected beat — beat fields + scriptLocked toggle. Premise-level field edits show footer bar: _"Structural change — review impact?"_ → **Open Review** (coral) / _Save field only_ (text). **Save field only** means exactly that: the field is written as a direct PATCH with **no regeneration of anything else** — but the post-save consistency scan still runs (the flagging promise holds even when the writer skips Review), so any contradictions it creates surface as amber flags rather than silently persisting.
 
-**States:** *Nothing selected* — inspector shows episode summary + premise. *Drag* — card lifts (shadow token), siblings gap-animate. *Locked selection* — inspector fields read-only with lock banner "Locked — unlock to edit".
+**States:** _Nothing selected_ — inspector shows episode summary + premise. _Drag_ — card lifts (shadow token), siblings gap-animate. _Locked selection_ — inspector fields read-only with lock banner "Locked — unlock to edit".
 
 ### 5a. Guided Plan setup
 
@@ -134,39 +161,49 @@ Layout: quiet full-mode Review surface — compact header card with small instru
 - **Expanded row:** before/after panes side-by-side. Plan fields as word-level diff (del = strikethrough muted, ins = sage underline); scriptText as script-font block diff. Before preview exists, `after` pane shows "Preview to generate" ghost.
 - **Footer bar (sticky):** count "4 of 6 selected" · **Preview selected** (outlined accent) → fills `after` panes · **Apply selected** (solid accent, disabled until previewed) · **Flag only** (text) · **Discard** (text, muted) · reassurance copy "Nothing changes until you confirm." · **Create branch** (disabled, tooltip "v2"). Comments affordance: each row reserves a 24px right-margin slot rendering nothing in MVP (v2: comment bubble).
 
-**States:** *Classifying* — skeleton rows + "Mapping impact…" (boring, factual). *Previewing* — per-row shimmer on `after` pane only. *Applied* — rows collapse to sage check summary + "Undo all" (one snapshot revert), followed by a **post-apply consistency section**: any `scan_consistency` flags render as amber rows ("Scene 5 still stages the argument around the bar's finances") with actions *Open Change Set* / *Go to scene* / *Dismiss* — never auto-fixed. *409 lock conflict* — danger toast "A locked element was included — nothing was changed", selection preserved. Open consistency flags also badge the affected scene cards in Plan mode (small amber dot).
+**States:** _Classifying_ — skeleton rows + "Mapping impact…" (boring, factual). _Previewing_ — per-row shimmer on `after` pane only. _Applied_ — rows collapse to sage check summary + "Undo all" (one snapshot revert), followed by a **post-apply consistency section**: any `scan_consistency` flags render as amber rows ("Scene 5 still stages the argument around the bar's finances") with actions _Open Change Set_ / _Go to scene_ / _Dismiss_ — never auto-fixed. _409 lock conflict_ — danger toast "A locked element was included — nothing was changed", selection preserved. Open consistency flags also badge the affected scene cards in Plan mode (small amber dot).
 
 ## 7. Ledger mode
 
-Ledger is a **story bible** — writers open it to understand what is true in the story world. Two swappable views share the same filters, review queue, and mutation paths. Visual language: **Editorial Quiet Tool** (cool paper, slate-blue accent, soft ambient shadows) — craft elevation over the dual-view + browse-clarity base; see `docs/superpowers/specs/2026-07-17-ledger-creative-polish-design.md`.
+Ledger is a **story bible** — writers open it to understand what is true in the story world. Two swappable views share the same filters, review queue, and mutation paths. Visual language: **Editorial Quiet Tool** (cool paper, slate-blue accent, soft ambient shadows) elevated toward the Ledger redesign handoff (CAST rail + Atlas card grid); see `docs/superpowers/specs/2026-07-17-ledger-creative-polish-design.md` and the design handoff _Story Ledger Redesign_.
 
-| View | Job |
-|---|---|
-| **Story Atlas** (default) | Compact expandable rows grouped by storytelling meaning |
-| **Knowledge Web** | Character- or Audience-focused who-knows-what (ranked list + detail) |
+| View                      | Job                                                                        |
+| ------------------------- | -------------------------------------------------------------------------- |
+| **Story Atlas** (default) | Scannable two-column fact **card grid** (owner, secret treatment, knowers) |
+| **Knowledge Web**         | Character- or Audience-focused who-knows-what (ranked list + detail)       |
 
-Layout: left **filter rail** (198px, `--tr-panel-ledger-filters`, sunken) · main column on page surface with page header + active view body · **review queue** pinned at top when non-empty in **both** views.
+Layout: left **CAST rail** (236px, `--tr-panel-ledger-filters`, raised) · main column on `--tr-ledger-content` (max-width 1040px, centered) with page header · **story overview card** · review queue (when non-empty) · active view body.
 
 ### 7a. Page chrome
 
-- **Title:** display font — "What's true in this story" (`font-display`, 22px) with a one-line secondary subtitle (“Your story bible — browse truths, or focus who knows what.”).
-- **View switcher:** segmented control **Atlas · Web** in the header (`LedgerViewSwitcher`); clay track, active segment `--tr-coral-soft` + `--tr-accent-ink` + `--tr-shadow-raised` (match ModeSwitcher). Choice persists per project in `localStorage` (`tr.ledger.view.{projectId}`).
+- **Title:** Ledger display font — "What's true in this story" (`font-ledger-display` / Newsreader, 30px / 500) with a one-line secondary subtitle. Default: “Your story bible — browse truths, or focus who knows what.” When a CAST person is selected: “Showing what {name} knows, and facts they appear in.”
+- **Secrets only:** pill toggle (`◆ Secrets only`) — filters to `audienceKnows === false`. Off: raised + border; on: secret badge fill/ink (`--tr-ledger-secret-*`). Combines with CAST / Status / As-of (AND).
+- **View switcher:** segmented control **Atlas · Web** in the header (`LedgerViewSwitcher`); clay track, active segment `--tr-coral-soft` + `--tr-accent-ink` + `--tr-shadow-raised`. Choice persists per project in `localStorage` (`tr.ledger.view.{projectId}`).
+- **Threads:** header text link (not in the CAST rail); shows `(n)` when count > 0. Story overview is **not** a header button — see §7a-bis.
 - **Pending chip:** amber-soft when `pending_review` count > 0 ("N to review"); click scrolls to / focuses the review queue; focus-visible uses `--tr-outline-selected` + `--tr-coral`.
 - **Motion:** Atlas ↔ Web body uses a brief fade/rise enter (`.tr-ledger-view-enter`, `--tr-motion-duration-standard` / `--tr-motion-ease-standard`; disabled under `prefers-reduced-motion`).
 
-### 7b. Filter rail (shared filters)
+### 7a-bis. Story overview card
 
-Same `LedgerFilters` model (`status`, `characterId`, `factType`); writer-facing labels only. Browse-first order (Atlas organization research 2026-07-17):
+Persistent card between the page header and the review queue / fact grid (`StoryOverviewCard`). Replaces the old underlined logline teaser and Overview modal entry.
 
-| Control | Options / chrome |
-|---|---|
-| **People** | All · characters with knownBy count `> 0` and `(n)` badges (also sets Knowledge Web focus when Web is active). Zero-count cast (unused / slugline junk) lives under a collapsed **No linked facts (N)** disclosure — expandable, not removed. Manage cast link |
-| **Browse** | All truths · Events · States · Knowledge · Relationships · World rules — chapter/`factType` filter with `(n)` counts (replaces the former “Lenses” label) |
-| **Threads** | Setups & payoffs entry (when wired) |
-| **Status** | Collapsed by default when All; summary shows pending “N to review” in amber. Expand for All · Needs review · Active · Superseded · Stale · Rejected |
-| **As of** | Compact raised `<select>`: Latest (all) · episode scenes in doc order (not a full radio list); focus-visible outline |
+- **Collapsed (default):** icon tile · “STORY OVERVIEW” · ● ready / ● not yet · meta chips (scenes / threads / facts) · logline always visible (Newsreader ~19px) · “Read summary & outline” expander when overview exists.
+- **Expanded:** sunken band with two columns — **Summary** paragraphs · **Outline** scrollable scene rows (number · summary · slug · →). Row click jumps to that scene in Write. Optional **Beat sheet** disclosure below (same jump semantics as before).
+- **Empty:** “Import a script to generate a story overview.”
 
-Section legends: 11px uppercase muted (`text-11`, `tracking-wide`). Accent-tint active pills (`--tr-coral-soft` / `--tr-accent-ink`) on the sunken rail; option hover uses `--tr-surface-clay`; color transitions use standard motion. Filters affect both Atlas and Web.
+### 7b. CAST filter rail (shared filters)
+
+Same `LedgerFilters` model (`status`, `characterId`, `factType`, `secretsOnly`); writer-facing labels only. CAST-first (Ledger redesign):
+
+| Control    | Options / chrome                                                                                                                                                                                                                                                                                                                                                                                                            |
+| ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Cast**   | Legend + **Manage** link. Search input filters people live (case-insensitive substring). **All facts** row (✦ glyph + total count). People rows: 24px circular initials avatar (stable per-name oklch hue), name, count pill; sorted by fact count descending. Show top 10; **Show all N** / **Show fewer** when not searching. Selected row uses `--tr-ledger-selected`. Also sets Knowledge Web focus when Web is active. |
+| **Status** | Collapsed by default when All; summary shows pending “N to review” in amber. Expand for All · Needs review · Active · Superseded · Stale · Rejected                                                                                                                                                                                                                                                                         |
+| **As of**  | Compact `<select>`: Latest (all) · episode scenes in doc order; focus-visible outline                                                                                                                                                                                                                                                                                                                                       |
+
+**Browse** (fact-type) is not on the rail in this pass (`factType` stays `'all'`). Threads live in the content header (§7a); overview is the persistent card (§7a-bis).
+
+Section legends: 11px uppercase muted mono tracking. Selected / hover surfaces use `--tr-ledger-selected` / `--tr-surface-clay`; color transitions use standard motion. Filters affect both Atlas and Web.
 
 ### 7c. Review queue (both views)
 
@@ -179,34 +216,19 @@ Unchanged mutation semantics; presentation polish only.
 
 ### 7d. Story Atlas
 
-Filtered non-queue facts (pending stay in the queue unless status filter is Needs review) group into **chapters** by `factType`; empty chapters omitted:
+Filtered non-queue facts (pending stay in the queue unless status filter is Needs review) render as a **two-column card grid** (`gap` 16px; stacks to one column below `md`).
 
-| Chapter | `factType` |
-|---|---|
-| People & knowledge | `knowledge` |
-| Events | `event` |
-| States | `state` |
-| Relationships | `relationship` |
-| World rules | `world_rule` |
+**Card anatomy** (`AtlasFactCard`, radius `--tr-radius-ledger-card`):
 
-**Chapter chrome:** display 17px title + muted count; light hairline under the chapter header; chevron toggle (button, `aria-expanded`) collapses/expands the chapter body. Default **expanded**; collapsing is session-only. When a fact is selected / expanded, its chapter (and knower subhead, if any) force-open. Knower subheads (when ≥20 facts): 11px uppercase muted, same chevron collapse pattern, default expanded.
+- **Header:** owner avatar + name — owner is the first `knownBy` character, or **Audience** when empty. Stable per-name oklch tint/ink (same helper as CAST).
+- **Secret:** when `audienceKnows === false`, warm secret surface/border (`--tr-ledger-secret-*`) and a right-aligned **◆ Secret** badge.
+- **Body:** full fact text at 15px primary (`text-pretty`).
+- **Footer:** compact scene chip (`ep1 · sc3 · b2` via `formatSourceSpanChip`) · overlapping knower avatars (max 5) · label `"N knowers"` when `knownBy.length > 1`, else `"private"`.
+- **Hover:** slight lift (`--tr-shadow-ledger-card` + translateY); focus-visible selected outline.
 
-**Collapsed row:** discriminating knower/irony cue (not the chapter’s redundant `factType` pill) · fact text (15px primary, 1–2 line clamp, snug leading) · trailing muted knower initials when useful · scene link label. Rows are raised sheets (`--tr-shadow-raised`); hover lifts (`--tr-shadow-lift` + clay fill). Focus-visible: selected outline.
+**Expanded card:** accent outline on the card; detail below reuses `FactCard` with the same brief enter motion as view switch. Click toggles expand; **one card expanded globally** at a time. Full `factType` / provenance / edit actions remain on expanded detail.
 
-Cue mapping (existing fields only — no parallel tag taxonomy):
-
-| Condition | Collapsed chip |
-|---|---|
-| `knownBy` empty | **Audience** (sky) |
-| knowers + `audienceKnows === false` | **Secret** (amber) |
-| single knower, audience knows | knower initials (neutral) |
-| multiple knowers, audience knows | **N knowers** (neutral) |
-
-Full `factType` remains on expanded detail. Inside a chapter with ≥20 facts, rows group under knower subheads: **Audience** (empty `knownBy`), each single knower (cast order), **Shared** (multi-knower — no card duplication).
-
-**Expanded row:** accent outline + lift on the collapsed control; detail below reuses `FactCard` with the same brief enter motion as view switch. Click toggles expand; **one row expanded globally** at a time.
-
-**Empty:** raised quiet panel; *Empty ledger* — "Facts appear as you write…"; *Filtered empty* — "No facts match." plus a short filter-clear nudge.
+**Empty:** centered quiet state — serif “Nothing to show here” + secondary “No facts match the current filter.” (or the empty-ledger / as-of messages from the screen).
 
 ### 7e. Knowledge Web
 
@@ -232,13 +254,12 @@ When the People rail has a specific `characterId` selected (not All), a raised *
 
 ### 7g. Fact detail (shared)
 
-
 Hairline-border raised card (`--tr-shadow-raised`, comfortable padding) with fact text (15px primary, snug leading) · type chip (sky) · `establishedIn` + source-span link ("ep 1 · sc 3 · beat 2" → jumps to beat in Write mode, highlighted 2s) · **Known by** avatars/initials chips (empty = "audience only", italic) · confidence bar (2px, sage fill on cool-paper track; muted fill when superseded) · provenance chip (`inferred` amber / `confirmed` sage / `writer-authored` sky) · status. Superseded facts: strikethrough text + "superseded by →" link; chain view expands inline as a vertical thread. Interactive controls use focus-visible selected outline.
 
 - **Queue card actions:** separated by a hairline — **Accept** (sage) · **Edit** (opens inline form: text, knownBy, type → saves as `writer_authored`) · **Reject** (muted; fact becomes `rejected`, excluded from prompts). **Every ledger action is a versioned mutation**: accept/edit/reject/batch each commit through the standard snapshot transaction (ledger is snapshot-versioned state), so all of them are undoable via the global undo — a mistaken batch-accept is one undo away, and the undo control is enabled in Ledger mode like everywhere else.
 - **Dependency hint:** card footer "referenced by 2 upcoming scenes" when other scenes' plans mention linked characters + this fact was injected into their last generation (best-effort, from prompt logs).
 
-**States:** *Empty ledger* — "Facts appear as you write. Table Read tracks what's true so you don't have to." *Filtered empty* — "No facts match." (+ Atlas filter nudge).
+**States:** _Empty ledger_ — "Facts appear as you write. Table Read tracks what's true so you don't have to." _Filtered empty_ — "No facts match." (+ Atlas filter nudge).
 
 ## 8. Component inventory (build once, reuse)
 

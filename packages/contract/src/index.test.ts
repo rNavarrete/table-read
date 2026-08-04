@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  InferredNarrativeMap,
   InferredActBreaks,
   NarrativePromises,
   ProjectImportStageName,
@@ -44,6 +45,52 @@ describe('contract scaffold', () => {
 
   it('rejects empty inferred act starts', () => {
     expect(() => InferredActBreaks.parse({ starts: [] })).toThrow()
+  })
+})
+
+describe('InferredNarrativeMap', () => {
+  it('requires grounded macro and per-scene analysis rows', () => {
+    const payload = {
+      dramaticQuestion: 'Can Marta make Dan tell the truth?',
+      centralConflict: 'Marta seeks proof while Dan hides it.',
+      controllingIdea: 'Loyalty makes truth costly.',
+      themes: [
+        {
+          label: 'Loyalty',
+          statement: 'Loyalty can hide the truth.',
+          evidence: [{ beatId: 'beat-1' }],
+        },
+      ],
+      acts: [
+        {
+          act: 0,
+          dramaticQuestion: 'Will Marta get an answer?',
+          escalation: 'The proof makes silence untenable.',
+          turnBeatId: 'beat-1',
+        },
+      ],
+      heroJourney: {
+        applies: false,
+        protagonistName: null,
+        rationale: 'A short ensemble fragment does not support this lens.',
+        stages: [],
+      },
+      characterArcs: [],
+      sceneTurns: [
+        {
+          sceneId: 'scene-1',
+          focalCharacterName: 'Marta',
+          dramaticFunction: 'Introduce the conflict.',
+          conflict: 'Marta presses Dan.',
+          stakes: 'The proof could disappear.',
+          turnBeatId: 'beat-1',
+          turn: 'Marta makes the accusation explicit.',
+        },
+      ],
+      threadMovements: [],
+    }
+
+    expect(InferredNarrativeMap.parse(payload)).toEqual(payload)
   })
 })
 

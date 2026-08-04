@@ -15,8 +15,14 @@ import pytest
 
 from llm.anthropic_client import AnthropicClient
 from llm.errors import SchemaInvalidLlmError
+from llm.ops import OP_REGISTRY
 
-_MODELS = {"writer": "writer-model-x", "classifier": "classifier-model-y"}
+_MODELS = {
+    "writer": "writer-model-x",
+    "classifier": "classifier-model-y",
+    "import_worker": "import-worker-model-w",
+    "import_analyst": "import-analyst-model-z",
+}
 
 
 @dataclass
@@ -57,6 +63,39 @@ class FakeMessagesEndpoint:
 class FakeSdkClient:
     def __init__(self, responses: list[FakeMessage]) -> None:
         self.messages = FakeMessagesEndpoint(responses)
+
+
+class FakeMessageStream:
+    def __init__(self, response: FakeMessage) -> None:
+        self.response = response
+        self.closed = False
+
+    def __enter__(self) -> FakeMessageStream:
+        return self
+
+    def __exit__(self, *args: Any) -> None:
+        self.closed = True
+
+    def get_final_message(self) -> FakeMessage:
+        return self.response
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class FakeStreamingMessagesEndpoint(FakeMessagesEndpoint):
+    def __init__(self, responses: list[FakeMessage]) -> None:
+        super().__init__(responses)
+        self.stream_calls: list[dict[str, Any]] = []
+
+    def stream(self, **kwargs: Any) -> FakeMessageStream:
+        self.stream_calls.append(kwargs)
+        return FakeMessageStream(self._responses.pop(0))
+
+
+class FakeStreamingSdkClient:
+    def __init__(self, responses: list[FakeMessage]) -> None:
+        self.messages = FakeStreamingMessagesEndpoint(responses)
 
 
 _VALID_BEAT_CANDIDATE_INPUT = {
@@ -261,8 +300,27 @@ def test_writer_role_op_uses_the_writer_model_and_no_temperature():
     assert "temperature" not in call
 
 
-def test_infer_story_overview_uses_writer_model_and_no_temperature():
-    """§5c overview is writer-role synthesis — omit temperature (Sonnet 5 400)."""
+def test_narrative_map_uses_writer_model_and_no_temperature():
+    valid_map = FakeMessage(
+        content=[
+            FakeToolUseBlock(
+                input=_fixture_valid_input_for("infer_narrative_map"),
+                name="infer_narrative_map",
+            )
+        ]
+    )
+    sdk = FakeSdkClient([valid_map])
+    client = AnthropicClient(sdk_client=sdk, models=_MODELS)
+
+    client.infer_narrative_map(system="sys", user_message="hi", prompt_version="0.1.0")
+
+    call = sdk.messages.calls[0]
+    assert call["model"] == "writer-model-x"
+    assert "temperature" not in call
+
+
+def test_import_analyst_role_op_uses_import_analyst_model_and_no_temperature():
+    """Import story-breakdown ops omit temperature (Opus 5 rejects non-defaults)."""
     from schemas import InferredStoryOverview
 
     valid_overview = FakeMessage(
@@ -276,14 +334,152 @@ def test_infer_story_overview_uses_writer_model_and_no_temperature():
     sdk = FakeSdkClient([valid_overview])
     client = AnthropicClient(sdk_client=sdk, models=_MODELS)
 
-    result = client.infer_story_overview(
-        system="sys", user_message="hi", prompt_version="0.1.0"
-    )
+    result = client.infer_story_overview(system="sys", user_message="hi", prompt_version="0.1.0")
 
     assert isinstance(result, InferredStoryOverview)
     call = sdk.messages.calls[0]
-    assert call["model"] == "writer-model-x"
+    assert call["model"] == "import-analyst-model-z"
     assert "temperature" not in call
+
+
+def test_import_worker_role_op_uses_import_worker_model_and_no_temperature():
+    valid_segment = FakeMessage(
+        content=[
+            FakeToolUseBlock(
+                input=_fixture_valid_input_for("segment_scene"),
+                name="segment_scene",
+            )
+        ]
+    )
+    sdk = FakeSdkClient([valid_segment])
+    client = AnthropicClient(sdk_client=sdk, models=_MODELS)
+
+    client.segment_scene(system="sys", user_message="hi", prompt_version="0.1.0")
+
+    call = sdk.messages.calls[0]
+    assert call["model"] == "import-worker-model-w"
+    assert "temperature" not in call
+
+
+def test_narrative_scene_analysis_preserves_opus_adaptive_thinking():
+    valid_analysis = FakeMessage(
+        content=[
+            FakeToolUseBlock(
+                input=_fixture_valid_input_for("infer_narrative_scene_analysis"),
+                name="infer_narrative_scene_analysis",
+            )
+        ]
+    )
+    sdk = FakeSdkClient([valid_analysis])
+    client = AnthropicClient(sdk_client=sdk, models=_MODELS)
+
+    client.infer_narrative_scene_analysis(
+        system="sys",
+        user_message="analyze the supplied scene",
+        prompt_version="0.26.0",
+    )
+
+    call = sdk.messages.calls[0]
+    assert call["model"] == "import-analyst-model-z"
+    assert call["tool_choice"] == {"type": "auto"}
+    assert call["thinking"] == {"type": "adaptive"}
+    assert call["output_config"] == {"effort": "medium"}
+    assert call["tools"][0]["strict"] is True
+    assert "temperature" not in call
+
+
+def test_narrative_map_synthesis_forces_a_strict_tool_without_thinking():
+    op_name = "infer_narrative_map_synthesis"
+    response = FakeMessage(
+        content=[
+            FakeToolUseBlock(
+                input=_fixture_valid_input_for(op_name),
+                name=op_name,
+            )
+        ]
+    )
+    sdk = FakeStreamingSdkClient([response])
+    client = AnthropicClient(sdk_client=sdk, models=_MODELS)
+
+    result = getattr(client, op_name)(
+        system="sys",
+        user_message="analyze the saved scene packets",
+        prompt_version="0.26.0",
+    )
+
+    assert result is not None
+    assert sdk.messages.calls == []
+    assert len(sdk.messages.stream_calls) == 1
+    call = sdk.messages.stream_calls[0]
+    assert call["tool_choice"] == {"type": "tool", "name": op_name}
+    assert call["thinking"] == {"type": "disabled"}
+    assert call["output_config"] == {"effort": "medium"}
+    assert call["tools"][0]["strict"] is True
+    assert "stream" not in call
+    assert OP_REGISTRY[op_name].call_timeout_seconds == 600.0
+    assert OP_REGISTRY[op_name].retry_schema_once is False
+
+
+def test_narrative_map_verifier_streams_one_forced_strict_tool_call():
+    op_name = "verify_narrative_map"
+    response = FakeMessage(
+        content=[
+            FakeToolUseBlock(
+                input=_fixture_valid_input_for(op_name),
+                name=op_name,
+            )
+        ]
+    )
+    sdk = FakeStreamingSdkClient([response])
+    client = AnthropicClient(sdk_client=sdk, models=_MODELS)
+
+    result = client.verify_narrative_map(
+        system="sys",
+        user_message="verify the saved candidate",
+        prompt_version="0.28.0",
+    )
+
+    assert result.approved is True
+    assert sdk.messages.calls == []
+    assert len(sdk.messages.stream_calls) == 1
+    call = sdk.messages.stream_calls[0]
+    assert call["tool_choice"] == {
+        "type": "tool",
+        "name": "verify_narrative_map",
+    }
+    assert call["thinking"] == {"type": "disabled"}
+    assert call["output_config"] == {"effort": "low"}
+    assert call["tools"][0]["strict"] is True
+    assert "stream" not in call
+    assert OP_REGISTRY[op_name].call_timeout_seconds == 300.0
+    assert OP_REGISTRY[op_name].retry_schema_once is False
+
+
+def test_narrative_map_verifier_does_not_repeat_a_malformed_response():
+    sdk = FakeStreamingSdkClient(
+        [
+            FakeMessage(
+                content=[
+                    FakeToolUseBlock(
+                        input={},
+                        name="verify_narrative_map",
+                    )
+                ]
+            )
+        ]
+    )
+    client = AnthropicClient(sdk_client=sdk, models=_MODELS)
+
+    with pytest.raises(SchemaInvalidLlmError) as exc_info:
+        client.verify_narrative_map(
+            system="sys",
+            user_message="verify the saved candidate",
+            prompt_version="0.28.0",
+        )
+
+    assert exc_info.value.op == "verify_narrative_map"
+    assert sdk.messages.calls == []
+    assert len(sdk.messages.stream_calls) == 1
 
 
 def test_classifier_role_op_uses_the_classifier_model_and_temperature_zero():
@@ -333,6 +529,9 @@ def test_log_line_carries_metadata_but_never_prompt_or_response_text(caplog):
     assert "writer-model-x" in message
     assert "100" in message  # input_tokens
     assert "50" in message  # output_tokens
+    assert "stop_reason=tool_use" in message
+    assert "content_types=tool_use" in message
+    assert "request_id=" in message
     assert "input_hash=" in message
     assert secret_user_message not in message
     assert "top secret system prompt" not in message
@@ -346,7 +545,10 @@ def test_all_ops_are_callable_against_the_fake_sdk():
 
     for name, op in OP_REGISTRY.items():
         fake_input = _fixture_valid_input_for(name)
-        sdk = FakeSdkClient([FakeMessage(content=[FakeToolUseBlock(input=fake_input, name=name)])])
+        response = FakeMessage(content=[FakeToolUseBlock(input=fake_input, name=name)])
+        sdk = (
+            FakeStreamingSdkClient([response]) if op.stream_response else FakeSdkClient([response])
+        )
         client = AnthropicClient(sdk_client=sdk, models=_MODELS)
 
         result = getattr(client, name)(system="sys", user_message="hi", prompt_version="0.1.0")
@@ -465,13 +667,9 @@ def test_stream_beat_candidate_ignores_second_tool_use_block():
     (Extra data) and surfaces as SCHEMA_INVALID_LLM in Write mode."""
     events = [
         FakeMessageStart(message=FakeMessage(usage=FakeUsage(input_tokens=10, output_tokens=0))),
-        FakeContentBlockStart(
-            content_block=FakeToolUseContentBlock(id="toolu_a"), index=0
-        ),
+        FakeContentBlockStart(content_block=FakeToolUseContentBlock(id="toolu_a"), index=0),
         FakeContentBlockDelta(delta=FakeInputJsonDelta('{"label":"first"}'), index=0),
-        FakeContentBlockStart(
-            content_block=FakeToolUseContentBlock(id="toolu_b"), index=1
-        ),
+        FakeContentBlockStart(content_block=FakeToolUseContentBlock(id="toolu_b"), index=1),
         FakeContentBlockDelta(delta=FakeInputJsonDelta('{"label":"second"}'), index=1),
         FakeMessageDelta(usage=FakeUsage(input_tokens=10, output_tokens=5)),
     ]
@@ -596,6 +794,101 @@ def _fixture_valid_input_for(op_name: str) -> dict:
             "beatSheet": [],
             "summary": "Setup.\n\nResolution.",
         },
+        "infer_narrative_map": {
+            "dramaticQuestion": "Will Marta expose Dan before the evidence disappears?",
+            "centralConflict": "Marta needs proof while Dan destroys it.",
+            "controllingIdea": "Truth costs more when loyalty is involved.",
+            "themes": [
+                {
+                    "label": "Loyalty",
+                    "statement": "Loyalty can obstruct the truth.",
+                    "evidence": [{"beatId": "beat-1"}],
+                }
+            ],
+            "acts": [
+                {
+                    "act": 0,
+                    "dramaticQuestion": "Can Marta make Dan answer?",
+                    "escalation": "The evidence forces a confrontation.",
+                    "turnBeatId": "beat-1",
+                }
+            ],
+            "heroJourney": {
+                "applies": False,
+                "protagonistName": None,
+                "rationale": "This fixture is too small for a meaningful journey lens.",
+                "stages": [],
+            },
+            "characterArcs": [],
+            "sceneTurns": [
+                {
+                    "sceneId": "scene-1",
+                    "focalCharacterName": "Marta",
+                    "dramaticFunction": "Set up the central confrontation.",
+                    "conflict": "Marta presses Dan for the truth.",
+                    "stakes": "The evidence may be lost.",
+                    "turnBeatId": "beat-1",
+                    "turn": "The accusation makes the conflict explicit.",
+                }
+            ],
+            "threadMovements": [],
+        },
+        "infer_narrative_scene_analysis": {
+            "scenes": [
+                {
+                    "sceneId": "scene-1",
+                    "summary": "Marta discovers the transfer.",
+                    "focalCharacterName": "Marta",
+                    "dramaticFunction": "Establish the story problem.",
+                    "conflict": "Marta needs an explanation from Dan.",
+                    "stakes": "Their partnership may break.",
+                    "turnBeatId": "beat-1",
+                    "turn": "The discovery forces Marta to act.",
+                    "keyMoments": [
+                        {
+                            "beatId": "beat-1",
+                            "summary": "Marta sees the transfer.",
+                            "dramaticFunction": "Plant the central question.",
+                            "consequence": "Marta now has evidence to confront Dan.",
+                        }
+                    ],
+                }
+            ]
+        },
+        "infer_narrative_map_synthesis": {
+            "dramaticQuestion": "Will Marta confront Dan before the evidence disappears?",
+            "centralConflict": "Marta needs proof while Dan tries to contain the transfer.",
+            "controllingIdea": "Loyalty is tested when the truth becomes dangerous.",
+            "themes": [
+                {
+                    "label": "Loyalty",
+                    "statement": "Loyalty can keep the truth hidden.",
+                    "evidence": [{"beatId": "beat-1"}],
+                }
+            ],
+            "acts": [
+                {
+                    "act": 0,
+                    "dramaticQuestion": "Can Marta make Dan explain the transfer?",
+                    "escalation": "The evidence forces a confrontation.",
+                    "turnBeatId": "beat-1",
+                }
+            ],
+            "heroJourney": {
+                "applies": False,
+                "protagonistName": None,
+                "rationale": "This fixture is too small for a meaningful journey lens.",
+                "stages": [],
+            },
+            "characterArcs": [],
+            "threadMovements": [],
+        },
+        "verify_narrative_map": {
+            "approved": True,
+            "unsupportedPaths": [],
+            "missingSceneIds": [],
+            "issues": [],
+        },
         "segment_scene": {"segments": []},
         "scan_consistency": {"flags": []},
         "generate_scene_skeleton": {"label": "x", "scenes": []},
@@ -691,15 +984,11 @@ def test_schema_invalid_logs_field_paths_not_values(caplog):
     sdk = FakeSdkClient(
         [
             FakeMessage(
-                content=[
-                    FakeToolUseBlock(input=bad, name="infer_story_entities", id="toolu_a")
-                ],
+                content=[FakeToolUseBlock(input=bad, name="infer_story_entities", id="toolu_a")],
                 stop_reason="max_tokens",
             ),
             FakeMessage(
-                content=[
-                    FakeToolUseBlock(input=bad, name="infer_story_entities", id="toolu_b")
-                ],
+                content=[FakeToolUseBlock(input=bad, name="infer_story_entities", id="toolu_b")],
                 stop_reason="max_tokens",
             ),
         ]

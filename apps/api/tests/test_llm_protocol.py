@@ -16,5 +16,13 @@ def test_anthropic_client_satisfies_the_protocol():
     # is built and no network is possible (CLAUDE.md hard rule 1).
     from llm.anthropic_client import AnthropicClient
 
-    client = AnthropicClient(sdk_client=object(), models={"writer": "x", "classifier": "y"})
+    client = AnthropicClient(
+        sdk_client=object(),
+        models={
+            "writer": "x",
+            "classifier": "y",
+            "import_worker": "w",
+            "import_analyst": "z",
+        },
+    )
     assert isinstance(client, LlmClient)

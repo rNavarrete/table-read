@@ -54,7 +54,7 @@ rows, and ≥90% of extracted facts attached to resolved character ids.
   timeline anchors. — `sourceSpan`/supersede-chain temporal semantics and
   the `asOfScene` filter shipped as T7.18 (`facts_as_of`); timeline anchors
   shipped as T7.24 (`Episode.timelineAnchors`, `fountain.timeline.
-  merge_timeline_anchors` — deterministic slugline scan, no LLM).
+merge_timeline_anchors` — deterministic slugline scan, no LLM).
 - Knowledge transitions: who learns what, when (scene-anchored `knownBy`
   changes rather than a single flat list). — shipped as T7.23
   (`LedgerFact.knowledgeEvents` + `knowers_as_of` / `GET /ledger?asOfScene=`

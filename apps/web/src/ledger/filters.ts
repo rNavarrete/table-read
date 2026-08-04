@@ -10,12 +10,18 @@ export interface LedgerFilters {
   status: FactStatusFilter
   characterId: string | null
   factType: FactTypeFilter
+  /** When true, only facts the audience does not know (secrets). */
+  secretsOnly: boolean
+  /** Keep replaced facts out of day-to-day browsing without deleting history. */
+  hideSuperseded?: boolean
 }
 
 export const DEFAULT_FILTERS: LedgerFilters = {
   status: 'all',
   characterId: null,
   factType: 'all',
+  secretsOnly: false,
+  hideSuperseded: false,
 }
 
 /** Client-side filter for the Ledger grid (UI spec §6). Status/character
@@ -34,6 +40,12 @@ export function filterFacts(
       return false
     }
     if (filters.factType !== 'all' && fact.factType !== filters.factType) {
+      return false
+    }
+    if (filters.secretsOnly && fact.audienceKnows) {
+      return false
+    }
+    if (filters.hideSuperseded && fact.status === 'superseded') {
       return false
     }
     return true

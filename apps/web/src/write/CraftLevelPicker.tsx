@@ -21,8 +21,8 @@ const OPTIONS: {
 ]
 
 /**
- * Adoption A3 — craft tier picker (Write dock / Review / Settings).
- * Segmented control; generation stays per-surface (no whole-app lock).
+ * Adoption A3 — craft tier picker (Write dock). Segmented control matching
+ * the Write redesign handoff.
  */
 export function CraftLevelPicker({
   value,
@@ -33,7 +33,7 @@ export function CraftLevelPicker({
     <div
       role="group"
       aria-label="Craft level"
-      className="flex flex-wrap gap-1 rounded-card bg-tr-surface-clay p-1"
+      className="flex rounded-control bg-tr-surface-clay p-0.5"
       data-testid="craft-level-picker"
     >
       {OPTIONS.map((opt) => {
@@ -47,10 +47,10 @@ export function CraftLevelPicker({
             title={opt.sub}
             onClick={() => onChange(opt.value)}
             className={
-              'rounded-card px-2.5 py-1.5 text-13 transition-colors disabled:opacity-50' +
+              'flex-1 rounded-[7px] px-2.5 py-1.5 text-[12.5px] transition-colors duration-standard ease-standard disabled:opacity-50 motion-reduce:transition-none ' +
               (active
-                ? ' bg-tr-coral-soft font-medium text-tr-accent-ink'
-                : ' text-tr-text-secondary hover:text-tr-text-primary')
+                ? 'bg-tr-surface-raised font-medium text-tr-text-primary shadow-raised'
+                : 'text-tr-text-secondary hover:text-tr-text-primary')
             }
           >
             {opt.label}

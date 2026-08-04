@@ -48,7 +48,9 @@ function fact(
 
 describe('atlasCollapsedCue', () => {
   it('returns Audience when knownBy is empty', () => {
-    expect(atlasCollapsedCue(fact({ id: 'f1', knownBy: [] }), project())).toEqual({
+    expect(
+      atlasCollapsedCue(fact({ id: 'f1', knownBy: [] }), project()),
+    ).toEqual({
       label: 'Audience',
       hue: 'sky',
     })

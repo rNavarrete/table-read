@@ -27,6 +27,7 @@
 ### Task 1: Progress event contract and SSE adapter
 
 **Files:**
+
 - Modify: `packages/contract/src/index.ts`
 - Modify: `apps/api/schemas.py`
 - Modify: `apps/api/fountain/create_import.py`
@@ -34,6 +35,7 @@
 - Modify: `docs/tableread-data-contract.md`
 
 **Interfaces:**
+
 - Produces Pydantic `ImportProgressItemEvent` and wire union variant:
   `{type: "progress", stage: ImportProgressStageName, done: int, total: int}`.
 - Produces `_progress_frame(stage: str, done: int, total: int) -> str`.
@@ -140,11 +142,13 @@ git commit -m "import: add per-scene progress SSE contract"
 ### Task 2: Parallel per-scene pipeline coordinator
 
 **Files:**
+
 - Modify: `apps/api/fountain/pipeline.py`
 - Modify: `apps/api/tests/test_import.py`
 - Modify: `apps/api/tests/test_import_create.py`
 
 **Interfaces:**
+
 - Consumes internal `ImportStageStarted` / `ImportStageProgress` from Task 1.
 - Produces four-worker ordered segmentation and extraction.
 - `analyze_import(...)` yields `ImportPipelineEvent`, then returns `ImportAnalysis`.
@@ -246,12 +250,14 @@ git commit -m "import: parallelize per-scene LLM stages"
 ### Task 3: Truthful wizard progress, elapsed time, and ETA
 
 **Files:**
+
 - Create: `apps/web/src/projects/wizard/importProgress.ts`
 - Create: `apps/web/src/projects/wizard/importProgress.test.ts`
 - Modify: `apps/web/src/projects/wizard/ImportWizard.tsx`
 - Modify: `apps/web/src/projects/wizard/ImportWizard.test.tsx`
 
 **Interfaces:**
+
 - Consumes wire `progress` events from Task 1.
 - Produces pure `advanceImportProgress(state, event, nowMs)` and
   `formatElapsed(ms)` / `estimateRemainingMs(state, nowMs)`.
@@ -287,8 +293,14 @@ cd apps/web && npx vitest run \
 State includes:
 
 ```ts
-interface StageProgress { done: number; total: number }
-interface ProgressSample { atMs: number; completedUnits: number }
+interface StageProgress {
+  done: number
+  total: number
+}
+interface ProgressSample {
+  atMs: number
+  completedUnits: number
+}
 interface ImportProgressState {
   currentStage: ProjectImportStageName | null
   completedStages: ProjectImportStageName[]
@@ -351,6 +363,7 @@ git commit -m "web: show truthful import progress and ETA"
 ### Task 4: Authority docs and final verification
 
 **Files:**
+
 - Modify: `docs/tableread-ui-spec.md`
 - Modify: `docs/tableread-test-plan.md`
 - Modify: `docs/tableread-build-plan.md`

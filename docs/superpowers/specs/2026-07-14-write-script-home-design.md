@@ -12,22 +12,22 @@ Today Write shows one scene with no in-mode navigator and a non-scrolling page b
 
 ## 2. Locked decisions
 
-| Decision | Choice |
-|---|---|
-| Layout | Left **scene outline** (~220px, `--tr-panel-*` token or reuse Story Layers width 232px) · center **continuous episode script** · right **candidate dock** (unchanged) · bottom **command bar** (unchanged shape) |
-| Script model | All episode scenes stacked in document order in one scrollable teleplay column; each scene has an in-flow header (slug + whatHappens) and its beats as today |
-| Active scene | Scene that owns focus/caret, or last outline click / URL `?scene=` / resume jump. Always one active scene. |
-| Generation target | `Q`, command bar, Accept insert, Tune — all use **active scene id** (same APIs as today) |
-| Outline row | Index · slug (location/time) · one-line whatHappens clamp; active row accent; click scrolls scene into view and sets active |
-| Scroll | Write content area is the scrollport (`overflow-y: auto`); script page grows with content; beat textareas keep auto-grow |
-| Outline collapse | Optional collapse control; collapsed state browser-local per project (same spirit as resume) |
-| Structure edits | Still Plan only (reorder, act frames, locks UI, skeleton). Outline is navigate-only in v1 — no drag-reorder in Write |
-| Quiet AI | Unchanged: canvas focus dims dock; no proactive generation |
-| Keyboard | Existing Write shortcuts unchanged; add `[` / `]` for previous/next scene (outline + scroll + active). Disabled while typing in a field (same quiet rule as other Write keys) |
-| Deep links | Ledger `highlightBeat` / `?scene=` still work: set active scene, scroll target beat into view, 2s highlight |
-| Default open | Keep `pickDefaultScene` (skip unusable stubs); outline still lists all scenes so title-page junk is visible and skippable |
-| Contract / API | No new endpoints; client-only layout + scroll/active-scene state |
-| Evals | Not required |
+| Decision          | Choice                                                                                                                                                                                                           |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Layout            | Left **scene outline** (~220px, `--tr-panel-*` token or reuse Story Layers width 232px) · center **continuous episode script** · right **candidate dock** (unchanged) · bottom **command bar** (unchanged shape) |
+| Script model      | All episode scenes stacked in document order in one scrollable teleplay column; each scene has an in-flow header (slug + whatHappens) and its beats as today                                                     |
+| Active scene      | Scene that owns focus/caret, or last outline click / URL `?scene=` / resume jump. Always one active scene.                                                                                                       |
+| Generation target | `Q`, command bar, Accept insert, Tune — all use **active scene id** (same APIs as today)                                                                                                                         |
+| Outline row       | Index · slug (location/time) · one-line whatHappens clamp; active row accent; click scrolls scene into view and sets active                                                                                      |
+| Scroll            | Write content area is the scrollport (`overflow-y: auto`); script page grows with content; beat textareas keep auto-grow                                                                                         |
+| Outline collapse  | Optional collapse control; collapsed state browser-local per project (same spirit as resume)                                                                                                                     |
+| Structure edits   | Still Plan only (reorder, act frames, locks UI, skeleton). Outline is navigate-only in v1 — no drag-reorder in Write                                                                                             |
+| Quiet AI          | Unchanged: canvas focus dims dock; no proactive generation                                                                                                                                                       |
+| Keyboard          | Existing Write shortcuts unchanged; add `[` / `]` for previous/next scene (outline + scroll + active). Disabled while typing in a field (same quiet rule as other Write keys)                                    |
+| Deep links        | Ledger `highlightBeat` / `?scene=` still work: set active scene, scroll target beat into view, 2s highlight                                                                                                      |
+| Default open      | Keep `pickDefaultScene` (skip unusable stubs); outline still lists all scenes so title-page junk is visible and skippable                                                                                        |
+| Contract / API    | No new endpoints; client-only layout + scroll/active-scene state                                                                                                                                                 |
+| Evals             | Not required                                                                                                                                                                                                     |
 
 ## 3. Non-goals
 
@@ -92,13 +92,13 @@ Replace single-`scene` `ScriptCanvas` usage with an episode canvas:
 
 ## 5. Components / files
 
-| Unit | Responsibility |
-|---|---|
-| `write/SceneOutline.tsx` | Presentational outline list + collapse |
-| `write/EpisodeCanvas.tsx` (or evolve `ScriptCanvas.tsx`) | Stack scenes; per-scene headers; reuse beat editing |
-| `write/WriteScreen.tsx` | Active scene state, URL/resume, scroll spy, wire generation |
-| `write/projectTree.ts` | Keep `allScenes` / `pickDefaultScene`; no server changes |
-| Tests | Outline click sets active + scroll target; scrollport exists; generation uses active scene; deep-link highlight still works |
+| Unit                                                     | Responsibility                                                                                                              |
+| -------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `write/SceneOutline.tsx`                                 | Presentational outline list + collapse                                                                                      |
+| `write/EpisodeCanvas.tsx` (or evolve `ScriptCanvas.tsx`) | Stack scenes; per-scene headers; reuse beat editing                                                                         |
+| `write/WriteScreen.tsx`                                  | Active scene state, URL/resume, scroll spy, wire generation                                                                 |
+| `write/projectTree.ts`                                   | Keep `allScenes` / `pickDefaultScene`; no server changes                                                                    |
+| Tests                                                    | Outline click sets active + scroll target; scrollport exists; generation uses active scene; deep-link highlight still works |
 
 ## 6. Authority doc updates (same PR or follow-up commit in the task)
 

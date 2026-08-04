@@ -1,11 +1,7 @@
 import type { LedgerFact } from 'contract'
 
 export type FactChapterId =
-  | 'knowledge'
-  | 'event'
-  | 'state'
-  | 'relationship'
-  | 'world_rule'
+  'knowledge' | 'event' | 'state' | 'relationship' | 'world_rule'
 
 export interface FactChapter {
   id: FactChapterId

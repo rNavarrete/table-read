@@ -22,10 +22,7 @@
                   "type": "string"
                 }
               },
-              "required": [
-                "sceneId",
-                "quote"
-              ],
+              "required": ["sceneId", "quote"],
               "type": "object"
             },
             "minItems": 1,
@@ -35,24 +32,14 @@
             "type": "string"
           },
           "role": {
-            "enum": [
-              "principal",
-              "supporting",
-              "minor"
-            ],
+            "enum": ["principal", "supporting", "minor"],
             "type": "string"
           },
           "traits": {
             "type": "string"
           }
         },
-        "required": [
-          "name",
-          "aliases",
-          "role",
-          "traits",
-          "evidence"
-        ],
+        "required": ["name", "aliases", "role", "traits", "evidence"],
         "type": "object"
       },
       "type": "array"
@@ -79,10 +66,7 @@
                   "type": "string"
                 }
               },
-              "required": [
-                "sceneId",
-                "quote"
-              ],
+              "required": ["sceneId", "quote"],
               "type": "object"
             },
             "minItems": 1,
@@ -95,12 +79,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "betweenNames",
-          "label",
-          "reallyLike",
-          "evidence"
-        ],
+        "required": ["betweenNames", "label", "reallyLike", "evidence"],
         "type": "object"
       },
       "type": "array"
@@ -120,20 +99,14 @@
                   "type": "string"
                 }
               },
-              "required": [
-                "sceneId",
-                "quote"
-              ],
+              "required": ["sceneId", "quote"],
               "type": "object"
             },
             "minItems": 1,
             "type": "array"
           },
           "kind": {
-            "enum": [
-              "location",
-              "object"
-            ],
+            "enum": ["location", "object"],
             "type": "string"
           },
           "name": {
@@ -143,21 +116,12 @@
             "type": "string"
           }
         },
-        "required": [
-          "kind",
-          "name",
-          "note",
-          "evidence"
-        ],
+        "required": ["kind", "name", "note", "evidence"],
         "type": "object"
       },
       "type": "array"
     }
   },
-  "required": [
-    "characters",
-    "relationships",
-    "worldElements"
-  ],
+  "required": ["characters", "relationships", "worldElements"],
   "type": "object"
 }

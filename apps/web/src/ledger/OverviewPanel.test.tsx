@@ -47,7 +47,8 @@ function project(): Project {
 
 function overview(overrides: Partial<StoryOverview> = {}): StoryOverview {
   return {
-    logline: 'When Marty finds an empty lab, he must locate Doc before the plan collapses.',
+    logline:
+      'When Marty finds an empty lab, he must locate Doc before the plan collapses.',
     outline: [
       { sceneId: 'scene-1', summary: 'Marty calls for Doc.' },
       { sceneId: 'scene-2', summary: 'The chase begins.' },
@@ -93,18 +94,22 @@ describe('OverviewPanel', () => {
         onClose={vi.fn()}
       />,
     )
-    expect(screen.getByTestId('overview-logline').textContent).toContain('Marty')
-    expect(screen.getByTestId('overview-summary').querySelectorAll('p')).toHaveLength(2)
-    expect(screen.getByTestId('overview-beat-act-beat-1-1').textContent).toContain(
-      'COLD OPEN',
+    expect(screen.getByTestId('overview-logline').textContent).toContain(
+      'Marty',
     )
+    expect(
+      screen.getByTestId('overview-summary').querySelectorAll('p'),
+    ).toHaveLength(2)
+    expect(
+      screen.getByTestId('overview-beat-act-beat-1-1').textContent,
+    ).toContain('COLD OPEN')
     // Outline leads with story action, not location-as-title.
-    expect(screen.getByTestId('overview-outline-scene-scene-1').textContent).toContain(
-      'Marty calls for Doc.',
-    )
-    expect(screen.getByTestId('overview-outline-location-scene-1').textContent).toContain(
-      'THE LAB',
-    )
+    expect(
+      screen.getByTestId('overview-outline-scene-scene-1').textContent,
+    ).toContain('Marty calls for Doc.')
+    expect(
+      screen.getByTestId('overview-outline-location-scene-1').textContent,
+    ).toContain('THE LAB')
     await user.click(screen.getByTestId('overview-outline-scene-scene-1'))
     expect(onJumpToScene).toHaveBeenCalledWith('scene-1')
     await user.click(screen.getByTestId('overview-beat-scene-beat-1-1'))
@@ -127,7 +132,9 @@ describe('OverviewPanel', () => {
     expect(paras).toHaveLength(2)
     expect(paras[0].textContent).toContain('Marty rushes')
     expect(paras[1].textContent).toContain('Finding no one')
-    expect(screen.getByTestId('overview-summary').textContent).not.toContain('\\n')
+    expect(screen.getByTestId('overview-summary').textContent).not.toContain(
+      '\\n',
+    )
   })
 
   it('shows TAG cue for Tag rows even when act is a numeric last act', () => {
@@ -149,6 +156,8 @@ describe('OverviewPanel', () => {
         onClose={vi.fn()}
       />,
     )
-    expect(screen.getByTestId('overview-beat-act-beat-2-1').textContent).toBe('TAG')
+    expect(screen.getByTestId('overview-beat-act-beat-2-1').textContent).toBe(
+      'TAG',
+    )
   })
 })

@@ -22,11 +22,12 @@ from schemas import (
     StoryEntities,
 )
 
-# Conservative user-message budget for classifier entity inference.
-# Tuned from a ~110-scene × 40-line import that failed with Anthropic
-# `400 invalid_request_error` / prompt-too-long on a single call. Leaves
-# headroom for the system prompt, source_data wrapping, and tool schema.
-ENTITY_INFER_USER_CHAR_BUDGET = 80_000
+# Bound entity passes by both payload size and scene count. A 32-scene,
+# ~24k-character Opus request still reached the five-minute timeout. Smaller
+# Sonnet worker batches trade a little fixed prompt overhead for predictable
+# completion and fine-grained durable recovery.
+ENTITY_INFER_USER_CHAR_BUDGET = 12_000
+ENTITY_INFER_MAX_SCENES_PER_CHUNK = 12
 
 # Fixed instruction / source_data tag overhead in `build_entity_prompt`
 # (approximate; budget is intentionally loose).
@@ -49,23 +50,32 @@ def chunk_entity_scene_summaries(
     speaker_names: list[str],
     *,
     budget: int | None = None,
+    max_scenes: int | None = None,
 ) -> list[list[dict]]:
-    """Greedy pack of scene summaries under `budget` estimated user chars.
+    """Greedy pack under both the payload and scene-count ceilings.
 
     Order is preserved. A single scene that alone exceeds the budget becomes
     its own chunk (cannot shrink further here — early-line truncation lives
-    in the pipeline summary builder). `budget` defaults to
-    `ENTITY_INFER_USER_CHAR_BUDGET` at call time (so tests can patch it).
+    in the pipeline summary builder). Defaults are resolved at call time so
+    tests can patch them.
     """
     if budget is None:
         budget = ENTITY_INFER_USER_CHAR_BUDGET
+    if max_scenes is None:
+        max_scenes = ENTITY_INFER_MAX_SCENES_PER_CHUNK
+    if budget <= 0 or max_scenes <= 0:
+        raise ValueError("entity chunk limits must be positive")
     if not summaries:
         return []
     chunks: list[list[dict]] = []
     current: list[dict] = []
     for summary in summaries:
         trial = [*current, summary]
-        if current and estimate_entity_user_chars(trial, speaker_names) > budget:
+        exceeds_limit = (
+            len(trial) > max_scenes
+            or estimate_entity_user_chars(trial, speaker_names) > budget
+        )
+        if current and exceeds_limit:
             chunks.append(current)
             current = [summary]
         else:

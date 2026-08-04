@@ -87,10 +87,10 @@ describe('CandidateCard', () => {
       'bg-tr-coral',
     )
     const tune = screen.getByRole('button', { name: /tune/i })
-    expect(tune.className).toContain('border-tr-coral')
-    expect(tune.className).toContain('text-tr-coral')
+    expect(tune.className).toContain('border-tr-border')
+    expect(tune.className).toContain('text-tr-text-primary')
     expect(screen.getByRole('button', { name: /skip/i }).className).toContain(
-      'opacity-60',
+      'ml-auto',
     )
   })
 
@@ -127,8 +127,7 @@ describe('CandidateCard', () => {
       continuityConflicts: [
         {
           factId: 'fact-04',
-          explanation:
-            "Dan doesn't know yet (audienceKnows:false re: fact-04)",
+          explanation: "Dan doesn't know yet (audienceKnows:false re: fact-04)",
         },
       ],
     })

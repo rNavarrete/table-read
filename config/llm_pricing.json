@@ -5,10 +5,21 @@
     "inputUsdPerMTok": 1.0,
     "outputUsdPerMTok": 5.0
   },
+  "importAnalyst": {
+    "modelIdNote": "claude-opus-5 via config/models.toml import_analyst role",
+    "inputUsdPerMTok": 5.0,
+    "outputUsdPerMTok": 25.0
+  },
+  "importWorker": {
+    "modelIdNote": "claude-sonnet-5 via config/models.toml import_worker role; promotional pricing through 2026-08-31",
+    "inputUsdPerMTok": 2.0,
+    "outputUsdPerMTok": 10.0
+  },
   "importHeuristic": {
     "charsPerToken": 4,
     "systemOverheadTokensPerCall": 1500,
     "avgOutputTokensPerCall": 400,
+    "entityScenesPerCall": 12,
     "highMultiplier": 1.75
   }
 }

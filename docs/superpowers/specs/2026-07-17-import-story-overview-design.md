@@ -16,17 +16,17 @@ Requested artifacts:
 2. **General outline** of the script
 3. **Beat sheet** for the script
 4. **Two-paragraph summary** of the story  
-…surfaced in the **Ledger**.
+   …surfaced in the **Ledger**.
 
 ## Authority scan (what exists today)
 
-| Source | Finding |
-|---|---|
-| Design doc §2 / §3 | Workflow names “episode premise → A/B/C storylines → **beat sheet** → draft scenes”; “logline” appears only as **inspiration suggestions** (A4), not as a stored import field. |
-| Design doc §4.8 | Import should reverse-engineer plan + ledger. Does **not** name logline / outline / synopsis as first-class import outputs. |
-| Data contract / Zod `Episode` | `premise`, storylines, scenes, threads, timeline/relationship/object state. **No** overview object until T7.27. |
-| Import pipeline | Leaves `episode.premise = ""`; beat `whatHappens` filled from segmentation; no overview stage. |
-| Ledger UI | Atlas · Knowledge Web · Threads · Cast. No Story overview surface. |
+| Source                        | Finding                                                                                                                                                                        |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Design doc §2 / §3            | Workflow names “episode premise → A/B/C storylines → **beat sheet** → draft scenes”; “logline” appears only as **inspiration suggestions** (A4), not as a stored import field. |
+| Design doc §4.8               | Import should reverse-engineer plan + ledger. Does **not** name logline / outline / synopsis as first-class import outputs.                                                    |
+| Data contract / Zod `Episode` | `premise`, storylines, scenes, threads, timeline/relationship/object state. **No** overview object until T7.27.                                                                |
+| Import pipeline               | Leaves `episode.premise = ""`; beat `whatHappens` filled from segmentation; no overview stage.                                                                                 |
+| Ledger UI                     | Atlas · Knowledge Web · Threads · Cast. No Story overview surface.                                                                                                             |
 
 **Verdict:** Extend §4.8 with a first-class `Episode.storyOverview` + one import **writer** op (synthesis). Contract package is authoritative for executable shapes; this doc defines product intent.
 
@@ -34,7 +34,7 @@ Requested artifacts:
 
 ### Logline
 
-Industry guides converge on a **one-sentence** pitch (~**25–40 words**, sometimes up to ~50) naming **protagonist + goal + obstacle**, ideally with **stakes** and a flash of **irony/hook**. Classic template: *When [inciting incident], a [protagonist] must [goal] before/or [stakes].* Avoid subplot laundry lists; for a **TV episode** logline, emphasize this episode’s contained dramatic engine (series-engine loglines are a different artifact).
+Industry guides converge on a **one-sentence** pitch (~**25–40 words**, sometimes up to ~50) naming **protagonist + goal + obstacle**, ideally with **stakes** and a flash of **irony/hook**. Classic template: _When [inciting incident], a [protagonist] must [goal] before/or [stakes]._ Avoid subplot laundry lists; for a **TV episode** logline, emphasize this episode’s contained dramatic engine (series-engine loglines are a different artifact).
 
 Sources:
 
@@ -78,18 +78,18 @@ Sources:
 
 ## Locked product decisions
 
-| # | Decision |
-|---|---|
-| 1 | **Approach B:** new `Episode.storyOverview` object — do **not** overload `premise` as the storage home for all four artifacts. |
-| 2 | **Outline:** structured ordered `{sceneId, summary}[]` only. No separate prose outline field (research prefers scene-by-scene lists for this artifact; prose belongs in `summary`). |
-| 3 | **Beat sheet:** structured LLM list `{beatId, label, summary, sceneId?}` — not only client aggregation of beat `whatHappens`. Merge may drop unknown ids; UI may still cross-check coverage vs segmented beats. |
-| 4 | **Premise backfill:** when `Project.premise` and/or `Episode.premise` are empty/whitespace after overview merge, set them from `storyOverview.logline`. Never overwrite a non-empty premise. |
-| 5 | **Ledger:** Overview panel (Threads-style FilterRail entry + raised panel) + optional header logline teaser under “What’s true in this story.” |
-| 6 | **Pipeline slot:** `inferring_overview` **after** `inferring_promises`, **before** `extracting_facts`. |
-| 7 | **Locks:** `storyOverview.locked === true` → re-import must not overwrite overview. Episode-level lock also blocks overwrite (same spirit as locked episode content). |
-| 8 | **Review queue:** trusted-enough prose with edit-in-place later; v1 is import-inferred + Ledger display (no `pending_review` fact). |
-| 9 | **Writer regen / PATCH:** out of scope for v1 UI (Write-mode quiet). Schema carries `provenance` + `locked` for later. |
-| 10 | **Idea-path Generate:** import-only for v1. |
+| #   | Decision                                                                                                                                                                                                        |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | **Approach B:** new `Episode.storyOverview` object — do **not** overload `premise` as the storage home for all four artifacts.                                                                                  |
+| 2   | **Outline:** structured ordered `{sceneId, summary}[]` only. No separate prose outline field (research prefers scene-by-scene lists for this artifact; prose belongs in `summary`).                             |
+| 3   | **Beat sheet:** structured LLM list `{beatId, label, summary, sceneId?}` — not only client aggregation of beat `whatHappens`. Merge may drop unknown ids; UI may still cross-check coverage vs segmented beats. |
+| 4   | **Premise backfill:** when `Project.premise` and/or `Episode.premise` are empty/whitespace after overview merge, set them from `storyOverview.logline`. Never overwrite a non-empty premise.                    |
+| 5   | **Ledger:** Overview panel (Threads-style FilterRail entry + raised panel) + optional header logline teaser under “What’s true in this story.”                                                                  |
+| 6   | **Pipeline slot:** `inferring_overview` **after** `inferring_promises`, **before** `extracting_facts`.                                                                                                          |
+| 7   | **Locks:** `storyOverview.locked === true` → re-import must not overwrite overview. Episode-level lock also blocks overwrite (same spirit as locked episode content).                                           |
+| 8   | **Review queue:** trusted-enough prose with edit-in-place later; v1 is import-inferred + Ledger display (no `pending_review` fact).                                                                             |
+| 9   | **Writer regen / PATCH:** out of scope for v1 UI (Write-mode quiet). Schema carries `provenance` + `locked` for later.                                                                                          |
+| 10  | **Idea-path Generate:** import-only for v1.                                                                                                                                                                     |
 
 ## Schema (conceptual — contract package is executable authority)
 
@@ -116,22 +116,22 @@ StoryOverview = {
 
 ## Ledger surface
 
-1. **FilterRail** — **Overview** under Threads; optional present cue when non-null.  
-2. **OverviewPanel** — logline → two-paragraph summary → outline → beat sheet (collapsible); scene/beat jumps → Write.  
+1. **FilterRail** — **Overview** under Threads; optional present cue when non-null.
+2. **OverviewPanel** — logline → two-paragraph summary → outline → beat sheet (collapsible); scene/beat jumps → Write.
 3. **Header teaser** — one-line logline under the Ledger subtitle when overview exists; click opens panel.
 
 Empty state: “Import a script to generate a story overview.”
 
 ## Locks, snapshots, prompts
 
-| Concern | Rule |
-|---|---|
-| Snapshots | Overview is part of project doc → single import root snapshot. |
-| Locks | Locked overview (or locked episode) preserved on re-import. |
-| Atomicity | Schema-invalid after one retry → `SCHEMA_INVALID_LLM`, zero rows. |
+| Concern        | Rule                                                                                  |
+| -------------- | ------------------------------------------------------------------------------------- |
+| Snapshots      | Overview is part of project doc → single import root snapshot.                        |
+| Locks          | Locked overview (or locked episode) preserved on re-import.                           |
+| Atomicity      | Schema-invalid after one retry → `SCHEMA_INVALID_LLM`, zero rows.                     |
 | PROMPT_VERSION | Bump with new template; tool schema regen; **`make evals` not run until authorized**. |
-| Untrusted text | Via `drama_manager/render.py` + `<source_data_{nonce}>`. |
-| Logging | Stage/ids/token counts / PROMPT_VERSION only — never overview prose. |
+| Untrusted text | Via `drama_manager/render.py` + `<source_data_{nonce}>`.                              |
+| Logging        | Stage/ids/token counts / PROMPT_VERSION only — never overview prose.                  |
 
 ## Cost
 
@@ -146,11 +146,10 @@ Empty state: “Import a script to generate a story overview.”
 
 ## Self-review
 
-- Research cited; open questions closed with locked table.  
-- Outline has no prose twin (documented).  
-- Beat sheet is TV-shaped named turns grounded to ids, not forced STC-15.  
+- Research cited; open questions closed with locked table.
+- Outline has no prose twin (documented).
+- Beat sheet is TV-shaped named turns grounded to ids, not forced STC-15.
 - Contract package remains executable authority for shapes.
-
 
 ## Amendment — TV beat-sheet grounding (2026-07-17, post T7.30)
 
@@ -158,21 +157,21 @@ Empty state: “Import a script to generate a story overview.”
 
 ### Problem (observed)
 
-Writers trust Overview *formatting* but not beat-sheet *content*. A West Wing–style import produced film-shaped turns (Cold Open, Inciting Incident, Midpoint, Climax, Tag) with slugline-flavored summaries — Save-the-Cat / feature vocabulary rather than teleplay act grammar grounded in the imported partition.
+Writers trust Overview _formatting_ but not beat-sheet _content_. A West Wing–style import produced film-shaped turns (Cold Open, Inciting Incident, Midpoint, Climax, Tag) with slugline-flavored summaries — Save-the-Cat / feature vocabulary rather than teleplay act grammar grounded in the imported partition.
 
 ### Craft research (TV episodic beat sheet)
 
 Hour drama (network + prestige staffing samples) is modular:
 
-| Module | Role |
-|---|---|
-| **Teaser / Cold Open** | Hook before Act One; question or spike (often 2–5 pages in pilots) |
-| **Acts 1…N** | Pressure chambers; **act outs** are the commercial/narrative turns that retain the audience |
-| **Tag** | Short button after climax; series bridge / sting (when the format uses one) |
+| Module                 | Role                                                                                        |
+| ---------------------- | ------------------------------------------------------------------------------------------- |
+| **Teaser / Cold Open** | Hook before Act One; question or spike (often 2–5 pages in pilots)                          |
+| **Acts 1…N**           | Pressure chambers; **act outs** are the commercial/narrative turns that retain the audience |
+| **Tag**                | Short button after climax; series bridge / sting (when the format uses one)                 |
 
 Typical network hour: Teaser + 4–5 acts (+ optional Tag). Streaming may drop ads but the page grammar (teaser / acts / tag) still shows up in rooms and coverage. A **TV beat sheet** lists those major emotional/structural turns — leaner than a scene-by-scene outline, denser than a logline — not Blake Snyder’s **15-beat feature** catalog (Opening Image, Theme Stated, Break into Two, Fun and Games, Bad Guys Close In, All Is Lost, Dark Night of the Soul, Break into Three, Final Image, etc.).
 
-“Midpoint” may appear as a *turn inside a middle act* when the script earns it; it is **not** a required film slot. Prefer labels like **Teaser / Cold Open**, **Act N Turn / Act N Out**, **Climax**, **Tag** aligned to `ShowFormat.coldOpen`, `actCount`, and `tag`.
+“Midpoint” may appear as a _turn inside a middle act_ when the script earns it; it is **not** a required film slot. Prefer labels like **Teaser / Cold Open**, **Act N Turn / Act N Out**, **Climax**, **Tag** aligned to `ShowFormat.coldOpen`, `actCount`, and `tag`.
 
 Sources:
 
@@ -184,37 +183,37 @@ Sources:
 
 ### Root-cause diagnosis (pre-0.16.0)
 
-| Factor | Finding |
-|---|---|
-| Prompt exemplars | Listed Hook / Inciting / Midpoint / Climax / Button → model defaults to film catalog |
-| Beat inventory | `known_beats` was `{beatId, sceneId}` only — no `whatHappens` |
-| Scene spine | Reused entity summaries (incl. early `scriptText`) — encourages slugline parroting; **scene `act` omitted** |
-| Format | Only in shared system SHOW FORMAT; not reinforced for beat-sheet density |
-| Merge | Dropped unknown `beatId`s only — no scene↔beat verify, no act coerce, no sort/dedupe |
-| Model role | Was `classifier` @ temp 0; later moved to **writer** (Sonnet) for synthesis — not the original TV-label drift source |
+| Factor           | Finding                                                                                                              |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------- |
+| Prompt exemplars | Listed Hook / Inciting / Midpoint / Climax / Button → model defaults to film catalog                                 |
+| Beat inventory   | `known_beats` was `{beatId, sceneId}` only — no `whatHappens`                                                        |
+| Scene spine      | Reused entity summaries (incl. early `scriptText`) — encourages slugline parroting; **scene `act` omitted**          |
+| Format           | Only in shared system SHOW FORMAT; not reinforced for beat-sheet density                                             |
+| Merge            | Dropped unknown `beatId`s only — no scene↔beat verify, no act coerce, no sort/dedupe                                 |
+| Model role       | Was `classifier` @ temp 0; later moved to **writer** (Sonnet) for synthesis — not the original TV-label drift source |
 
 ### Locked decisions (B)
 
-| # | Decision |
-|---|---|
-| B1 | **Approach B:** keep structured `{beatId, label, summary, sceneId?}` + add optional **`act`** on each beat-sheet row (persisted + inferred). |
-| B2 | **`beatId` remains required.** Server resolves/verifies `sceneId` from that beat’s parent scene (authoritative); mismatches null→resolved or dropped only if beat unknown. |
-| B3 | **`act` coerced from the scene’s imported `act`** when present; LLM-supplied `act` that disagrees with the scene is overwritten (never invent acts). |
-| B4 | Merge **sorts** beat-sheet rows by episode scene order then beat order; **dedupes** duplicate `beatId` (keep first). |
-| B5 | Prompt input: explicit format block + act-ordered scene spine `{sceneId, act, location, whatHappens}` (no full scriptText) + `{beatId, sceneId, whatHappens}`. |
-| B6 | Label vocabulary: TV act grammar (Teaser/Cold Open if `coldOpen`; Act N Turn/Out; Climax; Tag if `tag`). Forbid forcing STC-15 feature labels. Density guide: roughly `modules`…`2×modules` where `modules = (1 if coldOpen else 0) + actCount + (1 if tag else 0)`. |
-| B7 | Ledger Overview **formatting unchanged**; optional subtle act cue when `act` is non-null. |
-| B8 | `PROMPT_VERSION` **0.16.0**; tool schemas regenerated; planted T7.30 evals tightened (forbidden STC labels / act grounding). Real `make evals` only when authorized. |
+| #   | Decision                                                                                                                                                                                                                                                             |
+| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| B1  | **Approach B:** keep structured `{beatId, label, summary, sceneId?}` + add optional **`act`** on each beat-sheet row (persisted + inferred).                                                                                                                         |
+| B2  | **`beatId` remains required.** Server resolves/verifies `sceneId` from that beat’s parent scene (authoritative); mismatches null→resolved or dropped only if beat unknown.                                                                                           |
+| B3  | **`act` coerced from the scene’s imported `act`** when present; LLM-supplied `act` that disagrees with the scene is overwritten (never invent acts).                                                                                                                 |
+| B4  | Merge **sorts** beat-sheet rows by episode scene order then beat order; **dedupes** duplicate `beatId` (keep first).                                                                                                                                                 |
+| B5  | Prompt input: explicit format block + act-ordered scene spine `{sceneId, act, location, whatHappens}` (no full scriptText) + `{beatId, sceneId, whatHappens}`.                                                                                                       |
+| B6  | Label vocabulary: TV act grammar (Teaser/Cold Open if `coldOpen`; Act N Turn/Out; Climax; Tag if `tag`). Forbid forcing STC-15 feature labels. Density guide: roughly `modules`…`2×modules` where `modules = (1 if coldOpen else 0) + actCount + (1 if tag else 0)`. |
+| B7  | Ledger Overview **formatting unchanged**; optional subtle act cue when `act` is non-null.                                                                                                                                                                            |
+| B8  | `PROMPT_VERSION` **0.16.0**; tool schemas regenerated; planted T7.30 evals tightened (forbidden STC labels / act grounding). Real `make evals` only when authorized.                                                                                                 |
 
 ### Schema delta (conceptual — contract package is executable authority)
 
 ```ts
 StoryOverviewBeatItem = {
-  beatId: Id,                 // required; must exist after merge
+  beatId: Id, // required; must exist after merge
   label: string,
   summary: string,
-  sceneId: Id | null,         // resolved from beatId when possible
-  act: number | null,         // NEW — coerced from scene.act
+  sceneId: Id | null, // resolved from beatId when possible
+  act: number | null, // NEW — coerced from scene.act
 }
 ```
 
@@ -233,23 +232,23 @@ StoryOverviewBeatItem = {
 
 ### Problem (observed after TV-structure ship)
 
-Writers trust Overview *formatting* (Cold Open / Act N Turn / Tag) but still **do not trust content**. A West Wing–style re-import produced:
+Writers trust Overview _formatting_ (Cold Open / Act N Turn / Tag) but still **do not trust content**. A West Wing–style re-import produced:
 
-| Surface | Failure mode |
-|---|---|
-| **Summary** | Vague political-crisis prose; almost no proper names or concrete plot (bike accident, Meet the Press, etc.); phrases like “a crucial confrontation,” “final reversal or commitment.” |
+| Surface           | Failure mode                                                                                                                                                                               |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Summary**       | Vague political-crisis prose; almost no proper names or concrete plot (bike accident, Meet the Press, etc.); phrases like “a crucial confrontation,” “final reversal or commitment.”       |
 | **Outline (~29)** | Each row mostly slugline + empty template (“becomes a space for…”, “raises the stakes”, “deepens character dynamics”). Truncation artifacts (“INT. WESTA”). Not what happens in the scene. |
-| **Beat sheet** | Structure OK, but summaries still location-theater (“action shifts to the White House, raising stakes”) not story turns. |
+| **Beat sheet**    | Structure OK, but summaries still location-theater (“action shifts to the White House, raising stakes”) not story turns.                                                                   |
 
 ### Root-cause diagnosis (pre-0.17.0)
 
-| Factor | Finding |
-|---|---|
-| Prompt | Structure-hardened (TV labels) but **content-soft** — no ban on location-restating boilerplate; no requirement for names/concrete events |
+| Factor          | Finding                                                                                                                                                                                                    |
+| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Prompt          | Structure-hardened (TV labels) but **content-soft** — no ban on location-restating boilerplate; no requirement for names/concrete events                                                                   |
 | Pipeline inputs | Spine/beats carried `whatHappens` only; scene-level `whatHappens` is empty at assembly; **no** `audienceLearns` / `audienceFeels` / short script excerpts (entity inference already uses early scriptText) |
-| `max_tokens` | `infer_story_overview` at **8192** — large episodes truncate mid-field (slugline fragments) |
-| Merge | Grounded ids/acts but **no** soft quality replacement when summaries are location theater |
-| UI | Outline linked **location as title**, then summary — visually reads as location-theater even when summary exists |
+| `max_tokens`    | `infer_story_overview` at **8192** — large episodes truncate mid-field (slugline fragments)                                                                                                                |
+| Merge           | Grounded ids/acts but **no** soft quality replacement when summaries are location theater                                                                                                                  |
+| UI              | Outline linked **location as title**, then summary — visually reads as location-theater even when summary exists                                                                                           |
 
 ### Quality bar (bad vs good)
 
@@ -270,14 +269,14 @@ Writers trust Overview *formatting* (Cold Open / Act N Turn / Tag) but still **d
 
 ### Locked decisions (C)
 
-| # | Decision |
-|---|---|
-| C1 | Prompt **bans** location-theater boilerplate; requires character names + concrete events from source; outline = story action; beat summaries = the turn; synopsis = two specific paragraphs |
-| C2 | Pipeline feeds richest available beat/scene text: rolled-up `whatHappens` / `audienceLearns` / `audienceFeels` + short `scriptExcerpt` (≈12 lines/scene) + `known_cast` — all via `render.py` inert wrapping |
-| C3 | Soft merge guard: if outline/beat summary is location theater **and** segmented beat `whatHappens` is concrete, replace; never invent anchors; do not drop rows for soft failures |
-| C4 | `max_tokens` **16384** for `infer_story_overview` (truncation fix) |
-| C5 | Overview UI: outline **leads with action summary**; location is muted secondary cue (beat-sheet formatting unchanged) |
-| C6 | `PROMPT_VERSION` **0.17.0**; planted eval may flag boilerplate; real `make evals` only when authorized |
+| #   | Decision                                                                                                                                                                                                     |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| C1  | Prompt **bans** location-theater boilerplate; requires character names + concrete events from source; outline = story action; beat summaries = the turn; synopsis = two specific paragraphs                  |
+| C2  | Pipeline feeds richest available beat/scene text: rolled-up `whatHappens` / `audienceLearns` / `audienceFeels` + short `scriptExcerpt` (≈12 lines/scene) + `known_cast` — all via `render.py` inert wrapping |
+| C3  | Soft merge guard: if outline/beat summary is location theater **and** segmented beat `whatHappens` is concrete, replace; never invent anchors; do not drop rows for soft failures                            |
+| C4  | `max_tokens` **16384** for `infer_story_overview` (truncation fix)                                                                                                                                           |
+| C5  | Overview UI: outline **leads with action summary**; location is muted secondary cue (beat-sheet formatting unchanged)                                                                                        |
+| C6  | `PROMPT_VERSION` **0.17.0**; planted eval may flag boilerplate; real `make evals` only when authorized                                                                                                       |
 
 ### Self-review (content-quality amendment)
 
@@ -293,16 +292,16 @@ Writers trust Overview *formatting* (Cold Open / Act N Turn / Tag) but still **d
 
 ### Decision
 
-| # | Decision |
-|---|---|
-| W1 | **`infer_story_overview` uses `writer` (Sonnet / `claude-sonnet-5`)**, not classifier Haiku. |
-| W2 | **Classifier (Haiku)** = grounded extraction; **writer (Sonnet)** = synthesis/judgment (logline, synopsis, beat-sheet turn selection). Overview is the **first import op on writer**. |
-| W3 | **No `temperature=0`** on writer-role calls — Sonnet 5 may 400 on non-default temperature (same constraint that moved segmentation to classifier). Classifier ops keep temp 0. |
-| W4 | **One call** still produces logline + outline + beat sheet + synopsis — do not split outline into a second op. |
-| W5 | **`make evals` required before merge** (model-path change); not run until authorized. Verify: re-import and API logs show `model=claude-sonnet-5` for `infer_story_overview`. |
+| #   | Decision                                                                                                                                                                                                      |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| W1  | **`infer_story_overview` uses `import_analyst` (Opus / `claude-opus-5`)**, with other import story-breakdown ops — not classifier Haiku.                                                                      |
+| W2  | **Classifier (Haiku)** = grounded extraction (facts, scan); **import_analyst (Opus)** = import story breakdown (segment / acts / entities / promises / overview); **writer (Sonnet)** = Write-mode synthesis. |
+| W3  | **No `temperature=0`** on `import_analyst` / writer calls — Opus/Sonnet may 400 on non-default temperature. Classifier ops keep temp 0.                                                                       |
+| W4  | **One call** still produces logline + outline + beat sheet + synopsis — do not split outline into a second op.                                                                                                |
+| W5  | **`make evals` required before merge** (model-path change); not run until authorized. Verify: re-import and API logs show `model=claude-opus-5` for `infer_story_overview`.                                   |
 
 ### Self-review
 
-- Role split matches product intent (extraction vs synthesis).
+- Role split matches product intent (Haiku extraction vs Opus import breakdown vs Sonnet Write synthesis).
 - Temperature handling remains role-gated in `anthropic_client`.
 - No schema / tool-schema / prompt-text change.

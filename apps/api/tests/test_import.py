@@ -8,6 +8,7 @@ transaction, the response shape, and the zero-persistence guarantees.
 from __future__ import annotations
 
 import threading
+import time
 
 import anthropic
 import httpx
@@ -82,6 +83,82 @@ def act_breaks(*starts) -> InferredActBreaks:
 
 def extraction(facts: list[dict] | None = None) -> LedgerExtraction:
     return LedgerExtraction.model_validate({"newFacts": facts or [], "contradictions": []})
+
+
+def test_extract_retries_one_provider_invalid_request_without_logging_script(caplog):
+    class _TransientInvalidRequest:
+        calls = 0
+
+        def extract_ledger_facts(self, **_kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                response = httpx.Response(
+                    400,
+                    request=httpx.Request("POST", "https://api.anthropic.com/v1/messages"),
+                    json={
+                        "type": "error",
+                        "error": {
+                            "type": "invalid_request_error",
+                            "message": "temporary provider request rejection",
+                        },
+                    },
+                )
+                raise anthropic.BadRequestError(
+                    message="bad request", response=response, body=response.json()
+                )
+            return extraction()
+
+    scene = {
+        "id": "scene-7",
+        "beats": [
+            {
+                "id": "beat-7-1",
+                "scriptText": "PRIVATE_SCRIPT_TEXT must not reach logs.",
+            }
+        ],
+    }
+    llm = _TransientInvalidRequest()
+
+    with caplog.at_level("WARNING", logger="fountain.pipeline"):
+        result = pipeline._extract_one(
+            7,
+            scene,
+            {"title": "T", "format": NEW_PROJECT_BODY["format"]},
+            "ep-1",
+            [],
+            llm,
+        )
+
+    assert result == extraction()
+    assert llm.calls == 2
+    joined = " ".join(record.getMessage() for record in caplog.records)
+    assert "import_extract_retry scene_index=7" in joined
+    assert "PRIVATE_SCRIPT_TEXT" not in joined
+
+
+def test_parallel_failure_checkpoints_completed_in_flight_results():
+    second_worker_started = threading.Event()
+    saved: list[tuple[int, str]] = []
+
+    def worker(index: int, _value: int) -> str:
+        if index == 0:
+            assert second_worker_started.wait(timeout=1)
+            raise RuntimeError("first request failed")
+        second_worker_started.set()
+        time.sleep(0.05)
+        return "saved-result"
+
+    generator = pipeline._run_ordered_parallel(
+        [0, 1],
+        worker,
+        stage="extracting_facts",
+        on_result=lambda index, result: saved.append((index, result)),
+    )
+
+    assert next(generator).done == 0
+    with pytest.raises(RuntimeError, match="first request failed"):
+        list(generator)
+    assert saved == [(1, "saved-result")]
 
 
 def one_fact(beat_id: str = "beat-1-1", confidence: float = 0.95) -> dict:
@@ -439,7 +516,12 @@ def test_analyze_import_reports_per_scene_segment_progress(unlocked_project):
         if isinstance(e, pipeline.ImportStageProgress)
         and e.stage == pipeline.STAGE_SEGMENTING_BEATS
     ]
-    assert [(e.done, e.total) for e in segment] == [(1, 3), (2, 3), (3, 3)]
+    assert [(e.done, e.total) for e in segment] == [
+        (0, 3),
+        (1, 3),
+        (2, 3),
+        (3, 3),
+    ]
 
 
 def test_out_of_order_scene_workers_preserve_source_order(unlocked_project, monkeypatch):
@@ -1758,9 +1840,9 @@ def test_import_preserves_locked_story_overview_on_reimport(db_session, mock_llm
     episode = first["project"]["seasons"][0]["episodes"][0]
     prior_logline = episode["storyOverview"]["logline"]
     # Persist locked overview on the project doc for re-import.
-    from storage.models import ProjectRow
-
     from sqlalchemy.orm.attributes import flag_modified
+
+    from storage.models import ProjectRow
 
     row = db_session.get(ProjectRow, pid)
     doc = dict(row.doc)

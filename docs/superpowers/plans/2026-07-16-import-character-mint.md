@@ -20,6 +20,7 @@
 ## Task 1: Pure helpers + unit tests
 
 **Files:**
+
 - Create: `apps/api/fountain/characters.py`
 - Create: `apps/api/tests/test_fountain_characters.py`
 
@@ -29,6 +30,7 @@
 ## Task 2: Wire import pipeline
 
 **Files:**
+
 - Modify: `apps/api/fountain/pipeline.py`
 - Modify: `apps/api/tests/test_import.py` (or focused new tests)
 
@@ -46,6 +48,7 @@ The originally planned `backfill_import_characters.py` is dropped.
 ## Task 4: Docs
 
 **Files:**
+
 - Modify: `docs/tableread-build-plan.md` (T7.14)
 - Spec already at `docs/superpowers/specs/2026-07-16-import-character-mint-design.md`
 

@@ -296,4 +296,3 @@ describe('layoutFactArc (optional marker layout helper)', () => {
     expect(layout[0]!.y).not.toBe(layout[1]!.y)
   })
 })
-

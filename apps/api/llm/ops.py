@@ -2,18 +2,25 @@
 `BeatCandidate` from §2 reused by `generate_beat_candidates`/`tune_beat` per
 docs/tableread-prompt-spec.md §1-§2). Single source of truth for: the tool
 `name` used in `tool_choice` forcing, the output schema, and the
-writer/classifier model-role split (prompt spec §8):
+writer/classifier/import_worker/import_analyst model-role split (prompt spec §8):
 
 - **classifier (Haiku):** grounded extraction / deterministic reads — blast
-  radius, ledger facts, entities, narrative promises, suggestions, act
-  inference, segmentation, consistency scan. Runs at temperature 0.
+  radius, ledger facts, suggestions, consistency scan. Runs at temperature 0.
+- **import_worker (Sonnet 5):** bounded, repeatable import work — per-scene
+  segmentation and chunked entity extraction.
+- **import_analyst (Opus 5):** story-wide import judgment — act inference,
+  narrative promises, and story overview. Opus rejects non-default
+  temperature; anthropic_client omits `temperature`.
+- **writer (Sonnet 5):** synthesis / judgment, including the independent
+  Narrative Map over the saved Opus breakdown. Writer-tier models also reject
+  non-default temperature.
 - **writer (Sonnet):** synthesis / judgment — beat candidates, tune,
-  regenerate, scene skeleton, and §5c story overview (logline, synopsis,
-  beat-sheet turn selection). Writer-tier models reject non-default
+  regenerate, scene skeleton. Writer-tier models reject non-default
   temperature; anthropic_client omits `temperature` for writer ops.
 
-§7 segmentation moved writer→classifier so it can run at temperature 0 (§7);
-see the note at its LlmOp below. Overview is the first import op on writer.
+Reassigning import story-breakdown ops onto `import_analyst` is a versioned
+model-path change — requires `make evals` sign-off before merge
+(PROMPT_VERSION unchanged when prompt text is untouched).
 
 Consumed by `mock.py`/`anthropic_client.py` (dispatch + tool-schema lookup)
 and by `scripts/generate_tool_schemas.py` (config/tool_schemas/ generation).
@@ -46,17 +53,23 @@ from schemas import (
     BlastRadius,
     ConsistencyScan,
     InferredActBreaks,
+    InferredNarrativeMap,
+    InferredNarrativeMapSynthesis,
+    InferredNarrativeSceneAnalysisBatch,
     InferredStoryOverview,
     InitialSceneSkeleton,
     InstructionSuggestions,
     LedgerExtraction,
+    NarrativeMapVerification,
     NarrativePromises,
     RegeneratedElements,
     SegmentedScene,
     StoryEntities,
 )
 
-Role = Literal["writer", "classifier"]
+Role = Literal["writer", "classifier", "import_worker", "import_analyst"]
+ToolChoiceMode = Literal["forced", "auto"]
+EffortLevel = Literal["low", "medium", "high", "xhigh", "max"]
 
 
 @dataclass(frozen=True)
@@ -66,15 +79,32 @@ class LlmOp:
     model: type[BaseModel]
     role: Role
     description: str  # short, non-creative: the Anthropic tool `description` field
-    # Optional per-op ceiling. Import classifier reads (entities, promises,
-    # fact extract, segmentation, consistency scan) return large structured
+    # Optional per-op ceiling. Import reads (entities, promises, fact extract,
+    # segmentation, consistency scan, overview) return large structured
     # payloads; DEFAULT_MAX_TOKENS (4096) truncates mid-tool-input and
     # surfaces as SCHEMA_INVALID_LLM.
     max_tokens: int | None = None
-    # Optional wall-clock ceiling for `messages.create` (defaults to the
+    # Optional wall-clock ceiling for one Messages response (defaults to the
     # client's DEFAULT_LLM_CALL_TIMEOUT_SECONDS). Large max_tokens ops need
     # more headroom than beat-sized calls.
     call_timeout_seconds: float | None = None
+    # Long, high-effort responses use the SDK's streaming accumulator so SSE
+    # ping events keep the connection alive while still returning one complete
+    # Message for the existing validation path.
+    stream_response: bool = False
+    # Opus 5 and Sonnet 5 use adaptive thinking by default. Their thinking-
+    # compatible tool path must use auto selection rather than a forced tool.
+    tool_choice_mode: ToolChoiceMode = "forced"
+    adaptive_thinking: bool = False
+    # Claude Opus 5 enables adaptive thinking by default. A forced strict
+    # tool call is incompatible with thinking, so output-only extraction ops
+    # may explicitly opt out at an effort level supported by the provider.
+    thinking_disabled: bool = False
+    effort: EffortLevel | None = None
+    # Schema repair is useful for generative calls, but a duplicate verifier
+    # verdict is unnecessary spend. Operations can fail closed after the first
+    # malformed response instead.
+    retry_schema_once: bool = True
 
 
 _OPS: tuple[LlmOp, ...] = (
@@ -99,8 +129,7 @@ _OPS: tuple[LlmOp, ...] = (
         "BlastRadius",
         BlastRadius,
         "classifier",
-        "List objects impacted by a proposed plan edit, each with a reason and a "
-        "confidence level.",
+        "List objects impacted by a proposed plan edit, each with a reason and a confidence level.",
     ),
     LlmOp(
         "regenerate_elements",
@@ -126,75 +155,60 @@ _OPS: tuple[LlmOp, ...] = (
         "InstructionSuggestions",
         InstructionSuggestions,
         "classifier",
-        "Suggest three diverse scene or beat instructions for the writer to "
-        "choose from.",
+        "Suggest three diverse scene or beat instructions for the writer to choose from.",
     ),
+    # Import story breakdown (Opus / import_analyst): act structure from
+    # segmented scene summaries. Omits temperature (Opus rejects non-default).
     LlmOp(
         "infer_act_breaks",
         "InferredActBreaks",
         InferredActBreaks,
-        "classifier",
+        "import_analyst",
         "Infer ordered narrative act-start scene indices within the selected teleplay format.",
     ),
-    # §5a import-time entity inference (T7.15 import-continuity-mvp; Task 1
-    # of that plan adds schema/registry only -- Task 2 owns the prompt,
-    # pipeline wiring, and PROMPT_VERSION bump). Runs between act inference
-    # and fact extraction, classifier role/temperature 0 (a deterministic
-    # cast/relationship/world-element read, not a creative task); names are
-    # strings the server resolves/mints against the existing bible, never
-    # model-assigned ids.
+    # §5a import-time entity inference (T7.15). This is bounded extraction,
+    # not story-wide judgment, so it runs on the Sonnet import worker.
     LlmOp(
         "infer_story_entities",
         "StoryEntities",
         StoryEntities,
-        "classifier",
+        "import_worker",
         "Identify characters (including non-speaking ones), relationships, and "
         "world elements (locations/objects) implied by the imported script, "
         "each with source evidence. betweenNames must be exactly two name "
         "strings; every entity needs at least one evidence item.",
-        max_tokens=16_384,
-        call_timeout_seconds=300.0,
+        max_tokens=8_192,
+        call_timeout_seconds=180.0,
     ),
-    # T7.19 narrative-promises P2 (design doc 2026-07-16-narrative-promises-design):
-    # Task 1 of that plan adds schema/registry only -- Task 2 (T7.20) owns the
-    # prompt, pipeline wiring, and PROMPT_VERSION bump. Runs after
-    # infer_story_entities and before extract_ledger_facts (so motivations see
-    # the resolved cast), classifier role/temperature 0 for the same reason as
-    # infer_story_entities -- this is a source-grounded read, not a creative task.
+    # T7.19 narrative-promises P2. Runs after infer_story_entities and before
+    # extract_ledger_facts (so motivations see the resolved cast) on
+    # import_analyst (Opus) with the other import story-breakdown ops.
     LlmOp(
         "infer_narrative_promises",
         "NarrativePromises",
         NarrativePromises,
-        "classifier",
+        "import_analyst",
         "Identify setup/payoff story threads, fill scene motivations, and "
         "extract structured world rules (limit/cost/exception) from the "
         "imported script, each with source evidence.",
-        max_tokens=16_384,
+        # The prompt carries every semantic beat plus bounded evidence. A
+        # selective motivation policy keeps 12k ample while preventing an
+        # oversized response from extending this import singleton indefinitely.
+        max_tokens=12_288,
         call_timeout_seconds=300.0,
     ),
-    # T6.1 escalation EXECUTED: prompt spec §7 mandates temperature 0 for stage-2
-    # segmentation, but the writer tier rejects sampling params, so under the
-    # original writer-role pinning the op ran at model default and the
-    # segmentation-determinism eval regressed below its soft 0.70 gate (0.25). The
-    # documented escalation — move the op to the classifier tier, which accepts
-    # temperature=0 — is now applied: `segment_scene` is classifier-role, so
-    # anthropic_client sends temperature=0 (prompt spec §7), and §7's temperature
-    # requirement is honored. (The gate threshold itself is still chosen-not-pinned;
-    # that ratification remains DESIGN-GAP(T6.1) at the eval's gate constant.)
     # T7.27/T7.28 story overview (design 2026-07-17-import-story-overview):
     # Runs after infer_narrative_promises and before extract_ledger_facts.
-    # Role: **writer** (Sonnet) — logline/synopsis/beat-sheet turn selection is
-    # synthesis/judgment, not grounded extraction. Outline generation stays in
-    # this same single call (no second op). Writer tier must not send
-    # temperature=0 (400 on non-default sampling); classifier ops keep temp 0.
+    # Role: **import_analyst** (Opus 5) with the rest of import story
+    # breakdown. Outline generation stays in this same single call (no second
+    # op). Opus must not send temperature=0 (400 on non-default sampling).
     # Role reassignment is a versioned model-path change — requires `make evals`
-    # sign-off before merge (PROMPT_VERSION unchanged: prompt text untouched;
-    # see prompt-spec §5c OVERVIEW note). First import op on the writer role.
+    # sign-off before merge (PROMPT_VERSION unchanged when prompt text untouched).
     LlmOp(
         "infer_story_overview",
         "InferredStoryOverview",
         InferredStoryOverview,
-        "writer",
+        "import_analyst",
         "Infer an episode logline, scene-ordered outline, named beat sheet "
         "anchored to existing beat ids, and a two-paragraph present-tense "
         "synopsis from the imported script.",
@@ -204,15 +218,87 @@ _OPS: tuple[LlmOp, ...] = (
         call_timeout_seconds=180.0,
     ),
     LlmOp(
+        "infer_narrative_map",
+        "InferredNarrativeMap",
+        InferredNarrativeMap,
+        "writer",
+        "Build an evidence-grounded macro and micro narrative map: themes, acts, "
+        "character arcs, scene turns, thread movements, and an optional Hero's Journey lens.",
+        # The map is an explicit post-import synthesis. Sonnet 5 keeps the
+        # large structured response under a practical UI timeout; Opus 5
+        # remains responsible for the source breakdown it reads.
+        max_tokens=16_384,
+        call_timeout_seconds=180.0,
+    ),
+    LlmOp(
+        "infer_narrative_scene_analysis",
+        "InferredNarrativeSceneAnalysisBatch",
+        InferredNarrativeSceneAnalysisBatch,
+        "import_analyst",
+        "Analyze exactly one saved screenplay scene into an evidence-backed dramatic "
+        "turn and key moments. Read the supplied scriptText as the authoritative source, "
+        "write concrete scene-specific prose, and cite each moment with a supplied beatId; "
+        "the server attaches the authoritative excerpt. Never return placeholders, "
+        "generic boilerplate, invented evidence, "
+        "or claims that the supplied source is insufficient.",
+        # A bounded chunk avoids the giant all-episode response that previously
+        # timed out after spending tokens without yielding a usable map.
+        max_tokens=8_192,
+        call_timeout_seconds=180.0,
+        tool_choice_mode="auto",
+        adaptive_thinking=True,
+        effort="medium",
+    ),
+    LlmOp(
+        "infer_narrative_map_synthesis",
+        "InferredNarrativeMapSynthesis",
+        InferredNarrativeMapSynthesis,
+        "import_analyst",
+        "Synthesize evidence-grounded episode structure, themes, character arcs, "
+        "threads, and an optional Hero's Journey lens from verified scene analysis. "
+        "Every claim must use the supplied scene packets and their source-owned beat IDs; "
+        "never add unsupported events, motives, or generic placeholder analysis.",
+        max_tokens=16_384,
+        call_timeout_seconds=600.0,
+        stream_response=True,
+        tool_choice_mode="forced",
+        thinking_disabled=True,
+        effort="medium",
+        retry_schema_once=False,
+    ),
+    LlmOp(
+        "verify_narrative_map",
+        "NarrativeMapVerification",
+        NarrativeMapVerification,
+        "writer",
+        "Independently verify whether a proposed Narrative Map is supported by the supplied "
+        "screenplay source and scene analysis. Approve only concrete claims traceable to the "
+        "supplied evidence, and identify every unsupported path or missing scene without "
+        "rewriting or inventing the analysis.",
+        max_tokens=4_096,
+        call_timeout_seconds=300.0,
+        stream_response=True,
+        tool_choice_mode="forced",
+        thinking_disabled=True,
+        effort="low",
+        retry_schema_once=False,
+    ),
+    # Import story breakdown: per-scene beat segmentation on Sonnet. Historical
+    # note: T6.1 moved segment_scene writer→classifier for temperature=0; the
+    # import worker prioritizes quality while keeping repeatable scene work
+    # materially cheaper than Opus. The
+    # segmentation soft gate may need re-check at `make evals` (DESIGN-GAP(T6.1)
+    # threshold ratification still open).
+    LlmOp(
         "segment_scene",
         "SegmentedScene",
         SegmentedScene,
-        "classifier",
+        "import_worker",
         "Segment one scene's numbered source objects into typed segment starts "
         "with inferred beat-plan fields; the server derives end lines.",
         # Long scenes with many beats truncate mid-tool-input at 4096.
         max_tokens=16_384,
-        call_timeout_seconds=300.0,
+        call_timeout_seconds=180.0,
     ),
     LlmOp(
         "scan_consistency",

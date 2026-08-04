@@ -4,7 +4,6 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Scene } from 'contract'
 import { ScriptCanvas } from './ScriptCanvas'
-import { WRITE_WHIMSY } from './writeWhimsy'
 
 // No @testing-library/jest-dom in this project (see useQuietAi.test.tsx) —
 // assertions read plain DOM properties instead of jest-dom matchers.
@@ -32,26 +31,30 @@ function scene(overrides: Partial<Scene> = {}): Scene {
 }
 
 describe('ScriptCanvas', () => {
-  it('uses the Quiet Tool raised script sheet chrome', () => {
+  it('uses the Write redesign page sheet chrome', () => {
     render(
-      <ScriptCanvas scenes={[scene({ beats: [] })]} canvasHandlers={noopHandlers} />,
+      <ScriptCanvas
+        scenes={[scene({ beats: [] })]}
+        canvasHandlers={noopHandlers}
+      />,
     )
     const sheet = screen.getByTestId('script-canvas')
-    expect(sheet.className).toContain('max-w-script-col')
+    expect(sheet.className).toContain('max-w-script-page')
     expect(sheet.className).toContain('bg-tr-surface-raised')
-    expect(sheet.className).toContain(
-      WRITE_WHIMSY ? 'shadow-lift' : 'shadow-raised',
-    )
+    expect(sheet.className).toContain('shadow-write-page')
   })
 
   it('empty scene shows a clear empty state, not a blank sheet', () => {
     render(
-      <ScriptCanvas scenes={[scene({ beats: [] })]} canvasHandlers={noopHandlers} />,
+      <ScriptCanvas
+        scenes={[scene({ beats: [] })]}
+        canvasHandlers={noopHandlers}
+      />,
     )
     expect(screen.getByText('No beats in this scene yet.')).not.toBeNull()
-    expect(screen.getByTestId('script-scene-slug-scene-1').textContent).toContain(
-      'THE LONG POUR',
-    )
+    expect(
+      screen.getByTestId('script-scene-slug-scene-1').textContent,
+    ).toContain('THE LONG POUR')
   })
 
   it('stacks multiple scenes for continuous episode reading', () => {
@@ -71,9 +74,35 @@ describe('ScriptCanvas', () => {
     )
     expect(screen.getByTestId('write-scene-scene-1')).not.toBeNull()
     expect(screen.getByTestId('write-scene-scene-2')).not.toBeNull()
-    expect(screen.getByTestId('script-scene-slug-scene-2').textContent).toContain(
-      "JOSH'S OFFICE",
+    expect(screen.getByTestId('script-scene-number-scene-1').textContent).toBe(
+      '1',
     )
+    expect(screen.getByTestId('script-scene-number-scene-2').textContent).toBe(
+      '2',
+    )
+    expect(
+      screen.getByTestId('script-scene-slug-scene-2').textContent,
+    ).toContain("JOSH'S OFFICE")
+  })
+
+  it('scene-number badges follow outline document order, not beat gutters', () => {
+    render(
+      <ScriptCanvas
+        scenes={[
+          scene({ id: 'scene-a', location: 'COLD OPEN' }),
+          scene({ id: 'scene-b', location: 'EXT. STREET' }),
+          scene({ id: 'scene-c', location: 'INT. BEDROOM' }),
+        ]}
+        activeSceneId="scene-c"
+        canvasHandlers={noopHandlers}
+      />,
+    )
+    expect(screen.getByTestId('script-scene-number-scene-c').textContent).toBe(
+      '3',
+    )
+    expect(
+      screen.getByTestId('script-scene-number-scene-c').className,
+    ).toContain('bg-tr-coral-soft')
   })
 
   it('does not duplicate a slugline already present in the beat script', () => {
@@ -180,12 +209,12 @@ describe('ScriptCanvas', () => {
         canvasHandlers={noopHandlers}
       />,
     )
-    expect(screen.getByTestId('script-scene-slug-scene-1').textContent).toContain(
-      "INT. RODNEY'S APARTMENT",
-    )
-    expect(screen.getByTestId('script-scene-pitch-scene-1').textContent).toContain(
-      'anonymous envelope',
-    )
+    expect(
+      screen.getByTestId('script-scene-slug-scene-1').textContent,
+    ).toContain("INT. RODNEY'S APARTMENT")
+    expect(
+      screen.getByTestId('script-scene-pitch-scene-1').textContent,
+    ).toContain('anonymous envelope')
     expect(screen.getByTestId('beat-plan-beat-1').textContent).toContain(
       'identical morning routine',
     )
@@ -220,8 +249,8 @@ describe('ScriptCanvas', () => {
       />,
     )
     expect(screen.getByTestId('formatted-script')).not.toBeNull()
-    expect(screen.getByText('DAN').className).toContain('ml-[22ch]')
-    expect(screen.getByText('We are closed.').className).toContain('ml-[10ch]')
+    expect(screen.getByText('DAN').className).toContain('pl-[22%]')
+    expect(screen.getByText('We are closed.').className).toContain('pl-[22%]')
 
     await user.click(screen.getByTestId('formatted-script'))
     const textarea = screen.getByTestId('beat-beat-3-1') as HTMLTextAreaElement

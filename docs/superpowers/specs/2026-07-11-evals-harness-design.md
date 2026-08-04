@@ -17,17 +17,17 @@ Hard gates, exit-code semantics, MockLlmClient dry-run, rule-5 logging, and “n
 
 ## 2. Locked decisions
 
-| Decision | Choice |
-|---|---|
-| v1 scope | Progress + unbuffered stdout + tiered run map + per-call timeout |
-| v1.1 scope | Family-level checkpoint + `--resume` (same PR series or immediate follow-up) |
-| Parallelism | **Out of scope** — suite stays sequential |
-| Missing test-plan evals | **Out of scope** (conflict reporting, voice, injection, etc.) — separate task |
-| Gate thresholds / hard vs soft | **Unchanged** |
-| Uniform `--runs N` | Still overrides **all** families (smoke / diagnosis) |
-| Per-tier CLI flags | Deferred (`--runs-hard` / `--runs-soft` not in v1) |
-| Default timeout | **120s** wall clock per `messages.create` (product + judge) |
-| Mid-family resume | **No** — incomplete family re-runs from scratch |
+| Decision                       | Choice                                                                        |
+| ------------------------------ | ----------------------------------------------------------------------------- |
+| v1 scope                       | Progress + unbuffered stdout + tiered run map + per-call timeout              |
+| v1.1 scope                     | Family-level checkpoint + `--resume` (same PR series or immediate follow-up)  |
+| Parallelism                    | **Out of scope** — suite stays sequential                                     |
+| Missing test-plan evals        | **Out of scope** (conflict reporting, voice, injection, etc.) — separate task |
+| Gate thresholds / hard vs soft | **Unchanged**                                                                 |
+| Uniform `--runs N`             | Still overrides **all** families (smoke / diagnosis)                          |
+| Per-tier CLI flags             | Deferred (`--runs-hard` / `--runs-soft` not in v1)                            |
+| Default timeout                | **120s** wall clock per `messages.create` (product + judge)                   |
+| Mid-family resume              | **No** — incomplete family re-runs from scratch                               |
 
 ## 3. Non-goals
 
@@ -41,10 +41,10 @@ Hard gates, exit-code semantics, MockLlmClient dry-run, rule-5 logging, and “n
 
 When `--runs` is omitted, each family uses its tier default:
 
-| Tier | Families | Default N |
-|---|---|---|
-| Hard | `lock`, `continuity` | **20** |
-| Soft / high-N waste | `schema`, `segmentation`, `lock-repair`, `import-inference`, `subtext` | **5** |
+| Tier                | Families                                                               | Default N |
+| ------------------- | ---------------------------------------------------------------------- | --------- |
+| Hard                | `lock`, `continuity`                                                   | **20**    |
+| Soft / high-N waste | `schema`, `segmentation`, `lock-repair`, `import-inference`, `subtext` | **5**     |
 
 Rationale:
 
@@ -58,16 +58,16 @@ Rationale:
 
 At tiered defaults (approximate; keep `nominal_call_estimate` as source of truth in code):
 
-| Family | Formula | ~Calls |
-|---|---|---|
-| schema | 8 × 5 | 40 |
-| lock | ≤ 4 × 20 | 80 |
-| continuity | 3 + 2 × 20 | 43 |
-| segmentation | 5 | 5 |
-| lock-repair | 5 | 5 |
-| import-inference | 5 | 5 |
-| subtext | 5 | 5 |
-| **totalNominal** | | **~183** |
+| Family           | Formula    | ~Calls   |
+| ---------------- | ---------- | -------- |
+| schema           | 8 × 5      | 40       |
+| lock             | ≤ 4 × 20   | 80       |
+| continuity       | 3 + 2 × 20 | 43       |
+| segmentation     | 5          | 5        |
+| lock-repair      | 5          | 5        |
+| import-inference | 5          | 5        |
+| subtext          | 5          | 5        |
+| **totalNominal** |            | **~183** |
 
 Was ~363 at uniform 20. Rule-9 retries can still add up to ~1.5× observed-worst.
 
@@ -155,14 +155,14 @@ v1 may ship without `--resume` if v1.1 follows immediately; progress + tiered + 
 
 ## 8. CLI / Makefile surface
 
-| Flag / target | Behavior |
-|---|---|
-| `make evals` | Real suite, tiered defaults, unbuffered progress |
-| `make evals-dry` | Mock suite, same progress/run-map paths |
-| `--runs N` | All families use N |
-| `--only <family>` | Unchanged; that family uses its tier default (or `--runs` if set) |
-| `--resume PATH` | v1.1 |
-| `--capture`, `--calibrate-only`, `--out` | Unchanged |
+| Flag / target                            | Behavior                                                          |
+| ---------------------------------------- | ----------------------------------------------------------------- |
+| `make evals`                             | Real suite, tiered defaults, unbuffered progress                  |
+| `make evals-dry`                         | Mock suite, same progress/run-map paths                           |
+| `--runs N`                               | All families use N                                                |
+| `--only <family>`                        | Unchanged; that family uses its tier default (or `--runs` if set) |
+| `--resume PATH`                          | v1.1                                                              |
+| `--capture`, `--calibrate-only`, `--out` | Unchanged                                                         |
 
 ## 9. Docs touchpoints
 
@@ -179,8 +179,8 @@ v1 may ship without `--resume` if v1.1 follows immediately; progress + tiered + 
 
 ## 11. Rollout
 
-1. **v1 PR:** tiered map + progress + timeout + doc/Makefile estimate sync.  
-2. **v1.1 PR (or stacked):** checkpoint + `--resume`.  
+1. **v1 PR:** tiered map + progress + timeout + doc/Makefile estimate sync.
+2. **v1.1 PR (or stacked):** checkpoint + `--resume`.
 3. Operator then runs real `make evals` for any pending PROMPT_VERSION sign-off (costs money — only when asked).
 
 ## 12. Success criteria

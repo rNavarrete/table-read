@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
-import type { BeatCandidate } from 'contract'
+import type { BeatCandidate, CraftLevel } from 'contract'
 import { suggestInstructions } from '../api/client'
 import type { CandidateSlot } from './candidateReducer'
 import { formatConflictExplanation } from './formatConflictExplanation'
@@ -16,6 +16,7 @@ export interface CandidateCardProps {
   slot: CandidateSlot
   projectId: string
   sceneId: string
+  craftLevel?: CraftLevel
   /** Quiet-AI: true while the canvas is focused — buttons hide (obligation 5). */
   controlsHidden: boolean
   /** Keyboard focus ring (adoption A8). */
@@ -31,21 +32,29 @@ export interface CandidateCardProps {
 }
 
 const cardShell =
-  'rounded-card border border-tr-border bg-tr-surface-raised p-4 shadow-raised transition-[box-shadow,transform] hover:-translate-y-px hover:shadow-lift motion-reduce:transform-none motion-reduce:transition-none'
+  'rounded-2xl border border-tr-border bg-tr-surface-raised p-5 shadow-write-card transition-[box-shadow,transform] duration-standard ease-standard hover:-translate-y-px hover:shadow-lift motion-reduce:transform-none motion-reduce:transition-none'
 const dangerShell =
-  'rounded-card border border-tr-border border-l-4 border-l-tr-danger bg-tr-surface-raised p-4 shadow-raised transition-[box-shadow,transform] hover:-translate-y-px hover:shadow-lift motion-reduce:transform-none motion-reduce:transition-none'
+  'rounded-2xl border border-tr-border border-l-4 border-l-tr-danger bg-tr-surface-raised p-5 shadow-write-card transition-[box-shadow,transform] duration-standard ease-standard hover:-translate-y-px hover:shadow-lift motion-reduce:transform-none motion-reduce:transition-none'
+
+const CRAFT_LABEL: Record<CraftLevel, string> = {
+  fast: 'Fast draft',
+  standard: 'Standard',
+  considered: 'Considered',
+}
 
 function ScriptPreview({ text }: { text: string }) {
-  // UI spec §3: ~8-line script preview. Scrollable so longer beats stay
-  // readable; fade removed so the scrollbar isn't fighting a mask.
   return (
     <div
-      className="mt-2 max-h-[9.5rem] overflow-y-auto rounded-card bg-tr-surface-clay px-2.5 py-2"
+      className="relative mt-3 max-h-[150px] overflow-hidden rounded-[10px] border border-tr-border bg-tr-ledger-content"
       data-testid="candidate-script-preview"
     >
-      <pre className="m-0 whitespace-pre-wrap font-script text-12 leading-relaxed text-tr-text-secondary">
+      <pre className="m-0 max-h-[150px] overflow-y-auto whitespace-pre-wrap px-3 py-2.5 font-script text-[12.5px] leading-relaxed text-tr-text-secondary">
         {normalizeScriptText(text)}
       </pre>
+      <div
+        className="pointer-events-none absolute inset-x-0 bottom-0 h-13 bg-gradient-to-b from-transparent to-tr-ledger-content"
+        aria-hidden
+      />
     </div>
   )
 }
@@ -131,6 +140,7 @@ export function CandidateCard({
   slot,
   projectId,
   sceneId,
+  craftLevel = 'standard',
   controlsHidden,
   focused = false,
   accepting,
@@ -257,11 +267,18 @@ export function CandidateCard({
       data-focused={focused ? 'true' : undefined}
       aria-selected={focused}
     >
-      <p className="font-display text-15 text-tr-text-primary">
-        <span className="mr-2 text-13 text-tr-text-muted">[{index + 1}]</span>
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <span className="rounded-[6px] bg-tr-coral-soft px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-tr-coral">
+          Beat {index + 1}
+        </span>
+        <span className="text-[11.5px] text-tr-text-muted">
+          {CRAFT_LABEL[craftLevel]} · fits after current beat
+        </span>
+      </div>
+      <p className="font-ledger-display text-22 font-medium text-tr-text-primary">
         {candidate.label}
       </p>
-      <p className="mt-1 text-13 text-tr-text-secondary">
+      <p className="mt-2 text-pretty text-[13.5px] leading-relaxed text-tr-text-secondary">
         {candidate.beatPlan.whatHappens}
       </p>
       <ScriptPreview text={candidate.scriptText} />
@@ -359,7 +376,7 @@ export function CandidateCard({
         </div>
       ) : (
         !controlsHidden && (
-          <div className="mt-3 flex gap-3">
+          <div className="mt-4 flex flex-wrap items-center gap-2">
             <button
               type="button"
               disabled={acceptDisabled}
@@ -369,7 +386,7 @@ export function CandidateCard({
                   : undefined
               }
               onClick={() => onAccept(candidate)}
-              className="rounded-card bg-tr-coral px-3 py-1.5 text-13 text-tr-surface-raised transition-colors hover:bg-tr-coral-hover disabled:opacity-50 motion-reduce:transition-none"
+              className="inline-flex items-center gap-1.5 rounded-xl bg-tr-coral px-3.5 py-2 text-13 font-medium text-tr-surface-raised transition-colors hover:bg-tr-coral-hover disabled:opacity-50 motion-reduce:transition-none"
             >
               {accepting ? (
                 'Accepting…'
@@ -377,7 +394,13 @@ export function CandidateCard({
                 'Retry'
               ) : (
                 <>
-                  Accept <span aria-hidden="true">[↵]</span>
+                  Accept
+                  <span
+                    aria-hidden="true"
+                    className="rounded-[5px] border border-tr-coral-hover bg-tr-coral-hover/80 px-1 font-script text-[10.5px]"
+                  >
+                    ↵
+                  </span>
                 </>
               )}
             </button>
@@ -385,7 +408,7 @@ export function CandidateCard({
               type="button"
               disabled={accepting}
               onClick={() => setTuneOpen(true)}
-              className="rounded-card border border-tr-coral px-3 py-1.5 text-13 text-tr-coral disabled:opacity-50"
+              className="rounded-xl border border-tr-border bg-tr-surface-raised px-3.5 py-2 text-13 text-tr-text-primary disabled:opacity-50"
             >
               Tune
             </button>
@@ -393,7 +416,7 @@ export function CandidateCard({
               type="button"
               disabled={accepting}
               onClick={onSkip}
-              className="text-13 text-tr-text-secondary opacity-60 disabled:opacity-50"
+              className="ml-auto text-13 text-tr-text-muted disabled:opacity-50"
             >
               Skip
             </button>

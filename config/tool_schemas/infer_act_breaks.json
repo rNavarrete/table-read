@@ -12,18 +12,13 @@
             "type": "integer"
           }
         },
-        "required": [
-          "act",
-          "startSceneIndex"
-        ],
+        "required": ["act", "startSceneIndex"],
         "type": "object"
       },
       "minItems": 1,
       "type": "array"
     }
   },
-  "required": [
-    "starts"
-  ],
+  "required": ["starts"],
   "type": "object"
 }

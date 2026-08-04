@@ -7,6 +7,7 @@ import type {
   InitialSceneSkeletonCandidate,
   LedgerExtraction,
   LedgerFact,
+  NarrativeMapRun,
   PdfExtractResult,
   Project,
   ProjectCreateRequest,
@@ -180,6 +181,40 @@ export async function exportProjectJson(projectId: string): Promise<object> {
 
 export function getProject(projectId: string): Promise<Project> {
   return getJson<Project>(`/projects/${projectId}`)
+}
+
+/** Generate the optional Narrative Map in a separate snapshot. A failed map
+ * request never changes or re-runs the script import that created the project. */
+export function generateNarrativeMap(
+  projectId: string,
+  opts?: IfMatchOpts,
+): Promise<NarrativeMapRun> {
+  return postJson<NarrativeMapRun>(
+    `/projects/${projectId}/narrative-map`,
+    {},
+    opts,
+  )
+}
+
+/** Restore the most recent durable run after navigation or a browser refresh. */
+export function getLatestNarrativeMapRun(
+  projectId: string,
+): Promise<NarrativeMapRun | null> {
+  return getJson<NarrativeMapRun | null>(
+    `/projects/${projectId}/narrative-map/runs/latest`,
+  )
+}
+
+/** Poll a durable Narrative Map run. The map is only applied after it passes
+ * the source-evidence verifier, so a completed run should be followed by a
+ * project refresh before reading its result. */
+export function getNarrativeMapRun(
+  projectId: string,
+  runId: string,
+): Promise<NarrativeMapRun> {
+  return getJson<NarrativeMapRun>(
+    `/projects/${projectId}/narrative-map/runs/${runId}`,
+  )
 }
 
 export function listProjects(): Promise<ProjectSummary[]> {

@@ -25,7 +25,13 @@ from fountain import characters as fountain_characters
 from fountain import parse as fountain_parse
 from llm.errors import LlmTimeoutError, SchemaInvalidLlmError
 from llm.protocol import LlmClient
-from schemas import InferredStoryOverview, BeatCandidate, LedgerExtraction, NarrativePromises, StoryEntities
+from schemas import (
+    BeatCandidate,
+    InferredStoryOverview,
+    LedgerExtraction,
+    NarrativePromises,
+    StoryEntities,
+)
 
 _REPO = Path(__file__).resolve().parents[3]
 _FOUNTAIN = _REPO / "fixtures" / "import-inference.fountain"
@@ -1212,7 +1218,6 @@ def story_overview_eval(
         client.set_response("infer_story_overview", _seed_overview_response())
 
     project, summaries, beats = _overview_fixture_context()
-    scene_ids = [s["sceneId"] for s in summaries]
     planted_scenes = set(planted["plantedSceneIds"])
     planted_beats = set(planted["plantedBeatIds"])
     logline_needles = planted["loglineMatchAny"]

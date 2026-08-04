@@ -199,5 +199,4 @@ describe('FactCard', () => {
       'duration-standard',
     )
   })
-
 })

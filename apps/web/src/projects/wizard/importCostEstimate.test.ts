@@ -9,14 +9,20 @@ describe('estimateImportCost', () => {
     })
   })
 
-  it('uses 2N+2 calls for N scenes', () => {
+  it('includes bounded Sonnet entity chunks plus three Opus macro calls', () => {
     const r = estimateImportCost({ sceneCount: 110, charCount: 175_000 })
-    expect(r.estimatedModelCalls).toBe(222)
+    expect(r.estimatedModelCalls).toBe(234)
     expect(r.estimatedCostUsd).not.toBeNull()
     expect(r.estimatedCostUsd!.low).toBeGreaterThan(0)
     expect(r.estimatedCostUsd!.high).toBeGreaterThanOrEqual(
       r.estimatedCostUsd!.low,
     )
+  })
+
+  it('prices the Sonnet worker, Opus macro, and Haiku extraction mix', () => {
+    const r = estimateImportCost({ sceneCount: 10, charCount: 40_000 })
+    expect(r.estimatedModelCalls).toBe(25)
+    expect(r.estimatedCostUsd!.low).toBeGreaterThan(0.05)
   })
 })
 
@@ -25,9 +31,9 @@ describe('formatImportCostLine', () => {
     expect(
       formatImportCostLine({
         detectedSceneCount: 2,
-        estimatedModelCalls: 5,
+        estimatedModelCalls: 9,
         estimatedCostUsd: { low: 0.01, high: 0.03 },
       }),
-    ).toBe('2 scene(s) detected · ~5 model calls · Est. $0.01–$0.03')
+    ).toBe('2 scene(s) detected · ~9 model calls · Est. $0.01–$0.03')
   })
 })

@@ -162,7 +162,11 @@ def test_anthropic_client_log_hashes_user_message_never_content(caplog):
     sdk = _FakeSdk([_FakeMessage(content=[_FakeToolUse(input=valid_input)])])
     client_llm = AnthropicClient(
         sdk_client=sdk,
-        models={"writer": "writer-model-x", "classifier": "classifier-model-y"},
+        models={
+            "writer": "writer-model-x",
+            "classifier": "classifier-model-y",
+            "import_analyst": "import-analyst-model-z",
+        },
     )
 
     with caplog.at_level(logging.INFO, logger="llm.anthropic_client"):

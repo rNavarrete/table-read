@@ -58,7 +58,11 @@ def test_lock_violation_zero_tolerance_gate():
 def _report(results) -> SuiteReport:
     return SuiteReport(
         prompt_version="0.5.0",
-        models={"writer": "claude-sonnet-5", "classifier": "claude-haiku-4-5"},
+        models={
+            "writer": "claude-sonnet-5",
+            "classifier": "claude-haiku-4-5",
+            "import_analyst": "claude-opus-5",
+        },
         dry_run=False,
         runs={
             "schemaValidity": 5,
@@ -159,7 +163,7 @@ def test_write_clean_report_lands_both_artifacts(tmp_path):
 def test_estimated_calls_render_in_report_header():
     report = SuiteReport(
         prompt_version="0.5.0",
-        models={"writer": "w", "classifier": "c"},
+        models={"writer": "w", "classifier": "c", "import_analyst": "i"},
         dry_run=False,
         runs={
             "schemaValidity": 5,
