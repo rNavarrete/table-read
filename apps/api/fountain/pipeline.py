@@ -144,6 +144,7 @@ def analyze_import(
     *,
     checkpoint: dict | None = None,
     checkpoint_writer: ImportCheckpointWriter | None = None,
+    nonce: str | None = None,
 ) -> Generator[ImportPipelineEvent, None, ImportAnalysis]:
     """Run every LLM/parsing stage of an import with **no DB access and no
     mutation**, yielding internal pipeline progress events and returning the
@@ -159,8 +160,17 @@ def analyze_import(
     both checked before any LLM call. Lets LLM errors propagate for the
     caller to map. A fresh (just-scaffolded, no seasons) `project_doc` with
     an empty `existing_ledger` is always writable, so create-and-import's
-    guard call here is zero-cost."""
+    guard call here is zero-cost.
+
+    `nonce` is the `<source_data_{nonce}>` boundary tag for **every** call this
+    run makes (§8b). One run, one nonce: the injection boundary holds either
+    way — the source text can no more guess a run-scoped nonce than a per-call
+    one — while a per-call nonce would rewrite the prompt prefix on every
+    request and make prompt caching over a shared source payload impossible.
+    Defaults to a fresh mint so existing callers are unaffected; pass the
+    run's own value to keep it stable across a resumed/checkpointed import."""
     checkpoint = checkpoint or {}
+    run_nonce = nonce or render.new_nonce()
     if not content:
         # An empty import has no scenes to segment; reject before touching the LLM.
         raise CoverageError("import content is empty")
@@ -197,7 +207,7 @@ def analyze_import(
     cached_beats = _load_segment_checkpoints(checkpoint, len(spans))
     per_scene_beats = yield from _run_ordered_parallel(
         spans,
-        lambda index, span: _segment_one(index, span, project_doc, llm),
+        lambda index, span: _segment_one(index, span, project_doc, llm, run_nonce),
         stage=STAGE_SEGMENTING_BEATS,
         existing_results=cached_beats,
         on_result=lambda index, beats: _write_checkpoint(
@@ -221,7 +231,7 @@ def analyze_import(
     else:
         yield ImportStageProgress(STAGE_INFERRING_ACTS, 0, 1)
         system, user = render.build_act_inference_prompt(
-            project_doc, summaries, render.new_nonce()
+            project_doc, summaries, run_nonce
         )
         inferred = llm.infer_act_breaks(
             system=system,
@@ -242,7 +252,7 @@ def analyze_import(
                 project_doc,
                 summaries,
                 first_error.diagnostics,
-                render.new_nonce(),
+                run_nonce,
             )
             repaired = llm.infer_act_breaks(
                 system=retry_system,
@@ -378,7 +388,7 @@ def analyze_import(
         ]
         chunk_speakers = cues_from_scenes(chunk_scene_docs)
         system, user = render.build_entity_prompt(
-            new_doc, chunk, chunk_speakers, render.new_nonce()
+            new_doc, chunk, chunk_speakers, run_nonce
         )
         _logger.warning(
             "import_infer_entities_chunk chunk=%d/%d scenes=%d speakers=%d "
@@ -445,7 +455,7 @@ def analyze_import(
             promises_spine,
             known_cast,
             existing_world_rule_texts,
-            render.new_nonce(),
+            run_nonce,
         )
         _logger.info(
             "import_infer_promises_start scenes=%d beats=%d evidence_chars=%d prompt_chars=%d "
@@ -490,7 +500,7 @@ def analyze_import(
             new_doc,
             scene_spine,
             known_beats,
-            render.new_nonce(),
+            run_nonce,
             known_cast=known_cast,
         )
         story_overview = llm.infer_story_overview(
@@ -522,7 +532,9 @@ def analyze_import(
     )
     extractions = yield from _run_ordered_parallel(
         scene_docs,
-        lambda index, scene: _extract_one(index, scene, new_doc, episode_id, characters, llm),
+        lambda index, scene: _extract_one(
+            index, scene, new_doc, episode_id, characters, llm, run_nonce
+        ),
         stage=STAGE_EXTRACTING_FACTS,
         existing_results=cached_extractions,
         on_result=lambda index, extraction: _write_checkpoint(
@@ -587,7 +599,7 @@ def analyze_import(
             scene_summaries,
             fact_summaries,
             characters,
-            render.new_nonce(),
+            run_nonce,
         )
         scan = llm.scan_consistency(
             system=system, user_message=user, prompt_version=render.PROMPT_VERSION
@@ -643,7 +655,9 @@ def analyze_import(
     return ImportAnalysis(new_doc=new_doc, new_facts=new_facts, raw_flags=raw_flags)
 
 
-def analyze_narrative_map(project_doc: dict, llm: LlmClient) -> dict:
+def analyze_narrative_map(
+    project_doc: dict, llm: LlmClient, *, nonce: str | None = None
+) -> dict:
     """Return a copy of ``project_doc`` with a fresh, grounded Narrative Map.
 
     Narrative mapping is intentionally not part of the atomic script import:
@@ -651,7 +665,13 @@ def analyze_narrative_map(project_doc: dict, llm: LlmClient) -> dict:
     story overview are the restart-sensitive import result. Running it as a
     separate snapshot mutation means a timeout can never discard those
     completed import calls or make a retry re-send the source script.
+
+    Like `analyze_import`, this is one run and takes one `<source_data>` nonce
+    for every call it makes — including the semantic retry, which re-sends the
+    same source and so must not rewrite the prompt prefix (see
+    `render.new_nonce`).
     """
+    run_nonce = nonce or render.new_nonce()
     new_doc = copy.deepcopy(project_doc)
     episode = next(
         (
@@ -682,7 +702,7 @@ def analyze_narrative_map(project_doc: dict, llm: LlmClient) -> dict:
         narrative_spine,
         cast,
         episode.get("threads") or [],
-        render.new_nonce(),
+        run_nonce,
     )
     narrative_map = llm.infer_narrative_map(
         system=system, user_message=user, prompt_version=render.PROMPT_VERSION
@@ -698,7 +718,7 @@ def analyze_narrative_map(project_doc: dict, llm: LlmClient) -> dict:
             cast,
             episode.get("threads") or [],
             first_error.diagnostics,
-            render.new_nonce(),
+            run_nonce,
         )
         repaired_map = llm.infer_narrative_map(
             system=retry_system,
@@ -908,8 +928,10 @@ def _run_ordered_parallel[T, R](
     return [cast(R, result) for result in results]
 
 
-def _segment_one(index: int, span, project_doc: dict, llm: LlmClient) -> list[ImportedBeat]:
-    system, user = render.build_segment_prompt(project_doc, span.lines, render.new_nonce())
+def _segment_one(
+    index: int, span, project_doc: dict, llm: LlmClient, run_nonce: str
+) -> list[ImportedBeat]:
+    system, user = render.build_segment_prompt(project_doc, span.lines, run_nonce)
     segmented = llm.segment_scene(
         system=system, user_message=user, prompt_version=render.PROMPT_VERSION
     )
@@ -919,7 +941,7 @@ def _segment_one(index: int, span, project_doc: dict, llm: LlmClient) -> list[Im
     if first.should_retry:
         retried = True
         retry_system, retry_user = render.build_segment_retry_prompt(
-            project_doc, span.lines, first.diagnostics, render.new_nonce()
+            project_doc, span.lines, first.diagnostics, run_nonce
         )
         retry_segmented = llm.segment_scene(
             system=retry_system,
@@ -950,9 +972,10 @@ def _extract_one(
     episode_id: str,
     characters: list[dict],
     llm: LlmClient,
+    run_nonce: str,
 ) -> LedgerExtraction:
     system, user = render.build_extract_prompt(
-        new_doc, episode_id, scene, [], characters, render.new_nonce()
+        new_doc, episode_id, scene, [], characters, run_nonce
     )
     try:
         return llm.extract_ledger_facts(

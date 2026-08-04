@@ -7,6 +7,7 @@ transaction, the response shape, and the zero-persistence guarantees.
 
 from __future__ import annotations
 
+import re
 import threading
 import time
 
@@ -127,6 +128,7 @@ def test_extract_retries_one_provider_invalid_request_without_logging_script(cap
             "ep-1",
             [],
             llm,
+            "runnonce",
         )
 
     assert result == extraction()
@@ -1888,3 +1890,76 @@ def test_schema_invalid_overview_persists_nothing(unlocked_project, db_session):
         run_import(db_session, project, src, llm, instruction="Import test")
 
     _assert_unchanged(db_session, original_doc, original_head, original_snaps, original_facts)
+
+
+def test_analyze_import_uses_one_source_data_nonce_for_the_whole_run(
+    unlocked_project,
+):
+    """One import run, one `<source_data_{nonce}>` tag (§8b + prompt caching).
+
+    The nonce appears in the system prompt and in every source_data block, so
+    a per-call nonce rewrites the prompt prefix on every request. Prompt
+    caching is a byte-exact prefix match, so that silently guarantees a 0%
+    cache hit rate over a shared source payload — no error, no symptom except
+    the bill. The injection boundary is unaffected either way: imported text
+    can no more guess a run-scoped nonce than a per-call one.
+    """
+    src = "\n".join(
+        [
+            "INT. ALPHA - DAY",
+            "Alpha waits.",
+            "INT. BETA - DAY",
+            "Beta waits.",
+        ]
+    )
+
+    seen: list[str] = []
+
+    class _RecordingLlm:
+        """Forwards to MockLlmClient, capturing every rendered prompt."""
+
+        def __init__(self, inner: MockLlmClient) -> None:
+            self._inner = inner
+
+        def __getattr__(self, name: str):
+            attr = getattr(self._inner, name)
+            if not callable(attr):
+                return attr
+
+            def _capture(*args, **kwargs):
+                seen.append(kwargs.get("system", ""))
+                seen.append(kwargs.get("user_message", ""))
+                return attr(*args, **kwargs)
+
+            return _capture
+
+    inner = MockLlmClient()
+    inner.set_responses("segment_scene", one_beat_per_scene(src))
+    inner.set_response("extract_ledger_facts", extraction())
+    inner.set_response("scan_consistency", scan())
+
+    _events, _analysis = _drain_analysis(
+        pipeline.analyze_import(unlocked_project["project"], [], src, _RecordingLlm(inner))
+    )
+
+    # Guard the guard: "one nonce" is trivially true of a single call, so this
+    # assertion only means something if the run actually made several.
+    tagged = [text for text in seen if "<source_data_" in text]
+    assert len(tagged) >= 4, f"expected a multi-call run, saw {len(tagged)} tagged prompts"
+
+    nonces = set(re.findall(r"<source_data_([0-9a-f]+)", "\n".join(seen)))
+    assert len(nonces) == 1, f"expected one run nonce, saw {sorted(nonces)}"
+
+    # And an explicit nonce is honored end to end, so a resumed run can keep
+    # the prefix it already paid to cache.
+    seen.clear()
+    inner2 = MockLlmClient()
+    inner2.set_responses("segment_scene", one_beat_per_scene(src))
+    inner2.set_response("extract_ledger_facts", extraction())
+    inner2.set_response("scan_consistency", scan())
+    _drain_analysis(
+        pipeline.analyze_import(
+            unlocked_project["project"], [], src, _RecordingLlm(inner2), nonce="cafebabe"
+        )
+    )
+    assert set(re.findall(r"<source_data_([0-9a-f]+)", "\n".join(seen))) == {"cafebabe"}

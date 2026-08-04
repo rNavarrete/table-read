@@ -61,8 +61,25 @@ PROMPT_VERSION = "0.32.0"
 
 
 def new_nonce() -> str:
-    """A random per-request hex nonce for the ``<source_data>`` boundary tags
-    (§8b). Contains no writer data, so it is safe to log."""
+    """A random hex nonce for the ``<source_data>`` boundary tags (§8b).
+    Contains no writer data, so it is safe to log.
+
+    **Scope it to the unit of work, not to the individual call.** The security
+    property §8b depends on is that *the source text cannot guess the tag* —
+    the nonce is minted server-side from `secrets` and never derived from,
+    or disclosed to, the material being wrapped. Reusing one nonce across the
+    several calls of a single import or analysis run preserves that property
+    completely: an attacker who could not guess it for call 1 is no better off
+    at call 5.
+
+    Minting per call, by contrast, actively costs us. The nonce appears in the
+    system prompt (`build_system_prompt`) and in every `source_data` tag, so a
+    fresh nonce rewrites the prompt prefix on every call — and prompt caching
+    is a byte-exact prefix match. A per-call nonce therefore guarantees a 0%
+    cache hit rate on any pass structure that reuses one source payload, with
+    no error and no visible symptom beyond the bill. Callers that make several
+    calls over the same source should mint once (see
+    `fountain/pipeline.analyze_import`) and thread it through."""
     return secrets.token_hex(4)
 
 
