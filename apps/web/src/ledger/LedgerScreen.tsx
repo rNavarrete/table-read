@@ -779,6 +779,7 @@ export function LedgerScreen() {
                     character={selectedCharacter}
                     project={project}
                     facts={ledger}
+                    onOpenScene={navigateToWriteScene}
                   />
                 )}
               </>

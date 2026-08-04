@@ -1,4 +1,10 @@
-import type { Character, LedgerFact, Motivation, Project } from 'contract'
+import type {
+  Character,
+  LedgerFact,
+  Motivation,
+  Project,
+  Secret,
+} from 'contract'
 
 export type ProfileSource = 'stored' | 'bible' | 'derived' | 'empty'
 
@@ -168,4 +174,52 @@ export function resolveCharacterProfile(
     bio: '',
     source: 'empty',
   }
+}
+
+export interface CharacterSecrets {
+  /** Secrets this character is keeping from someone. */
+  holding: Secret[]
+  /** Secrets someone else is keeping from this character. */
+  keptFrom: Secret[]
+}
+
+/**
+ * Split the episode's secrets by this character's role in each one.
+ *
+ * The two directions read completely differently to a writer: what a
+ * character is hiding drives their behaviour, while what is being hidden
+ * *from* them is where their scenes carry dramatic irony. Same objects,
+ * opposite dramatic function, so they never share a list.
+ */
+export function secretsForCharacter(
+  project: Project,
+  characterId: string,
+): CharacterSecrets {
+  const holding: Secret[] = []
+  const keptFrom: Secret[] = []
+  for (const season of project.seasons) {
+    for (const episode of season.episodes) {
+      for (const secret of episode.secrets ?? []) {
+        if (secret.holderCharacterIds.includes(characterId))
+          holding.push(secret)
+        else if (secret.concealedFromCharacterIds.includes(characterId)) {
+          keptFrom.push(secret)
+        }
+      }
+    }
+  }
+  return { holding, keptFrom }
+}
+
+/** Motivations where the character claims a different goal than they pursue. */
+export function ulteriorMotives(motivations: Motivation[]): Motivation[] {
+  return motivations.filter((m) => (m.statedObjective ?? '').trim().length > 0)
+}
+
+/** Display names for ids, falling back to the raw id when unresolved. */
+export function characterNames(project: Project, ids: string[]): string[] {
+  const byId = new Map(
+    project.seriesBible.characters.map((c) => [c.id, c.name] as const),
+  )
+  return ids.map((id) => byId.get(id) ?? id)
 }

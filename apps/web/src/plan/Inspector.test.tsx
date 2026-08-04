@@ -26,6 +26,8 @@ function scene(overrides: Partial<Scene> = {}): Scene {
         objective: 'Come home',
         stakes: 'Everything',
         obstacle: 'Dan',
+        statedObjective: '',
+        concealed: false,
       },
     ],
     beats: [

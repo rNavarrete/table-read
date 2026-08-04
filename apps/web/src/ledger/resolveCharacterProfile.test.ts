@@ -90,6 +90,8 @@ describe('resolveCharacterProfile', () => {
         objective: 'to land the speech',
         stakes: 'the vote fails',
         obstacle: 'CJ cuts the line',
+        statedObjective: '',
+        concealed: false,
       },
     ]
     const profile = resolveCharacterProfile(

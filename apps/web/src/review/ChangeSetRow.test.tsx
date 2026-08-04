@@ -207,6 +207,8 @@ describe('ChangeSetRow', () => {
               objective: 'Get the truth',
               stakes: 'The bar',
               obstacle: 'Dan',
+              statedObjective: '',
+              concealed: false,
             },
           ],
           beatPlanSeeds: [
