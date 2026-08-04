@@ -6,6 +6,8 @@ import {
   layoutFactArc,
   layoutFactNodes,
   relatedFactIds,
+  beliefStateFor,
+  tallyBeliefs,
 } from './knowledgeGraph'
 
 const project = {
@@ -294,5 +296,128 @@ describe('layoutFactArc (optional marker layout helper)', () => {
     const layout = layoutFactNodes(nodes)
     expect(layout.map((entry) => entry.factId)).toEqual(['one', 'two'])
     expect(layout[0]!.y).not.toBe(layout[1]!.y)
+  })
+})
+
+describe('belief state (knows vs suspects vs misinformed)', () => {
+  function fact(overrides: Partial<LedgerFact> = {}): LedgerFact {
+    return {
+      id: 'fact-1',
+      fact: 'The books are forged.',
+      factType: 'knowledge',
+      sourceSpan: {
+        episodeId: 'ep-1',
+        sceneId: 'scene-1',
+        beatId: 'beat-1-1',
+        startLine: null,
+        endLine: null,
+        charStart: null,
+        charEnd: null,
+      },
+      sourceText: '',
+      knownBy: [],
+      knowledgeEvents: [],
+      audienceKnows: true,
+      provenance: 'inferred',
+      confidence: 0.9,
+      status: 'active',
+      supersedes: null,
+      supersededBy: null,
+      knownByAsOf: null,
+      ...overrides,
+    } as LedgerFact
+  }
+
+  it('reports a suspecting character as suspects, not knows', () => {
+    const f = fact({
+      knowledgeEvents: [
+        {
+          sceneId: 'scene-2',
+          characterIds: ['char-marta'],
+          kind: 'suspects',
+          quote: '',
+        },
+      ],
+    })
+    expect(beliefStateFor(f, 'char-marta')).toBe('suspects')
+    // And crucially it did NOT leak into the knower set.
+    expect(f.knownBy).toEqual([])
+  })
+
+  it('lets knowing win over an earlier suspicion', () => {
+    const f = fact({
+      knownBy: ['char-marta'],
+      knowledgeEvents: [
+        {
+          sceneId: 'scene-2',
+          characterIds: ['char-marta'],
+          kind: 'suspects',
+          quote: '',
+        },
+      ],
+    })
+    expect(beliefStateFor(f, 'char-marta')).toBe('knows')
+  })
+
+  it('reports a misled character as misinformed', () => {
+    const f = fact({
+      knowledgeEvents: [
+        {
+          sceneId: 'scene-3',
+          characterIds: ['char-dan'],
+          kind: 'misinformed',
+          quote: '',
+        },
+      ],
+    })
+    expect(beliefStateFor(f, 'char-dan')).toBe('misinformed')
+  })
+
+  it('ignores events belonging to other characters', () => {
+    const f = fact({
+      knowledgeEvents: [
+        {
+          sceneId: 'scene-2',
+          characterIds: ['char-dan'],
+          kind: 'suspects',
+          quote: '',
+        },
+      ],
+    })
+    expect(beliefStateFor(f, 'char-marta')).toBe('unaware')
+  })
+
+  it('tallies beliefs across facts', () => {
+    const facts = [
+      fact({ id: 'f1', knownBy: ['char-marta'] }),
+      fact({
+        id: 'f2',
+        knowledgeEvents: [
+          {
+            sceneId: 'scene-2',
+            characterIds: ['char-marta'],
+            kind: 'suspects',
+            quote: '',
+          },
+        ],
+      }),
+      fact({
+        id: 'f3',
+        knowledgeEvents: [
+          {
+            sceneId: 'scene-2',
+            characterIds: ['char-marta'],
+            kind: 'misinformed',
+            quote: '',
+          },
+        ],
+      }),
+      fact({ id: 'f4' }),
+    ]
+    expect(tallyBeliefs(facts, 'char-marta')).toEqual({
+      knows: 1,
+      suspects: 1,
+      misinformed: 1,
+    })
   })
 })

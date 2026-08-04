@@ -60,6 +60,15 @@ export function knownByForFocus(fact: LedgerFact): string[] {
   return fact.knownByAsOf ?? fact.knownBy
 }
 
+/** Does this character have a suspects/misinformed event on this fact? */
+function hasBeliefEvent(fact: LedgerFact, characterId: string): boolean {
+  return (fact.knowledgeEvents ?? []).some(
+    (event) =>
+      (event.kind === 'suspects' || event.kind === 'misinformed') &&
+      event.characterIds.includes(characterId),
+  )
+}
+
 function matchesFocus(
   fact: LedgerFact,
   project: Project,
@@ -67,6 +76,10 @@ function matchesFocus(
 ): boolean {
   if (characterId) {
     if (knownByForFocus(fact).includes(characterId)) return true
+    // A fact this character suspects, or has been misled about, belongs on
+    // their web too — it is not in knownBy by design, but "Marta suspects
+    // but cannot prove it" is precisely what a writer came here to see.
+    if (hasBeliefEvent(fact, characterId)) return true
     const characterName = project.seriesBible.characters
       .find((entry) => entry.id === characterId)
       ?.name.trim()
@@ -267,4 +280,65 @@ export function buildKnowledgeGraph(
     matchCount: matched.length,
     relatedEdges: buildRelatedEdges(factNodes, project),
   }
+}
+
+/**
+ * What a character believes about a fact — which is not the same as whether
+ * they know it.
+ *
+ * `knownBy` deliberately means "actually knows the true fact": the server
+ * fold only counts `learns`/`confirms`, because folding a hunch or a lie into
+ * knownBy would put it into later generation prompts as established fact.
+ * That correctness has a UI cost — a character who *suspects* something, or
+ * who has been told something false, is invisible to a view that only reads
+ * knownBy. Dramatically those are the interesting states: suspicion is
+ * tension, and a confidently wrong character is the engine of a whole scene.
+ *
+ * So the graph reads `knowledgeEvents` directly for the belief layer, and
+ * leaves `knownBy` alone.
+ */
+export type BeliefState = 'knows' | 'suspects' | 'misinformed' | 'unaware'
+
+const BELIEF_FROM_KIND: Record<string, BeliefState> = {
+  suspects: 'suspects',
+  misinformed: 'misinformed',
+}
+
+export function beliefStateFor(
+  fact: LedgerFact,
+  characterId: string | null,
+): BeliefState {
+  if (!characterId) return 'unaware'
+  // Knowing wins: a character who suspected in scene 3 and confirmed in
+  // scene 9 knows it, and the server fold has already said so.
+  if (knownByForFocus(fact).includes(characterId)) return 'knows'
+  // Otherwise the latest belief-shaped event for this character stands.
+  // Events are replayed in list order here; the server owns scene-ordered
+  // replay for knownBy, and this layer only reports the softer states.
+  let state: BeliefState = 'unaware'
+  for (const event of fact.knowledgeEvents ?? []) {
+    if (!event.characterIds.includes(characterId)) continue
+    const mapped = BELIEF_FROM_KIND[event.kind]
+    if (mapped) state = mapped
+  }
+  return state
+}
+
+export interface BeliefTally {
+  knows: number
+  suspects: number
+  misinformed: number
+}
+
+/** Counts for the focus character across the supplied facts. */
+export function tallyBeliefs(
+  facts: LedgerFact[],
+  characterId: string | null,
+): BeliefTally {
+  const tally: BeliefTally = { knows: 0, suspects: 0, misinformed: 0 }
+  for (const fact of facts) {
+    const state = beliefStateFor(fact, characterId)
+    if (state !== 'unaware') tally[state] += 1
+  }
+  return tally
 }

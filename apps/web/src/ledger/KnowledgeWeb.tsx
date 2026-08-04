@@ -4,9 +4,11 @@ import { Card } from '../plan/Card'
 import { Chip } from '../plan/Chip'
 import { FactCard } from './FactCard'
 import {
+  beliefStateFor,
   buildKnowledgeGraph,
   knownByForFocus,
   relatedFactIds,
+  tallyBeliefs,
 } from './knowledgeGraph'
 import { formatSourceSpanLabel } from './sourceSpanLabel'
 
@@ -122,6 +124,13 @@ export function KnowledgeWeb({
     [graph.factNodes],
   )
 
+  // Tallied over every fact, not just the visible/capped nodes — "suspects 2"
+  // should not change because the list is truncated.
+  const beliefs = useMemo(
+    () => tallyBeliefs(allFacts, characterId),
+    [allFacts, characterId],
+  )
+
   const showPeopleNudge =
     characterId === null &&
     (graph.factNodes.length === 0 || graph.factNodes.length < 3)
@@ -193,6 +202,18 @@ export function KnowledgeWeb({
             >
               {graph.focusLabel}
             </p>
+            {characterId &&
+              (beliefs.suspects > 0 || beliefs.misinformed > 0) && (
+                <p
+                  className="mt-0.5 text-11 text-tr-text-secondary"
+                  data-testid="web-focus-beliefs"
+                >
+                  knows {beliefs.knows}
+                  {beliefs.suspects > 0 && ` · suspects ${beliefs.suspects}`}
+                  {beliefs.misinformed > 0 &&
+                    ` · misinformed ${beliefs.misinformed}`}
+                </p>
+              )}
           </div>
           <div
             className="flex flex-wrap items-center gap-1.5"
@@ -246,6 +267,24 @@ export function KnowledgeWeb({
                       <span data-testid={`web-fact-knowers-${fact.id}`}>
                         {knowerCountLabel(fact)}
                       </span>
+                      {(() => {
+                        // Only worth a badge when it differs from knowing —
+                        // marking every known fact "knows" is just noise.
+                        const belief = beliefStateFor(fact, characterId)
+                        if (belief !== 'suspects' && belief !== 'misinformed') {
+                          return null
+                        }
+                        return (
+                          <span
+                            className="rounded-chip bg-tr-amber-soft px-1.5 py-0 text-11 text-tr-amber"
+                            data-testid={`web-fact-belief-${fact.id}`}
+                          >
+                            {belief === 'suspects'
+                              ? 'suspects — not confirmed'
+                              : 'believes something false'}
+                          </span>
+                        )
+                      })()}
                       {related ? (
                         <span className="text-tr-accent-ink">related</span>
                       ) : null}
