@@ -361,7 +361,7 @@ def test_import_worker_role_op_uses_import_worker_model_and_no_temperature():
     assert "temperature" not in call
 
 
-def test_narrative_scene_analysis_preserves_opus_adaptive_thinking():
+def test_narrative_scene_analysis_forces_a_strict_tool_with_adaptive_thinking():
     valid_analysis = FakeMessage(
         content=[
             FakeToolUseBlock(
@@ -381,14 +381,20 @@ def test_narrative_scene_analysis_preserves_opus_adaptive_thinking():
 
     call = sdk.messages.calls[0]
     assert call["model"] == "import-analyst-model-z"
-    assert call["tool_choice"] == {"type": "auto"}
+    # Forced + adaptive thinking is a supported pairing: the "auto only"
+    # restriction applies to manual extended thinking (budget_tokens), which
+    # this client never sends. Forcing guarantees the structured response.
+    assert call["tool_choice"] == {
+        "type": "tool",
+        "name": "infer_narrative_scene_analysis",
+    }
     assert call["thinking"] == {"type": "adaptive"}
     assert call["output_config"] == {"effort": "medium"}
     assert call["tools"][0]["strict"] is True
     assert "temperature" not in call
 
 
-def test_narrative_map_synthesis_forces_a_strict_tool_without_thinking():
+def test_narrative_map_synthesis_forces_a_strict_tool_with_adaptive_thinking():
     op_name = "infer_narrative_map_synthesis"
     response = FakeMessage(
         content=[
@@ -412,12 +418,17 @@ def test_narrative_map_synthesis_forces_a_strict_tool_without_thinking():
     assert len(sdk.messages.stream_calls) == 1
     call = sdk.messages.stream_calls[0]
     assert call["tool_choice"] == {"type": "tool", "name": op_name}
-    assert call["thinking"] == {"type": "disabled"}
+    # Never {"type": "disabled"}: with thinking off, Claude Opus 5 can emit the
+    # tool call as plain text — the turn succeeds, the call never runs, and
+    # this op fails closed (retry_schema_once=False).
+    assert call["thinking"] == {"type": "adaptive"}
     assert call["output_config"] == {"effort": "medium"}
     assert call["tools"][0]["strict"] is True
     assert "stream" not in call
     assert OP_REGISTRY[op_name].call_timeout_seconds == 600.0
     assert OP_REGISTRY[op_name].retry_schema_once is False
+    # Thinking counts toward max_tokens, so the ceiling covers both.
+    assert OP_REGISTRY[op_name].max_tokens == 24_576
 
 
 def test_narrative_map_verifier_streams_one_forced_strict_tool_call():
@@ -447,11 +458,12 @@ def test_narrative_map_verifier_streams_one_forced_strict_tool_call():
         "type": "tool",
         "name": "verify_narrative_map",
     }
-    assert call["thinking"] == {"type": "disabled"}
+    assert call["thinking"] == {"type": "adaptive"}
     assert call["output_config"] == {"effort": "low"}
     assert call["tools"][0]["strict"] is True
     assert "stream" not in call
     assert OP_REGISTRY[op_name].call_timeout_seconds == 300.0
+    assert OP_REGISTRY[op_name].max_tokens == 8_192
     assert OP_REGISTRY[op_name].retry_schema_once is False
 
 

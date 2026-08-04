@@ -92,14 +92,26 @@ class LlmOp:
     # ping events keep the connection alive while still returning one complete
     # Message for the existing validation path.
     stream_response: bool = False
-    # Opus 5 and Sonnet 5 use adaptive thinking by default. Their thinking-
-    # compatible tool path must use auto selection rather than a forced tool.
+    # Forced tool choice IS compatible with adaptive thinking. The "must use
+    # auto selection" restriction applies only to *manual* extended thinking
+    # (`thinking: {type: "enabled", budget_tokens: N}`), which this codebase
+    # never sends — see the Thinking-with-tool-use rules: "tool_choice options
+    # that force tool use return an error with manual extended thinking;
+    # adaptive thinking supports forced tool use." Keep ops that require a
+    # structured response on "forced".
     tool_choice_mode: ToolChoiceMode = "forced"
     adaptive_thinking: bool = False
-    # Claude Opus 5 enables adaptive thinking by default. A forced strict
-    # tool call is incompatible with thinking, so output-only extraction ops
-    # may explicitly opt out at an effort level supported by the provider.
+    # Disabling thinking on Claude Opus 5 has two documented failure modes:
+    # the model may emit a tool call as plain text (the turn succeeds, the
+    # call silently never runs, and no error is raised), and it may leak
+    # `<thinking>` tags into the response. Both are worse here than the
+    # thinking spend, because `_validate_tool_response` reads a missing
+    # tool_use block as SCHEMA_INVALID_LLM. Prefer adaptive thinking at a
+    # low/medium effort over disabling it.
     thinking_disabled: bool = False
+    # NOTE: effort is rendered into the prompt, so two calls that differ only
+    # by effort do NOT share a prompt-cache prefix. Ops intended to reuse one
+    # cached source payload must agree on effort AND thinking config.
     effort: EffortLevel | None = None
     # Schema repair is useful for generative calls, but a duplicate verifier
     # verdict is unnecessary spend. Operations can fail closed after the first
@@ -245,7 +257,9 @@ _OPS: tuple[LlmOp, ...] = (
         # timed out after spending tokens without yielding a usable map.
         max_tokens=8_192,
         call_timeout_seconds=180.0,
-        tool_choice_mode="auto",
+        # Forced: this op must return a structured scene analysis. Auto let the
+        # model answer in prose instead, which surfaced as SCHEMA_INVALID_LLM.
+        tool_choice_mode="forced",
         adaptive_thinking=True,
         effort="medium",
     ),
@@ -258,11 +272,13 @@ _OPS: tuple[LlmOp, ...] = (
         "threads, and an optional Hero's Journey lens from verified scene analysis. "
         "Every claim must use the supplied scene packets and their source-owned beat IDs; "
         "never add unsupported events, motives, or generic placeholder analysis.",
-        max_tokens=16_384,
+        # Thinking counts toward max_tokens, so this ceiling covers reasoning
+        # plus the large structured map.
+        max_tokens=24_576,
         call_timeout_seconds=600.0,
         stream_response=True,
         tool_choice_mode="forced",
-        thinking_disabled=True,
+        adaptive_thinking=True,
         effort="medium",
         retry_schema_once=False,
     ),
@@ -275,11 +291,13 @@ _OPS: tuple[LlmOp, ...] = (
         "screenplay source and scene analysis. Approve only concrete claims traceable to the "
         "supplied evidence, and identify every unsupported path or missing scene without "
         "rewriting or inventing the analysis.",
-        max_tokens=4_096,
+        # Headroom for reasoning plus the verdict; a truncated response has no
+        # tool_use block and fails closed (retry_schema_once=False).
+        max_tokens=8_192,
         call_timeout_seconds=300.0,
         stream_response=True,
         tool_choice_mode="forced",
-        thinking_disabled=True,
+        adaptive_thinking=True,
         effort="low",
         retry_schema_once=False,
     ),
