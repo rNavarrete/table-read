@@ -217,3 +217,46 @@ def test_new_fact_ids_do_not_collide_with_existing_ledger():
     assert len(set(minted)) == 3
     assert "fact-07" not in minted
     assert all(i.startswith("fact-") for i in minted)
+
+
+def test_curly_apostrophe_in_source_still_verifies():
+    """A quote is not ungrounded because of typography.
+
+    Imported PDFs (OCR especially) are full of curly quotes while a model
+    quoting them back normalizes to ASCII. On a real 60-page import this
+    single mismatch demoted 61 of 120 facts that were all genuinely on the
+    page — invisibly, since a demoted fact just lands in the review queue.
+    """
+    script = "SAM\nIt’s Potus.\n"
+    start, end, verified = ledger_policy.verify_source_text(script, "It's Potus.", 1, 2)
+    assert verified is True
+    # Offsets must index the ORIGINAL text, curly character and all.
+    assert script[start:end] == "It’s Potus."
+
+
+def test_curly_double_quotes_and_dashes_verify():
+    script = 'TOBY\n“The number” — he said.\n'
+    _s, _e, verified = ledger_policy.verify_source_text(script, '"The number" - he said.', 1, 2)
+    assert verified is True
+
+
+def test_typographic_fold_is_length_preserving():
+    """The offsets returned by verify_source_text depend on this.
+
+    Folding is applied to the haystack before `find`, so the index it returns
+    is only valid in the original string if every substitution is 1 character
+    to 1 character. A map entry like "…" -> "..." would silently shift every
+    offset after it and mis-highlight the Ledger's jump-to-source.
+    """
+    for source, replacement in ledger_policy._TYPOGRAPHIC_FOLD.items():
+        assert replacement is not None
+        assert len(chr(source)) == len(replacement) == 1
+    sample = "a’b“c—d"
+    assert len(ledger_policy._fold_typography(sample)) == len(sample)
+
+
+def test_genuinely_absent_quote_is_still_unverified():
+    """The fold must not turn verification into a rubber stamp."""
+    script = "SAM\nIt's Potus.\n"
+    start, end, verified = ledger_policy.verify_source_text(script, "He resigned on Tuesday.", 1, 2)
+    assert (start, end, verified) == (None, None, False)

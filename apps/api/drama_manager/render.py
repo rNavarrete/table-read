@@ -25,7 +25,11 @@ import secrets
 from typing import Any
 
 # Prompt spec §8 / hard rule 7: every template carries a PROMPT_VERSION (semver);
-# it is logged with each call and bumped on any template change. 0.34.0 asks
+# it is logged with each call and bumped on any template change. 0.35.0
+# requires extract_ledger_facts to quote ONE contiguous span: on a real
+# import 16 of 120 facts stitched two fragments with an ellipsis, which can
+# never verify against the source and silently demoted otherwise-correct
+# facts. 0.34.0 asks
 # infer_narrative_promises for secrets (who is hiding what from whom, and
 # where it lands) and for the stated-vs-actual objective gap that is an
 # ulterior motive — both newly representable in the contract. 0.33.0 gives
@@ -66,7 +70,7 @@ from typing import Any
 # 0.10.0 typed segment starts; 0.9.0 lock-aware narrative repair. Earlier:
 # 0.8.0 suggest; 0.7.0 scene skeleton; 0.6.0 continuity; 0.5.0 regenerate;
 # 0.4.0 blast; 0.3.0 tune; 0.2.0 candidate + §0 system prompt.
-PROMPT_VERSION = "0.34.0"
+PROMPT_VERSION = "0.35.0"
 
 
 def new_nonce() -> str:
@@ -679,7 +683,12 @@ def build_extract_prompt(
         "audience knows it, and whether a later scene contradicts it — but "
         "report sourceSpan line ranges only into the numbered beats of this "
         "scene. Report line "
-        "ranges into each beat's numbered scriptText; do not transcribe. If "
+        "ranges into each beat's numbered scriptText; do not transcribe. "
+        "sourceText must be ONE contiguous span copied from the script — not "
+        "two fragments joined with an ellipsis. The server locates it verbatim "
+        "inside the line range you report and demotes the fact when it cannot, "
+        "so a stitched quote loses a fact that was otherwise correct; pick the "
+        "single most telling span instead. If "
         "this scene shows a character learning (or, rarely, forgetting) a "
         "new fact beyond who already knows it at the moment it's "
         "established, add a knowledgeEvents entry with this scene's id, "

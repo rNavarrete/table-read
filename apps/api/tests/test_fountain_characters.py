@@ -373,3 +373,50 @@ def test_merge_does_not_overwrite_locked_traits_or_summary():
     assert doc["traits"] == "original"
     assert doc["summary"] == "original summary"
     assert doc["aliases"] == []  # locked: aliases untouched too
+
+
+def test_act_and_structure_markers_are_not_characters():
+    """A teleplay is full of all-caps lines that are not people.
+
+    On a real 60-page import these minted characters called "Act One",
+    "End Of Teaser", "Main Titles" and "Fade Out" — 54 "characters" for a
+    ~23-person cast. That poisons every downstream name resolution, because
+    knownBy, secret holders and relationships all resolve against this list.
+    """
+    lines = [
+        "ACT ONE",
+        "ACT TWO",
+        "ACT 3",
+        "END OF ACT ONE",
+        "TOP OF ACT FOUR",
+        "TEASER",
+        "END OF TEASER",
+        "MAIN TITLES.",
+        "ESTABLISHING.",
+        "FADE OUT.",
+        "SAM",
+    ]
+    assert extract_character_cues(lines) == ["Sam"]
+
+
+def test_a_trailing_period_does_not_mint_a_second_character():
+    """`DONNA` and `DONNA.` are one person."""
+    assert extract_character_cues(["DONNA", "DONNA.", "LAURIE.", "LAURIE"]) == [
+        "Donna",
+        "Laurie",
+    ]
+
+
+def test_an_initialism_keeps_its_terminal_period_and_casing():
+    """C.J. is the character's name; "C.j" matches nothing and reads wrong."""
+    assert extract_character_cues(["C.J.", "J.R."]) == ["C.J.", "J.R."]
+
+
+def test_a_name_ending_in_a_period_still_loses_it():
+    assert extract_character_cues(["MRS. LANDINGHAM."]) == ["Mrs. Landingham"]
+
+
+def test_ocr_damaged_slugline_remnants_are_not_characters():
+    """OCR misreads EXT. often enough that the remnant reaches the cue filter."""
+    lines = ["BAT. WHITE HOUSE - DAY 18", "WE...", "JOSH"]
+    assert extract_character_cues(lines) == ["Josh"]

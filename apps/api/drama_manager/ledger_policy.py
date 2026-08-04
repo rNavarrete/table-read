@@ -56,6 +56,43 @@ class IdMinter:
                 return candidate
 
 
+# Typographic variants that mean the same character but break an exact match.
+# Imported scripts — OCR'd PDFs especially — are full of curly quotes and long
+# dashes, while a model quoting them back usually normalizes to ASCII. On a
+# real 60-page import this alone accounted for 61 of 120 facts failing
+# verification and being demoted, every one of them genuinely on the page.
+#
+# **Every entry must be a single character mapping to a single character.**
+# `verify_source_text` returns offsets into the ORIGINAL `script_text`, so the
+# fold has to preserve length and position exactly — index i in the folded
+# string must be index i in the original. That rules out things like
+# "…" -> "..." (1 char to 3), which is why the ellipsis case is handled by
+# asking the model for a contiguous quote instead (prompt spec §5).
+_TYPOGRAPHIC_FOLD = str.maketrans(
+    {
+        "‘": "'",  # ' left single
+        "’": "'",  # ' right single / apostrophe
+        "‚": "'",  # ‚ low single
+        "′": "'",  # ′ prime
+        "´": "'",  # ´ acute
+        "`": "'",  # ` backtick
+        "“": '"',  # " left double
+        "”": '"',  # " right double
+        "„": '"',  # „ low double
+        "″": '"',  # ″ double prime
+        "–": "-",  # – en dash
+        "—": "-",  # — em dash
+        "−": "-",  # − minus
+        " ": " ",  # non-breaking space
+    }
+)
+
+
+def _fold_typography(text: str) -> str:
+    """Length-preserving normalization — see `_TYPOGRAPHIC_FOLD`."""
+    return text.translate(_TYPOGRAPHIC_FOLD)
+
+
 def verify_source_text(
     script_text: str, source_text: str, start_line: int, end_line: int
 ) -> tuple[int | None, int | None, bool]:
@@ -82,7 +119,13 @@ def verify_source_text(
     if 0 <= lo <= hi < len(lines):
         window_start = offsets[lo]
         window_end = offsets[hi] + len(lines[hi])  # end of line hi, before its "\n"
-        idx = script_text.find(source_text, window_start, window_end)
+        # Fold both sides so a curly apostrophe on the page still matches a
+        # straight one in the quote. The fold is length-preserving, so `idx`
+        # and the slice below index the ORIGINAL script_text — the caller
+        # stores these offsets and the Ledger highlights the real characters.
+        idx = _fold_typography(script_text).find(
+            _fold_typography(source_text), window_start, window_end
+        )
         if idx != -1:
             return (idx, idx + len(source_text), True)
     return (None, None, False)

@@ -63,8 +63,47 @@ _TRANSITION_EXACT = frozenset(
         "OMITTED",
         "BLACKOUT",
         "BACK TO SCENE",
+        # Structural markers. A teleplay is full of all-caps lines that are
+        # not people, and on a real 60-page import these were minting
+        # characters called "Act One", "End Of Teaser" and "Main Titles" —
+        # which then poison every downstream name resolution (knownBy, secret
+        # holders, relationships) because they compete with the real cast.
+        "TEASER",
+        "END OF TEASER",
+        "MAIN TITLE",
+        "MAIN TITLES",
+        "TITLES",
+        "ESTABLISHING",
+        "MONTAGE",
+        "END MONTAGE",
+        "INTERCUT",
+        "END INTERCUT",
+        "FLASHBACK",
+        "END FLASHBACK",
+        "SERIES OF SHOTS",
+        "PRELAP",
+        "BEAT",
+        "SILENCE",
+        "PAUSE",
+        "LATER",
+        "CONTINUOUS",
+        "CONTINUOUS ACTION",
+        "SAME",
+        "MOMENTS LATER",
     }
 )
+
+# `ACT ONE`, `ACT 2`, `END OF ACT THREE`, `TOP OF ACT FOUR` … enumerating every
+# spelling is a losing game, so match the shape instead.
+_ACT_MARKER_RE = re.compile(
+    r"^(?:END OF |TOP OF |BEGIN(?:NING)? OF )?ACT\b[ .]*"
+    r"(?:[0-9IVX]+|ONE|TWO|THREE|FOUR|FIVE|SIX|SEVEN)?$"
+)
+# Any `END OF <something>` is structure, never a character.
+_END_OF_RE = re.compile(r"^END OF\b")
+
+# "C.J." / "J.R." — every dot-separated segment is a single letter.
+_INITIALISM_RE = re.compile(r"^(?:[A-Za-z]\.){2,}$")
 
 _AUDIENCE_TOKENS = frozenset({"audience", "the audience", "viewer", "viewers"})
 
@@ -203,6 +242,26 @@ def backfill_cast_and_known_by(doc: dict, ledger: list[dict]) -> tuple[dict, lis
     return doc, new_ledger
 
 
+def _strip_terminal_period(token: str) -> str:
+    """Drop a sentence-ending period, but never an initialism's.
+
+    OCR and hand-typed scripts both emit `DONNA.` alongside `DONNA`, which
+    otherwise mint two characters for one person; the same trailing dot is why
+    `FADE OUT.` slipped past the transition list. But `C.J.` and `J.R.` end in
+    a period that is part of the name — strip it and the cast list gains a
+    "C.J" that matches nothing.
+
+    The distinguishing test is the final segment: a single letter means an
+    initialism, anything longer means a word that happens to end the line.
+    """
+    if not token.endswith("."):
+        return token
+    segments = [part for part in token.split(".") if part.strip()]
+    if segments and len(segments[-1].strip()) == 1:
+        return token
+    return token[:-1].rstrip()
+
+
 def _cue_display_name(line: str) -> str | None:
     if not line or _SLUGLINE_RE.match(line):
         return None
@@ -210,11 +269,19 @@ def _cue_display_name(line: str) -> str | None:
     if match is None:
         return None
     token = re.sub(r"\s+", " ", match.group(1).strip())
+    # Check for ellipsis/slugline shape BEFORE trimming any terminal period —
+    # stripping first turns "WE..." into "WE.." and hides it from this test.
+    if " - " in token or ".." in token:
+        return None
+    token = _strip_terminal_period(token)
     if not token or len(token) > 40:
         return None
     # Reject transitions even when written without a trailing colon on-line.
     folded = token.casefold()
-    if folded.upper() in _TRANSITION_EXACT:
+    upper = folded.upper()
+    if upper in _TRANSITION_EXACT:
+        return None
+    if _ACT_MARKER_RE.match(upper) or _END_OF_RE.match(upper):
         return None
     if token.endswith(" TO") or token.endswith(" TO:"):
         return None
@@ -238,6 +305,10 @@ def _title_case_cue(token: str) -> str:
                 (p[:1].upper() + p[1:].lower()) if p else p for p in [head, *rest]
             )
             parts.append(rebuilt)
+        elif _INITIALISM_RE.match(word):
+            # C.J. / J.R. are initialisms, not words — title-casing them
+            # produces "C.j.", which is simply the wrong name.
+            parts.append(word.upper())
         else:
             parts.append(word[:1].upper() + word[1:].lower())
     return " ".join(parts)
