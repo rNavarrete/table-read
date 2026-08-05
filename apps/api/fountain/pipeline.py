@@ -219,6 +219,9 @@ def analyze_import(
         ),
         stage=STAGE_SEGMENTING_BEATS,
         existing_results=cached_beats,
+        # Every call carries `split_source`; without warming, the first four
+        # workers each write it.
+        warm_cache_first=True,
         on_result=lambda index, beats: _write_checkpoint(
             checkpoint_writer,
             STAGE_SEGMENTING_BEATS,
@@ -560,6 +563,8 @@ def analyze_import(
         ),
         stage=STAGE_EXTRACTING_FACTS,
         existing_results=cached_extractions,
+        # Same race as segmentation — every call carries `episode_source`.
+        warm_cache_first=True,
         on_result=lambda index, extraction: _write_checkpoint(
             checkpoint_writer,
             STAGE_EXTRACTING_FACTS,
@@ -891,12 +896,21 @@ def _run_ordered_parallel[T, R](
     stage: str,
     existing_results: list[R | None] | None = None,
     on_result: Callable[[int, R], None] | None = None,
+    warm_cache_first: bool = False,
 ) -> Generator[ImportPipelineEvent, None, list[R]]:
     """Run per-scene LLM work concurrently while returning results by source index.
 
     On failure, pending futures are cancelled and the executor is not allowed to
     wait for unrelated in-flight calls. Already-running HTTP calls cannot be
     killed, but this generator raises immediately and emits no later progress.
+
+    `warm_cache_first` runs the first outstanding item alone before fanning
+    out. Set it when the worker sends a shared cached prefix: otherwise the
+    first IMPORT_LLM_CONCURRENCY calls all start before any cache entry
+    exists and each pays a full cache write. Measured on a real 60-page
+    import: three redundant 30k-token writes per loop, about $0.18 each on
+    the Sonnet import worker. The cost is one scene of serial latency; the
+    saving is every redundant write in that loop.
     """
     if not items:
         return []
@@ -915,6 +929,19 @@ def _run_ordered_parallel[T, R](
     ]
     if not missing:
         return [cast(R, result) for result in results]
+
+    # Warm the shared prefix on one call before fanning out. Uses the first
+    # OUTSTANDING item rather than index 0, so a checkpointed resume warms
+    # with work it actually has to do instead of redoing a finished scene.
+    if warm_cache_first and len(missing) > 1:
+        warm_index, warm_item = missing[0]
+        warm_result = worker(warm_index, warm_item)
+        if on_result is not None:
+            on_result(warm_index, warm_result)
+        results[warm_index] = warm_result
+        done += 1
+        yield ImportStageProgress(stage, done, len(items))
+        missing = missing[1:]
 
     pool = ThreadPoolExecutor(max_workers=IMPORT_LLM_CONCURRENCY)
     try:

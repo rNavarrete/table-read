@@ -195,14 +195,19 @@ def _drain_analysis(gen):
 
 
 class _OutOfOrderImportLlm(MockLlmClient):
-    """Coordinates scene workers so scene 2/3 finish before scene 1."""
+    """Coordinates the CONCURRENT scene workers to finish out of source order.
+
+    Scene 1 is the cache-warming call and runs alone before the fan-out, so
+    the race that matters is between the scenes that follow it: scene 3 is
+    made to complete before scene 2.
+    """
 
     def __init__(self) -> None:
         super().__init__()
         self.segment_completed: list[str] = []
         self.extract_completed: list[str] = []
-        self._scene_two_started = threading.Event()
-        self._release_scene_one = threading.Event()
+        self._scene_three_started = threading.Event()
+        self._release_scene_two = threading.Event()
         self._lock = threading.Lock()
 
     def segment_scene(
@@ -215,15 +220,15 @@ class _OutOfOrderImportLlm(MockLlmClient):
     ):
         del system, prompt_version
         if "Alpha waits." in user_message:
-            scene = "one"
-            self._scene_two_started.wait(0.5)
-            self._release_scene_one.wait(0.5)
+            scene = "one"  # the warm call — runs alone, always first
         elif "Beta waits." in user_message:
             scene = "two"
-            self._scene_two_started.set()
+            self._scene_three_started.wait(0.5)
+            self._release_scene_two.wait(0.5)
         elif "Gamma waits." in user_message:
             scene = "three"
-            self._release_scene_one.set()
+            self._scene_three_started.set()
+            self._release_scene_two.set()
         else:
             raise AssertionError("unexpected scene prompt")
 
@@ -559,7 +564,8 @@ def test_out_of_order_scene_workers_preserve_source_order(unlocked_project, monk
         pipeline.analyze_import(unlocked_project["project"], [], src, llm)
     )
 
-    assert llm.segment_completed[:2] == ["two", "three"]
+    # Scene 1 warms the cache alone; 3 then completes before 2.
+    assert llm.segment_completed == ["one", "three", "two"]
     scenes = analysis.new_doc["seasons"][0]["episodes"][0]["scenes"]
     assert [(scene["id"], scene["location"]) for scene in scenes] == [
         ("scene-1", "INT. ALPHA - DAY"),
@@ -2164,3 +2170,70 @@ def test_segmentation_and_extraction_prefixes_are_independent(unlocked_project):
     assert seg != ext
     assert '"beatId"' in ext and '"beatId"' not in seg
     assert '"sceneIndex"' in seg
+
+
+def test_cache_warming_runs_one_scene_before_fanning_out(unlocked_project):
+    """Without warming, every concurrent worker pays a full cache write.
+
+    The first IMPORT_LLM_CONCURRENCY calls all start before any cache entry
+    exists, so each writes the shared prefix instead of reading it. On a real
+    60-page import that was three redundant 30k-token writes per loop.
+
+    Asserted through progress frames because they are the observable
+    signal that one scene completed alone before the rest began.
+    """
+    src = "\n".join(
+        [
+            "INT. ALPHA - DAY",
+            "Alpha waits.",
+            "INT. BETA - DAY",
+            "Beta waits.",
+            "INT. GAMMA - DAY",
+            "Gamma waits.",
+        ]
+    )
+    llm = MockLlmClient()
+    llm.set_responses("segment_scene", one_beat_per_scene(src))
+    llm.set_response("extract_ledger_facts", extraction())
+    llm.set_response("scan_consistency", scan())
+
+    events, analysis = _drain_analysis(
+        pipeline.analyze_import(unlocked_project["project"], [], src, llm)
+    )
+
+    for stage in (pipeline.STAGE_SEGMENTING_BEATS, pipeline.STAGE_EXTRACTING_FACTS):
+        frames = [
+            (e.done, e.total)
+            for e in events
+            if isinstance(e, pipeline.ImportStageProgress) and e.stage == stage
+        ]
+        # 0 -> 1 (the lone warm call) -> the rest.
+        assert frames == [(0, 3), (1, 3), (2, 3), (3, 3)], stage
+
+    # Warming must not disturb the ordering guarantee.
+    scenes = analysis.new_doc["seasons"][0]["episodes"][0]["scenes"]
+    assert [s["location"] for s in scenes] == [
+        "INT. ALPHA - DAY",
+        "INT. BETA - DAY",
+        "INT. GAMMA - DAY",
+    ]
+
+
+def test_a_single_scene_import_does_not_warm(unlocked_project):
+    """Warming a one-item loop is pure latency for no saved write."""
+    src = "INT. ALPHA - DAY\nAlpha waits.\n"
+    llm = MockLlmClient()
+    llm.set_responses("segment_scene", one_beat_per_scene(src))
+    llm.set_response("extract_ledger_facts", extraction())
+    llm.set_response("scan_consistency", scan())
+
+    events, _analysis = _drain_analysis(
+        pipeline.analyze_import(unlocked_project["project"], [], src, llm)
+    )
+    frames = [
+        (e.done, e.total)
+        for e in events
+        if isinstance(e, pipeline.ImportStageProgress)
+        and e.stage == pipeline.STAGE_SEGMENTING_BEATS
+    ]
+    assert frames == [(0, 1), (1, 1)]
