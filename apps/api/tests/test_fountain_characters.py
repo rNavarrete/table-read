@@ -568,3 +568,36 @@ def test_generic_inferred_entity_is_dropped():
         bible, entities, "INT. LOBBY - DAY\n\nThe press corps waits.\n\nJOSH\nLater.\n"
     )
     assert [c["name"] for c in characters] == ["Josh"]
+
+
+def test_action_lines_are_not_characters():
+    """A stage direction in caps matches the cue shape exactly."""
+    lines = ["BEEPER GOES OFF.", "THE DOOR SLAMS", "PHONE RINGS", "JOSH"]
+    assert extract_character_cues(lines) == ["Josh"]
+
+
+def test_a_single_word_cue_is_never_rejected_as_an_action_line():
+    """WILL, MAY, GRANT, CHASE, ROSE and HUNTER are all real names.
+
+    The multi-word constraint is what makes verb matching safe at all: a
+    one-word cue is a name by construction, whatever the word looks like.
+    """
+    for name in ["WILL", "MAY", "MARK", "GRANT", "CHASE", "HUNTER", "ROSE", "SUE"]:
+        assert extract_character_cues([name]) == [name.title()], name
+
+
+def test_a_two_word_name_containing_a_name_like_verb_survives():
+    """Only conjugated -s forms count, so "Will Smith" is untouched."""
+    assert extract_character_cues(["WILL SMITH", "MAY PARKER", "ROSE TYLER"]) == [
+        "Will Smith",
+        "May Parker",
+        "Rose Tyler",
+    ]
+
+
+def test_surnames_ending_in_s_are_not_verbs():
+    assert extract_character_cues(["MARCUS STEVENS", "AMY BROOKS", "JIM RIVERS"]) == [
+        "Marcus Stevens",
+        "Amy Brooks",
+        "Jim Rivers",
+    ]

@@ -154,6 +154,45 @@ _GENERIC_ROLE_HEADS = frozenset(
     }
 )
 
+# Action lines that look like cues. A stage direction in caps ("BEEPER GOES
+# OFF.", "THE DOOR SLAMS") matches the cue shape exactly, and one slipped
+# through as a character on a real import.
+#
+# Verb detection is the obvious tool and the dangerous one — WILL, MAY, MARK,
+# GRANT, CHASE, ROSE and HUNTER are all names. Two constraints keep it safe:
+#
+#   1. Third-person-singular -s forms only. "GOES"/"SLAMS"/"RINGS" are verbs
+#      in a way "WILL"/"MAY"/"MARK" are not, and English names very rarely
+#      take that shape.
+#   2. Multi-word cues only, so a single-word name can never be rejected here
+#      no matter what it is.
+#
+# A real cue is a name, and names don't conjugate.
+_ACTION_VERBS = frozenset(
+    {
+        "goes", "comes", "enters", "exits", "leaves", "arrives", "returns",
+        "opens", "closes", "slams", "shuts", "locks", "knocks",
+        "rings", "buzzes", "beeps", "chimes", "blares", "sounds",
+        "walks", "runs", "crosses", "steps", "moves", "turns", "spins",
+        "sits", "stands", "rises", "falls", "drops", "lands",
+        "looks", "watches", "stares", "glances", "waits", "pauses",
+        "holds", "grabs", "pulls", "pushes", "lifts", "hands", "puts",
+        "picks", "takes", "gives", "throws", "catches",
+        "starts", "stops", "begins", "ends", "continues", "reveals",
+        "appears", "vanishes", "fades", "cuts", "flickers", "glows",
+        "hangs", "sits", "lies", "rests", "waits",
+    }
+)
+
+
+def is_action_line(name: str) -> bool:
+    """A multi-word cue containing a conjugated verb is stage direction."""
+    tokens = re.findall(r"[A-Za-z]+", name or "")
+    if len(tokens) < 2:
+        return False
+    return any(token.casefold() in _ACTION_VERBS for token in tokens)
+
+
 _PARENTHETICAL_RE = re.compile(r"\s*\([^)]*\)")
 
 
@@ -361,6 +400,8 @@ def _cue_display_name(line: str) -> str | None:
     # Its dialogue still lives in scriptText verbatim; it just doesn't get a
     # row in the cast competing with the real characters.
     if is_generic_role(token):
+        return None
+    if is_action_line(token):
         return None
     if token.endswith(" TO") or token.endswith(" TO:"):
         return None
