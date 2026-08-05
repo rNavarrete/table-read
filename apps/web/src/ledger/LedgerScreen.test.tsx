@@ -288,3 +288,76 @@ describe('LedgerScreen dual views', () => {
     })
   })
 })
+
+describe('LedgerScreen character profile across views', () => {
+  function projectWithCast(): Project {
+    const base = project('snap-1')
+    return {
+      ...base,
+      seriesBible: {
+        ...base.seriesBible,
+        characters: [
+          {
+            id: 'char-sam',
+            name: 'Sam',
+            locked: false,
+            aliases: [],
+            embodiment: '',
+            presentation: 'Deputy communications director.',
+            hiding: '',
+            traits: 'Talks first, thinks after.',
+            seriesArc: '',
+            summary: '',
+            bio: '',
+          },
+        ],
+      },
+    } as Project
+  }
+
+  it('shows the profile in Atlas, not only in Story', async () => {
+    const user = userEvent.setup()
+    vi.mocked(getProject).mockResolvedValue(projectWithCast())
+    vi.mocked(getLedger).mockResolvedValue([
+      pendingFact('fact-a', 'scene-3', 'beat-3-1'),
+    ])
+
+    window.history.pushState({}, '', '/ledger?project=proj-1')
+    render(<LedgerScreen />)
+
+    // Atlas is the default view.
+    expect(await screen.findByTestId('story-atlas')).not.toBeNull()
+    expect(screen.queryByTestId('character-profile')).toBeNull()
+
+    await user.click(
+      (await screen.findByTestId('cast-person-char-sam')).querySelector(
+        'input',
+      ) as HTMLInputElement,
+    )
+
+    // Selecting a person is what the CAST rail is for, and the rail is in
+    // every view — so the profile must not be gated to Story.
+    expect(await screen.findByTestId('character-profile')).not.toBeNull()
+  })
+
+  it('keeps the profile visible after switching to Web', async () => {
+    const user = userEvent.setup()
+    vi.mocked(getProject).mockResolvedValue(projectWithCast())
+    vi.mocked(getLedger).mockResolvedValue([
+      pendingFact('fact-a', 'scene-3', 'beat-3-1'),
+    ])
+
+    window.history.pushState({}, '', '/ledger?project=proj-1')
+    render(<LedgerScreen />)
+
+    await user.click(
+      (await screen.findByTestId('cast-person-char-sam')).querySelector(
+        'input',
+      ) as HTMLInputElement,
+    )
+    await user.click(await screen.findByRole('button', { name: 'Web' }))
+
+    expect(await screen.findByTestId('knowledge-web')).not.toBeNull()
+    expect(screen.getByTestId('character-profile')).not.toBeNull()
+  })
+})

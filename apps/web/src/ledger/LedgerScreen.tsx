@@ -774,15 +774,19 @@ export function LedgerScreen() {
                     </div>
                   </section>
                 )}
-                {selectedCharacter && (
-                  <CharacterProfile
-                    character={selectedCharacter}
-                    project={project}
-                    facts={ledger}
-                    onOpenScene={navigateToWriteScene}
-                  />
-                )}
               </>
+            )}
+            {/* Outside the story-view block on purpose: selecting a person is
+                what the CAST rail is for, and the rail is present in every
+                view. Gated to Story, picking someone in Atlas or Web changed
+                the fact list but showed nothing about the person. */}
+            {selectedCharacter && (
+              <CharacterProfile
+                character={selectedCharacter}
+                project={project}
+                facts={ledger}
+                onOpenScene={navigateToWriteScene}
+              />
             )}
             <section
               key={view}
