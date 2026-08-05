@@ -147,7 +147,14 @@ class _FailingSecondSceneLlm(MockLlmClient):
         super().__init__()
         self._never_release = threading.Event()
 
-    def segment_scene(self, *, system: str, user_message: str, prompt_version: str):
+    def segment_scene(
+        self,
+        *,
+        system: str,
+        user_message: str,
+        prompt_version: str,
+        cache_prefix: str | None = None,
+    ):
         del system, prompt_version
         if "Alpha waits." in user_message:
             self._never_release.wait(0.5)

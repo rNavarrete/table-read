@@ -122,8 +122,17 @@ class LlmClient(Protocol):
     ) -> NarrativeMapVerification: ...
 
     def segment_scene(
-        self, *, system: str, user_message: str, prompt_version: str
-    ) -> SegmentedScene: ...
+        self,
+        *,
+        system: str,
+        user_message: str,
+        prompt_version: str,
+        cache_prefix: str | None = None,
+    ) -> SegmentedScene:
+        """`cache_prefix` is the whole split script, so a per-scene call can
+        judge what a beat MEANS against the rest of the episode while still
+        deciding boundaries locally. See `render.build_split_source_block`."""
+        ...
 
     def scan_consistency(
         self, *, system: str, user_message: str, prompt_version: str

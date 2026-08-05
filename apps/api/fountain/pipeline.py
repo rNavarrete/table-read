@@ -205,9 +205,18 @@ def analyze_import(
 
     yield ImportStageStarted(STAGE_SEGMENTING_BEATS)
     cached_beats = _load_segment_checkpoints(checkpoint, len(spans))
+    # One whole-script payload for every scene's segmentation call. Boundaries
+    # are decided locally, but what a beat MEANS — that it plants something a
+    # later scene pays off — is only visible with the rest of the episode in
+    # view, and this makes that context ~0.1x input per warm call.
+    split_source = render.build_split_source_block(
+        [(span.location, span.lines) for span in spans], run_nonce
+    )
     per_scene_beats = yield from _run_ordered_parallel(
         spans,
-        lambda index, span: _segment_one(index, span, project_doc, llm, run_nonce),
+        lambda index, span: _segment_one(
+            index, span, project_doc, llm, run_nonce, split_source
+        ),
         stage=STAGE_SEGMENTING_BEATS,
         existing_results=cached_beats,
         on_result=lambda index, beats: _write_checkpoint(
@@ -943,11 +952,25 @@ def _run_ordered_parallel[T, R](
 
 
 def _segment_one(
-    index: int, span, project_doc: dict, llm: LlmClient, run_nonce: str
+    index: int,
+    span,
+    project_doc: dict,
+    llm: LlmClient,
+    run_nonce: str,
+    split_source: str | None = None,
 ) -> list[ImportedBeat]:
+    """Segment one scene, with the whole split script as cached context.
+
+    `split_source` is built once per run and passed unchanged (see
+    `render.build_split_source_block`); rebuilding it here would still be
+    byte-identical today but invites a per-scene detail to creep in and
+    silently kill the cache."""
     system, user = render.build_segment_prompt(project_doc, span.lines, run_nonce)
     segmented = llm.segment_scene(
-        system=system, user_message=user, prompt_version=render.PROMPT_VERSION
+        system=system,
+        user_message=user,
+        prompt_version=render.PROMPT_VERSION,
+        cache_prefix=split_source,
     )
     first = normalize_and_slice(span, segmented)
     selected = first
@@ -961,6 +984,9 @@ def _segment_one(
             system=retry_system,
             user_message=retry_user,
             prompt_version=render.PROMPT_VERSION,
+            # Same prefix as the first attempt: a retry re-sends the same
+            # source and must not pay a second cache write.
+            cache_prefix=split_source,
         )
         second = normalize_and_slice(span, retry_segmented)
         if second.score.ranking_key() < first.score.ranking_key():

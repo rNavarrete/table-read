@@ -764,10 +764,19 @@ class AnthropicClient:
         )
 
     def segment_scene(
-        self, *, system: str, user_message: str, prompt_version: str
+        self,
+        *,
+        system: str,
+        user_message: str,
+        prompt_version: str,
+        cache_prefix: str | None = None,
     ) -> SegmentedScene:
         return self._call(
-            "segment_scene", system=system, user_message=user_message, prompt_version=prompt_version
+            "segment_scene",
+            system=system,
+            user_message=user_message,
+            prompt_version=prompt_version,
+            cache_prefix=cache_prefix,
         )
 
     def scan_consistency(

@@ -25,7 +25,11 @@ import secrets
 from typing import Any
 
 # Prompt spec §8 / hard rule 7: every template carries a PROMPT_VERSION (semver);
-# it is logged with each call and bumped on any template change. 0.35.0
+# it is logged with each call and bumped on any template change. 0.36.0 gives
+# segment_scene the whole split script as a cached prefix and tells it to
+# decide beat BOUNDARIES from the target scene alone while using the rest of
+# the episode only for what each beat MEANS — boundaries are local, meaning
+# is not. 0.35.0
 # requires extract_ledger_facts to quote ONE contiguous span: on a real
 # import 16 of 120 facts stitched two fragments with an ellipsis, which can
 # never verify against the source and silently demoted otherwise-correct
@@ -70,7 +74,7 @@ from typing import Any
 # 0.10.0 typed segment starts; 0.9.0 lock-aware narrative repair. Earlier:
 # 0.8.0 suggest; 0.7.0 scene skeleton; 0.6.0 continuity; 0.5.0 regenerate;
 # 0.4.0 blast; 0.3.0 tune; 0.2.0 candidate + §0 system prompt.
-PROMPT_VERSION = "0.35.0"
+PROMPT_VERSION = "0.36.0"
 
 
 def new_nonce() -> str:
@@ -166,7 +170,15 @@ def build_segment_prompt(project: dict, scene_lines: list[str], nonce: str) -> t
         "strictly increasing. A segment owns its start line through the line before "
         "the next segment; the server derives end lines. Use kind=unassigned when "
         "you cannot confidently assign a source run to a beat. Do not transcribe "
-        "the text and do not return end lines."
+        "the text and do not return end lines.\n"
+        "The whole episode is available above as context. Decide the BOUNDARIES "
+        "from this scene alone — a beat break is an entrance, exit, topic "
+        "change, or shift in objective, all of which are visible here. Use the "
+        "rest of the episode only for what each beat MEANS: whether a line is "
+        "planting something a later scene pays off, echoing something already "
+        "established, or landing a reversal the audience has been waiting for. "
+        "Say so in whatHappens / audienceLearns / audienceFeels when it is "
+        "true, and do not invent a connection the episode does not support."
     )
     return build_system_prompt(project, nonce), user
 
@@ -613,6 +625,28 @@ def build_narrative_map_verification_prompt(
         "rewrite the map."
     )
     return build_system_prompt(project, nonce), user
+
+
+def build_split_source_block(
+    scenes: list[tuple[str, list[str]]], nonce: str
+) -> str:
+    """The whole script as a cached prefix for the SEGMENTATION pass.
+
+    Deliberately separate from `build_episode_source_block`: segmentation runs
+    before scenes are assembled, so there are no beat ids to cite yet — only
+    the deterministic split. `scenes` is `(location, lines)` in source order.
+
+    Not line-numbered. The target scene arrives line-numbered in the user turn
+    because the model reports `startLine` against it; a second numbering here
+    would give it two coordinate spaces and an easy way to cite the wrong one.
+
+    Byte-stability is the point — this must render identically for every scene
+    of a run, so it derives only from the split and the run nonce."""
+    payload = [
+        {"sceneIndex": index, "location": location, "text": "\n".join(lines)}
+        for index, (location, lines) in enumerate(scenes)
+    ]
+    return source_data("episode_script", payload, nonce)
 
 
 def build_episode_source_block(scenes: list[dict], nonce: str) -> str:

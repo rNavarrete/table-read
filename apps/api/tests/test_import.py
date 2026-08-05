@@ -205,7 +205,14 @@ class _OutOfOrderImportLlm(MockLlmClient):
         self._release_scene_one = threading.Event()
         self._lock = threading.Lock()
 
-    def segment_scene(self, *, system: str, user_message: str, prompt_version: str):
+    def segment_scene(
+        self,
+        *,
+        system: str,
+        user_message: str,
+        prompt_version: str,
+        cache_prefix: str | None = None,
+    ):
         del system, prompt_version
         if "Alpha waits." in user_message:
             scene = "one"
@@ -2016,7 +2023,7 @@ def test_extraction_sends_one_byte_identical_whole_episode_cache_prefix(
 
     _drain_analysis(pipeline.analyze_import(unlocked_project["project"], [], src, llm))
 
-    prefixes = llm.cache_prefixes_seen
+    prefixes = llm.cache_prefixes_by_op["extract_ledger_facts"]
     assert len(prefixes) == 3, f"expected one call per scene, got {len(prefixes)}"
     assert all(p is not None for p in prefixes), "an extraction call sent no cache prefix"
     assert len(set(prefixes)) == 1, "cache prefix drifted between calls — cache would miss"
@@ -2089,3 +2096,71 @@ def test_import_lands_a_secret_with_both_sides_resolved(db_session, mock_llm):
     # Still concealed at end of episode, and its concealment scene survived.
     assert secret["revealedSceneId"] is None
     assert secret["concealmentSceneIds"] == ["scene-2"]
+
+
+def test_segmentation_sends_one_byte_identical_split_cache_prefix(
+    unlocked_project,
+):
+    """Segmentation gets the whole script too — for MEANING, not boundaries.
+
+    A beat break is local (entrance, exit, topic change) and decidable from
+    the scene alone. What a beat *means* — that it plants something scene 3
+    pays off — is only visible with the episode in view, and that is what
+    whatHappens/audienceLearns/audienceFeels are for.
+
+    Same two invariants as extraction: every call carries the prefix, and it
+    is byte-identical across the run. Neither has any symptom when broken
+    except the bill.
+    """
+    src = "\n".join(
+        [
+            "INT. ALPHA - DAY",
+            "Alpha hides the key.",
+            "INT. BETA - DAY",
+            "Beta searches the room.",
+            "INT. GAMMA - DAY",
+            "Gamma finds the key.",
+        ]
+    )
+    llm = MockLlmClient()
+    llm.set_responses("segment_scene", one_beat_per_scene(src))
+    llm.set_response("extract_ledger_facts", extraction())
+    llm.set_response("scan_consistency", scan())
+
+    _drain_analysis(pipeline.analyze_import(unlocked_project["project"], [], src, llm))
+
+    prefixes = llm.cache_prefixes_by_op["segment_scene"]
+    assert len(prefixes) == 3, f"expected one call per scene, got {len(prefixes)}"
+    assert all(p is not None for p in prefixes), "a segment call sent no cache prefix"
+    assert len(set(prefixes)) == 1, "cache prefix drifted between calls — cache would miss"
+
+    only = prefixes[0]
+    # Scene 1's segmentation can see the scene that pays its setup off.
+    assert "Gamma finds the key." in only
+    assert "Alpha hides the key." in only
+    # Not line-numbered: the target scene arrives numbered in the user turn,
+    # and a second coordinate space here invites citing the wrong one.
+    assert '"lineNumber"' not in only
+    assert "<source_data_" in only and 'kind="episode_script"' in only
+
+
+def test_segmentation_and_extraction_prefixes_are_independent(unlocked_project):
+    """They cover the same script but are different payloads.
+
+    Segmentation runs before scenes are assembled, so its prefix is the raw
+    split; extraction's carries beat ids. Sharing one would force whichever
+    ran second to accept a shape it cannot cite.
+    """
+    src = "INT. ALPHA - DAY\nAlpha waits.\nINT. BETA - DAY\nBeta waits.\n"
+    llm = MockLlmClient()
+    llm.set_responses("segment_scene", one_beat_per_scene(src))
+    llm.set_response("extract_ledger_facts", extraction())
+    llm.set_response("scan_consistency", scan())
+
+    _drain_analysis(pipeline.analyze_import(unlocked_project["project"], [], src, llm))
+
+    seg = llm.cache_prefixes_by_op["segment_scene"][0]
+    ext = llm.cache_prefixes_by_op["extract_ledger_facts"][0]
+    assert seg != ext
+    assert '"beatId"' in ext and '"beatId"' not in seg
+    assert '"sceneIndex"' in seg

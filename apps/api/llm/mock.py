@@ -723,7 +723,9 @@ class MockLlmClient:
         # assert byte-stability across a run (a drifting prefix is a silent
         # 0%-cache-hit bug with no other symptom).
         self.last_cache_prefix: str | None = None
-        self.cache_prefixes_seen: list[str | None] = []
+        # Keyed by op: segmentation and extraction each carry their own
+        # whole-script prefix, and a shared list would conflate them.
+        self.cache_prefixes_by_op: dict[str, list[str | None]] = {}
         self._candidate_streams: list[list[str]] = []
         # Same mechanism for stream_tune_beat (§8a: tune streams too). Empty →
         # the streamed value is derived from the tune_beat op response.
@@ -867,7 +869,9 @@ class MockLlmClient:
         # cache_prefix is accepted for protocol parity and recorded so tests can
         # assert it stays byte-identical across a run; the mock makes no calls.
         self.last_cache_prefix = cache_prefix
-        self.cache_prefixes_seen.append(cache_prefix)
+        self.cache_prefixes_by_op.setdefault(
+            "extract_ledger_facts", []
+        ).append(cache_prefix)
         return self._call(
             "extract_ledger_facts",
             system=system,
@@ -991,8 +995,17 @@ class MockLlmClient:
         )
 
     def segment_scene(
-        self, *, system: str, user_message: str, prompt_version: str
+        self,
+        *,
+        system: str,
+        user_message: str,
+        prompt_version: str,
+        cache_prefix: str | None = None,
     ) -> SegmentedScene:
+        self.last_cache_prefix = cache_prefix
+        self.cache_prefixes_by_op.setdefault("segment_scene", []).append(
+            cache_prefix
+        )
         return self._call(
             "segment_scene", system=system, user_message=user_message, prompt_version=prompt_version
         )
