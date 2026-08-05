@@ -1061,7 +1061,13 @@ def test_import_merges_inferred_entities_and_resolves_alias_known_by(db_session,
     ).json()
     pid = created["id"]
 
-    src = "INT. LAB - NIGHT\n\nMARTY\nDoc, are you there?\n"
+    # Einstein never speaks — he is established in an action line, which is
+    # how a real script introduces a non-speaking character, and is what
+    # makes him grounded enough to mint (characters.name_is_grounded).
+    src = (
+        "INT. LAB - NIGHT\n\nEinstein the dog watches from the workbench.\n\n"
+        "MARTY\nDoc, are you there?\n"
+    )
     mock_llm.set_responses("segment_scene", one_beat_per_scene(src))
     mock_llm.set_response(
         "infer_story_entities",
@@ -1703,7 +1709,8 @@ def test_import_entity_inference_chunks_and_merges(db_session, mock_llm, monkeyp
     # alone when packed with the other (chunker yields 2 chunks of 1 scene).
     pad = "\n".join(f"LINE {i} padding for entity chunk budget." for i in range(40))
     src = (
-        "INT. LAB - NIGHT\n\nDOC\nGreat Scott!\n"
+        "INT. LAB - NIGHT\n\nEinstein the dog watches from the workbench.\n\n"
+        "DOC\nGreat Scott!\n"
         + pad
         + "\n\nINT. STREET - DAY\n\nMARTY\nWhoa.\n"
         + pad

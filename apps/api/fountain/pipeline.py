@@ -419,7 +419,14 @@ def analyze_import(
             len(summary_chunks),
         )
     entities = combine_story_entities([cast(StoryEntities, part) for part in entity_parts])
-    characters, relationship_states = merge_inferred_entities(bible, entities)
+    # Pass the imported script so an inferred character the script never names
+    # is dropped rather than minted (a real import produced one called
+    # "placeholder"). Uses the post-front-matter `content`, so a name that
+    # only ever appeared on the title page or SETS list doesn't count as
+    # grounding either.
+    characters, relationship_states = merge_inferred_entities(
+        bible, entities, content
+    )
     _episode_ref(new_doc, episode_id)["relationshipStates"] = relationship_states
     _logger.info(
         "import_infer_entities characters=%d relationships=%d world_elements=%d "

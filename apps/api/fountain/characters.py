@@ -399,10 +399,42 @@ def _dedupe_aliases(aliases: Iterable[str]) -> list[str]:
 _WORLD_ELEMENT_QUESTION_PREFIX = {"location": "Where", "object": "What"}
 
 
+def name_is_grounded(name: str, source_text: str) -> bool:
+    """Does any substantial word of this name actually appear in the script?
+
+    `infer_story_entities` must return a name for every character it reports,
+    and a model faced with a required field it cannot fill will sometimes fill
+    it with filler instead of omitting the row — a real import produced a
+    character literally named "placeholder", with `traits: "placeholder"`,
+    referenced by nothing.
+
+    A denylist would catch that one string and miss the next invention, so
+    this checks the property that actually matters: a character who is in the
+    script is *named* in the script somewhere. Deliberately token-level and
+    permissive — one word of three or more characters is enough — because the
+    op's whole purpose includes non-speaking characters who are only
+    mentioned in action lines (T7.15). Measured against a real 60-page
+    import: 46 of 47 inferred characters passed, and the one that failed was
+    the placeholder.
+    """
+    tokens = [token for token in re.findall(r"[A-Za-z']{3,}", name or "")]
+    if not tokens:
+        # Nothing substantial to check (initials, digits) — don't reject on
+        # no evidence either way; the cue filter already screened the shape.
+        return True
+    haystack = source_text.casefold()
+    return any(token.casefold() in haystack for token in tokens)
+
+
 def merge_inferred_entities(
-    bible: dict, entities: StoryEntities
+    bible: dict, entities: StoryEntities, source_text: str = ""
 ) -> tuple[list[dict], list[dict]]:
     """Fold `infer_story_entities` output into `bible` (T7.15).
+
+    `source_text` is the imported script; when supplied, an inferred
+    character whose name appears nowhere in it is dropped as ungrounded (see
+    `name_is_grounded`). Defaults to "" — meaning "no source to check
+    against, keep everything" — so existing callers and tests are unaffected.
 
     - Characters: resolved names (exact/casefold/alias, `_find_character`)
       extend the matched row's `aliases` (deduped, union of old+new); an
@@ -429,13 +461,20 @@ def merge_inferred_entities(
     `bible` (it belongs on the episode; the caller assigns it there).
     """
     characters = list(bible.get("characters") or [])
+    dropped_ungrounded = 0
 
     for inferred in entities.characters:
         name = (inferred.name or "").strip()
         if not name:
             continue
-        traits = (inferred.traits or "").strip()
         existing = _find_character(name, characters)
+        # Only gate NEW names. An already-known character (minted from a cue,
+        # or writer-authored) is grounded by whatever put it there, and this
+        # check must never delete or skip an existing row.
+        if existing is None and source_text and not name_is_grounded(name, source_text):
+            dropped_ungrounded += 1
+            continue
+        traits = (inferred.traits or "").strip()
         if existing is None:
             minted = empty_character(name)
             minted["aliases"] = _dedupe_aliases(inferred.aliases)
@@ -490,8 +529,10 @@ def merge_inferred_entities(
     bible["characters"] = characters
     bible["relationships"] = relationships
     bible["worldQA"] = world_qa
-    if dropped_relationships:
+    if dropped_relationships or dropped_ungrounded:
         _logger.info(
-            "merge_inferred_entities relationships_dropped=%d", dropped_relationships
+            "merge_inferred_entities relationships_dropped=%d characters_ungrounded=%d",
+            dropped_relationships,
+            dropped_ungrounded,
         )
     return characters, relationship_states

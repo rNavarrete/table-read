@@ -5,6 +5,7 @@ from __future__ import annotations
 from fountain.characters import (
     backfill_cast_and_known_by,
     cues_from_scenes,
+    empty_character,
     extract_character_cues,
     merge_characters_into_bible,
     merge_inferred_entities,
@@ -420,3 +421,90 @@ def test_ocr_damaged_slugline_remnants_are_not_characters():
     """OCR misreads EXT. often enough that the remnant reaches the cue filter."""
     lines = ["BAT. WHITE HOUSE - DAY 18", "WE...", "JOSH"]
     assert extract_character_cues(lines) == ["Josh"]
+
+
+def _inferred(name: str, traits: str = "") -> dict:
+    return {
+        "name": name,
+        "aliases": [],
+        "role": "supporting",
+        "traits": traits,
+        "evidence": [{"sceneId": "scene-1", "quote": "q"}],
+    }
+
+
+def test_ungrounded_inferred_character_is_dropped():
+    """A character the script never names is not in the script.
+
+    infer_story_entities must return a name for every row, and a model that
+    cannot fill that field sometimes emits filler rather than omitting the
+    row — a real import produced a character named "placeholder" with
+    traits "placeholder", referenced by nothing. A denylist would catch that
+    exact string and miss the next invention; this checks groundedness.
+    """
+    bible: dict = {"characters": []}
+    entities = StoryEntities.model_validate(
+        {
+            "characters": [_inferred("placeholder", "placeholder"), _inferred("Marta")],
+            "relationships": [],
+            "worldElements": [],
+        }
+    )
+    characters, _states = merge_inferred_entities(
+        bible, entities, "INT. BAR - NIGHT\n\nMARTA\nWhere is it?\n"
+    )
+    assert [c["name"] for c in characters] == ["Marta"]
+
+
+def test_a_non_speaking_character_mentioned_in_action_survives():
+    """The op exists partly to find people who never speak (T7.15).
+
+    Grounding is token-level and permissive for exactly this reason: Elena is
+    only named in an action line, and must still land in the bible.
+    """
+    bible: dict = {"characters": []}
+    entities = StoryEntities.model_validate(
+        {
+            "characters": [_inferred("Elena Vasquez")],
+            "relationships": [],
+            "worldElements": [],
+        }
+    )
+    characters, _states = merge_inferred_entities(
+        bible,
+        entities,
+        "INT. BAR - NIGHT\n\nA photograph of Elena sits behind the register.\n",
+    )
+    assert [c["name"] for c in characters] == ["Elena Vasquez"]
+
+
+def test_grounding_never_removes_an_existing_character():
+    """The gate applies to NEW names only.
+
+    An existing row was grounded by whatever minted it — a script cue, or the
+    writer. Re-running inference must never delete the writer's cast.
+    """
+    bible = {"characters": [empty_character("Ghost", character_id="char-ghost")]}
+    entities = StoryEntities.model_validate(
+        {
+            "characters": [_inferred("Ghost")],
+            "relationships": [],
+            "worldElements": [],
+        }
+    )
+    characters, _states = merge_inferred_entities(bible, entities, "INT. BAR - NIGHT\n")
+    assert [c["id"] for c in characters] == ["char-ghost"]
+
+
+def test_without_source_text_everything_is_kept():
+    """Default "" means "nothing to check against", not "reject all"."""
+    bible: dict = {"characters": []}
+    entities = StoryEntities.model_validate(
+        {
+            "characters": [_inferred("placeholder")],
+            "relationships": [],
+            "worldElements": [],
+        }
+    )
+    characters, _states = merge_inferred_entities(bible, entities)
+    assert [c["name"] for c in characters] == ["placeholder"]
