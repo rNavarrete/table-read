@@ -105,7 +105,9 @@ describe('resolveCharacterProfile', () => {
       motivations,
     )
     expect(profile.source).toBe('derived')
-    expect(profile.summary).toMatch(/Sam Seaborn wants to land the speech/)
+    // Colon rather than a spliced verb: objectives are imperative phrases,
+    // so "wants {objective}" produced "Sam wants Find out who…".
+    expect(profile.summary).toMatch(/Sam Seaborn wants: to land the speech/)
     expect(profile.bio).toContain('Sam stays up rewriting')
     expect(profile.bio).toContain('to land the speech')
   })
@@ -114,6 +116,66 @@ describe('resolveCharacterProfile', () => {
     const profile = resolveCharacterProfile(character(), [])
     expect(profile.source).toBe('empty')
     expect(profile.summary).toBe('')
+    expect(profile.bio).toBe('')
+  })
+})
+
+describe('bio derivation is biography, not plot', () => {
+  it('ignores facts the character merely knows', () => {
+    // Sam was in the room for the B-story briefing, so knownBy includes him
+    // — but the Cuban refugee count is not Sam's biography.
+    const profile = resolveCharacterProfile(
+      character(),
+      [
+        fact('f1', 'Approximately 1,200 Cubans left Havana this morning.', {
+          factType: 'event',
+        }),
+        fact('f2', 'Sam Seaborn is 31 years old.', { factType: 'state' }),
+      ],
+      [],
+    )
+    expect(profile.bio).toContain('Sam Seaborn is 31')
+    expect(profile.bio).not.toContain('Cubans')
+  })
+
+  it('ranks who someone is above what happened around them', () => {
+    const profile = resolveCharacterProfile(
+      character(),
+      [
+        fact('f1', 'Sam Seaborn runs from the hotel at dawn.', {
+          factType: 'event',
+        }),
+        fact('f2', 'Sam Seaborn is the deputy communications director.', {
+          factType: 'state',
+        }),
+      ],
+      [],
+    )
+    expect(profile.bio.indexOf('deputy communications')).toBeLessThan(
+      profile.bio.indexOf('runs from the hotel'),
+    )
+  })
+
+  it('matches an alias but not a longer name that merely contains it', () => {
+    const c = { ...character(), name: 'Sam', aliases: ['Sam Seaborn'] }
+    const profile = resolveCharacterProfile(
+      c,
+      [
+        fact('f1', 'Sam Seaborn keeps his own counsel.', { factType: 'state' }),
+        fact('f2', 'Sammy Davis sings at the benefit.', { factType: 'state' }),
+      ],
+      [],
+    )
+    expect(profile.bio).toContain('keeps his own counsel')
+    expect(profile.bio).not.toContain('Sammy')
+  })
+
+  it('leaves the bio empty rather than borrowing someone else’s facts', () => {
+    const profile = resolveCharacterProfile(
+      character(),
+      [fact('f1', 'Leo tells the staff to stand down.', { factType: 'event' })],
+      [],
+    )
     expect(profile.bio).toBe('')
   })
 })

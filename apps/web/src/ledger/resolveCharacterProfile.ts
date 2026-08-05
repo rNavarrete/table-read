@@ -24,6 +24,23 @@ const FACT_PRIORITY: Record<LedgerFact['factType'], number> = {
   world_rule: 4,
 }
 
+/**
+ * Biography ranks facts almost inversely to the list view.
+ *
+ * `state` is what someone IS and `relationship` is how they stand to other
+ * people — that is character. `event` is what happened, which is plot: it
+ * makes a fine ledger row and a terrible biography. A character who was in
+ * the room for the episode's B-story should not have the B-story as their
+ * bio.
+ */
+const BIO_PRIORITY: Record<LedgerFact['factType'], number> = {
+  state: 0,
+  relationship: 1,
+  knowledge: 2,
+  event: 3,
+  world_rule: 4,
+}
+
 const MAX_DERIVED_FACTS = 4
 const MAX_SUMMARY_LEN = 160
 const MAX_BIO_LEN = 480
@@ -38,6 +55,29 @@ function trimProse(text: string, max: number): string {
 
 function knownByIds(fact: LedgerFact): string[] {
   return fact.knownByAsOf ?? fact.knownBy
+}
+
+/**
+ * Is this fact *about* the character, rather than merely known to them?
+ *
+ * knownBy is the wrong test for biography: a character standing in the room
+ * "knows" every fact established there, so a bio built from knownBy becomes
+ * whatever the scene was about. Sam's read as Cuban refugee statistics.
+ * Being named in the fact is a far better proxy for the fact being his.
+ *
+ * Word-boundary matched so "Sam" doesn't claim a fact about "Sammy", and
+ * alias-aware so a fact naming "Sam Seaborn" still counts for Sam.
+ */
+function mentionsCharacter(fact: LedgerFact, character: Character): boolean {
+  const names = [character.name, ...(character.aliases ?? [])]
+    .map((n) => (n || '').trim())
+    .filter(Boolean)
+  if (names.length === 0) return false
+  const text = fact.fact
+  return names.some((name) => {
+    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    return new RegExp(`(^|[^\\p{L}])${escaped}([^\\p{L}]|$)`, 'iu').test(text)
+  })
 }
 
 /** Motivations for a character across the project's scenes (doc order). */
@@ -91,19 +131,35 @@ function derivedFromEvidence(
     .filter(Boolean)[0]
 
   const firstFact = linked[0]?.fact?.trim() ?? ''
+  // Objectives are written as imperative phrases ("Find out who…", "Get out
+  // of Laurie's bed"), so splicing one after "wants" produced "Sam wants
+  // Find out who…". A colon sidesteps the grammar entirely rather than
+  // guessing whether the phrase takes a "to".
   const summary = motiveLine
     ? trimProse(
-        `${character.name} wants ${motiveLine.replace(/\.$/, '')}.`,
+        `${character.name} wants: ${motiveLine.replace(/\.$/, '')}`,
         MAX_SUMMARY_LEN,
       )
     : firstFact
       ? trimProse(firstFact, MAX_SUMMARY_LEN)
       : ''
 
+  // Bio draws only on facts that NAME the character, ranked so who they are
+  // outranks what happened around them.
+  const about = facts
+    .filter((f) => f.status !== 'rejected' && mentionsCharacter(f, character))
+    .sort((a, b) => {
+      const delta =
+        (BIO_PRIORITY[a.factType] ?? 9) - (BIO_PRIORITY[b.factType] ?? 9)
+      if (delta !== 0) return delta
+      return a.fact.localeCompare(b.fact)
+    })
+    .slice(0, MAX_DERIVED_FACTS)
+
   const bioParts: string[] = []
-  if (linked.length > 0) {
+  if (about.length > 0) {
     bioParts.push(
-      linked
+      about
         .map((f) => f.fact.trim())
         .filter(Boolean)
         .join(' '),
