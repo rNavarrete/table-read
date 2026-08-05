@@ -694,13 +694,19 @@ class AnthropicClient:
         )
 
     def infer_story_entities(
-        self, *, system: str, user_message: str, prompt_version: str
+        self,
+        *,
+        system: str,
+        user_message: str,
+        prompt_version: str,
+        cache_prefix: str | None = None,
     ) -> StoryEntities:
         return self._call(
             "infer_story_entities",
             system=system,
             user_message=user_message,
             prompt_version=prompt_version,
+            cache_prefix=cache_prefix,
         )
 
     def infer_narrative_promises(

@@ -25,7 +25,13 @@ import secrets
 from typing import Any
 
 # Prompt spec §8 / hard rule 7: every template carries a PROMPT_VERSION (semver);
-# it is logged with each call and bumped on any template change. 0.36.0 gives
+# it is logged with each call and bumped on any template change. 0.37.0 gives
+# infer_story_entities the same cached whole-script prefix and narrows each
+# chunk to the entities its own scenes INTRODUCE, using the rest of the
+# episode only to get names and aliases right. Chunking stays — it bounds the
+# OUTPUT, which measured 14.6k tokens across three chunks against an 8192
+# ceiling — but a chunk boundary no longer costs sight of the cast.
+# 0.36.0 gives
 # segment_scene the whole split script as a cached prefix and tells it to
 # decide beat BOUNDARIES from the target scene alone while using the rest of
 # the episode only for what each beat MEANS — boundaries are local, meaning
@@ -74,7 +80,7 @@ from typing import Any
 # 0.10.0 typed segment starts; 0.9.0 lock-aware narrative repair. Earlier:
 # 0.8.0 suggest; 0.7.0 scene skeleton; 0.6.0 continuity; 0.5.0 regenerate;
 # 0.4.0 blast; 0.3.0 tune; 0.2.0 candidate + §0 system prompt.
-PROMPT_VERSION = "0.36.0"
+PROMPT_VERSION = "0.37.0"
 
 
 def new_nonce() -> str:
@@ -249,24 +255,39 @@ def build_entity_prompt(
     speaker_names: list[str],
     nonce: str,
 ) -> tuple[str, str]:
-    """`infer_story_entities` (§5a): compact per-scene summaries (each
-    carrying its scene's early scriptText) plus the ground-truth speaker
-    list already minted from cues (`fountain/characters.cues_from_scenes`)
-    — a floor the model extends with non-speaking characters,
-    relationships, and world elements, never replaces or omits from."""
+    """`infer_story_entities` (§5a): the scenes this chunk is responsible for,
+    plus the ground-truth speaker list already minted from cues
+    (`fountain/characters.cues_from_scenes`) — a floor the model extends with
+    non-speaking characters, relationships, and world elements, never
+    replaces or omits from.
+
+    Chunked because the OUTPUT is large: on a 27-scene script the three
+    chunks returned 14.6k output tokens between them against an 8,192
+    ceiling, so a single whole-script call would truncate mid-response. The
+    whole script still reaches every chunk — as a cached prefix — so chunk
+    boundaries no longer cost the model sight of the rest of the cast.
+
+    Each chunk reports only what its own scenes INTRODUCE, which is what
+    keeps the combined output bounded; without that, chunks re-report the
+    same principals and the recombination has to guess which spellings are
+    the same person."""
     user = (
-        source_data("import_scene_summaries", scene_summaries, nonce)
+        source_data("scenes_to_report", scene_summaries, nonce)
         + "\n"
         + source_data("known_speakers", speaker_names, nonce)
-        + "\nIdentify every character in this imported script (including "
-        "any non-speaking ones), every relationship between two "
-        "characters, and every significant location or object. "
-        "known_speakers is a ground-truth floor of names already detected "
-        "from dialogue cues: include every one of them as a character and "
-        "do not omit or rename any of them. Refer to every character only "
-        "by a name string, never an id — the server resolves and mints "
-        "ids, not you. Give every entity at least one scene id and a "
-        "short, verbatim-ish quote as evidence."
+        + "\nThe whole episode is available above for context. Report only "
+        "entities that scenes_to_report INTRODUCE — a character, "
+        "relationship, location or object appearing there for the first "
+        "time. Do not re-report someone another scene already established; "
+        "another pass covers those scenes.\n"
+        "Use the rest of the episode to get identity right: give each "
+        "character the fullest form of their name used anywhere in the "
+        "script, and list shorter or alternate forms as aliases, so the "
+        "same person is never reported under two spellings. Include every "
+        "known_speakers name that belongs to your scenes, and never rename "
+        "one. Refer to every character only by a name string, never an id — "
+        "the server resolves and mints ids, not you. Give every entity at "
+        "least one scene id and a short, verbatim-ish quote as evidence."
     )
     return build_system_prompt(project, nonce), user
 

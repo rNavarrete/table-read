@@ -2237,3 +2237,30 @@ def test_a_single_scene_import_does_not_warm(unlocked_project):
         and e.stage == pipeline.STAGE_SEGMENTING_BEATS
     ]
     assert frames == [(0, 1), (1, 1)]
+
+
+def test_entity_inference_chunks_share_one_cached_prefix(unlocked_project):
+    """Chunking bounds output, not context.
+
+    Three chunks returned 14.6k output tokens on a 27-scene script against an
+    8192 ceiling, so a single whole-script call would truncate — chunking has
+    to stay. What it should not cost is sight of the rest of the cast, which
+    is what made chunk boundaries produce the same person under two
+    spellings. Every chunk now carries the same cached script.
+    """
+    src = "\n".join(
+        f"INT. SCENE {i} - DAY\nSomeone waits in scene {i}." for i in range(1, 7)
+    )
+    llm = MockLlmClient()
+    llm.set_responses("segment_scene", one_beat_per_scene(src))
+    llm.set_response("extract_ledger_facts", extraction())
+    llm.set_response("scan_consistency", scan())
+
+    _drain_analysis(pipeline.analyze_import(unlocked_project["project"], [], src, llm))
+
+    prefixes = llm.cache_prefixes_by_op.get("infer_story_entities", [])
+    assert prefixes, "entity inference sent no cache prefix"
+    assert all(p is not None for p in prefixes)
+    assert len(set(prefixes)) == 1, "prefix drifted between chunks — cache would miss"
+    # Shares the segmentation prefix rather than building a third payload.
+    assert prefixes[0] == llm.cache_prefixes_by_op["segment_scene"][0]

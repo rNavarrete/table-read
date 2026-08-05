@@ -416,6 +416,11 @@ def analyze_import(
             system=system,
             user_message=user,
             prompt_version=render.PROMPT_VERSION,
+            # Same prefix the segmentation loop already warmed. Chunking here
+            # bounds the OUTPUT (three chunks returned 14.6k output tokens on
+            # a 27-scene script against an 8192 ceiling), but each chunk can
+            # now see the whole cast when deciding names and aliases.
+            cache_prefix=split_source,
         )
         entity_parts[chunk_index] = entity_part
         _write_checkpoint(

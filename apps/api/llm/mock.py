@@ -900,8 +900,16 @@ class MockLlmClient:
         )
 
     def infer_story_entities(
-        self, *, system: str, user_message: str, prompt_version: str
+        self,
+        *,
+        system: str,
+        user_message: str,
+        prompt_version: str,
+        cache_prefix: str | None = None,
     ) -> StoryEntities:
+        self.cache_prefixes_by_op.setdefault(
+            "infer_story_entities", []
+        ).append(cache_prefix)
         return self._call(
             "infer_story_entities",
             system=system,

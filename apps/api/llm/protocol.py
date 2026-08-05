@@ -94,8 +94,17 @@ class LlmClient(Protocol):
     ) -> InferredActBreaks: ...
 
     def infer_story_entities(
-        self, *, system: str, user_message: str, prompt_version: str
-    ) -> StoryEntities: ...
+        self,
+        *,
+        system: str,
+        user_message: str,
+        prompt_version: str,
+        cache_prefix: str | None = None,
+    ) -> StoryEntities:
+        """`cache_prefix` is the whole split script. Chunking bounds the
+        OUTPUT (see `render.build_entity_prompt`); the prefix means a chunk
+        boundary no longer costs the model sight of the rest of the cast."""
+        ...
 
     def infer_narrative_promises(
         self, *, system: str, user_message: str, prompt_version: str
