@@ -19,6 +19,7 @@ No writer/import text is logged here (hard rule 5) — only ids and counts.
 from __future__ import annotations
 
 import logging
+import re
 from typing import TYPE_CHECKING
 
 from drama_manager.ledger_policy import IdMinter
@@ -36,6 +37,41 @@ def _find_episode(doc: dict, episode_id: str) -> dict:
             if episode["id"] == episode_id:
                 return episode
     raise KeyError(episode_id)
+
+
+_DANGLING_QUOTE_RE = re.compile(r"([.!?])\s*(['\u2019\"\u201d])\s*$")
+
+# Straight/curly forms of the same mark, so a curly closer is recognised as
+# balancing a straight opener and vice versa.
+_QUOTE_FAMILY = {
+    "'": "'\u2018\u2019",
+    "\u2019": "'\u2018\u2019",
+    '"': '"\u201c\u201d',
+    "\u201d": '"\u201c\u201d',
+}
+
+
+def _clean_prose(text: str) -> str:
+    """Drop a dangling closing quote the model left on a prose field.
+
+    Every secret summary on a real import came back ending `.'` — the model
+    closing a quotation it never opened.
+
+    Two guards keep this from eating real punctuation. The quote must follow
+    sentence-ending punctuation, so a possessive ("...was Sam's") is never
+    touched. And it must be *unbalanced* — no member of the same quote family
+    appears earlier in the string — so a summary that genuinely ends in quoted
+    dialogue ('she said "no."') keeps its closer. Both err toward leaving the
+    writer's text alone.
+    """
+    cleaned = (text or "").strip()
+    match = _DANGLING_QUOTE_RE.search(cleaned)
+    if match is None:
+        return cleaned
+    family = _QUOTE_FAMILY.get(match.group(2), "")
+    if any(ch in family for ch in cleaned[: match.start(2)]):
+        return cleaned  # balanced — a real quotation, leave it
+    return cleaned[: match.start(2)].rstrip()
 
 
 def _resolve_unique(names: list[str], characters: list[dict]) -> list[str]:
@@ -112,8 +148,8 @@ def merge_narrative_promises(
         threads.append(
             {
                 "id": thread_minter.mint(),
-                "label": inferred.label,
-                "summary": inferred.summary,
+                "label": _clean_prose(inferred.label),
+                "summary": _clean_prose(inferred.summary),
                 "status": str(inferred.status),
                 "ownerCharacterIds": owner_ids,
                 "setupSceneId": inferred.setup_scene_id,
@@ -152,7 +188,7 @@ def merge_narrative_promises(
         secrets.append(
             {
                 "id": secret_minter.mint(),
-                "summary": inferred_secret.summary,
+                "summary": _clean_prose(inferred_secret.summary),
                 # Promises inference runs before extract_ledger_facts, so no
                 # fact exists to point at yet. Left null for a later pass to
                 # link rather than inventing an id that resolves to nothing.

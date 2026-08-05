@@ -501,3 +501,38 @@ def test_merge_normalizes_a_stated_objective_that_matches_the_real_one():
     )
     motivation = result["seasons"][0]["episodes"][0]["scenes"][0]["motivations"][0]
     assert motivation["statedObjective"] == ""
+
+
+def test_dangling_closing_quote_is_stripped_from_prose():
+    """The model closes a quotation it never opened.
+
+    Every secret summary on a real 60-page import came back ending `.'`,
+    which rendered verbatim on the character profile.
+    """
+    doc = _doc(characters=_CAST)
+    result = merge_narrative_promises(
+        doc, "ep-1", promises(secrets=[_secret(summary="He hid the money.'")])
+    )
+    secret = result["seasons"][0]["episodes"][0]["secrets"][0]
+    assert secret["summary"] == "He hid the money."
+
+
+def test_a_real_quotation_keeps_its_closing_quote():
+    """Balanced quotes are the writer's punctuation, not model noise."""
+    doc = _doc(characters=_CAST)
+    result = merge_narrative_promises(
+        doc, "ep-1", promises(secrets=[_secret(summary='She only said "no."')])
+    )
+    assert result["seasons"][0]["episodes"][0]["secrets"][0]["summary"] == (
+        'She only said "no."'
+    )
+
+
+def test_a_possessive_apostrophe_is_never_stripped():
+    doc = _doc(characters=_CAST)
+    result = merge_narrative_promises(
+        doc, "ep-1", promises(secrets=[_secret(summary="The bag was Sam's")])
+    )
+    assert result["seasons"][0]["episodes"][0]["secrets"][0]["summary"] == (
+        "The bag was Sam's"
+    )

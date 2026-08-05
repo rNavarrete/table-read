@@ -7,6 +7,7 @@ from fountain.characters import (
     cues_from_scenes,
     empty_character,
     extract_character_cues,
+    is_filler_prose,
     is_generic_role,
     merge_characters_into_bible,
     merge_inferred_entities,
@@ -661,3 +662,37 @@ def test_a_locked_character_is_never_renamed_by_alias_merging():
     merge_characters_into_bible(bible, ["Mary Marsh"])
     assert bible["characters"][0]["name"] == "Marsh"
     assert bible["characters"][0]["aliases"] == []
+
+
+def test_filler_traits_do_not_become_a_character_profile():
+    """`traits` is required, so a model with nothing to say fills it.
+
+    On a real import Sam's traits came back as the literal string
+    "placeholder", which propagated into `summary` and rendered as his
+    profile. An empty profile is better — resolveCharacterProfile already
+    derives a fallback from the character's facts and motivations.
+    """
+    bible: dict = {"characters": []}
+    entities = StoryEntities.model_validate(
+        {
+            "characters": [
+                _inferred("Sam", "placeholder"),
+                _inferred("Josh", "deputy chief of staff"),
+            ],
+            "relationships": [],
+            "worldElements": [],
+        }
+    )
+    characters, _ = merge_inferred_entities(
+        bible, entities, "INT. OFFICE - DAY\n\nSAM\nHi.\n\nJOSH\nHi.\n"
+    )
+    by_name = {c["name"]: c for c in characters}
+    assert by_name["Sam"]["traits"] == ""
+    assert by_name["Sam"]["summary"] == ""
+    assert by_name["Josh"]["summary"] == "deputy chief of staff"
+
+
+def test_other_filler_spellings_are_also_rejected():
+    for filler in ["N/A", "none", "TBD", "unknown", "—", "not specified"]:
+        assert is_filler_prose(filler) is True, filler
+    assert is_filler_prose("a quiet, watchful aide") is False

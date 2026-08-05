@@ -564,6 +564,22 @@ def _dedupe_aliases(aliases: Iterable[str], *, exclude: str = "") -> list[str]:
 _WORLD_ELEMENT_QUESTION_PREFIX = {"location": "Where", "object": "What"}
 
 
+# Filler a model emits when a required prose field has nothing real to say.
+# `traits` is required on every InferredCharacter, and on a real import the
+# model filled Sam's with the literal string "placeholder" — which then
+# propagated into `summary` and rendered as the character's profile.
+_FILLER_PROSE = frozenset(
+    {"placeholder", "n/a", "na", "none", "null", "unknown", "tbd", "todo",
+     "-", "--", "\u2013", "\u2014", "...", "\u2026",
+     "no traits", "not specified", "not stated", "not applicable"}
+)
+
+
+def is_filler_prose(text: str) -> bool:
+    """Is this a required field filled with a non-answer rather than content?"""
+    return (text or "").strip().strip(".").casefold() in _FILLER_PROSE
+
+
 def name_is_grounded(name: str, source_text: str) -> bool:
     """Does any substantial word of this name actually appear in the script?
 
@@ -644,6 +660,10 @@ def merge_inferred_entities(
             dropped_generic += 1
             continue
         traits = (inferred.traits or "").strip()
+        if is_filler_prose(traits):
+            # Better an empty profile than one that says "placeholder";
+            # resolveCharacterProfile already derives a fallback from facts.
+            traits = ""
         if existing is None:
             minted = empty_character(name)
             minted["aliases"] = _dedupe_aliases(inferred.aliases, exclude=name)
