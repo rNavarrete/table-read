@@ -102,6 +102,75 @@ _ACT_MARKER_RE = re.compile(
 # Any `END OF <something>` is structure, never a character.
 _END_OF_RE = re.compile(r"^END OF\b")
 
+# Screenplay bit-part and collective vocabulary. Scripts name unnamed people
+# by their function ("MAN", "SECURITY OFFICER", "MOVING MAN") and groups by a
+# collective noun ("PRESS CORPS", "FOURTH GRADERS", "PARENTS"). Those are real
+# cues and the dialogue under them is real, but they are roles, not people the
+# story tracks — and in the People rail they crowd out the actual cast.
+#
+# Matched on the HEAD noun rather than the whole string, because English
+# compounds are head-final: "Moving Man" and "Security Officer" are generic
+# for the same reason "Man" and "Officer" are, while "Mary Marsh" and
+# "Mrs. Landingham" are not generic no matter what precedes them.
+_GENERIC_ROLE_HEADS = frozenset(
+    {
+        # people, unspecified
+        "man", "men", "woman", "women", "boy", "boys", "girl", "girls",
+        "kid", "kids", "child", "children", "teen", "teens", "guy", "guys",
+        "lady", "ladies", "gentleman", "gentlemen", "person", "people",
+        "stranger", "strangers", "passerby", "bystander", "bystanders",
+        "neighbor", "neighbors", "patron", "patrons", "tourist", "tourists",
+        # press
+        "reporter", "reporters", "photographer", "photographers", "press",
+        "corps", "anchor", "anchors", "cameraman", "crew", "journalist",
+        "journalists",
+        # staff / office
+        "staffer", "staffers", "staff", "aide", "aides", "assistant",
+        "assistants", "secretary", "receptionist", "operator", "clerk",
+        "intern", "interns", "official", "officials",
+        # service
+        "waiter", "waitress", "bartender", "driver", "cabbie", "attendant",
+        "doorman", "bellhop", "usher",
+        # uniformed
+        "guard", "guards", "officer", "officers", "cop", "cops", "policeman",
+        "agent", "agents", "soldier", "soldiers", "marine", "marines",
+        "lt", "sgt", "captain", "sentry",
+        # medical
+        "doctor", "doctors", "nurse", "nurses", "paramedic", "paramedics",
+        "surgeon", "technician", "technicians",
+        # school
+        "student", "students", "teacher", "teachers", "grader", "graders",
+        "principal", "class", "parent", "parents",
+        # labour
+        "worker", "workers", "workman", "workmen", "engineer", "foreman",
+        "mover", "movers",
+        # collectives / non-people
+        "crowd", "group", "team", "audience", "protester", "protesters",
+        "consulting", "company", "corporation", "inc", "corp", "llc",
+        "voice", "voices", "announcer", "narrator",
+        # relational descriptors ("Leo's wife" is a description, not a name)
+        "wife", "husband", "mother", "father", "son", "daughter", "sister",
+        "brother", "aunt", "uncle", "cousin", "widow", "widower",
+    }
+)
+
+_PARENTHETICAL_RE = re.compile(r"\s*\([^)]*\)")
+
+
+def is_generic_role(name: str) -> bool:
+    """Is this a role/collective rather than a named individual?
+
+    Parentheticals are stripped first, so "Elizabeth (Annie's mother)" is
+    judged on "Elizabeth" — a real name with a descriptive gloss — and kept,
+    while a bare "Mother" is dropped.
+    """
+    stripped = _PARENTHETICAL_RE.sub("", name or "").strip()
+    tokens = re.findall(r"[A-Za-z]+", stripped)
+    if not tokens:
+        return False
+    return tokens[-1].casefold() in _GENERIC_ROLE_HEADS
+
+
 # "C.J." / "J.R." — every dot-separated segment is a single letter.
 _INITIALISM_RE = re.compile(r"^(?:[A-Za-z]\.){2,}$")
 
@@ -206,7 +275,12 @@ def normalize_known_by(
                 c.get("id") != token for c in chars
             ):
                 continue
-            minted = empty_character(_display_from_token(token))
+            display = _display_from_token(token)
+            # Don't re-mint what the cue filter and entity merge just refused;
+            # a fact "known by" a Reporter names a role, not a person.
+            if is_generic_role(display):
+                continue
+            minted = empty_character(display)
             chars.append(minted)
             char_id = minted["id"]
         if char_id not in seen:
@@ -282,6 +356,11 @@ def _cue_display_name(line: str) -> str | None:
     if upper in _TRANSITION_EXACT:
         return None
     if _ACT_MARKER_RE.match(upper) or _END_OF_RE.match(upper):
+        return None
+    # A bit-part or collective cue is a role, not a person the story tracks.
+    # Its dialogue still lives in scriptText verbatim; it just doesn't get a
+    # row in the cast competing with the real characters.
+    if is_generic_role(token):
         return None
     if token.endswith(" TO") or token.endswith(" TO:"):
         return None
@@ -462,6 +541,7 @@ def merge_inferred_entities(
     """
     characters = list(bible.get("characters") or [])
     dropped_ungrounded = 0
+    dropped_generic = 0
 
     for inferred in entities.characters:
         name = (inferred.name or "").strip()
@@ -473,6 +553,9 @@ def merge_inferred_entities(
         # check must never delete or skip an existing row.
         if existing is None and source_text and not name_is_grounded(name, source_text):
             dropped_ungrounded += 1
+            continue
+        if existing is None and is_generic_role(name):
+            dropped_generic += 1
             continue
         traits = (inferred.traits or "").strip()
         if existing is None:
@@ -529,10 +612,12 @@ def merge_inferred_entities(
     bible["characters"] = characters
     bible["relationships"] = relationships
     bible["worldQA"] = world_qa
-    if dropped_relationships or dropped_ungrounded:
+    if dropped_relationships or dropped_ungrounded or dropped_generic:
         _logger.info(
-            "merge_inferred_entities relationships_dropped=%d characters_ungrounded=%d",
+            "merge_inferred_entities relationships_dropped=%d "
+            "characters_ungrounded=%d characters_generic=%d",
             dropped_relationships,
             dropped_ungrounded,
+            dropped_generic,
         )
     return characters, relationship_states

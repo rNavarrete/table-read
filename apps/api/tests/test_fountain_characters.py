@@ -7,6 +7,7 @@ from fountain.characters import (
     cues_from_scenes,
     empty_character,
     extract_character_cues,
+    is_generic_role,
     merge_characters_into_bible,
     merge_inferred_entities,
     normalize_known_by,
@@ -508,3 +509,62 @@ def test_without_source_text_everything_is_kept():
     )
     characters, _states = merge_inferred_entities(bible, entities)
     assert [c["name"] for c in characters] == ["placeholder"]
+
+
+def test_generic_bit_part_cues_do_not_mint_characters():
+    """A screenplay names unnamed people by function. Those are roles.
+
+    The dialogue under a MAN or RECEPTIONIST cue is real and stays in
+    scriptText verbatim — they just don't get a cast row competing with the
+    people the story actually tracks.
+    """
+    lines = ["MAN", "WOMAN", "RECEPTIONIST", "SECURITY OFFICER", "MOVING MAN", "SAM"]
+    assert extract_character_cues(lines) == ["Sam"]
+
+
+def test_collective_nouns_do_not_mint_characters():
+    lines = ["PRESS CORPS", "FOURTH GRADERS", "PARENTS", "STAFFERS", "TOBY"]
+    assert extract_character_cues(lines) == ["Toby"]
+
+
+def test_a_named_character_is_never_generic_whatever_precedes_it():
+    """Head-final matching is what keeps real names safe.
+
+    "Mary Marsh" ends in a surname, not a role noun, so no amount of
+    preceding words makes it generic — unlike "Moving Man".
+    """
+    assert extract_character_cues(["MARY MARSH", "MRS. LANDINGHAM", "C.J."]) == [
+        "Mary Marsh",
+        "Mrs. Landingham",
+        "C.J.",
+    ]
+
+
+def test_a_parenthetical_gloss_does_not_make_a_real_name_generic():
+    """"Elizabeth (Annie's mother)" is a person with a description."""
+    assert is_generic_role("Elizabeth (Annie's mother)") is False
+    assert is_generic_role("Mother") is True
+
+
+def test_generic_knowers_are_dropped_rather_than_minted():
+    """normalize_known_by must not re-mint what the other paths refused."""
+    resolved, characters = normalize_known_by(
+        ["Reporter", "Sam"], [empty_character("Sam", character_id="char-sam")]
+    )
+    assert resolved == ["char-sam"]
+    assert [c["name"] for c in characters] == ["Sam"]
+
+
+def test_generic_inferred_entity_is_dropped():
+    bible: dict = {"characters": []}
+    entities = StoryEntities.model_validate(
+        {
+            "characters": [_inferred("Press Corps"), _inferred("Josh")],
+            "relationships": [],
+            "worldElements": [],
+        }
+    )
+    characters, _states = merge_inferred_entities(
+        bible, entities, "INT. LOBBY - DAY\n\nThe press corps waits.\n\nJOSH\nLater.\n"
+    )
+    assert [c["name"] for c in characters] == ["Josh"]
