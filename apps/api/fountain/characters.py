@@ -282,6 +282,18 @@ def merge_characters_into_bible(
         alias = _alias_match(name, characters)
         if alias is not None:
             by_fold[key] = alias
+            if not alias.get("locked"):
+                current = alias.get("name") or ""
+                # Prefer the more specific display name. Cue order is script
+                # order, so a bare MARSH can easily arrive before MARY MARSH;
+                # without this the cast keeps the less informative label.
+                # Rename first, then file the loser as an alias, so the
+                # display name never ends up listed as an alias of itself.
+                if len(name) > len(current):
+                    alias["name"] = name
+                    _add_alias(alias, current)
+                else:
+                    _add_alias(alias, name)
             continue
         minted = empty_character(name)
         characters.append(minted)
@@ -451,9 +463,20 @@ def _alias_match(name: str, characters: list[dict]) -> dict | None:
     """Fuzzy character lookup by display name: an exact name/alias match
     (T7.15: a `knownBy`/inferred-entity name matching any character's
     `aliases` resolves to that character) short-circuits; otherwise fall
-    back to the T7.14 name-prefix heuristic ("Doc" <-> "Doc Brown"), which
-    only resolves when exactly one character is a prefix match (an
-    ambiguous prefix mints a new character rather than guessing wrong)."""
+    back to the T7.14 name-prefix heuristic ("Doc" <-> "Doc Brown") **and**
+    the matching suffix heuristic ("Marsh" <-> "Mary Marsh"), each of which
+    only resolves when exactly one character matches (an ambiguous match
+    mints a new character rather than guessing wrong).
+
+    The suffix half matters because scripts cue the same person both ways:
+    a character is introduced as MARY MARSH and cued MARSH thereafter, and
+    prefix matching alone left the cast holding both as separate people.
+    Honorifics fall out for free — "Mrs. Landingham" ends with
+    " landingham", so a bare LANDINGHAM resolves to her.
+
+    The ambiguity guard is what keeps this safe: with both JOHN SMITH and
+    JANE SMITH present, a bare SMITH matches two characters and is left
+    alone rather than silently folded into whichever came first."""
     key = name.casefold()
     candidates = []
     for c in characters:
@@ -464,7 +487,12 @@ def _alias_match(name: str, characters: list[dict]) -> dict | None:
             return c
         if key in {a.casefold() for a in (c.get("aliases") or []) if a}:
             return c
-        if other.startswith(key + " ") or key.startswith(other + " "):
+        if (
+            other.startswith(key + " ")
+            or key.startswith(other + " ")
+            or other.endswith(" " + key)
+            or key.endswith(" " + other)
+        ):
             candidates.append(c)
     if len(candidates) == 1:
         return candidates[0]
@@ -501,8 +529,25 @@ def resolve_character_id(token: str, characters: list[dict]) -> str | None:
     return _resolve_to_id(token, characters)
 
 
-def _dedupe_aliases(aliases: Iterable[str]) -> list[str]:
-    seen: set[str] = set()
+def _add_alias(character: dict, alias: str) -> None:
+    """Append `alias` to a character's aliases unless it's already there (or
+    is just the character's own display name)."""
+    alias = (alias or "").strip()
+    if not alias:
+        return
+    if alias.casefold() == (character.get("name") or "").casefold():
+        return
+    existing = character.get("aliases") or []
+    if alias.casefold() in {a.casefold() for a in existing}:
+        return
+    character["aliases"] = [*existing, alias]
+
+
+def _dedupe_aliases(aliases: Iterable[str], *, exclude: str = "") -> list[str]:
+    """Clean an alias list. `exclude` drops the character's own display name:
+    infer_story_entities routinely returns it among the aliases, which renders
+    as "Also known as C.J." on a character called C.J."""
+    seen: set[str] = {exclude.strip().casefold()} if exclude.strip() else set()
     out: list[str] = []
     for alias in aliases:
         cleaned = (alias or "").strip()
@@ -601,14 +646,15 @@ def merge_inferred_entities(
         traits = (inferred.traits or "").strip()
         if existing is None:
             minted = empty_character(name)
-            minted["aliases"] = _dedupe_aliases(inferred.aliases)
+            minted["aliases"] = _dedupe_aliases(inferred.aliases, exclude=name)
             if traits:
                 minted["traits"] = traits
                 minted["summary"] = traits
             characters.append(minted)
         elif not existing.get("locked"):
             existing["aliases"] = _dedupe_aliases(
-                [*(existing.get("aliases") or []), *inferred.aliases]
+                [*(existing.get("aliases") or []), *inferred.aliases],
+                exclude=existing.get("name") or "",
             )
             if traits:
                 if not (existing.get("traits") or "").strip():

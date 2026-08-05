@@ -140,7 +140,11 @@ def test_backfill_rewrites_ledger_known_by():
     ]
     new_doc, new_ledger = backfill_cast_and_known_by(doc, ledger)
     chars = new_doc["seriesBible"]["characters"]
-    assert {c["name"] for c in chars} >= {"Doc", "Marty"}
+    # The script cues DOC; the ledger names "Doc Brown". They are one person,
+    # and the fuller name wins the cast row with the shorter kept as an alias.
+    assert {c["name"] for c in chars} >= {"Doc Brown", "Marty"}
+    doc_row = next(c for c in chars if c["name"] == "Doc Brown")
+    assert "Doc" in doc_row["aliases"]
     ids = {c["id"] for c in chars}
     assert set(new_ledger[0]["knownBy"]) <= ids
     assert "audience" not in new_ledger[0]["knownBy"]
@@ -601,3 +605,59 @@ def test_surnames_ending_in_s_are_not_verbs():
         "Amy Brooks",
         "Jim Rivers",
     ]
+
+
+def test_a_bare_surname_resolves_to_the_full_name():
+    """Scripts cue the same person both ways: MARY MARSH, then MARSH.
+
+    Prefix matching alone ("Doc" <-> "Doc Brown") never checked suffixes, so
+    the cast held both as separate people — and every knownBy, secret holder
+    and relationship then resolved against whichever one it happened to hit.
+    """
+    bible: dict = {"characters": []}
+    merge_characters_into_bible(bible, ["Mary Marsh", "Marsh"])
+    assert [(c["name"], c["aliases"]) for c in bible["characters"]] == [
+        ("Mary Marsh", ["Marsh"])
+    ]
+
+
+def test_the_fuller_name_wins_regardless_of_cue_order():
+    """Cue order is script order, so the bare form often arrives first."""
+    bible: dict = {"characters": []}
+    merge_characters_into_bible(bible, ["Marsh", "Mary Marsh"])
+    assert [(c["name"], c["aliases"]) for c in bible["characters"]] == [
+        ("Mary Marsh", ["Marsh"])
+    ]
+
+
+def test_an_honorific_name_absorbs_its_bare_surname():
+    bible: dict = {"characters": []}
+    merge_characters_into_bible(bible, ["Mrs. Landingham", "Landingham"])
+    assert [(c["name"], c["aliases"]) for c in bible["characters"]] == [
+        ("Mrs. Landingham", ["Landingham"])
+    ]
+
+
+def test_a_shared_surname_is_left_ambiguous_rather_than_guessed():
+    """The guard that makes suffix matching safe.
+
+    With two Smiths present a bare SMITH could be either, so it mints its own
+    row instead of being silently folded into whichever came first.
+    """
+    bible: dict = {"characters": []}
+    merge_characters_into_bible(bible, ["John Smith", "Jane Smith", "Smith"])
+    assert [c["name"] for c in bible["characters"]] == [
+        "John Smith",
+        "Jane Smith",
+        "Smith",
+    ]
+
+
+def test_a_locked_character_is_never_renamed_by_alias_merging():
+    """Rule 2: a locked row's fields are the writer's, not ours."""
+    locked = empty_character("Marsh", character_id="char-marsh")
+    locked["locked"] = True
+    bible = {"characters": [locked]}
+    merge_characters_into_bible(bible, ["Mary Marsh"])
+    assert bible["characters"][0]["name"] == "Marsh"
+    assert bible["characters"][0]["aliases"] == []
