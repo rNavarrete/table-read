@@ -151,13 +151,78 @@ def build_tool_schemas() -> dict[str, dict[str, Any]]:
     return {op.name: _strictify(zod_schemas[op.schema_name]) for op in op_registry.values()}
 
 
+def render_tool_schema(schema: dict[str, Any]) -> str:
+    """The exact bytes committed to config/tool_schemas/<op>.json.
+
+    Property order is load-bearing and must follow the Zod declaration order,
+    so this deliberately does NOT pass `sort_keys=True`.
+
+    Anthropic strict tools compile `input_schema` into a decoding grammar that
+    constrains the order keys may be emitted in. Alphabetizing `properties`
+    reorders that grammar. For a discriminated union that is not cosmetic: it
+    decides which branch the model is allowed to choose. `SegmentedSceneBeat`
+    declares `kind` first but sorts to third (after `audienceFeels` and
+    `audienceLearns`), while `SegmentedSceneUnassigned` sorts `kind` first —
+    so a model emitting the discriminator first, which is the natural thing to
+    do, could only ever produce `unassigned`. Every scene of every real import
+    came back fully unassigned because of this, and no prompt change could fix
+    it. Output is still deterministic: the Zod export is declaration-ordered.
+
+    `check_tool_schemas_match` compares against this text byte for byte, and
+    `check_discriminators_lead` enforces the discriminator-first invariant the
+    Zod definitions currently satisfy.
+    """
+    return json.dumps(schema, indent=2) + "\n"
+
+
+def discriminator_order_failures(schemas: dict[str, dict[str, Any]]) -> list[str]:
+    """Union branches whose `const` discriminator is not their first property.
+
+    Guards the grammar-ordering hazard described in `render_tool_schema` at the
+    source rather than silently rewriting it — the Zod contract is authoritative
+    (CLAUDE.md), so a branch that leads with something other than its
+    discriminator is a contract bug to fix in `packages/contract`, not a
+    serialization detail for this script to paper over.
+    """
+    failures: list[str] = []
+
+    def walk(node: Any, path: str) -> None:
+        if isinstance(node, list):
+            for i, item in enumerate(node):
+                walk(item, f"{path}[{i}]")
+            return
+        if not isinstance(node, dict):
+            return
+        for branch in node.get("anyOf", []) or []:
+            props = branch.get("properties") if isinstance(branch, dict) else None
+            if not isinstance(props, dict) or not props:
+                continue
+            names = list(props)
+            discriminators = [
+                n for n in names if isinstance(props[n], dict) and "const" in props[n]
+            ]
+            if discriminators and discriminators[0] != names[0]:
+                failures.append(
+                    f"{path}: union branch lists {names[0]!r} before its discriminator "
+                    f"{discriminators[0]!r}. Strict-tool grammars constrain key order, so the "
+                    f"model cannot select this branch by emitting the discriminator first. "
+                    f"Move {discriminators[0]!r} first in the Zod definition."
+                )
+        for key, value in node.items():
+            walk(value, f"{path}.{key}")
+
+    for op_name, schema in schemas.items():
+        walk(schema, op_name)
+    return failures
+
+
 def write_tool_schemas() -> dict[str, dict[str, Any]]:
     TOOL_SCHEMAS_DIR.mkdir(parents=True, exist_ok=True)
     schemas = build_tool_schemas()
     existing = {p.stem for p in TOOL_SCHEMAS_DIR.glob("*.json")}
     for op_name, schema in schemas.items():
         path = TOOL_SCHEMAS_DIR / f"{op_name}.json"
-        path.write_text(json.dumps(schema, indent=2, sort_keys=True) + "\n")
+        path.write_text(render_tool_schema(schema))
     # Remove stale files for ops that no longer exist, so the directory never
     # silently accumulates orphans as OP_REGISTRY changes.
     for stale in existing - set(schemas):

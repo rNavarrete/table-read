@@ -1,9 +1,57 @@
 {
-  "additionalProperties": false,
+  "type": "object",
   "properties": {
-    "acts": {
+    "dramaticQuestion": {
+      "type": "string"
+    },
+    "centralConflict": {
+      "type": "string"
+    },
+    "controllingIdea": {
+      "type": "string"
+    },
+    "themes": {
+      "minItems": 1,
+      "type": "array",
       "items": {
-        "additionalProperties": false,
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string"
+          },
+          "statement": {
+            "type": "string"
+          },
+          "evidence": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "beatId": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "beatId"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "label",
+          "statement",
+          "evidence"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "acts": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "type": "object",
         "properties": {
           "act": {
             "type": "integer"
@@ -18,76 +66,17 @@
             "type": "string"
           }
         },
-        "required": ["act", "dramaticQuestion", "escalation", "turnBeatId"],
-        "type": "object"
-      },
-      "minItems": 1,
-      "type": "array"
-    },
-    "centralConflict": {
-      "type": "string"
-    },
-    "characterArcs": {
-      "items": {
-        "additionalProperties": false,
-        "properties": {
-          "arcSummary": {
-            "type": "string"
-          },
-          "characterName": {
-            "type": "string"
-          },
-          "externalPressure": {
-            "type": "string"
-          },
-          "internalConflict": {
-            "type": "string"
-          },
-          "need": {
-            "type": "string"
-          },
-          "turningPoints": {
-            "items": {
-              "additionalProperties": false,
-              "properties": {
-                "beatId": {
-                  "type": "string"
-                },
-                "change": {
-                  "type": "string"
-                }
-              },
-              "required": ["beatId", "change"],
-              "type": "object"
-            },
-            "minItems": 1,
-            "type": "array"
-          },
-          "want": {
-            "type": "string"
-          }
-        },
         "required": [
-          "characterName",
-          "want",
-          "need",
-          "internalConflict",
-          "externalPressure",
-          "arcSummary",
-          "turningPoints"
+          "act",
+          "dramaticQuestion",
+          "escalation",
+          "turnBeatId"
         ],
-        "type": "object"
-      },
-      "type": "array"
-    },
-    "controllingIdea": {
-      "type": "string"
-    },
-    "dramaticQuestion": {
-      "type": "string"
+        "additionalProperties": false
+      }
     },
     "heroJourney": {
-      "additionalProperties": false,
+      "type": "object",
       "properties": {
         "applies": {
           "type": "boolean"
@@ -106,13 +95,12 @@
           "type": "string"
         },
         "stages": {
+          "type": "array",
           "items": {
-            "additionalProperties": false,
+            "type": "object",
             "properties": {
-              "beatId": {
-                "type": "string"
-              },
               "stage": {
+                "type": "string",
                 "enum": [
                   "ordinary_world",
                   "call_to_adventure",
@@ -126,30 +114,95 @@
                   "road_back",
                   "resurrection",
                   "return_with_elixir"
-                ],
+                ]
+              },
+              "beatId": {
                 "type": "string"
               },
               "summary": {
                 "type": "string"
               }
             },
-            "required": ["stage", "beatId", "summary"],
-            "type": "object"
-          },
-          "type": "array"
+            "required": [
+              "stage",
+              "beatId",
+              "summary"
+            ],
+            "additionalProperties": false
+          }
         }
       },
-      "required": ["applies", "protagonistName", "rationale", "stages"],
-      "type": "object"
+      "required": [
+        "applies",
+        "protagonistName",
+        "rationale",
+        "stages"
+      ],
+      "additionalProperties": false
     },
-    "sceneTurns": {
+    "characterArcs": {
+      "type": "array",
       "items": {
-        "additionalProperties": false,
+        "type": "object",
         "properties": {
-          "conflict": {
+          "characterName": {
             "type": "string"
           },
-          "dramaticFunction": {
+          "want": {
+            "type": "string"
+          },
+          "need": {
+            "type": "string"
+          },
+          "internalConflict": {
+            "type": "string"
+          },
+          "externalPressure": {
+            "type": "string"
+          },
+          "arcSummary": {
+            "type": "string"
+          },
+          "turningPoints": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "beatId": {
+                  "type": "string"
+                },
+                "change": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "beatId",
+                "change"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "characterName",
+          "want",
+          "need",
+          "internalConflict",
+          "externalPressure",
+          "arcSummary",
+          "turningPoints"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "sceneTurns": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "sceneId": {
             "type": "string"
           },
           "focalCharacterName": {
@@ -162,16 +215,19 @@
               }
             ]
           },
-          "sceneId": {
+          "dramaticFunction": {
+            "type": "string"
+          },
+          "conflict": {
             "type": "string"
           },
           "stakes": {
             "type": "string"
           },
-          "turn": {
+          "turnBeatId": {
             "type": "string"
           },
-          "turnBeatId": {
+          "turn": {
             "type": "string"
           }
         },
@@ -184,50 +240,22 @@
           "turnBeatId",
           "turn"
         ],
-        "type": "object"
-      },
-      "minItems": 1,
-      "type": "array"
-    },
-    "themes": {
-      "items": {
-        "additionalProperties": false,
-        "properties": {
-          "evidence": {
-            "items": {
-              "additionalProperties": false,
-              "properties": {
-                "beatId": {
-                  "type": "string"
-                }
-              },
-              "required": ["beatId"],
-              "type": "object"
-            },
-            "minItems": 1,
-            "type": "array"
-          },
-          "label": {
-            "type": "string"
-          },
-          "statement": {
-            "type": "string"
-          }
-        },
-        "required": ["label", "statement", "evidence"],
-        "type": "object"
-      },
-      "minItems": 1,
-      "type": "array"
+        "additionalProperties": false
+      }
     },
     "threadMovements": {
+      "type": "array",
       "items": {
-        "additionalProperties": false,
+        "type": "object",
         "properties": {
+          "threadId": {
+            "type": "string"
+          },
           "beatId": {
             "type": "string"
           },
           "phase": {
+            "type": "string",
             "enum": [
               "setup",
               "escalation",
@@ -235,20 +263,20 @@
               "reveal",
               "payoff",
               "aftermath"
-            ],
-            "type": "string"
+            ]
           },
           "summary": {
             "type": "string"
-          },
-          "threadId": {
-            "type": "string"
           }
         },
-        "required": ["threadId", "beatId", "phase", "summary"],
-        "type": "object"
-      },
-      "type": "array"
+        "required": [
+          "threadId",
+          "beatId",
+          "phase",
+          "summary"
+        ],
+        "additionalProperties": false
+      }
     }
   },
   "required": [
@@ -262,5 +290,5 @@
     "sceneTurns",
     "threadMovements"
   ],
-  "type": "object"
+  "additionalProperties": false
 }

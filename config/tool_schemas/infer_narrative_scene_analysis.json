@@ -1,17 +1,19 @@
 {
-  "additionalProperties": false,
+  "type": "object",
   "properties": {
     "scenes": {
+      "minItems": 1,
+      "type": "array",
       "items": {
-        "additionalProperties": false,
+        "type": "object",
         "properties": {
-          "conflict": {
-            "description": "The scene's immediate opposition or pressure. For a connective scene, state that there is no independent confrontation and name the pressure carried forward.",
-            "type": "string"
+          "sceneId": {
+            "type": "string",
+            "description": "The single supplied sceneId, copied exactly."
           },
-          "dramaticFunction": {
-            "description": "The specific job this scene performs in the episode's developing story.",
-            "type": "string"
+          "summary": {
+            "type": "string",
+            "description": "A concrete present-tense summary naming the scene's on-page action."
           },
           "focalCharacterName": {
             "anyOf": [
@@ -24,26 +26,47 @@
             ],
             "description": "A name copied from known_cast when one perspective clearly leads; otherwise null."
           },
+          "dramaticFunction": {
+            "type": "string",
+            "description": "The specific job this scene performs in the episode's developing story."
+          },
+          "conflict": {
+            "type": "string",
+            "description": "The scene's immediate opposition or pressure. For a connective scene, state that there is no independent confrontation and name the pressure carried forward."
+          },
+          "stakes": {
+            "type": "string",
+            "description": "What can be gained, lost, exposed, or made harder by the scene's action."
+          },
+          "turnBeatId": {
+            "type": "string",
+            "description": "The allowed beatId where the scene's main change is clearest."
+          },
+          "turn": {
+            "type": "string",
+            "description": "The concrete change in information, decision, value, or power by scene end."
+          },
           "keyMoments": {
-            "description": "One or more decisive on-page moments, each tied to an allowed beatId.",
+            "minItems": 1,
+            "type": "array",
             "items": {
-              "additionalProperties": false,
+              "type": "object",
               "properties": {
                 "beatId": {
-                  "description": "A beatId copied from allowedBeatIds for the supplied scene.",
-                  "type": "string"
-                },
-                "consequence": {
-                  "description": "What becomes newly true or must be addressed after this moment.",
-                  "type": "string"
-                },
-                "dramaticFunction": {
-                  "description": "How this moment changes pressure, information, power, or choice in the scene.",
-                  "type": "string"
+                  "type": "string",
+                  "description": "A beatId copied from allowedBeatIds for the supplied scene."
                 },
                 "summary": {
-                  "description": "Concrete on-page action or decision at this moment; never a placeholder.",
-                  "type": "string"
+                  "type": "string",
+                  "description": "Concrete on-page action or decision at this moment; never a placeholder."
+                },
+                "dramaticFunction": {
+                  "type": "string",
+                  "description": "How this moment changes pressure, information, power, or choice in the scene."
+                },
+                "consequence": {
+                  "type": "string",
+                  "description": "What becomes newly true or must be addressed after this moment."
                 }
               },
               "required": [
@@ -52,30 +75,9 @@
                 "dramaticFunction",
                 "consequence"
               ],
-              "type": "object"
+              "additionalProperties": false
             },
-            "minItems": 1,
-            "type": "array"
-          },
-          "sceneId": {
-            "description": "The single supplied sceneId, copied exactly.",
-            "type": "string"
-          },
-          "stakes": {
-            "description": "What can be gained, lost, exposed, or made harder by the scene's action.",
-            "type": "string"
-          },
-          "summary": {
-            "description": "A concrete present-tense summary naming the scene's on-page action.",
-            "type": "string"
-          },
-          "turn": {
-            "description": "The concrete change in information, decision, value, or power by scene end.",
-            "type": "string"
-          },
-          "turnBeatId": {
-            "description": "The allowed beatId where the scene's main change is clearest.",
-            "type": "string"
+            "description": "One or more decisive on-page moments, each tied to an allowed beatId."
           }
         },
         "required": [
@@ -89,12 +91,12 @@
           "turn",
           "keyMoments"
         ],
-        "type": "object"
-      },
-      "minItems": 1,
-      "type": "array"
+        "additionalProperties": false
+      }
     }
   },
-  "required": ["scenes"],
-  "type": "object"
+  "required": [
+    "scenes"
+  ],
+  "additionalProperties": false
 }

@@ -1,31 +1,46 @@
 {
-  "additionalProperties": false,
+  "type": "object",
   "properties": {
     "impacted": {
+      "type": "array",
       "items": {
-        "additionalProperties": false,
+        "type": "object",
         "properties": {
-          "confidence": {
-            "enum": ["high", "speculative"],
-            "type": "string"
+          "objectType": {
+            "type": "string",
+            "enum": [
+              "scene",
+              "beat",
+              "character",
+              "ledgerFact"
+            ]
           },
           "objectId": {
             "type": "string"
           },
-          "objectType": {
-            "enum": ["scene", "beat", "character", "ledgerFact"],
-            "type": "string"
-          },
           "reason": {
             "type": "string"
+          },
+          "confidence": {
+            "type": "string",
+            "enum": [
+              "high",
+              "speculative"
+            ]
           }
         },
-        "required": ["objectType", "objectId", "reason", "confidence"],
-        "type": "object"
-      },
-      "type": "array"
+        "required": [
+          "objectType",
+          "objectId",
+          "reason",
+          "confidence"
+        ],
+        "additionalProperties": false
+      }
     }
   },
-  "required": ["impacted"],
-  "type": "object"
+  "required": [
+    "impacted"
+  ],
+  "additionalProperties": false
 }

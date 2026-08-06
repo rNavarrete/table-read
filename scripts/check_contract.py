@@ -367,14 +367,25 @@ def check_tool_schemas_match() -> list[str]:
                 "(run `python scripts/generate_tool_schemas.py`)"
             )
             continue
-        on_disk = json.loads(path.read_text())
-        if on_disk != schema:
-            failures.append(
-                f"{op_name}: tool input_schema drift (config/tool_schemas/{op_name}.json is "
-                "stale -- run `python scripts/generate_tool_schemas.py`)\n"
-                f"  generated: {json.dumps(schema, sort_keys=True)}\n"
-                f"  on disk:   {json.dumps(on_disk, sort_keys=True)}"
+        # Byte-exact, not `json.loads(...) == schema`: dict equality ignores key
+        # order, but key order is what the strict-tool decoding grammar is built
+        # from (see generate_tool_schemas.render_tool_schema). An order-blind
+        # comparison let a fully unusable segment_scene grammar sit green.
+        expected = generate_tool_schemas.render_tool_schema(schema)
+        on_disk_text = path.read_text()
+        if on_disk_text != expected:
+            detail = (
+                "key order differs"
+                if json.loads(on_disk_text) == schema
+                else "content differs"
             )
+            failures.append(
+                f"{op_name}: tool input_schema drift, {detail} "
+                f"(config/tool_schemas/{op_name}.json is stale -- run "
+                "`python scripts/generate_tool_schemas.py`)"
+            )
+
+    failures.extend(generate_tool_schemas.discriminator_order_failures(current))
 
     if TOOL_SCHEMAS_DIR.exists():
         on_disk_names = {p.stem for p in TOOL_SCHEMAS_DIR.glob("*.json")}

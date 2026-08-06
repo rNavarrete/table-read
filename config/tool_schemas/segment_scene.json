@@ -1,26 +1,27 @@
 {
-  "additionalProperties": false,
+  "type": "object",
   "properties": {
     "segments": {
+      "type": "array",
       "items": {
         "anyOf": [
           {
-            "additionalProperties": false,
+            "type": "object",
             "properties": {
-              "audienceFeels": {
-                "type": "string"
-              },
-              "audienceLearns": {
-                "type": "string"
-              },
               "kind": {
-                "const": "beat",
-                "type": "string"
+                "type": "string",
+                "const": "beat"
               },
               "startLine": {
                 "type": "integer"
               },
               "whatHappens": {
+                "type": "string"
+              },
+              "audienceLearns": {
+                "type": "string"
+              },
+              "audienceFeels": {
                 "type": "string"
               }
             },
@@ -31,30 +32,35 @@
               "audienceLearns",
               "audienceFeels"
             ],
-            "type": "object"
+            "additionalProperties": false
           },
           {
-            "additionalProperties": false,
+            "type": "object",
             "properties": {
               "kind": {
-                "const": "unassigned",
-                "type": "string"
-              },
-              "reason": {
-                "type": "string"
+                "type": "string",
+                "const": "unassigned"
               },
               "startLine": {
                 "type": "integer"
+              },
+              "reason": {
+                "type": "string"
               }
             },
-            "required": ["kind", "startLine", "reason"],
-            "type": "object"
+            "required": [
+              "kind",
+              "startLine",
+              "reason"
+            ],
+            "additionalProperties": false
           }
         ]
-      },
-      "type": "array"
+      }
     }
   },
-  "required": ["segments"],
-  "type": "object"
+  "required": [
+    "segments"
+  ],
+  "additionalProperties": false
 }

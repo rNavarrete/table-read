@@ -1,71 +1,59 @@
 {
-  "additionalProperties": false,
+  "type": "object",
   "properties": {
     "label": {
       "type": "string"
     },
     "scenes": {
+      "type": "array",
       "items": {
-        "additionalProperties": false,
+        "type": "object",
         "properties": {
           "act": {
             "type": "integer"
           },
-          "audienceFeels": {
+          "location": {
+            "type": "string"
+          },
+          "time": {
+            "type": "string"
+          },
+          "socialSituation": {
+            "type": "string"
+          },
+          "whatHappens": {
             "type": "string"
           },
           "audienceLearns": {
             "type": "string"
           },
-          "beatPlanSeeds": {
-            "items": {
-              "additionalProperties": false,
-              "properties": {
-                "audienceFeels": {
-                  "type": "string"
-                },
-                "audienceLearns": {
-                  "type": "string"
-                },
-                "whatHappens": {
-                  "type": "string"
-                }
-              },
-              "required": [
-                "whatHappens",
-                "audienceLearns",
-                "audienceFeels"
-              ],
-              "type": "object"
-            },
-            "type": "array"
-          },
-          "location": {
+          "audienceFeels": {
             "type": "string"
           },
           "motivations": {
+            "type": "array",
             "items": {
-              "additionalProperties": false,
+              "type": "object",
               "properties": {
                 "characterId": {
                   "type": "string"
                 },
-                "concealed": {
-                  "default": false,
-                  "type": "boolean"
-                },
                 "objective": {
-                  "type": "string"
-                },
-                "obstacle": {
                   "type": "string"
                 },
                 "stakes": {
                   "type": "string"
                 },
+                "obstacle": {
+                  "type": "string"
+                },
                 "statedObjective": {
                   "default": "",
                   "type": "string"
+                },
+                "concealed": {
+                  "default": false,
+                  "type": "boolean"
                 }
               },
               "required": [
@@ -76,18 +64,31 @@
                 "statedObjective",
                 "concealed"
               ],
-              "type": "object"
-            },
-            "type": "array"
+              "additionalProperties": false
+            }
           },
-          "socialSituation": {
-            "type": "string"
-          },
-          "time": {
-            "type": "string"
-          },
-          "whatHappens": {
-            "type": "string"
+          "beatPlanSeeds": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "whatHappens": {
+                  "type": "string"
+                },
+                "audienceLearns": {
+                  "type": "string"
+                },
+                "audienceFeels": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "whatHappens",
+                "audienceLearns",
+                "audienceFeels"
+              ],
+              "additionalProperties": false
+            }
           }
         },
         "required": [
@@ -101,14 +102,13 @@
           "motivations",
           "beatPlanSeeds"
         ],
-        "type": "object"
-      },
-      "type": "array"
+        "additionalProperties": false
+      }
     }
   },
   "required": [
     "label",
     "scenes"
   ],
-  "type": "object"
+  "additionalProperties": false
 }

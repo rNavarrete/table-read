@@ -1,127 +1,163 @@
 {
-  "additionalProperties": false,
+  "type": "object",
   "properties": {
     "characters": {
+      "type": "array",
       "items": {
-        "additionalProperties": false,
+        "type": "object",
         "properties": {
-          "aliases": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "evidence": {
-            "items": {
-              "additionalProperties": false,
-              "properties": {
-                "quote": {
-                  "type": "string"
-                },
-                "sceneId": {
-                  "type": "string"
-                }
-              },
-              "required": ["sceneId", "quote"],
-              "type": "object"
-            },
-            "minItems": 1,
-            "type": "array"
-          },
           "name": {
             "type": "string"
           },
+          "aliases": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
           "role": {
-            "enum": ["principal", "supporting", "minor"],
-            "type": "string"
+            "type": "string",
+            "enum": [
+              "principal",
+              "supporting",
+              "minor"
+            ]
           },
           "traits": {
             "type": "string"
-          }
-        },
-        "required": ["name", "aliases", "role", "traits", "evidence"],
-        "type": "object"
-      },
-      "type": "array"
-    },
-    "relationships": {
-      "items": {
-        "additionalProperties": false,
-        "properties": {
-          "betweenNames": {
-            "description": "exactly 2 items",
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
           },
           "evidence": {
+            "minItems": 1,
+            "type": "array",
             "items": {
-              "additionalProperties": false,
+              "type": "object",
               "properties": {
-                "quote": {
+                "sceneId": {
                   "type": "string"
                 },
-                "sceneId": {
+                "quote": {
                   "type": "string"
                 }
               },
-              "required": ["sceneId", "quote"],
-              "type": "object"
+              "required": [
+                "sceneId",
+                "quote"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "name",
+          "aliases",
+          "role",
+          "traits",
+          "evidence"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "relationships": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "betweenNames": {
+            "type": "array",
+            "items": {
+              "type": "string"
             },
-            "minItems": 1,
-            "type": "array"
+            "description": "exactly 2 items"
           },
           "label": {
             "type": "string"
           },
           "reallyLike": {
             "type": "string"
-          }
-        },
-        "required": ["betweenNames", "label", "reallyLike", "evidence"],
-        "type": "object"
-      },
-      "type": "array"
-    },
-    "worldElements": {
-      "items": {
-        "additionalProperties": false,
-        "properties": {
+          },
           "evidence": {
+            "minItems": 1,
+            "type": "array",
             "items": {
-              "additionalProperties": false,
+              "type": "object",
               "properties": {
-                "quote": {
+                "sceneId": {
                   "type": "string"
                 },
-                "sceneId": {
+                "quote": {
                   "type": "string"
                 }
               },
-              "required": ["sceneId", "quote"],
-              "type": "object"
-            },
-            "minItems": 1,
-            "type": "array"
-          },
+              "required": [
+                "sceneId",
+                "quote"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "betweenNames",
+          "label",
+          "reallyLike",
+          "evidence"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "worldElements": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
           "kind": {
-            "enum": ["location", "object"],
-            "type": "string"
+            "type": "string",
+            "enum": [
+              "location",
+              "object"
+            ]
           },
           "name": {
             "type": "string"
           },
           "note": {
             "type": "string"
+          },
+          "evidence": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "sceneId": {
+                  "type": "string"
+                },
+                "quote": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "sceneId",
+                "quote"
+              ],
+              "additionalProperties": false
+            }
           }
         },
-        "required": ["kind", "name", "note", "evidence"],
-        "type": "object"
-      },
-      "type": "array"
+        "required": [
+          "kind",
+          "name",
+          "note",
+          "evidence"
+        ],
+        "additionalProperties": false
+      }
     }
   },
-  "required": ["characters", "relationships", "worldElements"],
-  "type": "object"
+  "required": [
+    "characters",
+    "relationships",
+    "worldElements"
+  ],
+  "additionalProperties": false
 }

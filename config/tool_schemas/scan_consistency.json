@@ -1,11 +1,19 @@
 {
-  "additionalProperties": false,
+  "type": "object",
   "properties": {
     "flags": {
+      "type": "array",
       "items": {
-        "additionalProperties": false,
+        "type": "object",
         "properties": {
-          "explanation": {
+          "objectType": {
+            "type": "string",
+            "enum": [
+              "scene",
+              "beat"
+            ]
+          },
+          "objectId": {
             "type": "string"
           },
           "factId": {
@@ -18,16 +26,15 @@
               }
             ]
           },
-          "objectId": {
-            "type": "string"
-          },
-          "objectType": {
-            "enum": ["scene", "beat"],
+          "explanation": {
             "type": "string"
           },
           "severity": {
-            "enum": ["contradiction", "tension"],
-            "type": "string"
+            "type": "string",
+            "enum": [
+              "contradiction",
+              "tension"
+            ]
           }
         },
         "required": [
@@ -37,11 +44,12 @@
           "explanation",
           "severity"
         ],
-        "type": "object"
-      },
-      "type": "array"
+        "additionalProperties": false
+      }
     }
   },
-  "required": ["flags"],
-  "type": "object"
+  "required": [
+    "flags"
+  ],
+  "additionalProperties": false
 }

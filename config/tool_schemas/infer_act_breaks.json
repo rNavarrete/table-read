@@ -1,9 +1,11 @@
 {
-  "additionalProperties": false,
+  "type": "object",
   "properties": {
     "starts": {
+      "minItems": 1,
+      "type": "array",
       "items": {
-        "additionalProperties": false,
+        "type": "object",
         "properties": {
           "act": {
             "type": "integer"
@@ -12,13 +14,16 @@
             "type": "integer"
           }
         },
-        "required": ["act", "startSceneIndex"],
-        "type": "object"
-      },
-      "minItems": 1,
-      "type": "array"
+        "required": [
+          "act",
+          "startSceneIndex"
+        ],
+        "additionalProperties": false
+      }
     }
   },
-  "required": ["starts"],
-  "type": "object"
+  "required": [
+    "starts"
+  ],
+  "additionalProperties": false
 }

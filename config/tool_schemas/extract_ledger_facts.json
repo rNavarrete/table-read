@@ -1,9 +1,125 @@
 {
-  "additionalProperties": false,
+  "type": "object",
   "properties": {
-    "contradictions": {
+    "newFacts": {
+      "type": "array",
       "items": {
-        "additionalProperties": false,
+        "type": "object",
+        "properties": {
+          "fact": {
+            "type": "string"
+          },
+          "factType": {
+            "type": "string",
+            "enum": [
+              "event",
+              "state",
+              "knowledge",
+              "relationship",
+              "world_rule"
+            ]
+          },
+          "sourceSpan": {
+            "type": "object",
+            "properties": {
+              "episodeId": {
+                "type": "string"
+              },
+              "sceneId": {
+                "type": "string"
+              },
+              "beatId": {
+                "type": "string"
+              },
+              "startLine": {
+                "type": "integer"
+              },
+              "endLine": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "episodeId",
+              "sceneId",
+              "beatId",
+              "startLine",
+              "endLine"
+            ],
+            "additionalProperties": false
+          },
+          "sourceText": {
+            "type": "string"
+          },
+          "knownBy": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "knowledgeEvents": {
+            "default": [],
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "sceneId": {
+                  "type": "string"
+                },
+                "characterNames": {
+                  "default": [],
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "learns",
+                    "confirms",
+                    "forgets",
+                    "suspects",
+                    "misinformed"
+                  ]
+                },
+                "quote": {
+                  "default": "",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "sceneId",
+                "characterNames",
+                "kind",
+                "quote"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "audienceKnows": {
+            "type": "boolean"
+          },
+          "confidence": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "fact",
+          "factType",
+          "sourceSpan",
+          "sourceText",
+          "knownBy",
+          "knowledgeEvents",
+          "audienceKnows",
+          "confidence"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "contradictions": {
+      "type": "array",
+      "items": {
+        "type": "object",
         "properties": {
           "existingFactId": {
             "type": "string"
@@ -27,129 +143,13 @@
           "explanation",
           "proposedReplacement"
         ],
-        "type": "object"
-      },
-      "type": "array"
-    },
-    "newFacts": {
-      "items": {
-        "additionalProperties": false,
-        "properties": {
-          "audienceKnows": {
-            "type": "boolean"
-          },
-          "confidence": {
-            "type": "number"
-          },
-          "fact": {
-            "type": "string"
-          },
-          "factType": {
-            "enum": [
-              "event",
-              "state",
-              "knowledge",
-              "relationship",
-              "world_rule"
-            ],
-            "type": "string"
-          },
-          "knowledgeEvents": {
-            "default": [],
-            "items": {
-              "additionalProperties": false,
-              "properties": {
-                "characterNames": {
-                  "default": [],
-                  "items": {
-                    "type": "string"
-                  },
-                  "type": "array"
-                },
-                "kind": {
-                  "enum": [
-                    "learns",
-                    "confirms",
-                    "forgets",
-                    "suspects",
-                    "misinformed"
-                  ],
-                  "type": "string"
-                },
-                "quote": {
-                  "default": "",
-                  "type": "string"
-                },
-                "sceneId": {
-                  "type": "string"
-                }
-              },
-              "required": [
-                "sceneId",
-                "characterNames",
-                "kind",
-                "quote"
-              ],
-              "type": "object"
-            },
-            "type": "array"
-          },
-          "knownBy": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "sourceSpan": {
-            "additionalProperties": false,
-            "properties": {
-              "beatId": {
-                "type": "string"
-              },
-              "endLine": {
-                "type": "integer"
-              },
-              "episodeId": {
-                "type": "string"
-              },
-              "sceneId": {
-                "type": "string"
-              },
-              "startLine": {
-                "type": "integer"
-              }
-            },
-            "required": [
-              "episodeId",
-              "sceneId",
-              "beatId",
-              "startLine",
-              "endLine"
-            ],
-            "type": "object"
-          },
-          "sourceText": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "fact",
-          "factType",
-          "sourceSpan",
-          "sourceText",
-          "knownBy",
-          "knowledgeEvents",
-          "audienceKnows",
-          "confidence"
-        ],
-        "type": "object"
-      },
-      "type": "array"
+        "additionalProperties": false
+      }
     }
   },
   "required": [
     "newFacts",
     "contradictions"
   ],
-  "type": "object"
+  "additionalProperties": false
 }

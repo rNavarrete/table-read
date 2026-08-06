@@ -1,12 +1,25 @@
 {
-  "additionalProperties": false,
+  "type": "object",
   "properties": {
     "approved": {
       "type": "boolean"
     },
-    "issues": {
+    "unsupportedPaths": {
+      "type": "array",
       "items": {
-        "additionalProperties": false,
+        "type": "string"
+      }
+    },
+    "missingSceneIds": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "issues": {
+      "type": "array",
+      "items": {
+        "type": "object",
         "properties": {
           "path": {
             "type": "string"
@@ -15,24 +28,19 @@
             "type": "string"
           }
         },
-        "required": ["path", "reason"],
-        "type": "object"
-      },
-      "type": "array"
-    },
-    "missingSceneIds": {
-      "items": {
-        "type": "string"
-      },
-      "type": "array"
-    },
-    "unsupportedPaths": {
-      "items": {
-        "type": "string"
-      },
-      "type": "array"
+        "required": [
+          "path",
+          "reason"
+        ],
+        "additionalProperties": false
+      }
     }
   },
-  "required": ["approved", "unsupportedPaths", "missingSceneIds", "issues"],
-  "type": "object"
+  "required": [
+    "approved",
+    "unsupportedPaths",
+    "missingSceneIds",
+    "issues"
+  ],
+  "additionalProperties": false
 }

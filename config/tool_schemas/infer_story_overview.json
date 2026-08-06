@@ -1,24 +1,40 @@
 {
-  "additionalProperties": false,
+  "type": "object",
   "properties": {
-    "beatSheet": {
+    "logline": {
+      "type": "string"
+    },
+    "outline": {
+      "type": "array",
       "items": {
-        "additionalProperties": false,
+        "type": "object",
         "properties": {
-          "act": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ]
+          "sceneId": {
+            "type": "string"
           },
+          "summary": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "sceneId",
+          "summary"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "beatSheet": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
           "beatId": {
             "type": "string"
           },
           "label": {
+            "type": "string"
+          },
+          "summary": {
             "type": "string"
           },
           "sceneId": {
@@ -31,38 +47,36 @@
               }
             ]
           },
-          "summary": {
-            "type": "string"
+          "act": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
-        "required": ["beatId", "label", "summary", "sceneId", "act"],
-        "type": "object"
-      },
-      "type": "array"
-    },
-    "logline": {
-      "type": "string"
-    },
-    "outline": {
-      "items": {
-        "additionalProperties": false,
-        "properties": {
-          "sceneId": {
-            "type": "string"
-          },
-          "summary": {
-            "type": "string"
-          }
-        },
-        "required": ["sceneId", "summary"],
-        "type": "object"
-      },
-      "type": "array"
+        "required": [
+          "beatId",
+          "label",
+          "summary",
+          "sceneId",
+          "act"
+        ],
+        "additionalProperties": false
+      }
     },
     "summary": {
       "type": "string"
     }
   },
-  "required": ["logline", "outline", "beatSheet", "summary"],
-  "type": "object"
+  "required": [
+    "logline",
+    "outline",
+    "beatSheet",
+    "summary"
+  ],
+  "additionalProperties": false
 }

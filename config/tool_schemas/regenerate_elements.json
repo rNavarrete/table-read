@@ -1,9 +1,10 @@
 {
-  "additionalProperties": false,
+  "type": "object",
   "properties": {
     "beats": {
+      "type": "array",
       "items": {
-        "additionalProperties": false,
+        "type": "object",
         "properties": {
           "beatId": {
             "type": "string"
@@ -11,20 +12,24 @@
           "beatPlan": {
             "anyOf": [
               {
-                "additionalProperties": false,
+                "type": "object",
                 "properties": {
-                  "audienceFeels": {
+                  "whatHappens": {
                     "type": "string"
                   },
                   "audienceLearns": {
                     "type": "string"
                   },
-                  "whatHappens": {
+                  "audienceFeels": {
                     "type": "string"
                   }
                 },
-                "required": ["whatHappens", "audienceLearns", "audienceFeels"],
-                "type": "object"
+                "required": [
+                  "whatHappens",
+                  "audienceLearns",
+                  "audienceFeels"
+                ],
+                "additionalProperties": false
               },
               {
                 "type": "null"
@@ -42,38 +47,26 @@
             ]
           }
         },
-        "required": ["beatId", "beatPlan", "scriptText"],
-        "type": "object"
-      },
-      "type": "array"
-    },
-    "continuityConflicts": {
-      "items": {
-        "additionalProperties": false,
-        "properties": {
-          "explanation": {
-            "type": "string"
-          },
-          "factId": {
-            "type": "string"
-          },
-          "objectId": {
-            "type": "string"
-          }
-        },
-        "required": ["factId", "objectId", "explanation"],
-        "type": "object"
-      },
-      "type": "array"
+        "required": [
+          "beatId",
+          "beatPlan",
+          "scriptText"
+        ],
+        "additionalProperties": false
+      }
     },
     "scenes": {
+      "type": "array",
       "items": {
-        "additionalProperties": false,
+        "type": "object",
         "properties": {
+          "sceneId": {
+            "type": "string"
+          },
           "fields": {
-            "additionalProperties": false,
+            "type": "object",
             "properties": {
-              "audienceFeels": {
+              "whatHappens": {
                 "anyOf": [
                   {
                     "type": "string"
@@ -93,7 +86,7 @@
                   }
                 ]
               },
-              "location": {
+              "audienceFeels": {
                 "anyOf": [
                   {
                     "type": "string"
@@ -103,7 +96,7 @@
                   }
                 ]
               },
-              "socialSituation": {
+              "location": {
                 "anyOf": [
                   {
                     "type": "string"
@@ -123,7 +116,7 @@
                   }
                 ]
               },
-              "whatHappens": {
+              "socialSituation": {
                 "anyOf": [
                   {
                     "type": "string"
@@ -142,18 +135,44 @@
               "time",
               "socialSituation"
             ],
-            "type": "object"
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "sceneId",
+          "fields"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "continuityConflicts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "factId": {
+            "type": "string"
           },
-          "sceneId": {
+          "objectId": {
+            "type": "string"
+          },
+          "explanation": {
             "type": "string"
           }
         },
-        "required": ["sceneId", "fields"],
-        "type": "object"
-      },
-      "type": "array"
+        "required": [
+          "factId",
+          "objectId",
+          "explanation"
+        ],
+        "additionalProperties": false
+      }
     }
   },
-  "required": ["beats", "scenes", "continuityConflicts"],
-  "type": "object"
+  "required": [
+    "beats",
+    "scenes",
+    "continuityConflicts"
+  ],
+  "additionalProperties": false
 }

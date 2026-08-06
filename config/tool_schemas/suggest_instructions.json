@@ -1,14 +1,16 @@
 {
-  "additionalProperties": false,
+  "type": "object",
   "properties": {
     "suggestions": {
-      "description": "exactly 3 items",
+      "type": "array",
       "items": {
         "type": "string"
       },
-      "type": "array"
+      "description": "exactly 3 items"
     }
   },
-  "required": ["suggestions"],
-  "type": "object"
+  "required": [
+    "suggestions"
+  ],
+  "additionalProperties": false
 }
