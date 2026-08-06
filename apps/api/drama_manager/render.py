@@ -25,7 +25,12 @@ import secrets
 from typing import Any
 
 # Prompt spec §8 / hard rule 7: every template carries a PROMPT_VERSION (semver);
-# it is logged with each call and bumped on any template change. 0.37.0 gives
+# it is logged with each call and bumped on any template change. 0.38.0
+# reverts 0.37.0's "report only what your scenes introduce" narrowing, which
+# collapsed infer_story_entities on a real import: characters 39 -> 5,
+# relationships 23 -> 0, world elements 24 -> 0. The cached prefix it shipped
+# alongside is kept; the prefix is context for identity, never a narrower
+# scope. 0.37.0 gave
 # infer_story_entities the same cached whole-script prefix and narrows each
 # chunk to the entities its own scenes INTRODUCE, using the rest of the
 # episode only to get names and aliases right. Chunking stays — it bounds the
@@ -80,7 +85,7 @@ from typing import Any
 # 0.10.0 typed segment starts; 0.9.0 lock-aware narrative repair. Earlier:
 # 0.8.0 suggest; 0.7.0 scene skeleton; 0.6.0 continuity; 0.5.0 regenerate;
 # 0.4.0 blast; 0.3.0 tune; 0.2.0 candidate + §0 system prompt.
-PROMPT_VERSION = "0.37.0"
+PROMPT_VERSION = "0.38.0"
 
 
 def new_nonce() -> str:
@@ -267,27 +272,33 @@ def build_entity_prompt(
     whole script still reaches every chunk — as a cached prefix — so chunk
     boundaries no longer cost the model sight of the rest of the cast.
 
-    Each chunk reports only what its own scenes INTRODUCE, which is what
-    keeps the combined output bounded; without that, chunks re-report the
-    same principals and the recombination has to guess which spellings are
-    the same person."""
+    An earlier revision told each chunk to report only what its own scenes
+    INTRODUCE, hoping to cut the redundancy. It gutted the op: characters
+    fell 39 -> 5 and relationships and world elements both went to ZERO,
+    because a relationship is not "introduced" by one scene in any way the
+    instruction made reportable. The cue-minted speaker floor hid the damage
+    in the cast count. Chunks re-reporting the same principals is the
+    tolerable cost of chunking; suppression is not."""
     user = (
-        source_data("scenes_to_report", scene_summaries, nonce)
+        source_data("import_scene_summaries", scene_summaries, nonce)
         + "\n"
         + source_data("known_speakers", speaker_names, nonce)
-        + "\nThe whole episode is available above for context. Report only "
-        "entities that scenes_to_report INTRODUCE — a character, "
-        "relationship, location or object appearing there for the first "
-        "time. Do not re-report someone another scene already established; "
-        "another pass covers those scenes.\n"
-        "Use the rest of the episode to get identity right: give each "
-        "character the fullest form of their name used anywhere in the "
-        "script, and list shorter or alternate forms as aliases, so the "
-        "same person is never reported under two spellings. Include every "
-        "known_speakers name that belongs to your scenes, and never rename "
-        "one. Refer to every character only by a name string, never an id — "
-        "the server resolves and mints ids, not you. Give every entity at "
-        "least one scene id and a short, verbatim-ish quote as evidence."
+        + "\nIdentify every character in these scenes (including "
+        "any non-speaking ones), every relationship between two "
+        "characters, and every significant location or object. "
+        "known_speakers is a ground-truth floor of names already detected "
+        "from dialogue cues: include every one of them as a character and "
+        "do not omit or rename any of them.\n"
+        "The whole episode is available above as context. Use it only to "
+        "get identity right — give each character the fullest form of the "
+        "name used anywhere in the script and list shorter or alternate "
+        "forms as aliases, so the same person is never reported under two "
+        "spellings by different passes. It does not narrow what you report: "
+        "report everything your scenes contain, even if another scene shows "
+        "it too. Refer to every character only "
+        "by a name string, never an id — the server resolves and mints "
+        "ids, not you. Give every entity at least one scene id and a "
+        "short, verbatim-ish quote as evidence."
     )
     return build_system_prompt(project, nonce), user
 
