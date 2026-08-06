@@ -1266,6 +1266,19 @@ def _segmentation_issue_explanation(issue: SegmentationIssue) -> str:
             )
             + ". Review the selected beat boundaries."
         )
+    if issue.code == "no_beats_returned":
+        return (
+            "[no_beats_returned] The model returned no beats for this scene; the server "
+            f"preserved {line_range} as a single beat with no description. The scene's "
+            "text is intact, but its beat breakdown is missing. Re-run the breakdown for "
+            "this scene."
+        )
+    if issue.code == "empty_beat_fields":
+        return (
+            f"[empty_beat_fields] The beat covering {line_range} came back with no "
+            "description; the server kept the boundary but has nothing to show for it. "
+            "Re-run the breakdown for this scene."
+        )
     if issue.code == "unordered_segments":
         return (
             "[unordered_segments] The model returned segment starts out of source order; "

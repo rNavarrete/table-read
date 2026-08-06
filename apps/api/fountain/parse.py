@@ -493,6 +493,14 @@ def _merge(scene: SceneSpan, claims: list[_Claim]) -> list[ImportedBeat]:
 
     if not finals:
         # Entire scene was unassigned: synthesize one beat holding everything.
+        #
+        # This is a real failure of the operation, not a tidy fallback. The
+        # scene keeps all its text (coverage is never at risk) but loses its
+        # whole semantic layer, and everything downstream that reads the beat
+        # spine — entity summaries, narrative promises, the story overview —
+        # silently receives empty strings. Every real import to date landed
+        # here for every scene without emitting a single signal, so the
+        # synthetic beat now always carries its own flag.
         finals.append(
             _FinalBeat(
                 start=1,
@@ -501,9 +509,43 @@ def _merge(scene: SceneSpan, claims: list[_Claim]) -> list[ImportedBeat]:
                 audience_learns="",
                 audience_feels="",
                 unassigned=[(claim.start, claim.end) for claim in claims],
-                review_issues=[issue for claim in claims for issue in claim.issues],
+                review_issues=[
+                    SegmentationIssue(
+                        code="no_beats_returned",
+                        start_line=1,
+                        end_line=len(scene.lines),
+                    ),
+                    # Every claim here is unassigned, so each would otherwise add
+                    # a "review the boundary" flag — pointing at a boundary that
+                    # does not exist and burying the one flag that names the real
+                    # failure. Other codes still carry information (discarded
+                    # metadata, out-of-range starts) and are kept.
+                    *(
+                        issue
+                        for claim in claims
+                        for issue in claim.issues
+                        if issue.code != "model_unassigned"
+                    ),
+                ],
             )
         )
+
+    # A beat that came back with no semantic content is the same failure in a
+    # quieter form: the partition is fine, but the beat says nothing. Flag it
+    # rather than let an empty whatHappens pass for analysis. The synthetic
+    # beat above is empty by construction and already carries its own code —
+    # flagging it twice would just double the noise for one problem.
+    for fb in finals:
+        if any(issue.code == "no_beats_returned" for issue in fb.review_issues):
+            continue
+        if not (fb.what_happens or "").strip():
+            fb.review_issues.append(
+                SegmentationIssue(
+                    code="empty_beat_fields",
+                    start_line=fb.start,
+                    end_line=fb.end,
+                )
+            )
 
     abs_start = scene.start_line  # source-wide offset for flag line numbers
     return [

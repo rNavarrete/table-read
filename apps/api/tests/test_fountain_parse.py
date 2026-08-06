@@ -278,7 +278,71 @@ def test_empty_segmentation_synthesizes_flagged_unassigned_scene_and_requests_re
     assert normalized.should_retry is True
     assert normalized.beats[0].script_text == "INT. BAR - NIGHT\nDan pours."
     assert normalized.beats[0].unassigned == [(1, 2)]
-    assert normalized.beats[0].review_issues[0].code == "empty_output"
+    assert {i.code for i in normalized.beats[0].review_issues} >= {
+        "empty_output",
+        "no_beats_returned",
+    }
+
+
+def test_scene_with_no_beats_is_flagged_not_silently_synthesized():
+    """A scene the model declines to break down keeps its text but loses its
+    whole semantic layer. That is a failure of the operation, and it stayed
+    invisible through every real import until this flag existed."""
+    scene = _scene("INT. BAR - NIGHT\nmystery block")
+    normalized = normalize_and_slice(scene, _seg([], unassigned=[(1, "could not segment")]))
+    assert len(normalized.beats) == 1
+    assert normalized.beats[0].script_text == "INT. BAR - NIGHT\nmystery block"  # intact
+    codes = [i.code for i in normalized.beats[0].review_issues]
+    assert "no_beats_returned" in codes
+    # One problem, one flag: the synthetic beat is empty by construction, so it
+    # must not also raise empty_beat_fields.
+    assert "empty_beat_fields" not in codes
+
+
+def test_beat_with_blank_description_is_flagged():
+    """`required` is not `non-empty`: a beat with "" for every field satisfies
+    the schema, so the guard is what catches it."""
+    scene = _scene("INT. BAR - NIGHT\nDan pours.")
+    normalized = normalize_and_slice(scene, _seg([(1, "", "", "")]))
+    codes = {i.code for i in normalized.beats[0].review_issues}
+    assert codes == {"empty_beat_fields"}  # not no_beats_returned: a beat was returned
+
+
+def test_populated_beats_are_not_flagged():
+    scene = _scene("INT. BAR - NIGHT\nDan pours.\nMarta enters.")
+    normalized = normalize_and_slice(scene, _seg([(1, "Dan pours", "he waits", "unease")]))
+    assert normalized.beats[0].review_issues == []
+
+
+def test_zero_beat_scene_replaces_boundary_noise_with_one_accurate_flag():
+    """A real 27-scene import raised 207 "review the boundary" flags for scenes
+    that had no beat breakdown at all. There is no boundary to review when the
+    model returned nothing — one flag naming the real failure beats eight
+    pointing at the wrong one."""
+    scene = _scene("INT. BAR - NIGHT\nmystery block\nmore mystery")
+    seg = _seg([], unassigned=[(1, "a"), (2, "b"), (3, "c")])
+    normalized = normalize_and_slice(scene, seg)
+    codes = [i.code for i in normalized.beats[0].review_issues]
+    assert codes == ["no_beats_returned"]
+
+
+def test_zero_beat_scene_keeps_informative_non_boundary_issues():
+    """Suppression is narrow: only the redundant unassigned notices go."""
+    scene = _scene("INT. BAR - NIGHT\nDan pours.")
+    seg = SegmentedScene.model_validate(
+        {"segments": [{"kind": "unassigned", "startLine": 99, "reason": "out of range"}]}
+    )
+    codes = {i.code for i in normalize_and_slice(scene, seg).beats[0].review_issues}
+    assert "no_beats_returned" in codes
+    assert codes - {"no_beats_returned"}, "an out-of-bounds start should still be reported"
+
+
+def test_zero_beat_scene_does_not_trigger_a_retry():
+    """Flag only. The cause is unknown and every scene currently lands here,
+    so retrying would double segmentation cost without fixing anything."""
+    scene = _scene("INT. BAR - NIGHT\nmystery block")
+    normalized = normalize_and_slice(scene, _seg([], unassigned=[(1, "could not segment")]))
+    assert normalized.should_retry is False
 
 
 # ── byte-identity reconstruction ────────────────────────────────────────────

@@ -2264,3 +2264,45 @@ def test_entity_inference_chunks_share_one_cached_prefix(unlocked_project):
     assert len(set(prefixes)) == 1, "prefix drifted between chunks — cache would miss"
     # Shares the segmentation prefix rather than building a third payload.
     assert prefixes[0] == llm.cache_prefixes_by_op["segment_scene"][0]
+
+
+def test_scene_with_no_beats_reaches_the_writer_as_a_flag(unlocked_project):
+    """The empty beat layer must not be silent.
+
+    Every real import to date produced exactly one empty synthetic beat per
+    scene — no whatHappens, no audienceLearns, no audienceFeels — and raised
+    not one flag, so the failure was invisible in the app while the tests
+    stayed green on hand-written fixtures. Coverage is not the check that
+    catches this: the text is fully preserved either way. This is.
+    """
+    src = "\n".join(
+        [
+            "INT. ALPHA - DAY",
+            "Alpha hides the key.",
+            "INT. BETA - DAY",
+            "Beta searches the room.",
+        ]
+    )
+    llm = MockLlmClient()
+    # What the real model has actually been returning: unassigned, no beats.
+    llm.set_responses(
+        "segment_scene",
+        [
+            SegmentedScene.model_validate(
+                {"segments": [{"kind": "unassigned", "startLine": 1, "reason": "orphan"}]}
+            )
+            for _ in split_into_scenes(src)
+        ],
+    )
+    llm.set_response("extract_ledger_facts", extraction())
+    llm.set_response("scan_consistency", scan())
+
+    _events, analysis = _drain_analysis(
+        pipeline.analyze_import(unlocked_project["project"], [], src, llm)
+    )
+
+    flagged = [f for f in analysis.raw_flags if "no_beats_returned" in f["explanation"]]
+    assert len(flagged) == 2, "every scene that lost its beats should raise a flag"
+    assert {f["objectType"] for f in flagged} == {"beat"}
+    # The writer is told which scene and what to do, without the script text.
+    assert "Re-run the breakdown" in flagged[0]["explanation"]
