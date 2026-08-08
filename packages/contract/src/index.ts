@@ -206,6 +206,15 @@ export const StoryThread = z.object({
   payoffSceneId: Id.nullable().default(null),
   setupQuote: z.string().default(''),
   payoffQuote: z.string().default(''),
+  // Which beat each quote was found in, derived by the server on merge — the
+  // model never supplies these, exactly like `id` and `ownerCharacterIds`. A
+  // quote is only kept if it appears verbatim in the scene it cites, and the
+  // beat is where it appeared. Null means the quote was not verifiable and
+  // was dropped. Scene-level citation is too coarse to trust on its own: a
+  // scene that runs two locations under one slugline will happily verify a
+  // quote from the wrong storyline.
+  setupBeatId: Id.nullable().default(null),
+  payoffBeatId: Id.nullable().default(null),
   locked: z.boolean().default(false),
 })
 export type StoryThread = z.infer<typeof StoryThread>
@@ -240,6 +249,10 @@ export const Secret = z.object({
   concealmentSceneIds: z.array(Id).default([]),
   establishedQuote: z.string().default(''),
   revealedQuote: z.string().default(''),
+  // Server-derived beat anchors for the two quotes above — see
+  // `StoryThread.setupBeatId` for why the scene id alone is not enough.
+  establishedBeatId: Id.nullable().default(null),
+  revealedBeatId: Id.nullable().default(null),
   provenance: z
     .enum(['inferred', 'writer_confirmed', 'writer_authored'])
     .default('inferred'),

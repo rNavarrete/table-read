@@ -232,6 +232,10 @@ class StoryThread(_Base):
     payoff_scene_id: Id | None = None
     setup_quote: str = ""
     payoff_quote: str = ""
+    # Server-derived on merge; the model never supplies these. See the Zod
+    # `StoryThread.setupBeatId` docstring for why a scene id is too coarse.
+    setup_beat_id: Id | None = None
+    payoff_beat_id: Id | None = None
     locked: bool = False
 
 
@@ -259,6 +263,9 @@ class Secret(_Base):
     concealment_scene_ids: list[Id] = []
     established_quote: str = ""
     revealed_quote: str = ""
+    # Server-derived on merge; see `StoryThread.setup_beat_id`.
+    established_beat_id: Id | None = None
+    revealed_beat_id: Id | None = None
     provenance: Provenance = Provenance.inferred
     locked: bool = False
 

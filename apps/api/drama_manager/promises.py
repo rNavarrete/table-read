@@ -22,13 +22,111 @@ import logging
 import re
 from typing import TYPE_CHECKING
 
-from drama_manager.ledger_policy import IdMinter
+from drama_manager.ledger_policy import IdMinter, verify_source_text
 from fountain.characters import resolve_character_id
 
 if TYPE_CHECKING:
     from schemas import NarrativePromises
 
 _logger = logging.getLogger("drama_manager.promises")
+
+
+# A screenplay line that is only a character cue ("MANDY"), a transition
+# ("FADE TO BLACK."), or a stray fragment ("levels.") is verbatim source text,
+# so it passes any presence check — and supports nothing. Requiring a few words
+# of actual line is the cheapest way to tell a citation from a filled field.
+_CUE_OR_TRANSITION = re.compile(r"^[A-Z0-9][A-Z0-9 .,'’()/-]*$")
+_MIN_QUOTE_WORDS = 3
+
+
+def is_substantive_quote(quote: str) -> bool:
+    """Whether ``quote`` could support a claim at all.
+
+    Presence in the script is necessary but nowhere near sufficient. On a real
+    import 7 of 51 stored quotes were bare cues or fragments — `MANDY`,
+    `MALLORY`, `levels.`, `FADE TO BLACK.` — each verifiable verbatim and each
+    evidence of nothing.
+    """
+    text = " ".join((quote or "").split())
+    if len(text.split()) < _MIN_QUOTE_WORDS:
+        return False
+    return not _CUE_OR_TRANSITION.match(text)
+
+
+def anchor_quote(scene: dict | None, quote: str) -> tuple[str, str | None]:
+    """Locate ``quote`` verbatim among ``scene``'s beats.
+
+    Returns ``(quote, beat_id)`` when it is found, and ``("", None)`` when it
+    is not — an unverifiable quote is dropped rather than stored, the same
+    stance `ledger_policy.apply_extraction_policy` takes when `sourceText`
+    misses its window (prompt spec §8: "schema conformance alone never implies
+    acceptance").
+
+    Threads and secrets cite a *scene*, and until now their quotes were stored
+    with no verification at all. Scene scope is also too coarse to trust on its
+    own: a scene that runs two locations under a single slugline — the West
+    Wing pilot intercuts Josh/Mandy at a restaurant with Sam/Laurie at her
+    apartment under one — will verify a quote drawn from the wrong storyline.
+    Resolving the beat says *where* inside the scene the evidence actually sits,
+    so a citation attached to the wrong half is visible instead of merely
+    plausible.
+
+    Matching runs through `verify_source_text`, so it inherits the typographic
+    folding that lets a curly-quoted script match a straight-quoted citation.
+    """
+    if not quote.strip() or scene is None or not is_substantive_quote(quote):
+        return ("", None)
+    for beat in scene.get("beats") or []:
+        script = beat.get("scriptText", "")
+        if not script:
+            continue
+        _start, _end, verified = verify_source_text(
+            script, quote, 1, len(script.split("\n"))
+        )
+        if verified:
+            return (quote, beat["id"])
+    return ("", None)
+
+
+_QUOTE_FIELDS = (
+    ("setupQuote", "setupBeatId"),
+    ("payoffQuote", "payoffBeatId"),
+    ("establishedQuote", "establishedBeatId"),
+    ("revealedQuote", "revealedBeatId"),
+)
+
+
+def drop_reused_quotes(*claim_lists: list[dict]) -> int:
+    """Clear any quote cited by more than one claim, returning how many uses
+    were cleared.
+
+    A line offered as evidence for nine different secrets identifies none of
+    them. On a real import 33 of 51 quote uses were duplicates, one line
+    ("He seems effeminate to me.") accounting for nine — the signature of a
+    required field being filled rather than a source being cited. Since there
+    is no way to tell which single use was the intended one, all of them go:
+    an empty quote reads as "no evidence offered", which is true, while a
+    plausible-looking one reads as corroboration, which is not.
+    """
+    uses: dict[str, int] = {}
+    for claims in claim_lists:
+        for claim in claims:
+            for quote_key, _beat_key in _QUOTE_FIELDS:
+                text = (claim.get(quote_key) or "").strip()
+                if text:
+                    uses[text] = uses.get(text, 0) + 1
+    reused = {text for text, count in uses.items() if count > 1}
+    if not reused:
+        return 0
+    cleared = 0
+    for claims in claim_lists:
+        for claim in claims:
+            for quote_key, beat_key in _QUOTE_FIELDS:
+                if (claim.get(quote_key) or "").strip() in reused:
+                    claim[quote_key] = ""
+                    claim[beat_key] = None
+                    cleared += 1
+    return cleared
 
 
 def _find_episode(doc: dict, episode_id: str) -> dict:
@@ -126,6 +224,7 @@ def merge_narrative_promises(
 
     threads: list[dict] = []
     dropped_owners = 0
+    unverified_quotes = 0
     thread_minter = IdMinter([], "thread-")
     for inferred in result.threads:
         if inferred.setup_scene_id not in scenes_by_id:
@@ -145,6 +244,16 @@ def merge_narrative_promises(
             if inferred.payoff_scene_id in scenes_by_id
             else None
         )
+        setup_quote, setup_beat_id = anchor_quote(
+            scenes_by_id.get(inferred.setup_scene_id), inferred.setup_quote
+        )
+        payoff_quote, payoff_beat_id = anchor_quote(
+            scenes_by_id.get(payoff_scene_id), inferred.payoff_quote
+        )
+        if inferred.setup_quote.strip() and not setup_quote:
+            unverified_quotes += 1
+        if inferred.payoff_quote.strip() and not payoff_quote:
+            unverified_quotes += 1
         threads.append(
             {
                 "id": thread_minter.mint(),
@@ -154,8 +263,10 @@ def merge_narrative_promises(
                 "ownerCharacterIds": owner_ids,
                 "setupSceneId": inferred.setup_scene_id,
                 "payoffSceneId": payoff_scene_id,
-                "setupQuote": inferred.setup_quote,
-                "payoffQuote": inferred.payoff_quote,
+                "setupQuote": setup_quote,
+                "payoffQuote": payoff_quote,
+                "setupBeatId": setup_beat_id,
+                "payoffBeatId": payoff_beat_id,
                 "locked": False,
             }
         )
@@ -185,6 +296,17 @@ def merge_narrative_promises(
             if inferred_secret.revealed_scene_id in scenes_by_id
             else None
         )
+        established_quote, established_beat_id = anchor_quote(
+            scenes_by_id.get(inferred_secret.established_scene_id),
+            inferred_secret.established_quote,
+        )
+        revealed_quote, revealed_beat_id = anchor_quote(
+            scenes_by_id.get(revealed_scene_id), inferred_secret.revealed_quote
+        )
+        if inferred_secret.established_quote.strip() and not established_quote:
+            unverified_quotes += 1
+        if inferred_secret.revealed_quote.strip() and not revealed_quote:
+            unverified_quotes += 1
         secrets.append(
             {
                 "id": secret_minter.mint(),
@@ -203,13 +325,16 @@ def merge_narrative_promises(
                     for scene_id in inferred_secret.concealment_scene_ids
                     if scene_id in scenes_by_id
                 ],
-                "establishedQuote": inferred_secret.established_quote,
-                "revealedQuote": inferred_secret.revealed_quote,
+                "establishedQuote": established_quote,
+                "revealedQuote": revealed_quote,
+                "establishedBeatId": established_beat_id,
+                "revealedBeatId": revealed_beat_id,
                 "provenance": "inferred",
                 "locked": False,
             }
         )
     episode["secrets"] = secrets
+    unverified_quotes += drop_reused_quotes(threads, secrets)
 
     dropped_motivations = 0
     for scene_motivations in result.scene_motivations:
@@ -278,9 +403,11 @@ def merge_narrative_promises(
             dropped_secrets,
         )
     _logger.info(
-        "merge_narrative_promises threads=%d secrets=%d rules_appended=%d",
+        "merge_narrative_promises threads=%d secrets=%d rules_appended=%d "
+        "quotes_unverified=%d",
         len(threads),
         len(secrets),
         appended_rules,
+        unverified_quotes,
     )
     return doc

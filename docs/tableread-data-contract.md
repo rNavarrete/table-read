@@ -260,6 +260,14 @@ export const StoryThread = z.object({
   payoffSceneId: Id.nullable().default(null),
   setupQuote: z.string().default(''),
   payoffQuote: z.string().default(''),
+  // Server-derived on merge (the model supplies neither): the beat each quote
+  // was found in. A quote is stored only if it appears verbatim in the scene it
+  // cites, is substantive enough to be evidence (a bare character cue or a
+  // fragment is not), and is not reused by another claim. Otherwise the quote
+  // is cleared and the beat id left null — "no evidence offered" is true, while
+  // a plausible-looking citation reads as corroboration and is not.
+  setupBeatId: Id.nullable().default(null),
+  payoffBeatId: Id.nullable().default(null),
   locked: z.boolean().default(false),
 })
 
@@ -282,6 +290,9 @@ export const Secret = z.object({
   concealmentSceneIds: z.array(Id).default([]),
   establishedQuote: z.string().default(''),
   revealedQuote: z.string().default(''),
+  // Server-derived, same policy as StoryThread.setupBeatId.
+  establishedBeatId: Id.nullable().default(null),
+  revealedBeatId: Id.nullable().default(null),
   provenance: z
     .enum(['inferred', 'writer_confirmed', 'writer_authored'])
     .default('inferred'),

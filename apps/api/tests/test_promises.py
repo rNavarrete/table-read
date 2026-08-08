@@ -536,3 +536,110 @@ def test_a_possessive_apostrophe_is_never_stripped():
     assert result["seasons"][0]["episodes"][0]["secrets"][0]["summary"] == (
         "The bag was Sam's"
     )
+
+
+# ── quote grounding ─────────────────────────────────────────────────────────
+#
+# Threads and secrets cite a scene, and their quotes used to be stored with no
+# verification at all. On a real West Wing import that produced 51 stored quote
+# uses of which 33 were duplicates — one line cited nine separate times — plus
+# bare character cues ("MANDY") passing as evidence. Presence in the script is
+# necessary and nowhere near sufficient.
+
+from drama_manager.promises import (  # noqa: E402
+    anchor_quote,
+    drop_reused_quotes,
+    is_substantive_quote,
+)
+
+
+def _scene_with_beats(scene_id: str, *beats: tuple[str, str]) -> dict:
+    return {
+        "id": scene_id,
+        "motivations": [],
+        "beats": [{"id": bid, "scriptText": text} for bid, text in beats],
+    }
+
+
+def test_anchor_quote_resolves_the_beat_holding_the_quote():
+    scene = _scene_with_beats(
+        "scene-1",
+        ("beat-1-1", "INT. BAR - NIGHT\nDan wipes the counter."),
+        ("beat-1-2", "MARTA\nYou took the money, didn't you?"),
+    )
+    quote, beat_id = anchor_quote(scene, "You took the money, didn't you?")
+    assert quote == "You took the money, didn't you?"
+    assert beat_id == "beat-1-2", "must name the beat, not just confirm the scene"
+
+
+def test_anchor_quote_drops_a_quote_absent_from_the_cited_scene():
+    scene = _scene_with_beats("scene-1", ("beat-1-1", "INT. BAR - NIGHT\nDan wipes."))
+    assert anchor_quote(scene, "A line from somewhere else entirely.") == ("", None)
+
+
+def test_anchor_quote_drops_a_quote_when_the_cited_scene_is_missing():
+    assert anchor_quote(None, "You took the money, didn't you?") == ("", None)
+
+
+def test_substance_floor_rejects_cues_transitions_and_fragments():
+    for junk in ("MANDY", "MALLORY", "FADE TO BLACK.", "levels.", "WOMAN (V.0.)"):
+        assert not is_substantive_quote(junk), junk
+    for real in ("You took the money, didn't you?", "Apparently it's neither."):
+        assert is_substantive_quote(real), real
+
+
+def test_a_bare_cue_is_not_anchored_even_though_it_is_in_the_beat():
+    scene = _scene_with_beats("scene-1", ("beat-1-1", "MARTA\nYou took the money."))
+    assert anchor_quote(scene, "MARTA") == ("", None)
+
+
+def test_reused_quote_is_cleared_from_every_claim_that_cites_it():
+    """A line offered as evidence for two different claims identifies neither,
+    and there is no way to tell which use was intended — so all of them go."""
+    threads = [
+        {"setupQuote": "He seems effeminate to me.", "setupBeatId": "beat-22-5",
+         "payoffQuote": "", "payoffBeatId": None},
+    ]
+    secrets = [
+        {"establishedQuote": "He seems effeminate to me.", "establishedBeatId": "beat-22-5",
+         "revealedQuote": "A line used exactly once.", "revealedBeatId": "beat-9-1"},
+    ]
+    assert drop_reused_quotes(threads, secrets) == 2
+    assert threads[0]["setupQuote"] == "" and threads[0]["setupBeatId"] is None
+    assert secrets[0]["establishedQuote"] == ""
+    assert secrets[0]["revealedQuote"] == "A line used exactly once."
+    assert secrets[0]["revealedBeatId"] == "beat-9-1", "a unique citation survives"
+
+
+def test_merge_anchors_thread_quotes_to_beats():
+    doc = _doc(
+        characters=[_character("char-marta", "Marta")],
+        scenes=[
+            _scene_with_beats("scene-1", ("beat-1-1", "MARTA\nYou took the money, didn't you?")),
+            _scene_with_beats("scene-2", ("beat-2-1", "DAN\nI put it back before anyone looked.")),
+        ],
+    )
+    merge_narrative_promises(doc, "ep-1", promises(threads=[
+        _thread(
+            setupQuote="You took the money, didn't you?",
+            payoffSceneId="scene-2",
+            payoffQuote="I put it back before anyone looked.",
+        )
+    ]))
+    thread = doc["seasons"][0]["episodes"][0]["threads"][0]
+    assert thread["setupBeatId"] == "beat-1-1"
+    assert thread["payoffBeatId"] == "beat-2-1"
+
+
+def test_merge_drops_an_unverifiable_thread_quote():
+    doc = _doc(
+        characters=[_character("char-marta", "Marta")],
+        scenes=[_scene_with_beats("scene-1", ("beat-1-1", "MARTA\nYou took the money."))],
+    )
+    merge_narrative_promises(doc, "ep-1", promises(threads=[
+        _thread(setupQuote="A line that appears nowhere in this scene.")
+    ]))
+    thread = doc["seasons"][0]["episodes"][0]["threads"][0]
+    assert thread["setupQuote"] == ""
+    assert thread["setupBeatId"] is None
+    assert thread["label"] == "The missing money", "the thread itself survives"

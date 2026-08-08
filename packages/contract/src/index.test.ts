@@ -146,6 +146,9 @@ describe('StoryThread', () => {
       payoffSceneId: null,
       setupQuote: '',
       payoffQuote: '',
+      // Server-derived on merge; null until a quote verifies against a beat.
+      setupBeatId: null,
+      payoffBeatId: null,
       locked: false,
     })
   })
