@@ -207,7 +207,14 @@ _OPS: tuple[LlmOp, ...] = (
         # selective motivation policy keeps 12k ample while preventing an
         # oversized response from extending this import singleton indefinitely.
         max_tokens=12_288,
-        call_timeout_seconds=300.0,
+        # 300s was calibrated while the beat layer was empty: segment_scene
+        # returned only `unassigned`, so "every semantic beat" was 27 blank
+        # strings. With the strict-grammar fix the same episode carries 109
+        # real beats and a ~72k-char prompt, and this call timed out. Long
+        # Opus responses stream so SSE pings hold the connection open, same
+        # as infer_narrative_map_synthesis.
+        call_timeout_seconds=600.0,
+        stream_response=True,
     ),
     # T7.27/T7.28 story overview (design 2026-07-17-import-story-overview):
     # Runs after infer_narrative_promises and before extract_ledger_facts.
@@ -227,7 +234,12 @@ _OPS: tuple[LlmOp, ...] = (
         # Large episodes (many outline rows + beat sheet + synopsis) truncated
         # mid-field at 8192 ("INT. WESTA"); match other large import ceilings.
         max_tokens=16_384,
-        call_timeout_seconds=180.0,
+        # Same recalibration as infer_narrative_promises above: this reads the
+        # beat spine too, and its 180s was the tightest ceiling in the import
+        # path despite the largest output budget. Fixing only promises would
+        # have moved the failure one stage later.
+        call_timeout_seconds=600.0,
+        stream_response=True,
     ),
     LlmOp(
         "infer_narrative_map",

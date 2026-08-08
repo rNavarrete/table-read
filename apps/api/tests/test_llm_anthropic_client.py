@@ -331,13 +331,15 @@ def test_import_analyst_role_op_uses_import_analyst_model_and_no_temperature():
             )
         ]
     )
-    sdk = FakeSdkClient([valid_overview])
+    # Streams: it reads the whole beat spine, so it goes through the streaming
+    # accumulator like the other long Opus calls (see ops.py).
+    sdk = FakeStreamingSdkClient([valid_overview])
     client = AnthropicClient(sdk_client=sdk, models=_MODELS)
 
     result = client.infer_story_overview(system="sys", user_message="hi", prompt_version="0.1.0")
 
     assert isinstance(result, InferredStoryOverview)
-    call = sdk.messages.calls[0]
+    call = sdk.messages.stream_calls[0]
     assert call["model"] == "import-analyst-model-z"
     assert "temperature" not in call
 
