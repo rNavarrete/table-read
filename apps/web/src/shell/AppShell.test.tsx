@@ -12,6 +12,7 @@ const { listProjectSnapshotsMock, restoreProjectMock, undoProjectMock } =
   }))
 
 const getLlmModeMock = vi.fn()
+let reloadMock: ReturnType<typeof vi.fn>
 
 vi.mock('../api/client', () => ({
   exportFountain: vi.fn(),
@@ -26,6 +27,15 @@ afterEach(() => {
 })
 
 beforeEach(() => {
+  // AppShell reloads after undo/restore so every mode re-fetches the restored
+  // head. jsdom does not implement navigation, so without this the reload
+  // escapes as an unhandled error: the test passes, the run reports "1 error",
+  // and `make test` exits non-zero with nothing failing.
+  reloadMock = vi.fn()
+  Object.defineProperty(window, 'location', {
+    configurable: true,
+    value: { ...window.location, reload: reloadMock },
+  })
   getLlmModeMock.mockResolvedValue({ status: 'ok', llmMode: 'real' })
   vi.stubGlobal('fetch', (url: string) =>
     String(url).includes('/health')
@@ -85,6 +95,10 @@ describe('AppShell', () => {
     await waitFor(() => {
       expect(restoreProjectMock).toHaveBeenCalledWith('proj-1', 'snap-parent')
     })
+    // The reload is the point: there is no shared project store across
+    // Write/Plan/Review/Ledger, so the restored head only reaches the other
+    // modes by re-fetching.
+    await waitFor(() => expect(reloadMock).toHaveBeenCalled())
   })
 })
 

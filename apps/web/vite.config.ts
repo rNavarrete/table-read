@@ -31,5 +31,7 @@ export default defineConfig({
     // test`'s own `test`/`expect` — vitest's default include glob would
     // otherwise try to run them too and fail on the mismatched test runner.
     exclude: [...configDefaults.exclude, 'e2e/**'],
+    // Polyfills for jsdom's missing layout methods — see src/test-setup.ts.
+    setupFiles: ['./src/test-setup.ts'],
   },
 })
