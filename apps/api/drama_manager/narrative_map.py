@@ -72,7 +72,19 @@ class NarrativeMapValidationError(ValueError):
         super().__init__("invalid narrative map")
 
 
-def _require_publishable_text(diagnostics: list[dict], path: str, value: object) -> None:
+def _require_publishable_text(
+    diagnostics: list[dict], path: str, value: object, *, allow_empty: bool = False
+) -> None:
+    """Reject a field that claims something unusable.
+
+    `allow_empty` marks the interpretive prose that the verification repair is
+    permitted to clear (`acts[].escalation`, a scene turn's dramatic function /
+    conflict / stakes). Empty there means *no claim was made*, which is honest;
+    this gate exists to stop a placeholder like "could not analyze" shipping as
+    if it were analysis. Structural fields never pass empty.
+    """
+    if allow_empty and not str(value or "").strip():
+        return
     if not is_usable_analysis_text(value):
         diagnostics.append({"code": "unusable_analysis_text", "path": path})
 
@@ -90,7 +102,9 @@ def _validate_analysis_quality(result: InferredNarrativeMap, diagnostics: list[d
         _require_publishable_text(
             diagnostics, f"acts[{index}].dramaticQuestion", act.dramatic_question
         )
-        _require_publishable_text(diagnostics, f"acts[{index}].escalation", act.escalation)
+        _require_publishable_text(
+            diagnostics, f"acts[{index}].escalation", act.escalation, allow_empty=True
+        )
     for index, arc in enumerate(result.character_arcs):
         for field, value in (
             ("want", arc.want),
@@ -107,13 +121,15 @@ def _validate_analysis_quality(result: InferredNarrativeMap, diagnostics: list[d
                 turn.change,
             )
     for index, turn in enumerate(result.scene_turns):
-        for field, value in (
-            ("dramaticFunction", turn.dramatic_function),
-            ("conflict", turn.conflict),
-            ("stakes", turn.stakes),
-            ("turn", turn.turn),
+        for field, value, clearable in (
+            ("dramaticFunction", turn.dramatic_function, True),
+            ("conflict", turn.conflict, True),
+            ("stakes", turn.stakes, True),
+            ("turn", turn.turn, False),
         ):
-            _require_publishable_text(diagnostics, f"sceneTurns[{index}].{field}", value)
+            _require_publishable_text(
+                diagnostics, f"sceneTurns[{index}].{field}", value, allow_empty=clearable
+            )
     for index, movement in enumerate(result.thread_movements):
         _require_publishable_text(
             diagnostics, f"threadMovements[{index}].summary", movement.summary

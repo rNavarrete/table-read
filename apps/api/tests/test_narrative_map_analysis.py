@@ -756,3 +756,74 @@ def test_act_rejection_without_an_escalation_claim_is_not_repairable():
          "missingSceneIds": [], "issues": []}
     )
     assert verification_supports_local_repair(verdict) is False
+
+
+def test_rejected_scene_turn_prose_is_cleared_and_the_scene_stays_covered():
+    """Rejections here cluster on establishing shots — a scene with no drama
+    in it cannot support a dramatic-function claim, but it is still a scene the
+    map has to cover."""
+    candidate = _candidate_map()
+    verdict = NarrativeMapVerification.model_validate(
+        {
+            "approved": False,
+            "unsupportedPaths": ["sceneTurns[0].dramaticFunction (scene-1)"],
+            "missingSceneIds": [],
+            "issues": [],
+        }
+    )
+
+    assert verification_supports_local_repair(verdict) is True
+    repaired, repairs = repair_candidate_from_verification(candidate, verdict)
+
+    assert len(repaired.scene_turns) == 1, "scene coverage must survive"
+    assert repaired.scene_turns[0].dramatic_function == ""
+    assert repaired.scene_turns[0].turn_beat_id == "beat-1-1"
+    assert repaired.scene_turns[0].turn, "the turn itself is untouched"
+    assert repairs[0]["action"] == "clear_scene_turn_claim"
+    assert repairs[0]["sceneId"] == "scene-1"
+
+
+def test_scene_turn_prose_repair_resolves_by_scene_id():
+    candidate = _candidate_map()
+    verdict = NarrativeMapVerification.model_validate(
+        {"approved": False, "unsupportedPaths": ["sceneTurns[scene-1].stakes"],
+         "missingSceneIds": [], "issues": []}
+    )
+    repaired, _ = repair_candidate_from_verification(candidate, verdict)
+    assert repaired.scene_turns[0].stakes == ""
+    assert repaired.scene_turns[0].dramatic_function, "only the named field clears"
+
+
+def test_scene_turn_turn_beat_rejection_is_not_repairable():
+    verdict = NarrativeMapVerification.model_validate(
+        {"approved": False, "unsupportedPaths": ["sceneTurns[0].turnBeatId=beat-1-1"],
+         "missingSceneIds": [], "issues": []}
+    )
+    assert verification_supports_local_repair(verdict) is False
+
+
+def test_cleared_prose_passes_the_publishable_text_gate():
+    """A server-cleared field means no claim was made. The gate exists to stop
+    placeholders like 'could not analyze' shipping as analysis, not to force a
+    claim the verifier just rejected."""
+    from drama_manager.narrative_map import _validate_analysis_quality
+
+    candidate = _candidate_map()
+    verdict = NarrativeMapVerification.model_validate(
+        {"approved": False, "unsupportedPaths": ["sceneTurns[0].dramaticFunction"],
+         "missingSceneIds": [], "issues": []}
+    )
+    repaired, _ = repair_candidate_from_verification(candidate, verdict)
+    diagnostics: list[dict] = []
+    _validate_analysis_quality(repaired, diagnostics)
+    assert diagnostics == [], diagnostics
+
+
+def test_placeholder_prose_still_fails_the_gate():
+    from drama_manager.narrative_map import _validate_analysis_quality
+
+    payload = _candidate_map().model_dump(by_alias=True)
+    payload["sceneTurns"][0]["dramaticFunction"] = "unknown"
+    diagnostics: list[dict] = []
+    _validate_analysis_quality(InferredNarrativeMap.model_validate(payload), diagnostics)
+    assert [d["code"] for d in diagnostics] == ["unusable_analysis_text"]

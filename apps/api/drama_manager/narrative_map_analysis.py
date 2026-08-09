@@ -871,6 +871,36 @@ _ACT_ESCALATION_VERIFICATION_PATH = re.compile(
 )
 
 
+# The same prose/structure split on a scene turn. `sceneId` and `turnBeatId`
+# are the coverage guarantee; `dramaticFunction`, `conflict` and `stakes` are
+# commentary about the scene. Rejections here cluster on establishing shots —
+# a West Wing re-synthesis was rejected for the dramaticFunction it claimed on
+# scenes 11, 13 and 21, all of which are bare establishing shots that the
+# import itself already flagged as having no dramatic beat. Clearing the claim
+# leaves the scene covered and says nothing untrue about it. `turn` and
+# `evidenceQuote` are deliberately excluded: the first states the turn itself,
+# and the second is `min(1)` in the contract, so neither can be blanked.
+_SCENE_TURN_FIELDS = {
+    "dramaticFunction": "dramatic_function",
+    "conflict": "conflict",
+    "stakes": "stakes",
+}
+_SCENE_TURN_PROSE_VERIFICATION_PATH = re.compile(
+    r"^sceneTurns\[([^\]]+)\]\s*\.\s*(dramaticFunction|conflict|stakes)\b"
+)
+
+
+def _scene_turn_index_for(key: str, scene_turns: list) -> int | None:
+    key = key.strip()
+    if key.isdigit():
+        index = int(key)
+        return index if index < len(scene_turns) else None
+    for index, turn in enumerate(scene_turns):
+        if getattr(turn, "scene_id", None) == key:
+            return index
+    return None
+
+
 def _act_index_for(key: str, acts: list) -> int | None:
     """Resolve an `acts[...]` key, which may be the act's own number or its
     position in the list. Act numbers are authoritative when they match, since
@@ -926,6 +956,7 @@ def verification_supports_local_repair(result: NarrativeMapVerification) -> bool
         or _CHARACTER_ARC_VERIFICATION_PATH.match(path)
         or _EMPTY_CHARACTER_ARCS_VERIFICATION_PATH.match(path)
         or _ACT_ESCALATION_VERIFICATION_PATH.match(path)
+        or _SCENE_TURN_PROSE_VERIFICATION_PATH.match(path)
         for path in result.unsupported_paths
     )
 
@@ -948,6 +979,7 @@ def repair_candidate_from_verification(
     character_arc_indexes: set[int] = set()
     movement_indexes: set[int] = set()
     cleared_escalation_indexes: set[int] = set()
+    cleared_scene_turn_fields: dict[int, set[str]] = {}
 
     if result.missing_scene_ids:
         diagnostics.extend(
@@ -1040,6 +1072,27 @@ def repair_candidate_from_verification(
             )
             continue
 
+        scene_turn_match = _SCENE_TURN_PROSE_VERIFICATION_PATH.match(path)
+        if scene_turn_match:
+            resolved = _scene_turn_index_for(scene_turn_match.group(1), candidate.scene_turns)
+            field = _SCENE_TURN_FIELDS[scene_turn_match.group(2)]
+            if resolved is None:
+                diagnostics.append({"code": "verification_repair_path_unresolved", "path": path})
+                continue
+            if not (getattr(candidate.scene_turns[resolved], field, "") or "").strip():
+                diagnostics.append({"code": "verification_repair_path_unsupported", "path": path})
+                continue
+            cleared_scene_turn_fields.setdefault(resolved, set()).add(field)
+            repairs.append(
+                {
+                    "action": "clear_scene_turn_claim",
+                    "path": path,
+                    "sceneId": candidate.scene_turns[resolved].scene_id,
+                    "field": scene_turn_match.group(2),
+                }
+            )
+            continue
+
         act_escalation_match = _ACT_ESCALATION_VERIFICATION_PATH.match(path)
         if act_escalation_match:
             resolved = _act_index_for(act_escalation_match.group(1), candidate.acts)
@@ -1096,6 +1149,12 @@ def repair_candidate_from_verification(
             ],
             # The act stays — number, dramatic question and turn beat intact —
             # with only the disputed prose cleared, so act coverage survives.
+            "scene_turns": [
+                turn.model_copy(update={f: "" for f in cleared_scene_turn_fields[index]})
+                if index in cleared_scene_turn_fields
+                else turn
+                for index, turn in enumerate(candidate.scene_turns)
+            ],
             "acts": [
                 act.model_copy(update={"escalation": ""})
                 if index in cleared_escalation_indexes
