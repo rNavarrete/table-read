@@ -51,6 +51,18 @@ _ONLY_CHOICES = (
 )
 
 
+def _only_families(value: str) -> str:
+    """Validate `--only` at parse time so a typo exits before any paid call."""
+    names = [name.strip() for name in value.split(",") if name.strip()]
+    unknown = [name for name in names if name not in _ONLY_CHOICES]
+    if not names or unknown:
+        raise argparse.ArgumentTypeError(
+            f"unknown eval families: {', '.join(unknown) or value!r}. "
+            f"Choices: {', '.join(sorted(_ONLY_CHOICES))}"
+        )
+    return ",".join(names)
+
+
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(prog="evals", description="Table Read LLM eval suite (T6.1).")
     parser.add_argument(
@@ -79,10 +91,13 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--only",
-        type=str,
+        type=_only_families,
         default=None,
-        choices=sorted(_ONLY_CHOICES),
-        help="Run a single eval family (diagnosis/spot-check); default is core hard gates.",
+        help=(
+            "Comma-separated eval families to run (diagnosis/spot-check, or a "
+            "scoped sign-off for a prompt change); default is core hard gates. "
+            f"Choices: {', '.join(sorted(_ONLY_CHOICES))}."
+        ),
     )
     parser.add_argument(
         "--capture",

@@ -23,7 +23,7 @@ from evals.checks import (
 from evals.graders import MockJudge
 from evals.harness import SuiteReport, assert_rule5_clean
 from evals.probes import load_fixture_ctx
-from evals.suite import resolve_run_map, run_suite
+from evals.suite import resolve_run_map, run_suite, selected_eval_keys
 from llm.errors import LlmTimeoutError, SchemaInvalidLlmError
 from llm.mock import MockLlmClient
 from schemas import BeatCandidate, InferredActBreaks, RegeneratedElements
@@ -648,3 +648,20 @@ def test_capture_dir_is_gitignored():
     probe = "apps/api/evals/captures/20260101T000000/continuity-failure-001.txt"
     out = subprocess.run(["git", "check-ignore", probe], cwd=repo, capture_output=True, text=True)
     assert out.returncode == 0, "capture dir is not git-ignored"
+
+
+def test_only_accepts_a_scoped_family_list():
+    """A prompt change should be signable against the families that exercise
+    the op it touched — the full suite is ~173 calls, most of which say
+    nothing about a change to one op."""
+    keys = selected_eval_keys(only="narrative-promises,promise-citations")
+    assert keys == ("narrative-promises", "promise-citations")
+
+
+def test_only_rejects_an_unknown_family_rather_than_silently_running_nothing():
+    with pytest.raises(ValueError, match="bogus"):
+        selected_eval_keys(only="narrative-promises,bogus")
+
+
+def test_only_deduplicates_and_ignores_whitespace():
+    assert selected_eval_keys(only=" schema , schema ,lock ") == ("schema", "lock")

@@ -188,9 +188,21 @@ def nominal_call_estimate(runs: dict[str, int]) -> dict:
 
 
 def selected_eval_keys(*, full: bool = False, only: str | None = None) -> tuple[str, ...]:
-    """Which short family keys a suite invocation will attempt."""
+    """Which short family keys a suite invocation will attempt.
+
+    `only` accepts a comma-separated list so a prompt change can be signed off
+    against the families that actually exercise the op it touched. The full
+    suite is ~173 calls and the core gates ~108, most of it breadth that says
+    nothing about a change to one op — running the lock and act-boundary
+    families to clear a `infer_narrative_promises` edit costs money to prove
+    something unrelated.
+    """
     if only is not None:
-        return (only,)
+        keys = tuple(dict.fromkeys(k.strip() for k in only.split(",") if k.strip()))
+        unknown = [k for k in keys if k not in EVAL_KEYS]
+        if unknown:
+            raise ValueError(f"unknown eval families: {', '.join(unknown)}")
+        return keys
     if full:
         return tuple(EVAL_KEYS)
     return CORE_EVAL_KEYS
