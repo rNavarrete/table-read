@@ -539,3 +539,14 @@ export function createSceneSkeletonChangeSet(
     candidate,
   )
 }
+
+/** Which language-model client the server is actually using.
+ *
+ * `mock` means every AI result is fixture data. That used to be visible only
+ * in the server log, so a `make dev` session with no API key produced
+ * confident, entirely fictional analysis with nothing in the app to say so —
+ * and persisted it. Surfacing it is the difference between a writer knowing
+ * they are looking at a demo and believing it is their script. */
+export function getLlmMode(): Promise<{ status: string; llmMode: string }> {
+  return getJson<{ status: string; llmMode: string }>('/health')
+}

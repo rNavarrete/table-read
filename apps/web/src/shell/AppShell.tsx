@@ -84,6 +84,9 @@ export function AppShell({
 }: AppShellProps) {
   useModeShortcuts()
   const [settingsOpen, setSettingsOpen] = useState(false)
+  // Without this the app looks identical whether its analysis is real or
+  // fixture data — see api/client.getLlmMode.
+  const [llmMode, setLlmMode] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
   const [historyOpen, setHistoryOpen] = useState(false)
@@ -94,6 +97,25 @@ export function AppShell({
   // Review mutations re-render this shell as the parent of ReviewScreen.
   const draftDot = projectId ? hasDraftChangeSet(projectId) : false
   const undoEnabled = Boolean(projectId) && canUndo && !busy
+
+  useEffect(() => {
+    let cancelled = false
+    // Deliberately a bare fetch rather than the api/client helper: every test
+    // that module-mocks api/client would otherwise have to know about this
+    // health check, which has nothing to do with what those tests cover.
+    fetch('/api/v1/health')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((body) => {
+        if (!cancelled && body) setLlmMode(body.llmMode)
+      })
+      .catch(() => {
+        // A health check that cannot be reached says nothing about which
+        // client is configured; stay silent rather than claim either.
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   useEffect(() => {
     if (!historyOpen) return
@@ -206,6 +228,19 @@ export function AppShell({
 
   return (
     <div className="min-h-screen bg-tr-surface-page">
+      {llmMode === 'mock' ? (
+        <div
+          role="status"
+          className="flex items-center justify-center gap-2 border-b border-tr-border bg-tr-warning-subtle px-6 py-2 text-12 text-tr-text-primary"
+          data-testid="mock-llm-banner"
+        >
+          <span aria-hidden="true">●</span>
+          <span>
+            Demo mode — AI results are sample data, not an analysis of your
+            script. Set an API key and restart to get real results.
+          </span>
+        </div>
+      ) : null}
       <header className="relative z-[5] flex h-shell-height items-center gap-6 border-b border-tr-border bg-tr-surface-raised px-6">
         {projectId ? (
           <a

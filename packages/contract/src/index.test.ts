@@ -120,7 +120,7 @@ describe('WorldRule', () => {
       cost: 'Ages the caster a year.',
       exception: 'Unless the moon is full.',
       evidenceSceneId: 'scene-1',
-      evidenceQuote: 'The old woman pays for every spell in years.',
+      evidenceQuote: 'Great Scott!',
     }
     expect(WorldRule.parse(rule)).toEqual(rule)
   })
@@ -146,7 +146,7 @@ describe('StoryThread', () => {
       payoffSceneId: null,
       setupQuote: '',
       payoffQuote: '',
-      // Server-derived on merge; null until a quote verifies against a beat.
+      // Server-derived on merge; null until a quote resolves to a beat.
       setupBeatId: null,
       payoffBeatId: null,
       locked: false,
@@ -177,8 +177,8 @@ describe('NarrativePromises', () => {
           ownerNames: ['Marty'],
           setupSceneId: 'scene-1',
           payoffSceneId: null,
-          setupQuote: 'quote',
-          payoffQuote: '',
+          setupBeatId: 'beat-1-1',
+          payoffBeatId: null,
         },
       ],
       secrets: [
@@ -190,8 +190,8 @@ describe('NarrativePromises', () => {
           establishedSceneId: 'scene-1',
           revealedSceneId: null,
           concealmentSceneIds: [],
-          establishedQuote: 'quote',
-          revealedQuote: '',
+          establishedBeatId: 'beat-1-1',
+          revealedBeatId: null,
         },
       ],
       sceneMotivations: [
@@ -216,7 +216,7 @@ describe('NarrativePromises', () => {
           cost: '',
           exception: '',
           evidenceSceneId: null,
-          evidenceQuote: '',
+          evidenceBeatId: 'beat-1-1',
         },
       ],
     }

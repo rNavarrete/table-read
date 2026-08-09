@@ -68,6 +68,27 @@ def resolve_client_mode() -> Literal["real", "mock"]:
     )
 
 
+def describe_client_mode() -> Literal["real", "mock", "unconfigured"]:
+    """The configured mode, for reporting rather than dispatch.
+
+    `resolve_client_mode` raises when nothing is configured, which is right at
+    the point of use and wrong for `/health`: the health check exists to say
+    what the server is, including when that is "not set up". Kept beside it so
+    the two can never disagree about what selects the mock.
+
+    This is what lets the app tell a writer their results are fixtures. Mock
+    mode used to be visible only as a line in the server log, so a `make dev`
+    session with no key produced confident, entirely fictional analysis and
+    persisted it — a Narrative Map run generated from the mock recorded a
+    durable rejection that then blocked the real one.
+    """
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        return "real"
+    if os.environ.get(MOCK_FLAG) == "1":
+        return "mock"
+    return "unconfigured"
+
+
 def get_llm_client_provider() -> Callable[[], LlmClient]:
     """A zero-arg *provider* of the `LlmClient`, for a route that needs the
     model only on some code paths — PATCH `/projects/{pid}`: a structural-field

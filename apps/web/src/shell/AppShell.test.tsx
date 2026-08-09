@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AppShell } from './AppShell'
 
 const { listProjectSnapshotsMock, restoreProjectMock, undoProjectMock } =
@@ -10,6 +10,8 @@ const { listProjectSnapshotsMock, restoreProjectMock, undoProjectMock } =
     restoreProjectMock: vi.fn(),
     undoProjectMock: vi.fn(),
   }))
+
+const getLlmModeMock = vi.fn()
 
 vi.mock('../api/client', () => ({
   exportFountain: vi.fn(),
@@ -21,6 +23,18 @@ vi.mock('../api/client', () => ({
 afterEach(() => {
   cleanup()
   vi.clearAllMocks()
+})
+
+beforeEach(() => {
+  getLlmModeMock.mockResolvedValue({ status: 'ok', llmMode: 'real' })
+  vi.stubGlobal('fetch', (url: string) =>
+    String(url).includes('/health')
+      ? getLlmModeMock().then((body: unknown) => ({
+          ok: true,
+          json: () => Promise.resolve(body),
+        }))
+      : Promise.reject(new Error(`unexpected fetch: ${url}`)),
+  )
 })
 
 describe('AppShell', () => {
@@ -71,5 +85,39 @@ describe('AppShell', () => {
     await waitFor(() => {
       expect(restoreProjectMock).toHaveBeenCalledWith('proj-1', 'snap-parent')
     })
+  })
+})
+
+describe('demo-mode banner', () => {
+  it('warns the writer when AI results are fixture data', async () => {
+    getLlmModeMock.mockResolvedValueOnce({ status: 'ok', llmMode: 'mock' })
+    render(
+      <AppShell projectTitle="The Long Pour" activeMode="write" ledgerCount={0}>
+        <div />
+      </AppShell>,
+    )
+    const banner = await screen.findByTestId('mock-llm-banner')
+    expect(banner.textContent).toMatch(/sample data/i)
+  })
+
+  it('stays out of the way when the real client is configured', async () => {
+    render(
+      <AppShell projectTitle="The Long Pour" activeMode="write" ledgerCount={0}>
+        <div />
+      </AppShell>,
+    )
+    await waitFor(() => expect(getLlmModeMock).toHaveBeenCalled())
+    expect(screen.queryByTestId('mock-llm-banner')).toBeNull()
+  })
+
+  it('says nothing when the health check cannot be reached', async () => {
+    getLlmModeMock.mockRejectedValueOnce(new Error('offline'))
+    render(
+      <AppShell projectTitle="The Long Pour" activeMode="write" ledgerCount={0}>
+        <div />
+      </AppShell>,
+    )
+    await waitFor(() => expect(getLlmModeMock).toHaveBeenCalled())
+    expect(screen.queryByTestId('mock-llm-banner')).toBeNull()
   })
 })
