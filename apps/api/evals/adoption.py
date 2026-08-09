@@ -1475,11 +1475,21 @@ def promise_citation_quality_eval(
     can pass a naive presence check while proving nothing.
 
     This exists because a required quote field gets *filled* rather than
-    cited. Measured on a real West Wing import at PROMPT_VERSION 0.38.0: 51
-    offered citations, 12 survivors (0.24), one line offered as evidence for
-    nine unrelated claims. 0.39.0 tells the model an empty quote is the right
-    answer unless a specific line carries the claim — this is how we find out
-    whether that worked.
+    cited. Measured on a real West Wing import:
+
+      0.38.0 — 51 offered, 12 supported (0.24); one line cited nine times.
+      0.39.0 — 12 offered of 57 possible claims, 6 supported (0.50); reuse
+               down from 33 duplicate uses to 2, worst line 9x -> 2x.
+
+    0.39.0 tells the model an empty quote is the right answer unless a
+    specific line carries the claim. Precision doubled and reuse collapsed,
+    but half of what it still offers fails grounding, and the survivors read
+    as fragments. That ceiling is not the prompt: `_promises_prompt_spine`
+    shows the model six positionally-sampled lines per scene (first two,
+    middle two, last two), so on a long scene it cannot cite the line that
+    states a secret unless that line happens to land on a sampled index. The
+    next lever is evidence selection, not instruction — see the Narrative
+    Map, where the model cites beat ids and the server derives the excerpt.
 
     `offeredPerRun` matters as much as the score: a model that offers nothing
     scores 1.0 vacuously, so a run with zero offered citations is reported
@@ -1551,6 +1561,7 @@ def promise_citation_quality_eval(
             "offeredPerRun": [r["offered"] for r in per_run],
             "supportedPerRun": [r["supported"] for r in per_run],
             "baseline_0_38_0": {"offered": 51, "supported": 12, "score": 0.24},
+            "measured_0_39_0": {"offered": 12, "supported": 6, "score": 0.50, "claims": 57},
         },
         notes=notes,
     )
