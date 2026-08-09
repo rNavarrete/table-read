@@ -268,3 +268,51 @@ describe('FilterRail', () => {
     ).toContain('bg-tr-ledger-selected')
   })
 })
+
+describe('cast filter accessibility', () => {
+  it('gives every cast radio a name a screen reader can announce', () => {
+    render(
+      <FilterRail
+        project={project}
+        filters={defaultFilters}
+        onChange={vi.fn()}
+        onManageCast={vi.fn()}
+        facts={sampleFacts}
+      />,
+    )
+
+    // These announced as an indistinguishable row of radio "on" — the input is
+    // visually hidden and the label's text sits in sibling spans, so nothing
+    // named the control. UI spec §2 requires labelled controls.
+    const named = screen
+      .getAllByRole('radio')
+      .map((radio) => radio.getAttribute('aria-label'))
+    expect(named.every((name) => name && name.trim())).toBe(true)
+    expect(named).toContain('All facts')
+  })
+
+  it('names each person radio for the person it filters to', () => {
+    // The rail shows only people who appear in the facts, capped until
+    // "Show all" — so assert over what it rendered, not the whole bible.
+    render(
+      <FilterRail
+        project={project}
+        filters={defaultFilters}
+        onChange={vi.fn()}
+        onManageCast={vi.fn()}
+        facts={sampleFacts}
+      />,
+    )
+
+    const names = new Set(
+      screen.getAllByRole('radio').map((r) => r.getAttribute('aria-label')),
+    )
+    const rendered = project.seriesBible.characters.filter((c) =>
+      names.has(c.name),
+    )
+    expect(rendered.length).toBeGreaterThan(0)
+    for (const character of rendered) {
+      expect(screen.getByRole('radio', { name: character.name })).toBeTruthy()
+    }
+  })
+})

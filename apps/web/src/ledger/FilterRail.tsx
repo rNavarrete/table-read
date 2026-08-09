@@ -161,6 +161,7 @@ export function FilterRail({
             className="sr-only"
             type="radio"
             name="ledger-character"
+            aria-label="All facts"
             checked={filters.characterId === null}
             onChange={() => onChange({ ...filters, characterId: null })}
           />
@@ -197,6 +198,7 @@ export function FilterRail({
                   className="sr-only"
                   type="radio"
                   name="ledger-character"
+                  aria-label={character.name}
                   checked={active}
                   onChange={() =>
                     onChange({ ...filters, characterId: character.id })
