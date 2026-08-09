@@ -685,18 +685,21 @@ def execute_run(run_id: str, llm: LlmClient) -> None:
                 expected_head_snapshot_id=run.source_snapshot_id,
             )
         except snapshots.StaleHead:
-            _touch(
-                run,
-                status="stale",
-                phase="failed",
-                error_code="SOURCE_STALE",
-                error_message=(
-                    "The script changed while the map was being verified. No map was applied."
-                ),
-                checkpoint=checkpoint,
-            )
-            session.commit()
-            return
+            snapshot = _apply_to_moved_head(session, run, source, mapped_doc)
+            if snapshot is None:
+                _touch(
+                    run,
+                    status="stale",
+                    phase="failed",
+                    error_code="SOURCE_STALE",
+                    error_message=(
+                        "The script changed while the map was being verified. "
+                        "No map was applied."
+                    ),
+                    checkpoint=checkpoint,
+                )
+                session.commit()
+                return
 
         _touch(
             run,
@@ -759,6 +762,85 @@ def execute_run(run_id: str, llm: LlmClient) -> None:
         )
     finally:
         session.close()
+
+
+def _apply_to_moved_head(
+    session: Session,
+    run: NarrativeMapRunRow,
+    source,
+    mapped_doc: dict,
+) -> SnapshotRow | None:
+    """Re-apply a verified map when the head moved but the script did not.
+
+    `expected_head_snapshot_id` is the right guard for "the writer edited the
+    script mid-run", but a moved head does not by itself mean that. Saving a
+    map moves the head, so a completed run could never be repaired again: the
+    retry raced its own output and was reported to the writer as a script
+    change they had not made.
+
+    `source_hash` is the honest test, because it covers format, cast and
+    scenes only — the map itself is deliberately outside it. When the hash
+    still matches, the analysis is valid for the current head and only needs
+    re-applying on top of it, so the map is lifted onto the live document
+    rather than the stale copy it was built from (which would revert whatever
+    else moved the head). A changed hash, an unreadable head, or a lock that
+    appeared meanwhile all return None and fail closed as before.
+    """
+    project = session.get(ProjectRow, run.project_id)
+    if project is None:
+        return None
+    head = session.get(SnapshotRow, project.head_snapshot_id)
+    if head is None:
+        return None
+    try:
+        current = prepare_narrative_map_source(head.doc)
+    except NarrativeMapReadinessError:
+        return None
+    if current.source_hash != run.source_hash:
+        return None  # the script really did change
+
+    live_doc = copy.deepcopy(head.doc)
+    episode = _episode_by_id(live_doc, source.episode_id)
+    mapped_episode = _episode_by_id(mapped_doc, source.episode_id)
+    if episode is None or mapped_episode is None:
+        return None
+    existing = episode.get("narrativeMap")
+    if episode.get("locked") or (isinstance(existing, dict) and existing.get("locked")):
+        return None
+    episode["narrativeMap"] = copy.deepcopy(mapped_episode.get("narrativeMap"))
+
+    snapshot = snapshots.mutate(
+        session,
+        run.project_id,
+        "Generated verified narrative map",
+        lambda state: MutationState(
+            doc=live_doc,
+            ledger=state.ledger,
+            flags=state.flags,
+            snapshot_id=state.snapshot_id,
+        ),
+        expected_head_snapshot_id=project.head_snapshot_id,
+    )
+    # Later retries compare against the snapshot this map actually applies to.
+    run.source_snapshot_id = snapshot.id
+    _logger.info(
+        "narrative_map_reapplied_to_moved_head run_id=%s snapshot=%s",
+        run.id,
+        snapshot.id,
+    )
+    return snapshot
+
+
+def _episode_by_id(doc: dict, episode_id: str) -> dict | None:
+    return next(
+        (
+            episode
+            for season in doc.get("seasons") or []
+            for episode in season.get("episodes") or []
+            if episode.get("id") == episode_id
+        ),
+        None,
+    )
 
 
 def _synthesize_and_verify(
