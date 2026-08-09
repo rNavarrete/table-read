@@ -38,12 +38,26 @@ _RELATIVE_KEYWORDS = (
 )
 
 
-def _time_segment(location: str) -> str | None:
-    """The slugline's trailing time-of-day segment, or `None` if the
-    slugline has no ``" - "``-separated segment to read."""
+def slugline_time(location: str) -> str:
+    """The slugline's trailing time-of-day segment, or `""` when it has none.
+
+    `Scene.time` is a real contract field and the Plan inspector shows it, but
+    import left it empty on every scene while putting the whole slugline —
+    time included — into `location`. A writer opening Plan after an import
+    therefore saw a blank TIME on all 27 scenes with "- NIGHT" sitting in the
+    location box beside it.
+
+    `location` deliberately keeps the full slugline: it is what reads correctly
+    as a scene heading throughout the app, and `merge_timeline_anchors` parses
+    it directly.
+    """
     if " - " not in location:
-        return None
+        return ""
     return location.rsplit(" - ", maxsplit=1)[-1].strip()
+
+
+def _time_segment(location: str) -> str | None:
+    return slugline_time(location) or None
 
 
 def _classify(segment: str) -> str | None:

@@ -2306,3 +2306,33 @@ def test_scene_with_no_beats_reaches_the_writer_as_a_flag(unlocked_project):
     assert {f["objectType"] for f in flagged} == {"beat"}
     # The writer is told which scene and what to do, without the script text.
     assert "Re-run the breakdown" in flagged[0]["explanation"]
+
+
+def test_import_fills_scene_time_from_the_slugline(unlocked_project):
+    """`Scene.time` is a contract field the Plan inspector shows, and import
+    left it empty on every scene while putting the whole slugline — time
+    included — into `location`."""
+    src = "\n".join(
+        [
+            "INT. BAR - NIGHT",
+            "Dan pours a drink.",
+            "EXT. STREET - DAWN",
+            "Marta waits.",
+            "INT. NO TIME IN THIS ONE",
+            "A door closes.",
+        ]
+    )
+    llm = MockLlmClient()
+    llm.set_responses("segment_scene", one_beat_per_scene(src))
+    llm.set_response("extract_ledger_facts", extraction())
+    llm.set_response("scan_consistency", scan())
+
+    _events, analysis = _drain_analysis(
+        pipeline.analyze_import(unlocked_project["project"], [], src, llm)
+    )
+
+    scenes = analysis.new_doc["seasons"][0]["episodes"][0]["scenes"]
+    assert [s["time"] for s in scenes] == ["NIGHT", "DAWN", ""]
+    # `location` keeps the full slugline: it is what reads as a scene heading
+    # across the app, and merge_timeline_anchors parses it directly.
+    assert scenes[0]["location"] == "INT. BAR - NIGHT"

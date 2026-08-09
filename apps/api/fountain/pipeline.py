@@ -65,7 +65,7 @@ from fountain.parse import (
     split_into_scenes,
     strip_screenplay_front_matter,
 )
-from fountain.timeline import merge_timeline_anchors
+from fountain.timeline import merge_timeline_anchors, slugline_time
 from llm.errors import SchemaInvalidLlmError, classify_llm_unavailable_reason
 from llm.protocol import LlmClient
 from schemas import (
@@ -324,7 +324,10 @@ def analyze_import(
                 "storyline": "A",
                 "locked": False,
                 "location": span.location,
-                "time": "",
+                # The slugline already says when the scene happens; leaving
+                # `time` empty made the Plan inspector look unpopulated on
+                # every imported scene.
+                "time": slugline_time(span.location),
                 "socialSituation": "",
                 "whatHappens": "",
                 "audienceLearns": "",
