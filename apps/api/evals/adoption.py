@@ -768,8 +768,8 @@ def _seed_promises_response() -> NarrativePromises:
                 "ownerNames": ["Nora", "Cass"],
                 "setupSceneId": "scene-promises-1",
                 "payoffSceneId": "scene-promises-2",
-                "setupQuote": "Take it back when the tide turns. I'm not keeping what isn't mine.",
-                "payoffQuote": "There. Paid in full.",
+                "setupBeatId": None,
+                "payoffBeatId": None,
             },
             {
                 "label": "Cass's unsent letter",
@@ -778,8 +778,8 @@ def _seed_promises_response() -> NarrativePromises:
                 "ownerNames": ["Cass"],
                 "setupSceneId": "scene-promises-1",
                 "payoffSceneId": None,
-                "setupQuote": "Maybe I'll send this one to my sister. Maybe I won't.",
-                "payoffQuote": "",
+                "setupBeatId": None,
+                "payoffBeatId": None,
             },
         ],
         secrets=[
@@ -791,8 +791,8 @@ def _seed_promises_response() -> NarrativePromises:
                 "establishedSceneId": "scene-promises-1",
                 "revealedSceneId": None,
                 "concealmentSceneIds": [],
-                "establishedQuote": "Maybe I'll send this one to my sister. Maybe I won't.",
-                "revealedQuote": "",
+                "establishedBeatId": None,
+                "revealedBeatId": None,
             }
         ],
         sceneMotivations=[
@@ -817,7 +817,7 @@ def _seed_promises_response() -> NarrativePromises:
                 "cost": "The harbor board doesn't forgive a fourth flash.",
                 "exception": "",
                 "evidenceSceneId": "scene-promises-1",
-                "evidenceQuote": "Three flashes, that's the rule.",
+                "evidenceBeatId": None,
             }
         ],
     )
@@ -829,8 +829,7 @@ def _promises_text_blob(result: NarrativePromises) -> str:
         parts.append(t.label)
         parts.append(t.summary)
         parts.extend(t.owner_names)
-        parts.append(t.setup_quote)
-        parts.append(t.payoff_quote)
+
     for sm in result.scene_motivations:
         for m in sm.motivations:
             parts.append(m.character_name)
@@ -848,18 +847,17 @@ def _promises_text_blob(result: NarrativePromises) -> str:
 def _thread_found(threads: list, planted: dict) -> bool:
     owner_needles = [n.lower() for n in planted.get("ownerNameMatchAny", [])]
     label_needles = planted.get("labelOrSummaryMatchAny", [])
-    setup_needles = planted.get("setupQuoteMatchAny", [])
-    payoff_needles = planted.get("payoffQuoteMatchAny", [])
     for t in threads:
         owners = " ".join(t.owner_names).lower()
         if owner_needles and not any(n in owners for n in owner_needles):
             continue
         if label_needles and not _matches_any(f"{t.label} {t.summary}", label_needles):
             continue
-        if setup_needles and not _matches_any(t.setup_quote, setup_needles):
-            continue
-        if payoff_needles and not _matches_any(t.payoff_quote, payoff_needles):
-            continue
+        # Setup/payoff quote wording is no longer checked here: the model
+        # cites a beat and the server derives the line, so there is no
+        # model-authored quote to match. Whether those citations hold up is
+        # what `promise_citation_quality_eval` measures; this eval measures
+        # whether the planted thread was found at all.
         return True
     return False
 
@@ -1480,22 +1478,24 @@ def promise_citation_quality_eval(
       0.38.0 — 51 offered, 12 supported (0.24); one line cited nine times.
       0.39.0 — 12 offered of 57 possible claims, 6 supported (0.50); reuse
                down from 33 duplicate uses to 2, worst line 9x -> 2x.
+      0.40.0 — 46 offered, 35 supported (0.76). The model cites a beatId and
+               the server derives the line, so it is no longer picking from
+               six positionally-sampled lines per scene.
 
     0.39.0 tells the model an empty quote is the right answer unless a
     specific line carries the claim. Precision doubled and reuse collapsed,
     but half of what it still offers fails grounding, and the survivors read
-    as fragments. That ceiling is not the prompt: `_promises_prompt_spine`
-    shows the model six positionally-sampled lines per scene (first two,
-    middle two, last two), so on a long scene it cannot cite the line that
-    states a secret unless that line happens to land on a sampled index. The
-    next lever is evidence selection, not instruction — see the Narrative
-    Map, where the model cites beat ids and the server derives the excerpt.
+    as fragments. That ceiling was evidence selection, not instruction: the
+    prompt showed six positionally-sampled lines per scene, so on a long scene
+    the model could not cite the line that states a secret unless it happened
+    to land on a sampled index. 0.40.0 moved to beat citation — the model
+    names the beat, the server reads the line — and precision went to 0.76.
 
     `offeredPerRun` matters as much as the score: a model that offers nothing
     scores 1.0 vacuously, so a run with zero offered citations is reported
     with a note rather than counted as success.
     """
-    from drama_manager.promises import anchor_quote
+    from drama_manager.promises import quote_for_beat
 
     project, scene_summaries, known_cast = _promises_fixture_context()
     scenes_by_id = {
@@ -1522,21 +1522,23 @@ def promise_citation_quality_eval(
             per_run.append({"offered": 0, "supported": 0, "errored": True})
             continue
 
-        # (quote, cited scene id) for every citation the model chose to offer.
-        offered: list[tuple[str, str | None]] = []
+        # (cited beat id, cited scene id) for every citation the model offered.
+        offered: list[tuple[str | None, str | None]] = []
         for thread in result.threads:
-            offered.append((thread.setup_quote, thread.setup_scene_id))
-            offered.append((thread.payoff_quote, thread.payoff_scene_id))
+            offered.append((thread.setup_beat_id, thread.setup_scene_id))
+            offered.append((thread.payoff_beat_id, thread.payoff_scene_id))
         for secret in result.secrets:
-            offered.append((secret.established_quote, secret.established_scene_id))
-            offered.append((secret.revealed_quote, secret.revealed_scene_id))
+            offered.append((secret.established_beat_id, secret.established_scene_id))
+            offered.append((secret.revealed_beat_id, secret.revealed_scene_id))
         for rule in result.world_rules:
-            offered.append((rule.evidence_quote, rule.evidence_scene_id))
-        offered = [(q, s) for q, s in offered if (q or "").strip()]
+            offered.append((rule.evidence_beat_id, rule.evidence_scene_id))
+        offered = [(b, sc) for b, sc in offered if b]
 
         grounded = [
-            q for q, scene_id in offered if anchor_quote(scenes_by_id.get(scene_id), q)[0]
+            quote_for_beat(scenes_by_id.get(scene_id), beat_id)[0]
+            for beat_id, scene_id in offered
         ]
+        grounded = [q for q in grounded if q]
         counts = Counter(grounded)
         supported = sum(1 for q in grounded if counts[q] == 1)
         per_run.append({"offered": len(offered), "supported": supported, "errored": False})
@@ -1562,6 +1564,7 @@ def promise_citation_quality_eval(
             "supportedPerRun": [r["supported"] for r in per_run],
             "baseline_0_38_0": {"offered": 51, "supported": 12, "score": 0.24},
             "measured_0_39_0": {"offered": 12, "supported": 6, "score": 0.50, "claims": 57},
+            "measured_0_40_0": {"offered": 46, "supported": 35, "score": 0.76, "claims": 57},
         },
         notes=notes,
     )

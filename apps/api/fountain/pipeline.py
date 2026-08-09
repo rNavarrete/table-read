@@ -482,11 +482,10 @@ def analyze_import(
             run_nonce,
         )
         _logger.info(
-            "import_infer_promises_start scenes=%d beats=%d evidence_chars=%d prompt_chars=%d "
+            "import_infer_promises_start scenes=%d beats=%d prompt_chars=%d "
             "prompt_version=%s",
             len(promises_spine),
             sum(len(scene["beats"]) for scene in promises_spine),
-            sum(len(scene["evidenceExcerpt"]) for scene in promises_spine),
             len(user),
             render.PROMPT_VERSION,
         )
@@ -1089,8 +1088,6 @@ _ENTITY_PROMPT_EARLY_LINES = 40
 
 
 _OVERVIEW_SCRIPT_EXCERPT_LINES = 12
-_PROMISES_EVIDENCE_LINES = 6
-_PROMISES_EVIDENCE_LINE_CHARS = 160
 
 
 def _overview_prompt_inputs(scene_docs: list[dict]) -> tuple[list[dict], list[dict]]:
@@ -1138,33 +1135,18 @@ def _overview_prompt_inputs(scene_docs: list[dict]) -> tuple[list[dict], list[di
 
 
 def _promises_prompt_spine(scene_docs: list[dict]) -> list[dict]:
-    """Return every semantic beat with bounded, distributed raw evidence.
+    """Return every semantic beat, with no raw screenplay payload.
 
-    Narrative threads need the whole episode, but re-sending every scene's
-    screenplay text after segmentation turns a long import into one oversized
-    request. The semantic beat fields preserve complete story coverage while
-    six sampled non-blank lines per scene give the model on-page material for
-    the required quote fields.
+    Narrative threads need the whole episode. This used to also carry six
+    positionally-sampled lines per scene so the model had on-page material to
+    quote — but six lines out of a 500-line scene are chosen by index, not
+    relevance, so the model could not cite the line that states a secret
+    unless it happened to land on a sample point, and the quotes that came
+    back were fragments. Since 0.40.0 the model cites a beatId instead and the
+    server derives the line from that beat's full text, which it already
+    holds; the excerpt is dead weight.
     """
-    scene_spine = _narrative_map_scene_spine(scene_docs, include_script_text=False)
-    for scene, spine_scene in zip(scene_docs, scene_spine, strict=True):
-        lines = [
-            line.strip()
-            for beat in scene.get("beats") or []
-            for line in (beat.get("scriptText") or "").splitlines()
-            if line.strip()
-        ]
-        if len(lines) <= _PROMISES_EVIDENCE_LINES:
-            indexes = range(len(lines))
-        else:
-            middle = len(lines) // 2
-            indexes = (0, 1, middle, middle + 1, len(lines) - 2, len(lines) - 1)
-        selected_lines = [
-            lines[index][:_PROMISES_EVIDENCE_LINE_CHARS]
-            for index in dict.fromkeys(indexes)
-        ]
-        spine_scene["evidenceExcerpt"] = "\n".join(selected_lines)
-    return scene_spine
+    return _narrative_map_scene_spine(scene_docs, include_script_text=False)
 
 
 def _narrative_map_scene_spine(

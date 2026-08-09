@@ -1159,7 +1159,7 @@ def test_narrative_map_spine_omits_duplicate_script_text():
     }
 
 
-def test_promises_spine_covers_all_beats_with_bounded_distributed_evidence():
+def test_promises_spine_is_beats_only_with_no_raw_screenplay():
     lines = [f"LINE {index}" for index in range(20)]
     scenes = [
         {
@@ -1188,9 +1188,11 @@ def test_promises_spine_covers_all_beats_with_bounded_distributed_evidence():
             "audienceFeels": "Suspicion.",
         }
     ]
-    assert compact[0]["evidenceExcerpt"] == "\n".join(
-        ["LINE 0", "LINE 1", "LINE 10", "LINE 11", "LINE 18", "LINE 19"]
-    )
+    # No raw screenplay payload: the model cites a beatId and the server
+    # derives the line from that beat's full text, so the six sampled lines
+    # this used to carry are dead weight.
+    assert "evidenceExcerpt" not in compact[0]
+    assert "scriptText" not in compact[0]["beats"][0]
 
 
 def test_success_creates_exactly_one_project_and_one_root_snapshot(db_session, mock_llm):

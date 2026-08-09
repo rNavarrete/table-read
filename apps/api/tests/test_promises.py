@@ -73,8 +73,8 @@ def _thread(**overrides) -> dict:
         "ownerNames": ["Marta"],
         "setupSceneId": "scene-1",
         "payoffSceneId": None,
-        "setupQuote": "quote",
-        "payoffQuote": "",
+        "setupBeatId": None,
+        "payoffBeatId": None,
         **overrides,
     }
 
@@ -86,7 +86,7 @@ def _world_rule(**overrides) -> dict:
         "cost": "",
         "exception": "",
         "evidenceSceneId": "scene-1",
-        "evidenceQuote": "quote",
+        "evidenceBeatId": None,
         **overrides,
     }
 
@@ -290,7 +290,8 @@ def test_merge_appends_new_world_rule_with_structured_fields():
             "cost": "Free drinks for the table.",
             "exception": "Unless the sheriff is there.",
             "evidenceSceneId": "scene-1",
-            "evidenceQuote": "quote",
+            # No beat cited, so no evidence — the server never invents one.
+            "evidenceQuote": "",
         }
     ]
 
@@ -369,8 +370,8 @@ def _secret(**overrides) -> dict:
         "establishedSceneId": "scene-1",
         "revealedSceneId": None,
         "concealmentSceneIds": [],
-        "establishedQuote": "Dan wedges the envelope behind the ice machine.",
-        "revealedQuote": "",
+        "establishedBeatId": None,
+        "revealedBeatId": None,
         **overrides,
     }
 
@@ -550,6 +551,7 @@ from drama_manager.promises import (  # noqa: E402
     anchor_quote,
     drop_reused_quotes,
     is_substantive_quote,
+    quote_for_beat,
 )
 
 
@@ -611,35 +613,75 @@ def test_reused_quote_is_cleared_from_every_claim_that_cites_it():
     assert secrets[0]["revealedBeatId"] == "beat-9-1", "a unique citation survives"
 
 
-def test_merge_anchors_thread_quotes_to_beats():
+def test_merge_derives_the_quote_from_the_beat_the_model_cited():
+    """The model points at a beat; the server reads the line out of it. It used
+    to supply the line itself, chosen from six sampled lines per scene."""
     doc = _doc(
         characters=[_character("char-marta", "Marta")],
         scenes=[
-            _scene_with_beats("scene-1", ("beat-1-1", "MARTA\nYou took the money, didn't you?")),
-            _scene_with_beats("scene-2", ("beat-2-1", "DAN\nI put it back before anyone looked.")),
+            _scene_with_beats(
+                "scene-1",
+                ("beat-1-1", "INT. BAR - NIGHT\nDan wipes the counter."),
+                ("beat-1-2", "MARTA\nYou took the money, didn't you?"),
+            ),
         ],
     )
     merge_narrative_promises(doc, "ep-1", promises(threads=[
-        _thread(
-            setupQuote="You took the money, didn't you?",
-            payoffSceneId="scene-2",
-            payoffQuote="I put it back before anyone looked.",
-        )
+        _thread(setupBeatId="beat-1-2")
     ]))
     thread = doc["seasons"][0]["episodes"][0]["threads"][0]
-    assert thread["setupBeatId"] == "beat-1-1"
-    assert thread["payoffBeatId"] == "beat-2-1"
+    assert thread["setupBeatId"] == "beat-1-2"
+    assert thread["setupQuote"] == "You took the money, didn't you?"
 
 
-def test_merge_drops_an_unverifiable_thread_quote():
+def test_merge_skips_the_slugline_when_deriving_a_quote():
+    doc = _doc(
+        characters=[_character("char-marta", "Marta")],
+        scenes=[_scene_with_beats(
+            "scene-1", ("beat-1-1", "INT. BAR - NIGHT\nDan wipes the counter clean."))],
+    )
+    merge_narrative_promises(doc, "ep-1", promises(threads=[
+        _thread(setupBeatId="beat-1-1")
+    ]))
+    thread = doc["seasons"][0]["episodes"][0]["threads"][0]
+    assert thread["setupQuote"] == "Dan wipes the counter clean."
+
+
+def test_merge_drops_a_beat_id_that_is_not_in_the_cited_scene():
+    """An id that does not resolve is a claim without evidence, not a licence
+    to quote something else from the scene."""
     doc = _doc(
         characters=[_character("char-marta", "Marta")],
         scenes=[_scene_with_beats("scene-1", ("beat-1-1", "MARTA\nYou took the money."))],
     )
     merge_narrative_promises(doc, "ep-1", promises(threads=[
-        _thread(setupQuote="A line that appears nowhere in this scene.")
+        _thread(setupBeatId="beat-9-9")
     ]))
     thread = doc["seasons"][0]["episodes"][0]["threads"][0]
     assert thread["setupQuote"] == ""
     assert thread["setupBeatId"] is None
     assert thread["label"] == "The missing money", "the thread itself survives"
+
+
+def test_derived_quote_prefers_dialogue_over_stage_direction():
+    """`_source_quote` takes the first non-cue line, which in a screenplay is
+    nearly always action — a real import cited "Sam's PAGER BEEPS --" for a
+    beat whose content was the exchange underneath."""
+    scene = _scene_with_beats(
+        "scene-1",
+        (
+            "beat-1-1",
+            "INT. BAR - NIGHT\nDan wipes the counter clean.\n\nMARTA\n"
+            "(quietly)\nYou took the money, didn't you?",
+        ),
+    )
+    quote, beat_id = quote_for_beat(scene, "beat-1-1")
+    assert quote == "You took the money, didn't you?"
+    assert beat_id == "beat-1-1"
+
+
+def test_derived_quote_falls_back_to_action_when_a_beat_has_no_dialogue():
+    scene = _scene_with_beats(
+        "scene-1", ("beat-1-1", "INT. BAR - NIGHT\nDan wipes the counter clean.")
+    )
+    assert quote_for_beat(scene, "beat-1-1")[0] == "Dan wipes the counter clean."

@@ -235,8 +235,8 @@ def _default_responses() -> dict[str, BaseModel]:
                     "ownerNames": ["Marta", "Dan"],
                     "setupSceneId": "scene-1",
                     "payoffSceneId": None,
-                    "setupQuote": "ON SCREEN: OUTGOING TRANSFER — $40,000.00 — MEMO: (blank)",
-                    "payoffQuote": "",
+                    "setupBeatId": None,
+                    "payoffBeatId": None,
                 }
             ],
             # Dan is the fixture's worked example of a stated/actual gap: he
@@ -251,8 +251,8 @@ def _default_responses() -> dict[str, BaseModel]:
                     "establishedSceneId": "scene-2",
                     "revealedSceneId": None,
                     "concealmentSceneIds": ["scene-3"],
-                    "establishedQuote": "Dan wedges the envelope behind the ice machine.",
-                    "revealedQuote": "",
+                    "establishedBeatId": None,
+                    "revealedBeatId": None,
                 }
             ],
             sceneMotivations=[
@@ -288,7 +288,7 @@ def _default_responses() -> dict[str, BaseModel]:
                     "cost": "",
                     "exception": "",
                     "evidenceSceneId": "scene-1",
-                    "evidenceQuote": "Chairs upside-down on tables.",
+                    "evidenceBeatId": None,
                 }
             ],
         ),

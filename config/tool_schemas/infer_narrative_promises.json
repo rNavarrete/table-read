@@ -39,11 +39,25 @@
               }
             ]
           },
-          "setupQuote": {
-            "type": "string"
+          "setupBeatId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
-          "payoffQuote": {
-            "type": "string"
+          "payoffBeatId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -53,8 +67,8 @@
           "ownerNames",
           "setupSceneId",
           "payoffSceneId",
-          "setupQuote",
-          "payoffQuote"
+          "setupBeatId",
+          "payoffBeatId"
         ],
         "additionalProperties": false
       }
@@ -101,11 +115,25 @@
               "type": "string"
             }
           },
-          "establishedQuote": {
-            "type": "string"
+          "establishedBeatId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
-          "revealedQuote": {
-            "type": "string"
+          "revealedBeatId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -116,8 +144,8 @@
           "establishedSceneId",
           "revealedSceneId",
           "concealmentSceneIds",
-          "establishedQuote",
-          "revealedQuote"
+          "establishedBeatId",
+          "revealedBeatId"
         ],
         "additionalProperties": false
       }
@@ -200,8 +228,15 @@
               }
             ]
           },
-          "evidenceQuote": {
-            "type": "string"
+          "evidenceBeatId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -210,7 +245,7 @@
           "cost",
           "exception",
           "evidenceSceneId",
-          "evidenceQuote"
+          "evidenceBeatId"
         ],
         "additionalProperties": false
       }

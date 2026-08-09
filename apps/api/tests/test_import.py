@@ -1359,8 +1359,8 @@ def test_import_infers_thread_and_scene_motivations_after_entities(db_session, m
                     "ownerNames": ["Marty", "Doc Brown"],
                     "setupSceneId": "scene-1",
                     "payoffSceneId": None,
-                    "setupQuote": "Doc, are you there?",
-                    "payoffQuote": "",
+                    "setupBeatId": None,
+                    "payoffBeatId": None,
                 }
             ],
             scene_motivations=[
@@ -1435,8 +1435,8 @@ def test_import_drops_unresolvable_thread_owner_and_keeps_resolved(db_session, m
                     "ownerNames": ["Marty", "Einstein the dog"],
                     "setupSceneId": "scene-1",
                     "payoffSceneId": None,
-                    "setupQuote": "Doc, are you there?",
-                    "payoffQuote": "",
+                    "setupBeatId": None,
+                    "payoffBeatId": None,
                 }
             ]
         ),
@@ -1474,7 +1474,7 @@ def test_import_appends_structured_world_rule_with_evidence(db_session, mock_llm
                     "cost": "Burns through the flux capacitor.",
                     "exception": "Lightning strikes can substitute.",
                     "evidenceSceneId": "scene-1",
-                    "evidenceQuote": "Great Scott!",
+                    "evidenceBeatId": None,
                 }
             ]
         ),
@@ -1495,7 +1495,7 @@ def test_import_appends_structured_world_rule_with_evidence(db_session, mock_llm
             "cost": "Burns through the flux capacitor.",
             "exception": "Lightning strikes can substitute.",
             "evidenceSceneId": "scene-1",
-            "evidenceQuote": "Great Scott!",
+            "evidenceQuote": "",
         }
     ]
 
@@ -1527,7 +1527,7 @@ def test_reimport_never_duplicates_locked_world_rule_text(
                     "cost": "",
                     "exception": "",
                     "evidenceSceneId": "scene-1",
-                    "evidenceQuote": "",
+                    "evidenceBeatId": None,
                 }
             ]
         ),
@@ -2076,8 +2076,8 @@ def test_import_lands_a_secret_with_both_sides_resolved(db_session, mock_llm):
                     "establishedSceneId": "scene-1",
                     "revealedSceneId": None,
                     "concealmentSceneIds": ["scene-2"],
-                    "establishedQuote": "I'm closing up.",
-                    "revealedQuote": "",
+                    "establishedBeatId": None,
+                    "revealedBeatId": None,
                 }
             ]
         ),

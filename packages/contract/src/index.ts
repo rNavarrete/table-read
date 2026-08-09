@@ -1023,8 +1023,16 @@ export const NarrativePromises = z.object({
       ownerNames: z.array(z.string()),
       setupSceneId: Id,
       payoffSceneId: Id.nullable(),
-      setupQuote: z.string(),
-      payoffQuote: z.string(),
+      // The model cites the BEAT that carries the claim; the server derives the
+      // quote from that beat's real text (drama_manager.promises). It used to
+      // supply the quote itself, chosen from six positionally-sampled lines per
+      // scene — on a long scene, six lines out of hundreds — so it could not cite
+      // the line that states a secret unless that line happened to land on a
+      // sample point. Beat ids are already in the prompt spine, and the server
+      // holds every beat's full text, so this is both cheaper and exact. Same
+      // shape the Narrative Map uses. Null = no beat carries it.
+      setupBeatId: Id.nullable(),
+      payoffBeatId: Id.nullable(),
     }),
   ),
   // Concealment arcs. Names, not ids (server resolves), and scene ids chosen
@@ -1039,8 +1047,16 @@ export const NarrativePromises = z.object({
       establishedSceneId: Id,
       revealedSceneId: Id.nullable(),
       concealmentSceneIds: z.array(Id),
-      establishedQuote: z.string(),
-      revealedQuote: z.string(),
+      // The model cites the BEAT that carries the claim; the server derives the
+      // quote from that beat's real text (drama_manager.promises). It used to
+      // supply the quote itself, chosen from six positionally-sampled lines per
+      // scene — on a long scene, six lines out of hundreds — so it could not cite
+      // the line that states a secret unless that line happened to land on a
+      // sample point. Beat ids are already in the prompt spine, and the server
+      // holds every beat's full text, so this is both cheaper and exact. Same
+      // shape the Narrative Map uses. Null = no beat carries it.
+      establishedBeatId: Id.nullable(),
+      revealedBeatId: Id.nullable(),
     }),
   ),
   sceneMotivations: z.array(
@@ -1067,7 +1083,15 @@ export const NarrativePromises = z.object({
       cost: z.string(),
       exception: z.string(),
       evidenceSceneId: Id.nullable(),
-      evidenceQuote: z.string(),
+      // The model cites the BEAT that carries the claim; the server derives the
+      // quote from that beat's real text (drama_manager.promises). It used to
+      // supply the quote itself, chosen from six positionally-sampled lines per
+      // scene — on a long scene, six lines out of hundreds — so it could not cite
+      // the line that states a secret unless that line happened to land on a
+      // sample point. Beat ids are already in the prompt spine, and the server
+      // holds every beat's full text, so this is both cheaper and exact. Same
+      // shape the Narrative Map uses. Null = no beat carries it.
+      evidenceBeatId: Id.nullable(),
     }),
   ),
 })

@@ -85,7 +85,7 @@ from typing import Any
 # 0.10.0 typed segment starts; 0.9.0 lock-aware narrative repair. Earlier:
 # 0.8.0 suggest; 0.7.0 scene skeleton; 0.6.0 continuity; 0.5.0 regenerate;
 # 0.4.0 blast; 0.3.0 tune; 0.2.0 candidate + §0 system prompt.
-PROMPT_VERSION = "0.39.0"
+PROMPT_VERSION = "0.40.0"
 
 
 def new_nonce() -> str:
@@ -332,9 +332,8 @@ def build_promises_prompt(
         "do not invent a payoff that isn't on the page), fill each "
         "character's scene-level motivations where the script supports it, "
         "and extract structured world rules — a stated limit, its cost, "
-        "and any exception — each with one short source-evidence quote. "
-        "The beat fields cover every scene; use each scene's bounded "
-        "evidenceExcerpt for a verbatim quote when one is needed. Only "
+        "and any exception — each citing the beat that states it. "
+        "The beat fields cover every scene. Only "
         "return a scene motivation when the source establishes that "
         "character's objective, stakes, and obstacle; omit unsupported or "
         "routine scene entries rather than filling every scene.\n"
@@ -361,20 +360,16 @@ def build_promises_prompt(
         "only report new ones. Refer to every character only by a name "
         "string from known_cast, never an id — the server resolves and "
         "mints ids, not you.\n"
-        "Every quote field accepts an empty string, and an empty string is "
-        "the right answer unless one specific line carries the claim. When "
-        "one does, quote that line and nothing else. A quote must be the "
-        "words that do the work: for a "
-        "secret, the line where it is stated or the line where the holder "
-        "covers it up; for a thread, the line that plants it or the line "
-        "that pays it off; for a world rule, the line that states the rule. "
-        "A character cue, a slugline, a stage direction, or a nearby line "
-        "that merely happens to be in the same scene is not evidence — "
-        "return an empty string instead. Never reuse one line as the quote "
-        "for more than one claim; if you find yourself reaching for a line "
-        "you already cited, that claim has no quote. An empty quote costs "
-        "the claim nothing and is always better than a plausible one that "
-        "does not support it."
+        "Cite evidence by beatId, not by quoting. Every scene above lists "
+        "its beats with their ids and what happens in each; name the one beat "
+        "that carries the claim and the server reads the line out of it. Pick "
+        "the beat where the work is actually done: for a secret, where it is "
+        "stated or where the holder covers it up; for a thread, where it is "
+        "planted or where it pays off; for a world rule, where the rule is "
+        "stated. The beat must belong to the scene you cited for that claim. "
+        "Use null when no single beat carries it — that is the honest answer "
+        "and it costs the claim nothing, where a beat that merely sits nearby "
+        "is worse than none. Do not cite one beat for several claims."
     )
     return build_system_prompt(project, nonce), user
 

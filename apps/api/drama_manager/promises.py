@@ -23,6 +23,7 @@ import re
 from typing import TYPE_CHECKING
 
 from drama_manager.ledger_policy import IdMinter, verify_source_text
+from drama_manager.narrative_map import _source_quote
 from fountain.characters import resolve_character_id
 
 if TYPE_CHECKING:
@@ -51,6 +52,76 @@ def is_substantive_quote(quote: str) -> bool:
     if len(text.split()) < _MIN_QUOTE_WORDS:
         return False
     return not _CUE_OR_TRANSITION.match(text)
+
+
+_CHARACTER_CUE = re.compile(r"^[A-Z][A-Z0-9 .'’-]{0,30}(\([^)]*\))?$")
+_SLUGLINE_PREFIXES = ("INT.", "EXT.", "I/E.", "INT/EXT.", "EST.")
+
+
+def _is_slugline(line: str) -> bool:
+    return line.upper().startswith(_SLUGLINE_PREFIXES)
+
+_PARENTHETICAL = re.compile(r"^\(.*\)$")
+
+
+def _dialogue_line(beat: dict) -> str:
+    """The first spoken line in a beat, or "" if it has none.
+
+    `_source_quote` takes the first line that is not a slugline or a cue,
+    which in a screenplay is nearly always action: on a real import it
+    returned "Sam's PAGER BEEPS --" and "The RECEPTIONIST appears in the
+    doorway." for beats whose actual content was the exchange underneath.
+    Threads and secrets are almost always carried by what someone says, so
+    prefer dialogue and let action be the fallback.
+
+    Fountain puts dialogue on the lines after an all-caps character cue,
+    optionally past a parenthetical.
+    """
+    lines = [line.strip() for line in str(beat.get("scriptText") or "").splitlines()]
+    for index, line in enumerate(lines):
+        if not line or _is_slugline(line) or not _CHARACTER_CUE.match(line):
+            continue
+        for candidate in lines[index + 1 :]:
+            if not candidate:
+                break  # blank line ends the dialogue block
+            if _PARENTHETICAL.match(candidate):
+                continue
+            return candidate[:200]
+    return ""
+
+
+def quote_for_beat(
+    scene: dict | None, beat_id: str | None
+) -> tuple[str, str | None]:
+    """Derive the evidence quote from the beat the model cited.
+
+    Returns ``(quote, beat_id)``, or ``("", None)`` when the beat is not one of
+    the cited scene's own — an id that does not resolve is a claim without
+    evidence, not a licence to quote something else.
+
+    The model used to supply the quote directly, picked from six
+    positionally-sampled lines per scene. On a long scene that is six lines out
+    of hundreds, so it could not cite the line that states a secret unless that
+    line happened to fall on a sample point; the quotes that came back were
+    fragments like "Yes. Bonnie --". Beat ids are already in the prompt spine
+    and the server holds every beat's full text, so letting the model point at
+    the beat and deriving the line here is both exact and cheaper. Same
+    division of labour as the Narrative Map.
+
+    `_source_quote` skips sluglines and bare character cues, which is why the
+    substance floor below is a backstop rather than the main defence.
+    """
+    if not beat_id or scene is None:
+        return ("", None)
+    beat = next(
+        (b for b in scene.get("beats") or [] if b.get("id") == beat_id), None
+    )
+    if beat is None:
+        return ("", None)
+    quote = _dialogue_line(beat) or _source_quote(beat)
+    if not is_substantive_quote(quote):
+        return ("", None)
+    return (quote, beat_id)
 
 
 def anchor_quote(scene: dict | None, quote: str) -> tuple[str, str | None]:
@@ -224,7 +295,7 @@ def merge_narrative_promises(
 
     threads: list[dict] = []
     dropped_owners = 0
-    unverified_quotes = 0
+    unresolved_beats = 0
     thread_minter = IdMinter([], "thread-")
     for inferred in result.threads:
         if inferred.setup_scene_id not in scenes_by_id:
@@ -244,16 +315,16 @@ def merge_narrative_promises(
             if inferred.payoff_scene_id in scenes_by_id
             else None
         )
-        setup_quote, setup_beat_id = anchor_quote(
-            scenes_by_id.get(inferred.setup_scene_id), inferred.setup_quote
+        setup_quote, setup_beat_id = quote_for_beat(
+            scenes_by_id.get(inferred.setup_scene_id), inferred.setup_beat_id
         )
-        payoff_quote, payoff_beat_id = anchor_quote(
-            scenes_by_id.get(payoff_scene_id), inferred.payoff_quote
+        payoff_quote, payoff_beat_id = quote_for_beat(
+            scenes_by_id.get(payoff_scene_id), inferred.payoff_beat_id
         )
-        if inferred.setup_quote.strip() and not setup_quote:
-            unverified_quotes += 1
-        if inferred.payoff_quote.strip() and not payoff_quote:
-            unverified_quotes += 1
+        if inferred.setup_beat_id and not setup_quote:
+            unresolved_beats += 1
+        if inferred.payoff_beat_id and not payoff_quote:
+            unresolved_beats += 1
         threads.append(
             {
                 "id": thread_minter.mint(),
@@ -296,17 +367,17 @@ def merge_narrative_promises(
             if inferred_secret.revealed_scene_id in scenes_by_id
             else None
         )
-        established_quote, established_beat_id = anchor_quote(
+        established_quote, established_beat_id = quote_for_beat(
             scenes_by_id.get(inferred_secret.established_scene_id),
-            inferred_secret.established_quote,
+            inferred_secret.established_beat_id,
         )
-        revealed_quote, revealed_beat_id = anchor_quote(
-            scenes_by_id.get(revealed_scene_id), inferred_secret.revealed_quote
+        revealed_quote, revealed_beat_id = quote_for_beat(
+            scenes_by_id.get(revealed_scene_id), inferred_secret.revealed_beat_id
         )
-        if inferred_secret.established_quote.strip() and not established_quote:
-            unverified_quotes += 1
-        if inferred_secret.revealed_quote.strip() and not revealed_quote:
-            unverified_quotes += 1
+        if inferred_secret.established_beat_id and not established_quote:
+            unresolved_beats += 1
+        if inferred_secret.revealed_beat_id and not revealed_quote:
+            unresolved_beats += 1
         secrets.append(
             {
                 "id": secret_minter.mint(),
@@ -334,7 +405,7 @@ def merge_narrative_promises(
             }
         )
     episode["secrets"] = secrets
-    unverified_quotes += drop_reused_quotes(threads, secrets)
+    reused_cleared = drop_reused_quotes(threads, secrets)
 
     dropped_motivations = 0
     for scene_motivations in result.scene_motivations:
@@ -388,7 +459,9 @@ def merge_narrative_promises(
                 "cost": rule.cost,
                 "exception": rule.exception,
                 "evidenceSceneId": evidence_scene_id,
-                "evidenceQuote": rule.evidence_quote,
+                "evidenceQuote": quote_for_beat(
+                    scenes_by_id.get(evidence_scene_id), rule.evidence_beat_id
+                )[0],
             }
         )
         appended_rules += 1
@@ -404,10 +477,11 @@ def merge_narrative_promises(
         )
     _logger.info(
         "merge_narrative_promises threads=%d secrets=%d rules_appended=%d "
-        "quotes_unverified=%d",
+        "beats_unresolved=%d reused_cleared=%d",
         len(threads),
         len(secrets),
         appended_rules,
-        unverified_quotes,
+        unresolved_beats,
+        reused_cleared,
     )
     return doc

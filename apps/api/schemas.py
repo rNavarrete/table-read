@@ -1019,8 +1019,10 @@ class InferredThread(_Base):
     owner_names: list[str]
     setup_scene_id: Id
     payoff_scene_id: Id | None
-    setup_quote: str
-    payoff_quote: str
+    # The model cites the beat that carries the claim; the server derives the
+    # quote from that beat. See the Zod docstring.
+    setup_beat_id: Id | None
+    payoff_beat_id: Id | None
 
 
 class InferredMotivation(_Base):
@@ -1043,7 +1045,9 @@ class InferredWorldRule(_Base):
     cost: str
     exception: str
     evidence_scene_id: Id | None
-    evidence_quote: str
+    # The model cites the beat that carries the claim; the server derives the
+    # quote from that beat. See the Zod docstring.
+    evidence_beat_id: Id | None
 
 
 class InferredSecret(_Base):
@@ -1056,8 +1060,10 @@ class InferredSecret(_Base):
     established_scene_id: Id
     revealed_scene_id: Id | None
     concealment_scene_ids: list[Id]
-    established_quote: str
-    revealed_quote: str
+    # The model cites the beat that carries the claim; the server derives the
+    # quote from that beat. See the Zod docstring.
+    established_beat_id: Id | None
+    revealed_beat_id: Id | None
 
 
 class NarrativePromises(_Base):
