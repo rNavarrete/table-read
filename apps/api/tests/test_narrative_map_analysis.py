@@ -647,11 +647,12 @@ def test_thread_movement_in_dotted_form_is_repairable():
     assert verification_supports_local_repair(verdict) is True
 
 
-def test_required_sections_still_fail_closed():
-    """Acts and scene turns are coverage guarantees, not optional claims —
-    dropping one would leave an act with no turn or a scene uncovered."""
+def test_structural_coverage_still_fails_closed():
+    """An act's escalation is interpretive prose and is droppable; the turn
+    itself is not. A rejection that disputes a turn beat — with no escalation
+    claim named — would leave an act with no turn or a scene uncovered."""
     for path in (
-        "acts[1].turnBeatId=beat-6-5 escalation claim of 'lost alliance with Caldwell'",
+        "acts[1].turnBeatId=beat-6-5",
         "sceneTurns[scene-16].turnBeatId=beat-16-2",
     ):
         verdict = NarrativeMapVerification.model_validate(
@@ -686,3 +687,72 @@ def test_an_unresolvable_name_fails_closed_rather_than_removing_the_wrong_entry(
     with pytest.raises(NarrativeMapAnalysisValidationError) as excinfo:
         repair_candidate_from_verification(candidate, verdict)
     assert excinfo.value.diagnostics[0]["code"] == "verification_repair_path_unresolved"
+
+
+def test_rejected_act_escalation_is_cleared_and_the_act_survives():
+    """The verifier disputes the reading, not the turn — so the act keeps its
+    number, dramatic question and turn beat, and only the prose goes."""
+    payload = _candidate_map().model_dump(by_alias=True)
+    payload["acts"] = [
+        {
+            "act": 1,
+            "dramaticQuestion": "Is Josh going to be fired for insulting Mary Marsh?",
+            "escalation": "Leo converts a bad soundcheck into a lost alliance with Caldwell.",
+            "turnBeatId": "beat-1-1",
+        }
+    ]
+    candidate = InferredNarrativeMap.model_validate(payload)
+    verdict = NarrativeMapVerification.model_validate(
+        {
+            "approved": False,
+            "unsupportedPaths": [
+                "acts[1].turnBeatId=beat-1-1 escalation claim of 'lost alliance with Caldwell'"
+            ],
+            "missingSceneIds": [],
+            "issues": [],
+        }
+    )
+
+    assert verification_supports_local_repair(verdict) is True
+    repaired, repairs = repair_candidate_from_verification(candidate, verdict)
+
+    assert len(repaired.acts) == 1, "act coverage must survive"
+    assert repaired.acts[0].escalation == ""
+    assert repaired.acts[0].act == 1
+    assert repaired.acts[0].turn_beat_id == "beat-1-1"
+    assert repaired.acts[0].dramatic_question  # untouched
+    assert repairs == [
+        {
+            "action": "clear_act_escalation",
+            "path": verdict.unsupported_paths[0],
+            "act": 1,
+        }
+    ]
+
+
+def test_act_escalation_repair_resolves_by_act_number_not_list_position():
+    """A cold open makes act numbers 0-based, so acts[1] is the second entry
+    here only by number — position would silently clear the wrong act."""
+    payload = _candidate_map().model_dump(by_alias=True)
+    payload["acts"] = [
+        {"act": 0, "dramaticQuestion": "Cold open.", "escalation": "Keep me.",
+         "turnBeatId": "beat-1-1"},
+        {"act": 1, "dramaticQuestion": "Act one.", "escalation": "Clear me.",
+         "turnBeatId": "beat-1-1"},
+    ]
+    candidate = InferredNarrativeMap.model_validate(payload)
+    verdict = NarrativeMapVerification.model_validate(
+        {"approved": False, "unsupportedPaths": ["acts[1] escalation unsupported"],
+         "missingSceneIds": [], "issues": []}
+    )
+    repaired, _ = repair_candidate_from_verification(candidate, verdict)
+    assert repaired.acts[0].escalation == "Keep me."
+    assert repaired.acts[1].escalation == ""
+
+
+def test_act_rejection_without_an_escalation_claim_is_not_repairable():
+    verdict = NarrativeMapVerification.model_validate(
+        {"approved": False, "unsupportedPaths": ["acts[1].turnBeatId=beat-6-5"],
+         "missingSceneIds": [], "issues": []}
+    )
+    assert verification_supports_local_repair(verdict) is False

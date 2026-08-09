@@ -859,6 +859,31 @@ _THREAD_ID_DOT_VERIFICATION_PATH = re.compile(
 )
 _CHARACTER_ARC_VERIFICATION_PATH = re.compile(r"^characterArcs\[([^\]]+)\](?:\.|\s|$)")
 _EMPTY_CHARACTER_ARCS_VERIFICATION_PATH = re.compile(r"^characterArcs\s*\(empty\b")
+# An act's `escalation` is interpretive prose about how the act raises the
+# stakes; the act number and `turnBeatId` are the structural coverage
+# guarantee. A verifier that rejects the escalation claim is disputing the
+# reading, not the turn — so clear the prose and keep the act, rather than
+# discarding a map whose structure verified clean. The rejection must name
+# `escalation`: a bare `acts[1].turnBeatId=beat-6-5` disputes the turn itself
+# and still fails closed, because an act with no turn is not coverage.
+_ACT_ESCALATION_VERIFICATION_PATH = re.compile(
+    r"^acts\[([^\]]+)\][^\]]*\bescalation\b", re.IGNORECASE
+)
+
+
+def _act_index_for(key: str, acts: list) -> int | None:
+    """Resolve an `acts[...]` key, which may be the act's own number or its
+    position in the list. Act numbers are authoritative when they match, since
+    a cold open makes them 0-based while a 4-act show still calls its first act
+    one."""
+    key = key.strip()
+    if not key.isdigit():
+        return None
+    wanted = int(key)
+    for index, act in enumerate(acts):
+        if getattr(act, "act", None) == wanted:
+            return index
+    return wanted if wanted < len(acts) else None
 
 
 def _index_for(key: str, items: list, *fields: str) -> int | None:
@@ -900,6 +925,7 @@ def verification_supports_local_repair(result: NarrativeMapVerification) -> bool
         or _THREAD_ID_DOT_VERIFICATION_PATH.match(path)
         or _CHARACTER_ARC_VERIFICATION_PATH.match(path)
         or _EMPTY_CHARACTER_ARCS_VERIFICATION_PATH.match(path)
+        or _ACT_ESCALATION_VERIFICATION_PATH.match(path)
         for path in result.unsupported_paths
     )
 
@@ -921,6 +947,7 @@ def repair_candidate_from_verification(
     theme_indexes: set[int] = set()
     character_arc_indexes: set[int] = set()
     movement_indexes: set[int] = set()
+    cleared_escalation_indexes: set[int] = set()
 
     if result.missing_scene_ids:
         diagnostics.extend(
@@ -1013,6 +1040,27 @@ def repair_candidate_from_verification(
             )
             continue
 
+        act_escalation_match = _ACT_ESCALATION_VERIFICATION_PATH.match(path)
+        if act_escalation_match:
+            resolved = _act_index_for(act_escalation_match.group(1), candidate.acts)
+            if resolved is None:
+                diagnostics.append({"code": "verification_repair_path_unresolved", "path": path})
+                continue
+            if not (candidate.acts[resolved].escalation or "").strip():
+                # Nothing to clear: the verifier is disputing something other
+                # than the prose, so do not pretend this was repaired.
+                diagnostics.append({"code": "verification_repair_path_unsupported", "path": path})
+                continue
+            cleared_escalation_indexes.add(resolved)
+            repairs.append(
+                {
+                    "action": "clear_act_escalation",
+                    "path": path,
+                    "act": candidate.acts[resolved].act,
+                }
+            )
+            continue
+
         if _EMPTY_CHARACTER_ARCS_VERIFICATION_PATH.match(path) and not candidate.character_arcs:
             repairs.append(
                 {
@@ -1045,6 +1093,14 @@ def repair_candidate_from_verification(
                 movement
                 for index, movement in enumerate(candidate.thread_movements)
                 if index not in movement_indexes
+            ],
+            # The act stays — number, dramatic question and turn beat intact —
+            # with only the disputed prose cleared, so act coverage survives.
+            "acts": [
+                act.model_copy(update={"escalation": ""})
+                if index in cleared_escalation_indexes
+                else act
+                for index, act in enumerate(candidate.acts)
             ],
         },
         deep=True,
