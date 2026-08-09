@@ -157,7 +157,7 @@ def test_raw_screenplay_is_sufficient_when_import_semantics_are_empty():
     assert source.scene_sources[0]["beats"][0]["scriptText"].startswith("Nora finds")
 
 
-def test_verifier_rejected_character_arc_is_removed_without_rewriting_it():
+def test_verifier_rejected_arc_claim_is_cleared_without_rewriting_it():
     payload = _candidate_map().model_dump(by_alias=True)
     payload["characterArcs"] = [
         {
@@ -190,12 +190,20 @@ def test_verifier_rejected_character_arc_is_removed_without_rewriting_it():
     repaired, repairs = repair_candidate_from_verification(candidate, verdict)
 
     assert verification_supports_local_repair(verdict) is True
-    assert repaired.character_arcs == []
+    # The disputed reading goes; the character, her other readings and her
+    # turning points stay. Deleting the arc used to lose all of it.
+    assert len(repaired.character_arcs) == 1
+    arc = repaired.character_arcs[0]
+    assert arc.arc_summary == ""
+    assert arc.character_name == "Nora"
+    assert arc.internal_conflict, "an undisputed reading is untouched"
+    assert len(arc.turning_points) == 1
     assert repairs == [
         {
-            "action": "remove_character_arc",
+            "action": "clear_character_arc_claim",
             "path": "characterArcs[0].arcSummary - recruitment is not supported",
             "characterName": "Nora",
+            "field": "arcSummary",
         }
     ]
 
@@ -827,3 +835,113 @@ def test_placeholder_prose_still_fails_the_gate():
     diagnostics: list[dict] = []
     _validate_analysis_quality(InferredNarrativeMap.model_validate(payload), diagnostics)
     assert [d["code"] for d in diagnostics] == ["unusable_analysis_text"]
+
+
+def _arc(**overrides) -> dict:
+    payload = {
+        "characterName": "C.J.",
+        "want": "Control the story so the day is about a bicycle.",
+        "need": "Be told the truth by her own colleagues first.",
+        "internalConflict": "She sells certainty from the podium about matters "
+        "her own staff won't confirm.",
+        "externalPressure": "A gaggle that only wants the firing question.",
+        "arcSummary": "C.J. holds the podium while the story moves without her.",
+        "turningPoints": [
+            {"beatId": "beat-1-1", "change": "She takes the podium."},
+            {"beatId": "beat-9-3", "change": "She makes it the story she owes an answer to."},
+        ],
+    }
+    payload.update(overrides)
+    return payload
+
+
+def _map_with_arc(**overrides) -> InferredNarrativeMap:
+    payload = _candidate_map().model_dump(by_alias=True)
+    payload["characterArcs"] = [_arc(**overrides)]
+    return InferredNarrativeMap.model_validate(payload)
+
+
+def test_disputed_turning_point_drops_only_that_point():
+    """The exact loss from the West Wing run: C.J.'s whole arc was deleted
+    over one turning point the verifier could not support."""
+    candidate = _map_with_arc()
+    verdict = NarrativeMapVerification.model_validate(
+        {
+            "approved": False,
+            "unsupportedPaths": [
+                "characterArcs[3].turningPoints (beat-9-3 characterized as C.J. "
+                "'making it the story she owes an answer to')"
+            ],
+            "missingSceneIds": [],
+            "issues": [],
+        }
+    )
+    # Addressed by name, since the index refers to the full run's arc list.
+    verdict.unsupported_paths = [
+        verdict.unsupported_paths[0].replace("characterArcs[3]", "characterArcs[C.J.]")
+    ]
+
+    repaired, repairs = repair_candidate_from_verification(candidate, verdict)
+
+    assert len(repaired.character_arcs) == 1, "the arc survives"
+    arc = repaired.character_arcs[0]
+    assert [p.beat_id for p in arc.turning_points] == ["beat-1-1"]
+    assert arc.internal_conflict.startswith("She sells certainty")
+    assert repairs[0]["action"] == "drop_character_arc_turning_point"
+    assert repairs[0]["beatIds"] == ["beat-9-3"]
+
+
+def test_dropping_the_last_turning_point_removes_the_arc():
+    """`turningPoints` is min(1) in the contract, so an arc that would be left
+    with none cannot be kept."""
+    candidate = _map_with_arc(
+        turningPoints=[{"beatId": "beat-9-3", "change": "Her only turning point."}]
+    )
+    verdict = NarrativeMapVerification.model_validate(
+        {"approved": False,
+         "unsupportedPaths": ["characterArcs[C.J.].turningPoints (beat-9-3 unsupported)"],
+         "missingSceneIds": [], "issues": []}
+    )
+    repaired, repairs = repair_candidate_from_verification(candidate, verdict)
+    assert repaired.character_arcs == []
+    assert repairs[0]["action"] == "remove_character_arc"
+
+
+def test_turning_point_rejection_naming_no_beat_removes_the_arc():
+    """Nothing identifiable to drop means the rejection is of the turning
+    points generally — fall back rather than guess which one."""
+    candidate = _map_with_arc()
+    verdict = NarrativeMapVerification.model_validate(
+        {"approved": False,
+         "unsupportedPaths": ["characterArcs[C.J.].turningPoints are not supported"],
+         "missingSceneIds": [], "issues": []}
+    )
+    repaired, repairs = repair_candidate_from_verification(candidate, verdict)
+    assert repaired.character_arcs == []
+    assert repairs[0]["action"] == "remove_character_arc"
+
+
+def test_cleared_arc_claim_passes_the_publishable_text_gate():
+    from drama_manager.narrative_map import _validate_analysis_quality
+
+    candidate = _map_with_arc()
+    verdict = NarrativeMapVerification.model_validate(
+        {"approved": False, "unsupportedPaths": ["characterArcs[C.J.].internalConflict"],
+         "missingSceneIds": [], "issues": []}
+    )
+    repaired, _ = repair_candidate_from_verification(candidate, verdict)
+    assert repaired.character_arcs[0].internal_conflict == ""
+    diagnostics: list[dict] = []
+    _validate_analysis_quality(repaired, diagnostics)
+    assert diagnostics == [], diagnostics
+
+
+def test_a_bare_character_arc_rejection_still_removes_the_whole_arc():
+    candidate = _map_with_arc()
+    verdict = NarrativeMapVerification.model_validate(
+        {"approved": False, "unsupportedPaths": ["characterArcs[C.J.] is unsupported"],
+         "missingSceneIds": [], "issues": []}
+    )
+    repaired, repairs = repair_candidate_from_verification(candidate, verdict)
+    assert repaired.character_arcs == []
+    assert repairs[0]["action"] == "remove_character_arc"

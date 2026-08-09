@@ -106,6 +106,9 @@ def _validate_analysis_quality(result: InferredNarrativeMap, diagnostics: list[d
             diagnostics, f"acts[{index}].escalation", act.escalation, allow_empty=True
         )
     for index, arc in enumerate(result.character_arcs):
+        # Clearable readings of the arc — the verification repair may empty any
+        # of these when the verifier rejects the claim, leaving the arc itself
+        # (its character, and its remaining turning points) intact.
         for field, value in (
             ("want", arc.want),
             ("need", arc.need),
@@ -113,7 +116,9 @@ def _validate_analysis_quality(result: InferredNarrativeMap, diagnostics: list[d
             ("externalPressure", arc.external_pressure),
             ("arcSummary", arc.arc_summary),
         ):
-            _require_publishable_text(diagnostics, f"characterArcs[{index}].{field}", value)
+            _require_publishable_text(
+                diagnostics, f"characterArcs[{index}].{field}", value, allow_empty=True
+            )
         for turn_index, turn in enumerate(arc.turning_points):
             _require_publishable_text(
                 diagnostics,

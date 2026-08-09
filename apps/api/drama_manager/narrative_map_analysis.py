@@ -859,6 +859,27 @@ _THREAD_ID_DOT_VERIFICATION_PATH = re.compile(
 )
 _CHARACTER_ARC_VERIFICATION_PATH = re.compile(r"^characterArcs\[([^\]]+)\](?:\.|\s|$)")
 _EMPTY_CHARACTER_ARCS_VERIFICATION_PATH = re.compile(r"^characterArcs\s*\(empty\b")
+# The same prose/structure split on a character arc. `characterName` is the
+# record; want, need, internalConflict, externalPressure and arcSummary are
+# readings of it, and each turning point is a separate claim anchored to a
+# beat. Rejecting one of those used to delete the whole arc — a West Wing run
+# lost C.J. entirely ("She sells certainty from the podium about matters her
+# own staff won't confirm") over a single disputed turning point.
+_CHARACTER_ARC_FIELDS = {
+    "want": "want",
+    "need": "need",
+    "internalConflict": "internal_conflict",
+    "externalPressure": "external_pressure",
+    "arcSummary": "arc_summary",
+}
+_CHARACTER_ARC_FIELD_VERIFICATION_PATH = re.compile(
+    r"^characterArcs\[([^\]]+)\]\s*\.\s*"
+    r"(want|need|internalConflict|externalPressure|arcSummary)\b"
+)
+_CHARACTER_ARC_TURNING_POINT_VERIFICATION_PATH = re.compile(
+    r"^characterArcs\[([^\]]+)\]\s*\.\s*turningPoints\b"
+)
+_BEAT_ID_IN_PATH = re.compile(r"\b(beat-[A-Za-z0-9_-]+)")
 # An act's `escalation` is interpretive prose about how the act raises the
 # stakes; the act number and `turnBeatId` are the structural coverage
 # guarantee. A verifier that rejects the escalation claim is disputing the
@@ -961,6 +982,18 @@ def verification_supports_local_repair(result: NarrativeMapVerification) -> bool
     )
 
 
+def _repaired_arc(arc, cleared_fields: set[str], dropped_beat_ids: set[str]):
+    """Apply field clears and turning-point drops to one arc, keeping the arc."""
+    if not cleared_fields and not dropped_beat_ids:
+        return arc
+    update: dict = {field: "" for field in cleared_fields}
+    if dropped_beat_ids:
+        update["turning_points"] = [
+            point for point in arc.turning_points if point.beat_id not in dropped_beat_ids
+        ]
+    return arc.model_copy(update=update)
+
+
 def repair_candidate_from_verification(
     candidate: InferredNarrativeMap,
     result: NarrativeMapVerification,
@@ -980,6 +1013,8 @@ def repair_candidate_from_verification(
     movement_indexes: set[int] = set()
     cleared_escalation_indexes: set[int] = set()
     cleared_scene_turn_fields: dict[int, set[str]] = {}
+    cleared_arc_fields: dict[int, set[str]] = {}
+    dropped_turning_points: dict[int, set[str]] = {}
 
     if result.missing_scene_ids:
         diagnostics.extend(
@@ -1003,6 +1038,69 @@ def repair_candidate_from_verification(
                     "label": candidate.themes[index].label,
                 }
             )
+            continue
+
+        arc_field_match = _CHARACTER_ARC_FIELD_VERIFICATION_PATH.match(path)
+        if arc_field_match:
+            resolved = _index_for(
+                arc_field_match.group(1), candidate.character_arcs, "character_name"
+            )
+            field = _CHARACTER_ARC_FIELDS[arc_field_match.group(2)]
+            if resolved is None:
+                diagnostics.append({"code": "verification_repair_path_unresolved", "path": path})
+                continue
+            if not (getattr(candidate.character_arcs[resolved], field, "") or "").strip():
+                diagnostics.append({"code": "verification_repair_path_unsupported", "path": path})
+                continue
+            cleared_arc_fields.setdefault(resolved, set()).add(field)
+            repairs.append(
+                {
+                    "action": "clear_character_arc_claim",
+                    "path": path,
+                    "characterName": candidate.character_arcs[resolved].character_name,
+                    "field": arc_field_match.group(2),
+                }
+            )
+            continue
+
+        turning_point_match = _CHARACTER_ARC_TURNING_POINT_VERIFICATION_PATH.match(path)
+        if turning_point_match:
+            resolved = _index_for(
+                turning_point_match.group(1), candidate.character_arcs, "character_name"
+            )
+            if resolved is None:
+                diagnostics.append({"code": "verification_repair_path_unresolved", "path": path})
+                continue
+            arc = candidate.character_arcs[resolved]
+            named = {
+                beat_id
+                for beat_id in _BEAT_ID_IN_PATH.findall(path)
+                if any(point.beat_id == beat_id for point in arc.turning_points)
+            }
+            already = dropped_turning_points.get(resolved, set())
+            # The contract requires at least one turning point, so an arc that
+            # would be left with none goes as a whole. Naming no identifiable
+            # beat is the same case: the rejection is of the turning points
+            # generally, and there is no single claim to drop.
+            if named and len(already | named) < len(arc.turning_points):
+                dropped_turning_points.setdefault(resolved, set()).update(named)
+                repairs.append(
+                    {
+                        "action": "drop_character_arc_turning_point",
+                        "path": path,
+                        "characterName": arc.character_name,
+                        "beatIds": sorted(named),
+                    }
+                )
+            else:
+                character_arc_indexes.add(resolved)
+                repairs.append(
+                    {
+                        "action": "remove_character_arc",
+                        "path": path,
+                        "characterName": arc.character_name,
+                    }
+                )
             continue
 
         character_arc_match = _CHARACTER_ARC_VERIFICATION_PATH.match(path)
@@ -1138,7 +1236,11 @@ def repair_candidate_from_verification(
         update={
             "themes": remaining_themes,
             "character_arcs": [
-                arc
+                _repaired_arc(
+                    arc,
+                    cleared_arc_fields.get(index, set()),
+                    dropped_turning_points.get(index, set()),
+                )
                 for index, arc in enumerate(candidate.character_arcs)
                 if index not in character_arc_indexes
             ],
