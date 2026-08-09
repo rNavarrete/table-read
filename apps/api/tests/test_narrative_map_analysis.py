@@ -278,14 +278,48 @@ def test_front_matter_and_establishing_blocks_are_not_dramatic_scenes():
     assert "No direct conflict" in packets[2]["conflict"]
 
 
-def test_missing_raw_screenplay_is_a_hard_readiness_failure():
+def test_an_episode_with_no_source_at_all_is_a_hard_readiness_failure():
     doc = _doc()
     doc["seasons"][0]["episodes"][0]["scenes"][0]["beats"][0]["scriptText"] = ""
 
     with pytest.raises(NarrativeMapReadinessError) as error:
         prepare_narrative_map_source(doc)
 
-    assert error.value.diagnostics[0]["code"] == "beat_has_no_source_text"
+    assert error.value.diagnostics[0]["code"] == "no_source_backed_scenes"
+
+
+def test_an_unwritten_scene_does_not_block_mapping_the_written_ones():
+    """A stub scene is a normal draft state — the UI spec documents it — and
+    blocking the whole episode on one abandons the writer for no gain."""
+    doc = _doc()
+    episode = doc["seasons"][0]["episodes"][0]
+    episode["scenes"].append(
+        {"id": "scene-2", "act": 1, "location": "EXT. PIER - DAY", "beats": []}
+    )
+    episode["scenes"].append(
+        {
+            "id": "scene-3",
+            "act": 1,
+            "location": "INT. OFFICE - DAY",
+            "beats": [{"id": "beat-3-1", "scriptText": "   ", "whatHappens": ""}],
+        }
+    )
+
+    source = prepare_narrative_map_source(doc)
+
+    assert [scene["sceneId"] for scene in source.scene_sources] == ["scene-1"]
+    assert source.stub_scene_ids == ["scene-2", "scene-3"], "recorded, not silently dropped"
+
+
+def test_one_unwritten_beat_does_not_disqualify_its_scene():
+    doc = _doc()
+    scene = doc["seasons"][0]["episodes"][0]["scenes"][0]
+    scene["beats"].append({"id": "beat-1-2", "scriptText": "", "whatHappens": ""})
+
+    source = prepare_narrative_map_source(doc)
+
+    assert source.stub_scene_ids == []
+    assert [beat["beatId"] for beat in source.scene_sources[0]["beats"]] == ["beat-1-1"]
 
 
 def test_scene_packet_attaches_a_server_owned_quote_from_its_beat():

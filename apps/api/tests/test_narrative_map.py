@@ -252,8 +252,23 @@ def test_literal_placeholder_is_not_publishable_analysis():
 
 
 def test_merge_rejects_an_evidence_beat_without_source_text():
+    """The cited beat has no text, but its scene does — so the scene is still
+    mapped and the citation must be rejected on its own merits."""
     doc = _doc()
-    doc["seasons"][0]["episodes"][0]["scenes"][0]["beats"][0]["scriptText"] = ""
+    scene = doc["seasons"][0]["episodes"][0]["scenes"][0]
+    scene["beats"].append(
+        {
+            "id": "beat-1-2",
+            "index": 1,
+            "locked": False,
+            "whatHappens": "",
+            "audienceLearns": "",
+            "audienceFeels": "",
+            "scriptText": "NORA\nI kept it because it was mine to keep.",
+            "scriptLocked": False,
+        }
+    )
+    scene["beats"][0]["scriptText"] = ""
 
     with pytest.raises(NarrativeMapValidationError) as error:
         merge_narrative_map(doc, "ep-1", _result())

@@ -13,7 +13,7 @@ import json
 import re
 from dataclasses import dataclass
 
-from drama_manager.narrative_map import is_usable_analysis_text
+from drama_manager.narrative_map import is_usable_analysis_text, scene_has_no_source
 from schemas import (
     InferredNarrativeMap,
     InferredNarrativeMapSynthesis,
@@ -54,6 +54,7 @@ class NarrativeMapSource:
     story_overview: dict | None
     scene_count: int
     semantic_coverage: float
+    stub_scene_ids: list[str]
 
 
 def _episode(doc: dict) -> dict | None:
@@ -136,20 +137,26 @@ def prepare_narrative_map_source(doc: dict) -> NarrativeMapSource:
     diagnostics: list[dict] = []
     semantic_fields = 0
     populated_semantic_fields = 0
+    stub_scene_ids: list[str] = []
     for scene in episode.get("scenes") or []:
         scene_id = scene.get("id")
         beats = scene.get("beats") or []
-        if not scene_id or not beats:
-            diagnostics.append({"code": "scene_has_no_beats", "sceneId": scene_id})
+        if not scene_id:
+            diagnostics.append({"code": "scene_has_no_id"})
+            continue
+        # An unwritten scene is a normal draft state, not a source gap. Record
+        # it and carry on rather than refusing to map the whole episode.
+        if scene_has_no_source(scene):
+            stub_scene_ids.append(scene_id)
             continue
         source_beats: list[dict] = []
         for beat in beats:
             beat_id = beat.get("id")
             script_text = str(beat.get("scriptText") or "")
             if not beat_id or not script_text.strip():
-                diagnostics.append(
-                    {"code": "beat_has_no_source_text", "sceneId": scene_id, "beatId": beat_id}
-                )
+                # The scene has source elsewhere (a fully unwritten scene was
+                # already taken out above), so this one beat is simply not
+                # written yet — skip it, do not fail the run.
                 continue
             for field in ("whatHappens", "audienceLearns", "audienceFeels"):
                 semantic_fields += 1
@@ -203,6 +210,7 @@ def prepare_narrative_map_source(doc: dict) -> NarrativeMapSource:
         threads=list(episode.get("threads") or []),
         story_overview=story_overview,
         scene_count=len(scene_sources),
+        stub_scene_ids=stub_scene_ids,
         semantic_coverage=(populated_semantic_fields / semantic_fields if semantic_fields else 0.0),
     )
 

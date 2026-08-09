@@ -280,6 +280,25 @@ def _grounded_beat(
     return beat
 
 
+def scene_has_no_source(scene: dict) -> bool:
+    """Whether a scene carries nothing a map could be grounded in.
+
+    A scene with no beats, or whose beats all lack `scriptText`, is a stub the
+    writer has not written yet — a normal Plan-mode state, and one the UI spec
+    documents ("Empty scene (no beats)"). It is not a defect in the script and
+    must not block mapping the rest of the episode: the module's own rule is to
+    "reject only true source gaps ... not a reason to abandon the writer".
+
+    Coverage expectations exclude these scenes for the same reason a claim
+    about them could never be verified — there is no source to cite. They are
+    still recorded rather than silently skipped (see
+    `prepare_narrative_map_source`).
+    """
+    return not any(
+        str(beat.get("scriptText") or "").strip() for beat in scene.get("beats") or []
+    )
+
+
 def merge_narrative_map(doc: dict, episode_id: str, result: InferredNarrativeMap) -> dict:
     """Attach a validated `narrativeMap` to an episode without touching locks.
 
@@ -293,7 +312,14 @@ def merge_narrative_map(doc: dict, episode_id: str, result: InferredNarrativeMap
         _logger.info("merge_narrative_map skipped locked episode_id=%s", episode_id)
         return doc
 
-    scenes = list(episode.get("scenes") or [])
+    # Stub scenes are excluded from coverage: nothing in them can be cited, so
+    # requiring a turn or an act beat for one would fail every draft that has
+    # an unwritten scene in it.
+    scenes = [
+        scene
+        for scene in episode.get("scenes") or []
+        if not scene_has_no_source(scene)
+    ]
     scene_by_id = {scene.get("id"): scene for scene in scenes if scene.get("id")}
     beat_by_id: dict[str, dict] = {}
     beat_scene_ids: dict[str, str] = {}
