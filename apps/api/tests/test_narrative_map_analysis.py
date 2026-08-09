@@ -561,3 +561,128 @@ def test_cached_verifier_repair_uses_stable_beat_when_old_thread_id_is_stale():
             "count": 1,
         }
     ]
+
+
+# ── verifier path forms ─────────────────────────────────────────────────────
+#
+# The verifier writes its paths as prose and addresses list entries by whatever
+# reads naturally — a theme's label, a character's name, a thread's id — where
+# this module originally required an array index. A real West Wing run was
+# discarded whole over three rejections, one of which
+# (`threadMovements[thread-b8f3...].beatId=beat-16-1`) the local repair was
+# built to absorb and simply could not parse.
+
+
+def test_character_arc_addressed_by_name_is_repairable():
+    payload = _candidate_map().model_dump(by_alias=True)
+    payload["characterArcs"] = [
+        {
+            "characterName": "Mandy",
+            "want": "Be taken seriously as a threat to this White House.",
+            "need": "Hold a line between old friendship and new employer.",
+            "internalConflict": "She warns Josh as a friend while withholding her source.",
+            "externalPressure": "Russell's payroll and a carton-choked office.",
+            "arcSummary": "Mandy sets up opposite her former colleagues.",
+            "turningPoints": [
+                {"beatId": "beat-1-1", "change": "Josh calls before her phones are connected."}
+            ],
+        }
+    ]
+    candidate = InferredNarrativeMap.model_validate(payload)
+    verdict = NarrativeMapVerification.model_validate(
+        {
+            "approved": False,
+            "unsupportedPaths": ["characterArcs[Mandy].turningPoints[beat-15-4]"],
+            "missingSceneIds": [],
+            "issues": [],
+        }
+    )
+
+    assert verification_supports_local_repair(verdict) is True
+    repaired, repairs = repair_candidate_from_verification(candidate, verdict)
+    assert repaired.character_arcs == []
+    assert repairs[0]["action"] == "remove_character_arc"
+    assert repairs[0]["characterName"] == "Mandy"
+
+
+def test_theme_addressed_by_label_is_repairable():
+    payload = _candidate_map().model_dump(by_alias=True)
+    payload["themes"] = [
+        {
+            "label": "Loyalty across shifting teams",
+            "statement": "Loyalty is tested when the teams change.",
+            "evidence": [{"beatId": "beat-1-1"}],
+        },
+        {
+            "label": "Competence under pressure",
+            "statement": "Pressure exposes who can actually do the work.",
+            "evidence": [{"beatId": "beat-1-1"}],
+        },
+    ]
+    candidate = InferredNarrativeMap.model_validate(payload)
+    verdict = NarrativeMapVerification.model_validate(
+        {
+            "approved": False,
+            "unsupportedPaths": ["themes[Loyalty across shifting teams].evidence[beat-10-1]"],
+            "missingSceneIds": [],
+            "issues": [],
+        }
+    )
+
+    assert verification_supports_local_repair(verdict) is True
+    repaired, _repairs = repair_candidate_from_verification(candidate, verdict)
+    assert [theme.label for theme in repaired.themes] == ["Competence under pressure"]
+
+
+def test_thread_movement_in_dotted_form_is_repairable():
+    """The exact path that sank the West Wing map."""
+    verdict = NarrativeMapVerification.model_validate(
+        {
+            "approved": False,
+            "unsupportedPaths": ["threadMovements[thread-b8f342b76ceb].beatId=beat-16-1"],
+            "missingSceneIds": [],
+            "issues": [],
+        }
+    )
+    assert verification_supports_local_repair(verdict) is True
+
+
+def test_required_sections_still_fail_closed():
+    """Acts and scene turns are coverage guarantees, not optional claims —
+    dropping one would leave an act with no turn or a scene uncovered."""
+    for path in (
+        "acts[1].turnBeatId=beat-6-5 escalation claim of 'lost alliance with Caldwell'",
+        "sceneTurns[scene-16].turnBeatId=beat-16-2",
+    ):
+        verdict = NarrativeMapVerification.model_validate(
+            {
+                "approved": False,
+                "unsupportedPaths": [path],
+                "missingSceneIds": [],
+                "issues": [],
+            }
+        )
+        assert verification_supports_local_repair(verdict) is False, path
+
+
+def test_an_unresolvable_name_fails_closed_rather_than_removing_the_wrong_entry():
+    payload = _candidate_map().model_dump(by_alias=True)
+    payload["themes"] = [
+        {
+            "label": "Competence under pressure",
+            "statement": "Pressure exposes who can do the work.",
+            "evidence": [{"beatId": "beat-1-1"}],
+        }
+    ]
+    candidate = InferredNarrativeMap.model_validate(payload)
+    verdict = NarrativeMapVerification.model_validate(
+        {
+            "approved": False,
+            "unsupportedPaths": ["themes[A theme this map does not have]"],
+            "missingSceneIds": [],
+            "issues": [],
+        }
+    )
+    with pytest.raises(NarrativeMapAnalysisValidationError) as excinfo:
+        repair_candidate_from_verification(candidate, verdict)
+    assert excinfo.value.diagnostics[0]["code"] == "verification_repair_path_unresolved"

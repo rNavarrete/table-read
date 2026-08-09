@@ -841,11 +841,46 @@ def build_inferred_narrative_map(
     )
 
 
-_THEME_VERIFICATION_PATH = re.compile(r"^themes\[(\d+)\]")
-_THREAD_INDEX_VERIFICATION_PATH = re.compile(r"^threadMovements\[(\d+)\]")
+# The verifier writes these paths as prose, and it addresses list entries by
+# whatever reads naturally — a theme's label, a character's name, a thread's
+# id — not by the array index this module originally assumed. A real West Wing
+# run produced `themes[Loyalty across shifting teams].evidence[beat-10-1]`,
+# `characterArcs[Mandy].turningPoints[beat-15-4]` and
+# `threadMovements[thread-b8f3...].beatId=beat-16-1`, none of which matched an
+# index-only pattern. Every one of those is a removable optional claim, so the
+# whole map was discarded over rejections the local repair was built to absorb.
+# Accept any key here and resolve it against the candidate below.
+_THEME_VERIFICATION_PATH = re.compile(r"^themes\[([^\]]+)\]")
+_THREAD_INDEX_VERIFICATION_PATH = re.compile(r"^threadMovements\[(\d+)\]\s*$")
 _THREAD_ID_VERIFICATION_PATH = re.compile(r"^threadMovements\[([^,\]]+),\s*beatId\s+([^\]]+)\]")
-_CHARACTER_ARC_VERIFICATION_PATH = re.compile(r"^characterArcs\[(\d+)\](?:\.|\s|$)")
+# Same claim, dotted form: `threadMovements[<threadId>].beatId=<beatId>`.
+_THREAD_ID_DOT_VERIFICATION_PATH = re.compile(
+    r"^threadMovements\[([^\]]+)\]\s*\.\s*beatId\s*=\s*(\S+)"
+)
+_CHARACTER_ARC_VERIFICATION_PATH = re.compile(r"^characterArcs\[([^\]]+)\](?:\.|\s|$)")
 _EMPTY_CHARACTER_ARCS_VERIFICATION_PATH = re.compile(r"^characterArcs\s*\(empty\b")
+
+
+def _index_for(key: str, items: list, *fields: str) -> int | None:
+    """Resolve a verifier path key to a list index.
+
+    ``key`` is either the array index this module used to require, or the
+    human-readable identifier the verifier actually tends to write — matched
+    case-insensitively against ``fields``. Returns None when it resolves to
+    nothing, which the caller records as `verification_repair_path_unresolved`
+    and fails closed on, exactly as before.
+    """
+    key = key.strip()
+    if key.isdigit():
+        index = int(key)
+        return index if index < len(items) else None
+    folded = key.casefold()
+    for index, item in enumerate(items):
+        for field in fields:
+            value = getattr(item, field, None)
+            if isinstance(value, str) and value.strip().casefold() == folded:
+                return index
+    return None
 
 
 def verification_supports_local_repair(result: NarrativeMapVerification) -> bool:
@@ -862,6 +897,7 @@ def verification_supports_local_repair(result: NarrativeMapVerification) -> bool
         _THEME_VERIFICATION_PATH.match(path)
         or _THREAD_INDEX_VERIFICATION_PATH.match(path)
         or _THREAD_ID_VERIFICATION_PATH.match(path)
+        or _THREAD_ID_DOT_VERIFICATION_PATH.match(path)
         or _CHARACTER_ARC_VERIFICATION_PATH.match(path)
         or _EMPTY_CHARACTER_ARCS_VERIFICATION_PATH.match(path)
         for path in result.unsupported_paths
@@ -895,10 +931,11 @@ def repair_candidate_from_verification(
     for path in result.unsupported_paths:
         theme_match = _THEME_VERIFICATION_PATH.match(path)
         if theme_match:
-            index = int(theme_match.group(1))
-            if index >= len(candidate.themes):
+            resolved = _index_for(theme_match.group(1), candidate.themes, "label")
+            if resolved is None:
                 diagnostics.append({"code": "verification_repair_path_unresolved", "path": path})
                 continue
+            index = resolved
             theme_indexes.add(index)
             repairs.append(
                 {
@@ -911,10 +948,13 @@ def repair_candidate_from_verification(
 
         character_arc_match = _CHARACTER_ARC_VERIFICATION_PATH.match(path)
         if character_arc_match:
-            index = int(character_arc_match.group(1))
-            if index >= len(candidate.character_arcs):
+            resolved = _index_for(
+                character_arc_match.group(1), candidate.character_arcs, "character_name"
+            )
+            if resolved is None:
                 diagnostics.append({"code": "verification_repair_path_unresolved", "path": path})
                 continue
+            index = resolved
             character_arc_indexes.add(index)
             repairs.append(
                 {
@@ -935,7 +975,9 @@ def repair_candidate_from_verification(
             repairs.append({"action": "remove_thread_movement", "path": path})
             continue
 
-        movement_id_match = _THREAD_ID_VERIFICATION_PATH.match(path)
+        movement_id_match = _THREAD_ID_VERIFICATION_PATH.match(
+            path
+        ) or _THREAD_ID_DOT_VERIFICATION_PATH.match(path)
         if movement_id_match:
             thread_id, beat_id = movement_id_match.groups()
             matches = [
