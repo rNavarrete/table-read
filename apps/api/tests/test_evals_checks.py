@@ -418,6 +418,7 @@ def test_run_suite_full_includes_soft_families(session_factory):
         "entity-inference",
         "alias-resolution",
         "narrative-promises",
+        "promise-citations",
         "narrative-promises-merge",
         "story-overview",
         "story-overview-merge",
@@ -453,7 +454,7 @@ def test_resolve_run_map_override_is_uniform():
 
     m = resolve_run_map(1)
     assert set(m.values()) == {1}
-    assert len(m) == 15
+    assert len(m) == 16
 
 
 def test_nominal_call_estimate_core_defaults():

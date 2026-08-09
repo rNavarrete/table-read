@@ -44,6 +44,7 @@ _ONLY_CHOICES = (
     "entity-inference",
     "alias-resolution",
     "narrative-promises",
+    "promise-citations",
     "narrative-promises-merge",
     "story-overview",
     "story-overview-merge",

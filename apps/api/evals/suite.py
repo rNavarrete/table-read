@@ -36,6 +36,7 @@ EVAL_KEYS: dict[str, str] = {
     "entity-inference": "entityInference",
     "alias-resolution": "aliasResolution",
     "narrative-promises": "narrativePromises",
+    "promise-citations": "promiseCitations",
     "narrative-promises-merge": "narrativePromisesMerge",
     "story-overview": "storyOverview",
     "story-overview-merge": "storyOverviewMerge",
@@ -62,6 +63,7 @@ SOFT_EVAL_KEYS: tuple[str, ...] = (
     "entity-inference",
     "alias-resolution",
     "narrative-promises",
+    "promise-citations",
     "narrative-promises-merge",
     "story-overview",
     "story-overview-merge",
@@ -84,6 +86,7 @@ FAMILY_RESULT_NAME: dict[str, str] = {
     "entity-inference": "entity-inference",
     "alias-resolution": "alias-resolution",
     "narrative-promises": "narrative-promises",
+    "promise-citations": "promise-citations",
     "narrative-promises-merge": "narrative-promises-merge",
     "story-overview": "story-overview",
     "story-overview-merge": "story-overview-merge",
@@ -142,6 +145,7 @@ def nominal_call_estimate(runs: dict[str, int]) -> dict:
     entity_inference = runs["entityInference"]
     alias_resolution = runs["aliasResolution"]
     narrative_promises = runs["narrativePromises"]
+    promise_citations = runs["promiseCitations"]
     narrative_promises_merge = runs["narrativePromisesMerge"]
     story_overview = runs["storyOverview"]
     story_overview_merge = runs["storyOverviewMerge"]
@@ -158,6 +162,7 @@ def nominal_call_estimate(runs: dict[str, int]) -> dict:
         "entityInference": entity_inference,
         "aliasResolution": alias_resolution,
         "narrativePromises": narrative_promises,
+        "promiseCitations": promise_citations,
         "narrativePromisesMerge": narrative_promises_merge,
         "storyOverview": story_overview,
         "storyOverviewMerge": story_overview_merge,
@@ -174,6 +179,7 @@ def nominal_call_estimate(runs: dict[str, int]) -> dict:
             + entity_inference
             + alias_resolution
             + narrative_promises
+            + promise_citations
             + narrative_promises_merge
             + story_overview
             + story_overview_merge
@@ -360,6 +366,12 @@ def run_suite(
         "narrative-promises",
         lambda: adoption.narrative_promises_eval(
             client, runs=runs[EVAL_KEYS["narrative-promises"]], on_progress=on_progress
+        ),
+    )
+    run_family(
+        "promise-citations",
+        lambda: adoption.promise_citation_quality_eval(
+            client, runs=runs[EVAL_KEYS["promise-citations"]], on_progress=on_progress
         ),
     )
     run_family(

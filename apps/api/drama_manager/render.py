@@ -85,7 +85,7 @@ from typing import Any
 # 0.10.0 typed segment starts; 0.9.0 lock-aware narrative repair. Earlier:
 # 0.8.0 suggest; 0.7.0 scene skeleton; 0.6.0 continuity; 0.5.0 regenerate;
 # 0.4.0 blast; 0.3.0 tune; 0.2.0 candidate + §0 system prompt.
-PROMPT_VERSION = "0.38.0"
+PROMPT_VERSION = "0.39.0"
 
 
 def new_nonce() -> str:
@@ -360,7 +360,21 @@ def build_promises_prompt(
         "Do not repeat a rule already present in existing_world_rules; "
         "only report new ones. Refer to every character only by a name "
         "string from known_cast, never an id — the server resolves and "
-        "mints ids, not you."
+        "mints ids, not you.\n"
+        "Every quote field accepts an empty string, and an empty string is "
+        "the right answer unless one specific line carries the claim. When "
+        "one does, quote that line and nothing else. A quote must be the "
+        "words that do the work: for a "
+        "secret, the line where it is stated or the line where the holder "
+        "covers it up; for a thread, the line that plants it or the line "
+        "that pays it off; for a world rule, the line that states the rule. "
+        "A character cue, a slugline, a stage direction, or a nearby line "
+        "that merely happens to be in the same scene is not evidence — "
+        "return an empty string instead. Never reuse one line as the quote "
+        "for more than one claim; if you find yourself reaching for a line "
+        "you already cited, that claim has no quote. An empty quote costs "
+        "the claim nothing and is always better than a plausible one that "
+        "does not support it."
     )
     return build_system_prompt(project, nonce), user
 

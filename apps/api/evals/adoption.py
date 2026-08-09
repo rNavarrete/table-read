@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import time
+from collections import Counter
 from pathlib import Path
 
 from drama_manager import candidates, render
@@ -1453,4 +1454,103 @@ def story_overview_merge_eval(
         hard=False,
         detail={"meanResolution": round(mean, 4), "plantedScenes": len(planted["plantedSceneIds"])},
         notes=[note],
+    )
+
+
+# Report-only: this is a new measurement, and the first real run establishes
+# the baseline rather than being judged against a number picked in advance.
+PROMISE_CITATION_GATE = None
+
+
+def promise_citation_quality_eval(
+    client: LlmClient, *, runs: int, on_progress: ProgressFn | None = None
+) -> EvalResult:
+    """Of the quotes the model offers as evidence, how many actually support
+    their claim.
+
+    Scored with the server's own grounding policy (`drama_manager.promises`):
+    a citation counts only when it is substantive (not a bare character cue,
+    slugline or fragment), appears verbatim in the scene it cites, and is not
+    reused for another claim. Those are precisely the three ways a citation
+    can pass a naive presence check while proving nothing.
+
+    This exists because a required quote field gets *filled* rather than
+    cited. Measured on a real West Wing import at PROMPT_VERSION 0.38.0: 51
+    offered citations, 12 survivors (0.24), one line offered as evidence for
+    nine unrelated claims. 0.39.0 tells the model an empty quote is the right
+    answer unless a specific line carries the claim — this is how we find out
+    whether that worked.
+
+    `offeredPerRun` matters as much as the score: a model that offers nothing
+    scores 1.0 vacuously, so a run with zero offered citations is reported
+    with a note rather than counted as success.
+    """
+    from drama_manager.promises import anchor_quote
+
+    project, scene_summaries, known_cast = _promises_fixture_context()
+    scenes_by_id = {
+        summary["id"]: {
+            "id": summary["id"],
+            "beats": [
+                {"id": f"{summary['id']}-b1", "scriptText": summary.get("scriptText", "")}
+            ],
+        }
+        for summary in scene_summaries
+    }
+
+    per_run: list[dict] = []
+    for i in range(runs):
+        emit_attempt(on_progress, family="promise-citations", run=i + 1, runs=runs)
+        system, user = render.build_promises_prompt(
+            project, scene_summaries, known_cast, [], render.new_nonce()
+        )
+        try:
+            result = client.infer_narrative_promises(
+                system=system, user_message=user, prompt_version=render.PROMPT_VERSION
+            )
+        except (SchemaInvalidLlmError, LlmTimeoutError):
+            per_run.append({"offered": 0, "supported": 0, "errored": True})
+            continue
+
+        # (quote, cited scene id) for every citation the model chose to offer.
+        offered: list[tuple[str, str | None]] = []
+        for thread in result.threads:
+            offered.append((thread.setup_quote, thread.setup_scene_id))
+            offered.append((thread.payoff_quote, thread.payoff_scene_id))
+        for secret in result.secrets:
+            offered.append((secret.established_quote, secret.established_scene_id))
+            offered.append((secret.revealed_quote, secret.revealed_scene_id))
+        for rule in result.world_rules:
+            offered.append((rule.evidence_quote, rule.evidence_scene_id))
+        offered = [(q, s) for q, s in offered if (q or "").strip()]
+
+        grounded = [
+            q for q, scene_id in offered if anchor_quote(scenes_by_id.get(scene_id), q)[0]
+        ]
+        counts = Counter(grounded)
+        supported = sum(1 for q in grounded if counts[q] == 1)
+        per_run.append({"offered": len(offered), "supported": supported, "errored": False})
+
+    scored = [r for r in per_run if not r["errored"] and r["offered"]]
+    score = (
+        sum(r["supported"] / r["offered"] for r in scored) / len(scored) if scored else 0.0
+    )
+    notes: list[str] = []
+    silent = [r for r in per_run if not r["errored"] and not r["offered"]]
+    if silent:
+        notes.append(f"{len(silent)}/{runs} runs offered no citation at all")
+    if not scored:
+        notes.append("no run offered a citation — score is not meaningful")
+    return EvalResult(
+        name="promise-citations",
+        metric="offered citations that survive grounding",
+        score=score,
+        gate=PROMISE_CITATION_GATE,
+        hard=False,
+        detail={
+            "offeredPerRun": [r["offered"] for r in per_run],
+            "supportedPerRun": [r["supported"] for r in per_run],
+            "baseline_0_38_0": {"offered": 51, "supported": 12, "score": 0.24},
+        },
+        notes=notes,
     )
