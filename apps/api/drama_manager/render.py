@@ -85,7 +85,7 @@ from typing import Any
 # 0.10.0 typed segment starts; 0.9.0 lock-aware narrative repair. Earlier:
 # 0.8.0 suggest; 0.7.0 scene skeleton; 0.6.0 continuity; 0.5.0 regenerate;
 # 0.4.0 blast; 0.3.0 tune; 0.2.0 candidate + §0 system prompt.
-PROMPT_VERSION = "0.41.0"
+PROMPT_VERSION = "0.42.0"
 
 
 def new_nonce() -> str:
@@ -598,7 +598,16 @@ def build_narrative_scene_analysis_prompt(
         "plainly and describe the observable "
         "behavior and pressure; never substitute UNKNOWN, generic boilerplate, or "
         "an assertion that the source is insufficient. Every prose field must contain "
-        "scene-specific people, actions, choices, or consequences from the screenplay. "
+        "scene-specific people, actions, choices, or consequences from the screenplay.\n"
+        "One exception, and it is not boilerplate: some scenes are a bare "
+        "establishing slugline with no action or dialogue on the page — an exterior "
+        "shot that tells the audience where they now are. For those, say exactly "
+        "that. Name the place and the shift it marks (time of day, a move between "
+        "locations, the start of a new movement) and leave conflict, stakes and the "
+        "turn as the orientation they are. Reporting an establishing shot as an "
+        "establishing shot IS the scene-specific truth; manufacturing a conflict, a "
+        "choice, or a character change that is not on the page is the failure the "
+        "rule above is guarding against, and it will be rejected downstream. "
         "Use names from known_cast only when naming a focal character. Call the "
         "infer_narrative_scene_analysis tool once with the complete result."
     )
