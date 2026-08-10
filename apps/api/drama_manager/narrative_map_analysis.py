@@ -21,7 +21,13 @@ from schemas import (
     NarrativeMapVerification,
 )
 
-NARRATIVE_MAP_ANALYSIS_VERSION = "2.6"
+# 2.7: the scene pass may report a bare establishing slugline as orientation
+# instead of manufacturing conflict for it (PROMPT_VERSION 0.42.0). Bumped
+# because a same-version retry is blocked to prevent a repeat charge, and that
+# block keys on this constant — a prompt fix that changes what the analysis
+# produces has to be a new analysis version or the rejected run can never be
+# retried at all.
+NARRATIVE_MAP_ANALYSIS_VERSION = "2.7"
 NARRATIVE_MAP_SCENE_CHUNK_CHAR_BUDGET = 24_000
 NARRATIVE_MAP_SCENES_PER_CHUNK = 1
 NARRATIVE_MAP_VERIFICATION_EXCERPT_CHARS = 520
