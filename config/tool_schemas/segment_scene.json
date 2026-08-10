@@ -57,10 +57,30 @@
           }
         ]
       }
+    },
+    "sceneWhatHappens": {
+      "default": "",
+      "type": "string"
+    },
+    "sceneAudienceLearns": {
+      "default": "",
+      "type": "string"
+    },
+    "sceneAudienceFeels": {
+      "default": "",
+      "type": "string"
+    },
+    "sceneSocialSituation": {
+      "default": "",
+      "type": "string"
     }
   },
   "required": [
-    "segments"
+    "segments",
+    "sceneWhatHappens",
+    "sceneAudienceLearns",
+    "sceneAudienceFeels",
+    "sceneSocialSituation"
   ],
   "additionalProperties": false
 }

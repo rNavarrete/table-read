@@ -85,7 +85,7 @@ from typing import Any
 # 0.10.0 typed segment starts; 0.9.0 lock-aware narrative repair. Earlier:
 # 0.8.0 suggest; 0.7.0 scene skeleton; 0.6.0 continuity; 0.5.0 regenerate;
 # 0.4.0 blast; 0.3.0 tune; 0.2.0 candidate + §0 system prompt.
-PROMPT_VERSION = "0.40.0"
+PROMPT_VERSION = "0.41.0"
 
 
 def new_nonce() -> str:
@@ -189,7 +189,19 @@ def build_segment_prompt(project: dict, scene_lines: list[str], nonce: str) -> t
         "planting something a later scene pays off, echoing something already "
         "established, or landing a reversal the audience has been waiting for. "
         "Say so in whatHappens / audienceLearns / audienceFeels when it is "
-        "true, and do not invent a connection the episode does not support."
+        "true, and do not invent a connection the episode does not support.\n"
+        "Then read the scene as a whole and fill the four scene-level fields. "
+        "These are not a list of the beats again — they are what the scene "
+        "adds up to. sceneWhatHappens: one or two sentences naming who wants "
+        "what from whom and how it turns out; write it the way a writer would "
+        "describe the scene to another writer, not as a log of actions. "
+        "sceneAudienceLearns: what the audience now knows that it did not "
+        "before this scene, or empty if the scene reveals nothing new. "
+        "sceneAudienceFeels: the intended feeling, in a few words. "
+        "sceneSocialSituation: the kind of occasion this is — a briefing, an "
+        "interrogation, a first date, a wake — the social frame the characters "
+        "are operating inside, in a short phrase. Ground all four in this "
+        "scene; leave one empty rather than padding it."
     )
     return build_system_prompt(project, nonce), user
 

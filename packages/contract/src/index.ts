@@ -1403,6 +1403,22 @@ const SegmentedSceneUnassigned = z.object({
 
 export const SegmentedScene = z.object({
   segments: z.array(z.union([SegmentedSceneBeat, SegmentedSceneUnassigned])),
+  // Scene-level craft fields, defaulted so a pre-0.41.0 response still parses.
+  //
+  // These ride along with segmentation rather than getting their own pass:
+  // this call already reads the whole scene to find beat boundaries, so a
+  // scene-level reading is extra output on a call we are already paying for,
+  // not another call. Import previously wrote "" into all four, so the Plan
+  // inspector — the surface for editing a scene — was blank on every scene of
+  // an imported script while the beats underneath were fully described.
+  //
+  // `socialSituation` is the one that cannot be rolled up from beats at all
+  // (a beat says what happens, not what kind of occasion it is), which is why
+  // this is a model field rather than a derivation.
+  sceneWhatHappens: z.string().default(''),
+  sceneAudienceLearns: z.string().default(''),
+  sceneAudienceFeels: z.string().default(''),
+  sceneSocialSituation: z.string().default(''),
 })
 export type SegmentedScene = z.infer<typeof SegmentedScene>
 

@@ -1339,6 +1339,12 @@ class SegmentedSceneUnassigned(_Base):
 # §7 parse_script stage 2
 class SegmentedScene(_Base):
     segments: list[SegmentedSceneBeat | SegmentedSceneUnassigned]
+    # Scene-level craft fields — see the Zod `SegmentedScene` docstring for
+    # why these ride along with segmentation instead of getting their own pass.
+    scene_what_happens: str = ""
+    scene_audience_learns: str = ""
+    scene_audience_feels: str = ""
+    scene_social_situation: str = ""
 
 
 class ConsistencyScanFlag(_Base):

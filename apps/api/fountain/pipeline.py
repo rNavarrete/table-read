@@ -212,7 +212,7 @@ def analyze_import(
     split_source = render.build_split_source_block(
         [(span.location, span.lines) for span in spans], run_nonce
     )
-    per_scene_beats = yield from _run_ordered_parallel(
+    per_scene_results = yield from _run_ordered_parallel(
         spans,
         lambda index, span: _segment_one(
             index, span, project_doc, llm, run_nonce, split_source
@@ -222,10 +222,10 @@ def analyze_import(
         # Every call carries `split_source`; without warming, the first four
         # workers each write it.
         warm_cache_first=True,
-        on_result=lambda index, beats: _write_checkpoint(
+        on_result=lambda index, unit: _write_checkpoint(
             checkpoint_writer,
             STAGE_SEGMENTING_BEATS,
-            _dump_imported_beats(beats),
+            {"beats": _dump_imported_beats(unit[0]), "reading": unit[1]},
             index,
         ),
     )
@@ -233,7 +233,7 @@ def analyze_import(
     # ── Infer the total act partition after all scenes have their semantic
     # summaries, but before scene assembly and every later LLM stage. ─────────
     yield ImportStageStarted(STAGE_INFERRING_ACTS)
-    summaries = acts.scene_summaries(spans, per_scene_beats)
+    summaries = acts.scene_summaries(spans, [beats for beats, _r in per_scene_results])
     cached_scene_acts = _load_scene_acts_checkpoint(checkpoint, len(spans))
     if cached_scene_acts is not None:
         scene_acts = cached_scene_acts
@@ -299,7 +299,9 @@ def analyze_import(
     # unassigned ranges so they can be flagged. ──────────────────────────────
     scene_docs: list[dict] = []
     review_raw: list[tuple[str, SegmentationIssue]] = []
-    for si, (span, beats) in enumerate(zip(spans, per_scene_beats, strict=True), start=1):
+    for si, (span, (beats, reading)) in enumerate(
+        zip(spans, per_scene_results, strict=True), start=1
+    ):
         beat_docs = []
         for bi, beat in enumerate(beats, start=1):
             beat_id = f"beat-{si}-{bi}"
@@ -328,10 +330,13 @@ def analyze_import(
                 # `time` empty made the Plan inspector look unpopulated on
                 # every imported scene.
                 "time": slugline_time(span.location),
-                "socialSituation": "",
-                "whatHappens": "",
-                "audienceLearns": "",
-                "audienceFeels": "",
+                # From the same segmentation call that produced the beats —
+                # import used to write "" into all four, leaving the Plan
+                # inspector blank on every scene of an imported script.
+                "socialSituation": reading["socialSituation"],
+                "whatHappens": reading["whatHappens"],
+                "audienceLearns": reading["audienceLearns"],
+                "audienceFeels": reading["audienceFeels"],
                 "motivations": [],
                 "beats": beat_docs,
             }
@@ -825,10 +830,18 @@ def _load_imported_beats(value: object) -> list[ImportedBeat] | None:
     return beats
 
 
+_EMPTY_READING = {
+    "whatHappens": "",
+    "audienceLearns": "",
+    "audienceFeels": "",
+    "socialSituation": "",
+}
+
+
 def _load_segment_checkpoints(
     checkpoint: dict, scene_count: int
-) -> list[list[ImportedBeat] | None]:
-    results: list[list[ImportedBeat] | None] = [None] * scene_count
+) -> list[tuple[list[ImportedBeat], dict[str, str]] | None]:
+    results: list[tuple[list[ImportedBeat], dict[str, str]] | None] = [None] * scene_count
     units = checkpoint.get(STAGE_SEGMENTING_BEATS)
     if not isinstance(units, dict):
         return results
@@ -837,8 +850,19 @@ def _load_segment_checkpoints(
             index = int(raw_index)
         except (TypeError, ValueError):
             continue
-        if 0 <= index < scene_count:
-            results[index] = _load_imported_beats(value)
+        if not 0 <= index < scene_count:
+            continue
+        # Pre-0.41.0 checkpoints stored a bare beat list; read those too rather
+        # than discarding a resumable unit and paying for the scene again.
+        raw_beats = value.get("beats") if isinstance(value, dict) else value
+        reading = value.get("reading") if isinstance(value, dict) else None
+        beats = _load_imported_beats(raw_beats)
+        if beats is None:
+            continue
+        results[index] = (
+            beats,
+            {**_EMPTY_READING, **(reading if isinstance(reading, dict) else {})},
+        )
     return results
 
 
@@ -992,7 +1016,7 @@ def _segment_one(
     llm: LlmClient,
     run_nonce: str,
     split_source: str | None = None,
-) -> list[ImportedBeat]:
+) -> tuple[list[ImportedBeat], dict[str, str]]:
     """Segment one scene, with the whole split script as cached context.
 
     `split_source` is built once per run and passed unchanged (see
@@ -1008,6 +1032,9 @@ def _segment_one(
     )
     first = normalize_and_slice(span, segmented)
     selected = first
+    # The scene-level reading belongs to whichever attempt we keep, so it is
+    # carried alongside the sliced beats rather than read off the last response.
+    selected_raw = segmented
     retried = False
     if first.should_retry:
         retried = True
@@ -1025,6 +1052,7 @@ def _segment_one(
         second = normalize_and_slice(span, retry_segmented)
         if second.score.ranking_key() < first.score.ranking_key():
             selected = second
+            selected_raw = retry_segmented
     _logger.info(
         "import_segment scene_index=%d scene_lines=%d retried=%s discarded_metadata=%d "
         "affected_lines=%d repair_events=%d prompt_version=%s",
@@ -1036,7 +1064,22 @@ def _segment_one(
         selected.score.event_count,
         render.PROMPT_VERSION,
     )
-    return selected.beats
+    return selected.beats, _scene_reading(selected_raw)
+
+
+def _scene_reading(segmented) -> dict[str, str]:
+    """The scene-level craft fields from a `segment_scene` response.
+
+    Keyed as the scene doc wants them so the caller stays a plain update. A
+    model that omits one leaves "" — the same as before this existed — so a
+    thin scene degrades to the old blank rather than to invented copy.
+    """
+    return {
+        "whatHappens": segmented.scene_what_happens,
+        "audienceLearns": segmented.scene_audience_learns,
+        "audienceFeels": segmented.scene_audience_feels,
+        "socialSituation": segmented.scene_social_situation,
+    }
 
 
 def _extract_one(

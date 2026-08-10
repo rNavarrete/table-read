@@ -2336,3 +2336,50 @@ def test_import_fills_scene_time_from_the_slugline(unlocked_project):
     # `location` keeps the full slugline: it is what reads as a scene heading
     # across the app, and merge_timeline_anchors parses it directly.
     assert scenes[0]["location"] == "INT. BAR - NIGHT"
+
+
+def test_import_fills_scene_craft_fields_from_the_segmentation_read(unlocked_project):
+    """The Plan inspector edits scene-level craft fields, and import used to
+    write "" into every one of them — blank boxes on every scene of an
+    imported script while the beats underneath were fully described."""
+    src = "INT. BAR - NIGHT\nDan pours a drink.\nMarta watches him."
+    reading = {
+        "sceneWhatHappens": "Marta waits for Dan to admit what he moved.",
+        "sceneAudienceLearns": "Dan knows more than he is saying.",
+        "sceneAudienceFeels": "Held breath.",
+        "sceneSocialSituation": "A last-call standoff between siblings.",
+    }
+    segmented = SegmentedScene.model_validate(
+        {**seg([(1, 3)]).model_dump(by_alias=True), **reading}
+    )
+    llm = MockLlmClient()
+    llm.set_responses("segment_scene", [segmented])
+    llm.set_response("extract_ledger_facts", extraction())
+    llm.set_response("scan_consistency", scan())
+
+    _events, analysis = _drain_analysis(
+        pipeline.analyze_import(unlocked_project["project"], [], src, llm)
+    )
+
+    scene = analysis.new_doc["seasons"][0]["episodes"][0]["scenes"][0]
+    assert scene["whatHappens"] == "Marta waits for Dan to admit what he moved."
+    assert scene["audienceLearns"] == "Dan knows more than he is saying."
+    assert scene["audienceFeels"] == "Held breath."
+    assert scene["socialSituation"] == "A last-call standoff between siblings."
+
+
+def test_import_leaves_a_scene_field_blank_when_the_read_omits_it(unlocked_project):
+    """A thin scene degrades to the old blank rather than to invented copy."""
+    src = "INT. BAR - NIGHT\nDan pours a drink."
+    llm = MockLlmClient()
+    llm.set_responses("segment_scene", [seg([(1, 2)])])
+    llm.set_response("extract_ledger_facts", extraction())
+    llm.set_response("scan_consistency", scan())
+
+    _events, analysis = _drain_analysis(
+        pipeline.analyze_import(unlocked_project["project"], [], src, llm)
+    )
+
+    scene = analysis.new_doc["seasons"][0]["episodes"][0]["scenes"][0]
+    assert scene["whatHappens"] == ""
+    assert scene["socialSituation"] == ""
