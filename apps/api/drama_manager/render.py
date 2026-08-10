@@ -25,7 +25,15 @@ import secrets
 from typing import Any
 
 # Prompt spec §8 / hard rule 7: every template carries a PROMPT_VERSION (semver);
-# it is logged with each call and bumped on any template change. 0.38.0
+# it is logged with each call and bumped on any template change. 0.43.0 makes
+# the Narrative Map verifier's two findings lists mutually exclusive and gives
+# the blocking one a reason field. 0.32.0 told the verifier what each list was
+# FOR but never that a finding belongs to exactly one, and the blocking list was
+# `string[]` with nowhere to put the why — so on a real West Wing run the model
+# filed the same three findings in both, each restated as prose appended to the
+# path. Any advisory it double-filed became a rejection, because a nonempty
+# blocking list rejects. The prompt now states the exclusivity, says which list
+# rejects, and sends every word of explanation to `reason`. 0.38.0
 # reverts 0.37.0's "report only what your scenes introduce" narrowing, which
 # collapsed infer_story_entities on a real import: characters 39 -> 5,
 # relationships 23 -> 0, world elements 24 -> 0. The cached prefix it shipped
@@ -85,7 +93,7 @@ from typing import Any
 # 0.10.0 typed segment starts; 0.9.0 lock-aware narrative repair. Earlier:
 # 0.8.0 suggest; 0.7.0 scene skeleton; 0.6.0 continuity; 0.5.0 regenerate;
 # 0.4.0 blast; 0.3.0 tune; 0.2.0 candidate + §0 system prompt.
-PROMPT_VERSION = "0.42.0"
+PROMPT_VERSION = "0.43.0"
 
 
 def new_nonce() -> str:
@@ -678,13 +686,26 @@ def build_narrative_map_verification_prompt(
         "characters/events, and claims that contradict or materially exceed the supplied "
         "excerpts. Treat sourceKind=front_matter as production metadata and sourceKind="
         "establishing as orientation, never as evidence of dramatic conflict or character "
-        "change. Use unsupportedPaths only for present blocking claims and missingSceneIds "
-        "only when the candidate omits a supplied scene. An empty optional section is an "
-        "advisory, never a rejection by itself. Set approved=false only when unsupportedPaths "
-        "or missingSceneIds is nonempty. Set approved=true when both lists are empty, even if "
-        "issues contains an editorial advisory. Keep issues limited to genuine non-blocking "
-        "advice; do not add confirmed, consistent, or 'not an issue' observations. Do not "
-        "rewrite the map."
+        "change. Every finding goes in exactly one list, and the list you choose is the "
+        "whole verdict: unsupportedClaims rejects the map and discards the analysis, "
+        "advisories keeps it. Never file the same finding in both — a claim you can also "
+        "describe as an advisory is an advisory. Use unsupportedClaims only when the "
+        "candidate asserts something the excerpts do not carry: a placeholder, generic "
+        "filler, an invented character or event, or a claim that contradicts or materially "
+        "exceeds what is quoted. A claim you find supported but arrived at partly by "
+        "inference is an advisory, not a rejection, and so is a claim that overstates a "
+        "degree while its substance holds. Use missingSceneIds only when the candidate omits "
+        "a supplied scene; an empty optional section is an advisory, never a rejection by "
+        "itself. In both lists, path names the disputed field and nothing else — "
+        "themes[0].evidence, acts[2].escalation, sceneTurns[scene-22].turn — indexing into it "
+        "where that is what identifies the item you mean, as in "
+        "characterArcs[C.J.].turningPoints[beat-9-3]. Every word of explanation goes in "
+        "reason. Do not append your reasoning to path; the server matches on it exactly, and "
+        "a path carrying prose is read as a claim about a field that was never disputed. "
+        "Set approved=false only when unsupportedClaims or missingSceneIds is nonempty; set "
+        "approved=true when both are empty, however many advisories you record. Keep "
+        "advisories limited to genuine non-blocking advice; do not add confirmed, consistent, "
+        "or 'not an issue' observations. Do not rewrite the map."
     )
     return build_system_prompt(project, nonce), user
 

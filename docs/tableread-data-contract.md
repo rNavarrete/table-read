@@ -460,6 +460,32 @@ export const InferredNarrativeMap = z.object({
   ),
 })
 
+// verify_narrative_map — the independent audit pass over a synthesis
+// candidate. The two findings lists are MUTUALLY EXCLUSIVE and only one of
+// them rejects: a nonempty `unsupportedClaims` (or `missingSceneIds`) discards
+// the whole analysis, `advisories` never does. `approved` is the model's
+// opinion; the server re-derives the verdict from the lists, so a nonempty
+// blocking list overrides an approval.
+//
+// Both carry `{path, reason}`. `path` names the disputed field alone —
+// indexing into it only where that identifies which item is meant, as in
+// `characterArcs[C.J.].turningPoints[beat-9-3]` — and all explanation belongs
+// in `reason`. The server pattern-matches `path` to decide which claim it can
+// prune locally instead of discarding the map, so prose in a path is read as a
+// claim about a field nobody disputed. `unsupportedClaims` was
+// `unsupportedPaths: string[]` before analysis version 2.8: with no reason
+// field the verifier appended its reasoning to each path, which both defeated
+// that matching and led it to file the same finding in both lists, turning
+// every double-filed advisory into a rejection.
+export const NarrativeMapVerification = z.object({
+  approved: z.boolean(),
+  unsupportedClaims: z.array(
+    z.object({ path: z.string(), reason: z.string() }),
+  ),
+  missingSceneIds: z.array(Id),
+  advisories: z.array(z.object({ path: z.string(), reason: z.string() })),
+})
+
 // T7.23 — a knowledge-state transition after a fact's establishing scene
 // (baseline knowers live on knownBy). "learns" adds characterIds to the
 // knower set as of sceneId; "forgets" removes them. knowers_as_of

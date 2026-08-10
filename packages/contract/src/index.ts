@@ -452,10 +452,21 @@ export const NarrativeMapRun = z.object({
   // since 2.x and surfaced nowhere: the panel said only "the evidence gate
   // rejected this analysis", so a rejection that had already cost a full
   // analysis gave no way to tell an over-claiming synthesis from a genuinely
-  // unsupportable script. `path` only — the verifier's free-text reason quotes
-  // the script back (hard rule 5). Defaulted so older clients still parse.
+  // unsupportable script. `reason` is the verifier's own words for why the
+  // claim failed, which is the part a writer can actually act on; it carries
+  // script content, so it belongs in this response — the writer's own data —
+  // and never in a log. Hard rule 5 is satisfied at the logging boundary:
+  // `narrative_map_runs` emits `diagnostic_codes` only. Defaulted so older
+  // clients still parse; `reason` defaults for diagnostics recorded before it
+  // existed and for codes like `verifier_missing_scene` that carry no prose.
   rejectionDiagnostics: z
-    .array(z.object({ code: z.string(), path: z.string() }))
+    .array(
+      z.object({
+        code: z.string(),
+        path: z.string(),
+        reason: z.string().default(''),
+      }),
+    )
     .default([]),
   createdAt: z.string(),
   updatedAt: z.string(),
@@ -1299,11 +1310,32 @@ export type InferredNarrativeMapSynthesis = z.infer<
   typeof InferredNarrativeMapSynthesis
 >
 
+// The verifier's two findings lists are mutually exclusive: `unsupportedClaims`
+// blocks the map, `advisories` never does. Both carry `{path, reason}` for the
+// same reason — the blocking list used to be `unsupportedPaths: string[]`, with
+// nowhere to put the *why*, so the model appended its reasoning to the path
+// ("acts[2].turnBeatId beat-12-6 escalation claim '...' — not evidenced at
+// beat-12-6"). Two things broke downstream. The local repair matchers in
+// `narrative_map_analysis` pattern-match these strings to decide which claim to
+// prune, and prose after the path defeats that: a rejection naming `turnBeatId`
+// matched the *escalation* rule because the word appeared in the sentence, which
+// fails open on exactly the structural rejection that must fail closed. And with
+// no reason field, a verifier that wanted to explain itself filed the same
+// finding twice — once here as prose, once in `advisories` with a clean path —
+// so every advisory it double-filed became blocking.
+//
+// `advisories` was `issues`, which read as a superset of "unsupported claim" and
+// invited that double-filing. The names now say which list rejects.
 export const NarrativeMapVerification = z.object({
   approved: z.boolean(),
-  unsupportedPaths: z.array(z.string()),
+  unsupportedClaims: z.array(
+    z.object({
+      path: z.string(),
+      reason: z.string(),
+    }),
+  ),
   missingSceneIds: z.array(Id),
-  issues: z.array(
+  advisories: z.array(
     z.object({
       path: z.string(),
       reason: z.string(),

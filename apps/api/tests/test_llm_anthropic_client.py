@@ -904,9 +904,9 @@ def _fixture_valid_input_for(op_name: str) -> dict:
         },
         "verify_narrative_map": {
             "approved": True,
-            "unsupportedPaths": [],
+            "unsupportedClaims": [],
             "missingSceneIds": [],
-            "issues": [],
+            "advisories": [],
         },
         "segment_scene": {"segments": []},
         "scan_consistency": {"flags": []},

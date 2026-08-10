@@ -347,7 +347,10 @@ export function NarrativeMapCard({
                   key={d.path}
                   className="text-12 leading-snug text-tr-text-secondary"
                 >
-                  {d.path}
+                  <span className="font-mono text-11 text-tr-text-muted">
+                    {d.path}
+                  </span>
+                  {d.reason ? <span className="block">{d.reason}</span> : null}
                 </li>
               ))}
             </ul>

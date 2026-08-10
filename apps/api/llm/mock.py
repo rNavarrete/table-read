@@ -503,9 +503,9 @@ def _default_responses() -> dict[str, BaseModel]:
         ),
         "verify_narrative_map": NarrativeMapVerification(
             approved=True,
-            unsupportedPaths=[],
+            unsupportedClaims=[],
             missingSceneIds=[],
-            issues=[],
+            advisories=[],
         ),
     }
 
@@ -997,9 +997,9 @@ class MockLlmClient:
                 return self._responses["verify_narrative_map"]  # type: ignore[return-value]
         return NarrativeMapVerification(
             approved=True,
-            unsupportedPaths=[],
+            unsupportedClaims=[],
             missingSceneIds=[],
-            issues=[],
+            advisories=[],
         )
 
     def segment_scene(

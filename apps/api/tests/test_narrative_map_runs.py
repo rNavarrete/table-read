@@ -31,7 +31,12 @@ def test_rejected_run_surfaces_why_the_evidence_gate_refused_it():
         error_message="rejected",
         checkpoint={
             "rejectionDiagnostics": [
-                {"code": "verifier_rejected", "path": "sceneTurns[1].turnBeatId"},
+                {
+                    "code": "verifier_rejected",
+                    "path": "sceneTurns[1].turnBeatId",
+                    "reason": "beat-1-2 is Leo/Josh dialogue, not the turn claimed here.",
+                },
+                # Recorded before the verifier had a reason field to fill.
                 {"code": "verifier_rejected", "path": "themes[0].evidence"},
                 {"path": ""},
                 "not-a-dict",
@@ -44,8 +49,12 @@ def test_rejected_run_surfaces_why_the_evidence_gate_refused_it():
     payload = narrative_map_runs.serialize_run(run)
 
     assert payload["rejectionDiagnostics"] == [
-        {"code": "verifier_rejected", "path": "sceneTurns[1].turnBeatId"},
-        {"code": "verifier_rejected", "path": "themes[0].evidence"},
+        {
+            "code": "verifier_rejected",
+            "path": "sceneTurns[1].turnBeatId",
+            "reason": "beat-1-2 is Leo/Josh dialogue, not the turn claimed here.",
+        },
+        {"code": "verifier_rejected", "path": "themes[0].evidence", "reason": ""},
     ], "blank and malformed entries are dropped, not rendered as empty rows"
 
 

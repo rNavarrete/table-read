@@ -431,6 +431,7 @@ class NarrativeMapRunPhase(StrEnum):
 class NarrativeMapRejectionDiagnostic(_Base):
     code: str
     path: str
+    reason: str = ""
 
 
 class NarrativeMapRun(_Base):
@@ -1242,16 +1243,19 @@ class InferredNarrativeMapSynthesis(_Base):
     thread_movements: list[InferredThreadMovement]
 
 
-class NarrativeMapVerificationIssue(_Base):
+class NarrativeMapVerificationNote(_Base):
     path: str
     reason: str
 
 
+# Mirrors the Zod contract: `unsupported_claims` blocks, `advisories` never
+# does, and both carry a reason so the verifier never has to smuggle one into
+# the path. See the Zod definition for what that used to cost.
 class NarrativeMapVerification(_Base):
     approved: bool
-    unsupported_paths: list[str]
+    unsupported_claims: list[NarrativeMapVerificationNote]
     missing_scene_ids: list[Id]
-    issues: list[NarrativeMapVerificationIssue]
+    advisories: list[NarrativeMapVerificationNote]
 
 
 class ExtractedFactSourceSpan(_Base):

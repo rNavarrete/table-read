@@ -21,13 +21,18 @@ from schemas import (
     NarrativeMapVerification,
 )
 
+# 2.8: the verifier's blocking and advisory lists are mutually exclusive, and
+# the blocking one carries a reason so no explanation has to ride along in the
+# path (PROMPT_VERSION 0.43.0). The checkpointed verification changes shape with
+# it, so this is not just a prompt fix.
+#
 # 2.7: the scene pass may report a bare establishing slugline as orientation
 # instead of manufacturing conflict for it (PROMPT_VERSION 0.42.0). Bumped
 # because a same-version retry is blocked to prevent a repeat charge, and that
 # block keys on this constant — a prompt fix that changes what the analysis
 # produces has to be a new analysis version or the rejected run can never be
 # retried at all.
-NARRATIVE_MAP_ANALYSIS_VERSION = "2.7"
+NARRATIVE_MAP_ANALYSIS_VERSION = "2.8"
 NARRATIVE_MAP_SCENE_CHUNK_CHAR_BUDGET = 24_000
 NARRATIVE_MAP_SCENES_PER_CHUNK = 1
 NARRATIVE_MAP_VERIFICATION_EXCERPT_CHARS = 520
@@ -872,7 +877,14 @@ _THREAD_ID_DOT_VERIFICATION_PATH = re.compile(
     r"^threadMovements\[([^\]]+)\]\s*\.\s*beatId\s*=\s*(\S+)"
 )
 _CHARACTER_ARC_VERIFICATION_PATH = re.compile(r"^characterArcs\[([^\]]+)\](?:\.|\s|$)")
-_EMPTY_CHARACTER_ARCS_VERIFICATION_PATH = re.compile(r"^characterArcs\s*\(empty\b")
+# "the map has no character arcs and should have" — a complaint about the
+# section, not about an arc in it. `characterArcs[...]` addresses a member, so a
+# path with no subscript can only mean the section itself. The `(empty ...)`
+# form is the legacy spelling from when the verifier had no reason field and
+# marked this case by writing the word into the path.
+_EMPTY_CHARACTER_ARCS_VERIFICATION_PATH = re.compile(
+    r"^characterArcs\s*(?:\(empty\b|$)"
+)
 # The same prose/structure split on a character arc. `characterName` is the
 # record; want, need, internalConflict, externalPressure and arcSummary are
 # readings of it, and each turning point is a separate claim anchored to a
@@ -899,10 +911,21 @@ _BEAT_ID_IN_PATH = re.compile(r"\b(beat-[A-Za-z0-9_-]+)")
 # guarantee. A verifier that rejects the escalation claim is disputing the
 # reading, not the turn — so clear the prose and keep the act, rather than
 # discarding a map whose structure verified clean. The rejection must name
-# `escalation`: a bare `acts[1].turnBeatId=beat-6-5` disputes the turn itself
-# and still fails closed, because an act with no turn is not coverage.
+# `escalation` **as the field**: a bare `acts[1].turnBeatId=beat-6-5` disputes
+# the turn itself and still fails closed, because an act with no turn is not
+# coverage.
+#
+# Enforcing that needs the path to end at the field name. This used to allow
+# anything between the index and the word (`acts\[([^\]]+)\][^\]]*`), which was
+# survivable only while paths were pure. Once the verifier had a reason to give
+# and no field to give it in, it began appending prose, and a real West Wing
+# rejection — `acts[2].turnBeatId beat-12-6 escalation claim '...' — not
+# evidenced at beat-12-6` — matched here on the word "escalation" inside the
+# sentence. That fails open: it clears the escalation prose and keeps the very
+# turn beat the verifier rejected. The reason has its own field now, so the path
+# ends where the claim does.
 _ACT_ESCALATION_VERIFICATION_PATH = re.compile(
-    r"^acts\[([^\]]+)\][^\]]*\bescalation\b", re.IGNORECASE
+    r"^acts\[([^\]]+)\]\s*\.?\s*escalation\s*$", re.IGNORECASE
 )
 
 
@@ -981,18 +1004,18 @@ def verification_supports_local_repair(result: NarrativeMapVerification) -> bool
     a coverage advisory is safer than paying to regenerate the entire map.
     Unknown paths and missing scenes still fail closed.
     """
-    if result.missing_scene_ids or not result.unsupported_paths:
+    if result.missing_scene_ids or not result.unsupported_claims:
         return False
     return all(
-        _THEME_VERIFICATION_PATH.match(path)
-        or _THREAD_INDEX_VERIFICATION_PATH.match(path)
-        or _THREAD_ID_VERIFICATION_PATH.match(path)
-        or _THREAD_ID_DOT_VERIFICATION_PATH.match(path)
-        or _CHARACTER_ARC_VERIFICATION_PATH.match(path)
-        or _EMPTY_CHARACTER_ARCS_VERIFICATION_PATH.match(path)
-        or _ACT_ESCALATION_VERIFICATION_PATH.match(path)
-        or _SCENE_TURN_PROSE_VERIFICATION_PATH.match(path)
-        for path in result.unsupported_paths
+        _THEME_VERIFICATION_PATH.match(claim.path)
+        or _THREAD_INDEX_VERIFICATION_PATH.match(claim.path)
+        or _THREAD_ID_VERIFICATION_PATH.match(claim.path)
+        or _THREAD_ID_DOT_VERIFICATION_PATH.match(claim.path)
+        or _CHARACTER_ARC_VERIFICATION_PATH.match(claim.path)
+        or _EMPTY_CHARACTER_ARCS_VERIFICATION_PATH.match(claim.path)
+        or _ACT_ESCALATION_VERIFICATION_PATH.match(claim.path)
+        or _SCENE_TURN_PROSE_VERIFICATION_PATH.match(claim.path)
+        for claim in result.unsupported_claims
     )
 
 
@@ -1036,7 +1059,8 @@ def repair_candidate_from_verification(
             for scene_id in result.missing_scene_ids
         )
 
-    for path in result.unsupported_paths:
+    for claim in result.unsupported_claims:
+        path = claim.path
         theme_match = _THEME_VERIFICATION_PATH.match(path)
         if theme_match:
             resolved = _index_for(theme_match.group(1), candidate.themes, "label")
@@ -1283,19 +1307,22 @@ def repair_candidate_from_verification(
     repairs.extend(
         {
             "action": "record_verifier_advisory",
-            "path": issue.path,
-            "reason": issue.reason,
+            "path": advisory.path,
+            "reason": advisory.reason,
         }
-        for issue in result.issues
+        for advisory in result.advisories
     )
     return repaired, repairs
 
 
 def validate_verification(result: NarrativeMapVerification) -> None:
     """Require an explicit approval or a concrete blocking audit finding."""
-    if result.approved and not result.unsupported_paths and not result.missing_scene_ids:
+    if result.approved and not result.unsupported_claims and not result.missing_scene_ids:
         return
-    diagnostics = [{"code": "verifier_rejected", "path": path} for path in result.unsupported_paths]
+    diagnostics = [
+        {"code": "verifier_rejected", "path": claim.path, "reason": claim.reason}
+        for claim in result.unsupported_claims
+    ]
     diagnostics.extend(
         {"code": "verifier_missing_scene", "sceneId": scene_id}
         for scene_id in result.missing_scene_ids

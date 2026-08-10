@@ -912,9 +912,9 @@ def test_narrative_map_verifier_rejection_never_writes_a_snapshot(
         "verify_narrative_map",
         NarrativeMapVerification(
             approved=False,
-            unsupportedPaths=["themes[0].statement"],
+            unsupportedClaims=[{"path": 'themes[0].statement', "reason": ""}],
             missingSceneIds=[],
-            issues=[
+            advisories=[
                 {
                     "path": "themes[0].statement",
                     "reason": "The theme is not supported by the supplied screenplay.",
@@ -974,9 +974,14 @@ def test_saved_scene_packet_repair_requeues_only_compact_verification(
             "synthesis": {"threadMovements": []},
             "verification": {
                 "approved": False,
-                "unsupportedPaths": ["sceneTurns[0].conflict contains placeholder filler"],
+                "unsupportedClaims": [
+                    {
+                        "path": 'sceneTurns[0].conflict contains placeholder filler',
+                        "reason": "",
+                    }
+                ],
                 "missingSceneIds": [],
-                "issues": [
+                "advisories": [
                     {"path": "characterArcs[0]", "reason": "Non-blocking editorial note."}
                 ],
             },
@@ -1021,9 +1026,14 @@ def test_verifier_coverage_rejection_finishes_from_cache_without_more_model_call
         "verify_narrative_map",
         NarrativeMapVerification(
             approved=False,
-            unsupportedPaths=["characterArcs (empty despite a possible arc)"],
+            unsupportedClaims=[
+                {
+                    "path": 'characterArcs (empty despite a possible arc)',
+                    "reason": "",
+                }
+            ],
             missingSceneIds=[],
-            issues=[
+            advisories=[
                 {
                     "path": "sceneTurns",
                     "reason": "The required scene is represented.",
@@ -1096,11 +1106,14 @@ def test_rejected_character_arc_is_offered_as_a_no_cost_saved_repair(
             "synthesis": {"threadMovements": []},
             "verification": {
                 "approved": False,
-                "unsupportedPaths": [
-                    "characterArcs[0].arcSummary is unsupported by its cited beat"
+                "unsupportedClaims": [
+                    {
+                        "path": 'characterArcs[0].arcSummary is unsupported by its cited beat',
+                        "reason": "",
+                    }
                 ],
                 "missingSceneIds": [],
-                "issues": [],
+                "advisories": [],
             },
             "rejectionDiagnostics": [
                 {

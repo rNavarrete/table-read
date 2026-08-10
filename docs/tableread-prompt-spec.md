@@ -474,6 +474,19 @@ tool with thinking disabled, and separates blocking evidence failures from
 non-blocking editorial advisories. This prevents a second full-screenplay
 verification bill while preserving an auditable source read.
 
+Those two channels — `unsupportedClaims` and `advisories` — are **mutually
+exclusive**, and both carry `{path, reason}`. Only `unsupportedClaims` (or
+`missingSceneIds`) rejects the map; `approved` is the model's opinion and a
+nonempty blocking list overrides it. `path` names the disputed field alone,
+indexing into it where that identifies the item (`characterArcs[C.J.]
+.turningPoints[beat-9-3]`), and every word of explanation belongs in `reason`
+— the server pattern-matches `path` to decide which claim to prune locally, so
+prose there is read as a claim about a field nobody disputed. Ships as
+Narrative Map analysis version `2.8` at `PROMPT_VERSION 0.43.0`. Before this,
+`unsupportedClaims` was `unsupportedPaths: string[]` with no reason field, and
+a West Wing run filed the same three findings in both lists with the reasoning
+appended to each path; every double-filed advisory became a rejection.
+
 **Durability and merge:** the run is keyed to its source snapshot/hash and
 checkpoints each accepted scene using a fresh JSON assignment. It allows one
 diagnostic-only scene repair and one diagnostic-only synthesis repair, derives

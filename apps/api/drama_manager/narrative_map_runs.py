@@ -122,8 +122,11 @@ def serialize_run(run: NarrativeMapRunRow) -> dict:
     }
 
 
-# Rule 5: a diagnostic path is ids and field names, but the verifier writes a
-# free-text reason that quotes the script back. Only the path is exposed.
+# Rule 5 lives at the logging boundary, not here: `_reject_run` logs
+# `diagnostic_codes` and nothing else, so the reason never reaches a log file.
+# This response goes to the writer, about their own script, and the reason is
+# the only part they can act on — "not evidenced at beat-12-6 (that beat is
+# Leo/Josh dialogue)" tells them something; the bare path does not.
 _MAX_SURFACED_DIAGNOSTICS = 12
 
 
@@ -146,7 +149,13 @@ def _rejection_diagnostics(run: NarrativeMapRunRow) -> list[dict]:
             continue
         path = str(entry.get("path") or "").strip()
         if path:
-            out.append({"code": str(entry.get("code") or "rejected"), "path": path})
+            out.append(
+                {
+                    "code": str(entry.get("code") or "rejected"),
+                    "path": path,
+                    "reason": str(entry.get("reason") or "").strip(),
+                }
+            )
     return out
 
 

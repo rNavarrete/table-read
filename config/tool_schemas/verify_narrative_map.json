@@ -4,10 +4,23 @@
     "approved": {
       "type": "boolean"
     },
-    "unsupportedPaths": {
+    "unsupportedClaims": {
       "type": "array",
       "items": {
-        "type": "string"
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "reason"
+        ],
+        "additionalProperties": false
       }
     },
     "missingSceneIds": {
@@ -16,7 +29,7 @@
         "type": "string"
       }
     },
-    "issues": {
+    "advisories": {
       "type": "array",
       "items": {
         "type": "object",
@@ -38,9 +51,9 @@
   },
   "required": [
     "approved",
-    "unsupportedPaths",
+    "unsupportedClaims",
     "missingSceneIds",
-    "issues"
+    "advisories"
   ],
   "additionalProperties": false
 }

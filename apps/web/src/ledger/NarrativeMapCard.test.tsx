@@ -486,4 +486,58 @@ describe('NarrativeMapCard', () => {
     await user.click(screen.getAllByTestId('narrative-evidence-beat-1-1')[0]!)
     expect(onJumpToScene).toHaveBeenCalledWith('scene-1')
   })
+
+  it('tells the writer why the verifier rejected each claim, not just where', () => {
+    render(
+      <NarrativeMapCard
+        project={project()}
+        narrativeMap={null}
+        narrativeMapRun={{
+          id: 'nmap-1',
+          projectId: 'proj-1',
+          sourceSnapshotId: 'snap-1',
+          sourceHash: 'source-hash',
+          analysisVersion: '2.8',
+          status: 'rejected',
+          phase: 'failed',
+          sceneCount: 27,
+          completedSceneCount: 27,
+          attemptCount: 1,
+          retryAllowed: false,
+          estimatedCostUsd: null,
+          actualInputTokens: null,
+          actualOutputTokens: null,
+          resultSnapshotId: null,
+          errorCode: 'EVIDENCE_REJECTED',
+          errorMessage: 'The evidence gate rejected this analysis.',
+          rejectionDiagnostics: [
+            {
+              code: 'verifier_rejected',
+              path: 'acts[2].turnBeatId',
+              reason:
+                'beat-12-6 is Leo/Josh dialogue about Mandy, not the turn.',
+            },
+            // Recorded before the verifier had a reason field to fill.
+            {
+              code: 'verifier_rejected',
+              path: 'themes[0].evidence',
+              reason: '',
+            },
+          ],
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        }}
+        onJumpToScene={vi.fn()}
+        onGenerateNarrativeMap={vi.fn()}
+      />,
+    )
+
+    const panel = screen.getByTestId('narrative-map-rejections')
+    expect(panel.textContent).toContain('acts[2].turnBeatId')
+    expect(panel.textContent).toContain(
+      'beat-12-6 is Leo/Josh dialogue about Mandy, not the turn.',
+    )
+    // A diagnostic with no reason still shows its path rather than a blank row.
+    expect(panel.textContent).toContain('themes[0].evidence')
+  })
 })
