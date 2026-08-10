@@ -448,6 +448,15 @@ export const NarrativeMapRun = z.object({
   resultSnapshotId: Id.nullable(),
   errorCode: z.string().nullable(),
   errorMessage: z.string().nullable(),
+  // Why the evidence gate rejected this run. Recorded on the run's checkpoint
+  // since 2.x and surfaced nowhere: the panel said only "the evidence gate
+  // rejected this analysis", so a rejection that had already cost a full
+  // analysis gave no way to tell an over-claiming synthesis from a genuinely
+  // unsupportable script. `path` only — the verifier's free-text reason quotes
+  // the script back (hard rule 5). Defaulted so older clients still parse.
+  rejectionDiagnostics: z
+    .array(z.object({ code: z.string(), path: z.string() }))
+    .default([]),
   createdAt: z.string(),
   updatedAt: z.string(),
 })

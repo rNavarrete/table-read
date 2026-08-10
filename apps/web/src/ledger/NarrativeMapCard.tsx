@@ -336,6 +336,23 @@ export function NarrativeMapCard({
           narrativeMapRun.errorCode === 'WORKER_INTERRUPTED') ? (
           <NarrativeMapProgress run={narrativeMapRun} />
         ) : null}
+        {narrativeMapRun?.rejectionDiagnostics?.length ? (
+          <div className="mt-3" data-testid="narrative-map-rejections">
+            <p className="font-script text-11 uppercase tracking-[0.1em] text-tr-text-muted">
+              What the verifier could not support
+            </p>
+            <ul className="mt-1.5 flex flex-col gap-1">
+              {narrativeMapRun.rejectionDiagnostics.map((d) => (
+                <li
+                  key={d.path}
+                  className="text-12 leading-snug text-tr-text-secondary"
+                >
+                  {d.path}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
         {onGenerateNarrativeMap && !runIsActive ? (
           <button
             type="button"

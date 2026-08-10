@@ -428,6 +428,11 @@ class NarrativeMapRunPhase(StrEnum):
     failed = "failed"
 
 
+class NarrativeMapRejectionDiagnostic(_Base):
+    code: str
+    path: str
+
+
 class NarrativeMapRun(_Base):
     id: Id
     project_id: Id
@@ -446,6 +451,8 @@ class NarrativeMapRun(_Base):
     result_snapshot_id: Id | None
     error_code: str | None
     error_message: str | None
+    # Why the evidence gate rejected this run — see the Zod docstring.
+    rejection_diagnostics: list[NarrativeMapRejectionDiagnostic] = []
     created_at: str
     updated_at: str
 

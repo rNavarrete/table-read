@@ -116,9 +116,38 @@ def serialize_run(run: NarrativeMapRunRow) -> dict:
         "resultSnapshotId": run.result_snapshot_id,
         "errorCode": run.error_code,
         "errorMessage": error_message,
+        "rejectionDiagnostics": _rejection_diagnostics(run),
         "createdAt": _utc_z(run.created_at),
         "updatedAt": _utc_z(run.updated_at),
     }
+
+
+# Rule 5: a diagnostic path is ids and field names, but the verifier writes a
+# free-text reason that quotes the script back. Only the path is exposed.
+_MAX_SURFACED_DIAGNOSTICS = 12
+
+
+def _rejection_diagnostics(run: NarrativeMapRunRow) -> list[dict]:
+    """Why the evidence gate rejected this run, for the writer to read.
+
+    These were already recorded on the run's checkpoint and shown nowhere: the
+    panel said only "the evidence gate rejected this analysis", so a rejection
+    that had just cost a full analysis gave no way to tell an over-claiming
+    synthesis from a genuinely unsupportable script — the reasons had to be
+    read out of SQLite by hand.
+    """
+    checkpoint = run.checkpoint if isinstance(run.checkpoint, dict) else {}
+    raw = checkpoint.get("rejectionDiagnostics")
+    if not isinstance(raw, list):
+        return []
+    out: list[dict] = []
+    for entry in raw[:_MAX_SURFACED_DIAGNOSTICS]:
+        if not isinstance(entry, dict):
+            continue
+        path = str(entry.get("path") or "").strip()
+        if path:
+            out.append({"code": str(entry.get("code") or "rejected"), "path": path})
+    return out
 
 
 def _retry_allowed(run: NarrativeMapRunRow) -> bool:
