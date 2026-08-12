@@ -152,3 +152,81 @@ def test_default_ocr_times_out_blocking_page_work(monkeypatch):
         ocr(b"%PDF-fake")
 
     assert ei.value.code == "UNAVAILABLE"
+
+
+def test_an_overrunning_ocr_render_is_abandoned_without_freeing_its_pdfium_memory(
+    monkeypatch,
+):
+    """Two hazards on the OCR timeout path, both invisible to the caller.
+
+    The stranded render must run on a daemon thread: a `ThreadPoolExecutor`
+    worker is joined by the interpreter at exit, so `shutdown(wait=False)` only
+    deferred the wait to process teardown. And it ran per page, so a 150-page
+    scan could strand 150 of them.
+
+    Worse, the old code closed the page in a `finally` and the document right
+    after, while that render was still inside native pdfium memory. Freeing a
+    buffer under a live reader is a segfault, not an exception -- so on this
+    path nothing may be closed, and the objects are quarantined instead.
+    """
+    import threading
+
+    started = threading.Event()
+    release = threading.Event()
+    closed: list[str] = []
+    worker: dict[str, threading.Thread] = {}
+
+    class FakeRenderedPage:
+        def to_pil(self):
+            return object()
+
+    class FakePage:
+        def render(self, *, scale: int):
+            worker["thread"] = threading.current_thread()
+            started.set()
+            release.wait(10)  # still rendering when the deadline passes
+            return FakeRenderedPage()
+
+        def close(self):
+            closed.append("page")
+
+    class FakePdf:
+        def __init__(self, _data: bytes):
+            pass
+
+        def __len__(self):
+            return 1
+
+        def __getitem__(self, _index: int):
+            return FakePage()
+
+        def close(self):
+            closed.append("document")
+
+    monkeypatch.setitem(sys.modules, "pypdfium2", types.SimpleNamespace(PdfDocument=FakePdf))
+    monkeypatch.setitem(
+        sys.modules,
+        "pytesseract",
+        types.SimpleNamespace(
+            TesseractNotFoundError=RuntimeError,
+            image_to_string=lambda _image, *, lang: "OCR text",
+        ),
+    )
+    monkeypatch.setattr(pdf_extract, "OCR_TIMEOUT_SECONDS", 0.05)
+    quarantined = len(pdf_extract._ABANDONED_PDF_OBJECTS)
+
+    ocr = pdf_extract._extract_ocr_with_tesseract(clock=time.monotonic)
+    with pytest.raises(PdfExtractError) as ei:
+        ocr(b"%PDF-fake")
+
+    assert ei.value.code == "UNAVAILABLE"
+    assert started.wait(1), "the render really started, so there is live work to strand"
+    assert worker["thread"].daemon, (
+        "the stranded render must be a daemon thread; a non-daemon worker is joined "
+        "by the interpreter at exit, which is the hang this guards"
+    )
+    assert closed == [], "nothing may be freed while the render still holds it"
+    assert len(pdf_extract._ABANDONED_PDF_OBJECTS) == quarantined + 2, (
+        "page and document are both kept alive, so finalizers cannot free them either"
+    )
+    release.set()

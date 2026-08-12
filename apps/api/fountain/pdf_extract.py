@@ -7,12 +7,13 @@ Tesseract or real PDF fixtures.
 
 from __future__ import annotations
 
-import concurrent.futures
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from io import BytesIO
 from typing import Literal
+
+from deadline import DeadlineExceeded, call_within_deadline
 
 MAX_PDF_BYTES = 20 * 1024 * 1024
 MAX_PDF_PAGES = 150
@@ -163,19 +164,34 @@ def _extract_ocr_with_tesseract(*, clock: Clock) -> PdfPageExtractor:
 
         _validate_page_count(len(pdf))
         texts: list[str] = []
+        # Set only when a render overruns its deadline and is left running. From
+        # that point nothing here may free pdfium memory -- see the handler.
+        abandoned = False
         try:
             for index in range(len(pdf)):
                 _raise_if_ocr_timed_out(start, clock)
 
                 page = pdf[index]
-                executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-                future = executor.submit(_ocr_page, page, pytesseract)
                 try:
                     remaining = OCR_TIMEOUT_SECONDS - (clock() - start)
-                    texts.append(future.result(timeout=remaining))
+                    texts.append(
+                        call_within_deadline(
+                            lambda page=page: _ocr_page(page, pytesseract),
+                            remaining,
+                            name="pdf-ocr-page",
+                        )
+                    )
                     _raise_if_ocr_timed_out(start, clock)
-                except concurrent.futures.TimeoutError as exc:
-                    future.cancel()
+                except DeadlineExceeded as exc:
+                    # The render is still running inside native pdfium memory.
+                    # Closing this page or the document now would free that memory
+                    # under a live worker, which is a segfault rather than an
+                    # exception -- so quarantine both and let them leak. One
+                    # abandoned document per OCR timeout is a fair price for not
+                    # taking the API process down, and the timeout has already
+                    # failed this import.
+                    abandoned = True
+                    _quarantine_after_timeout(pdf, page)
                     raise PdfExtractError(
                         "UNAVAILABLE", "PDF OCR exceeded the 120s timeout"
                     ) from exc
@@ -184,14 +200,27 @@ def _extract_ocr_with_tesseract(*, clock: Clock) -> PdfPageExtractor:
                         "UNAVAILABLE", "Install/configure Tesseract for PDF OCR"
                     ) from exc
                 finally:
-                    executor.shutdown(wait=False, cancel_futures=True)
-                    page.close()
+                    if not abandoned:
+                        page.close()
         finally:
-            pdf.close()
+            if not abandoned:
+                pdf.close()
 
         return texts
 
     return extract
+
+
+# Documents and pages whose render overran its deadline and was abandoned mid-
+# flight. Holding a reference is the point: pypdfium2 frees native memory from
+# its finalizers, so letting these be collected would pull the buffer out from
+# under a worker that is still reading it. They are deliberately never emptied.
+_ABANDONED_PDF_OBJECTS: list[object] = []
+
+
+def _quarantine_after_timeout(*objects: object) -> None:
+    """Keep abandoned pdfium objects alive so a detached render cannot crash."""
+    _ABANDONED_PDF_OBJECTS.extend(objects)
 
 
 def _raise_if_ocr_timed_out(start: float, clock: Clock) -> None:

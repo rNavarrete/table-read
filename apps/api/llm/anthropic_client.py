@@ -25,13 +25,13 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-import threading
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, ValidationError
 
+from deadline import DeadlineExceeded, call_within_deadline
 from llm.errors import (
     LlmTimeoutError,
     SchemaInvalidLlmError,
@@ -72,65 +72,20 @@ DEFAULT_LLM_CALL_TIMEOUT_SECONDS = 120
 _logger = logging.getLogger("llm.anthropic_client")
 
 
-class _DeadlineExceeded(Exception):
-    """Internal: the worker did not finish inside the call deadline."""
-
-
-def _call_within_deadline(work: Callable[[], Any], timeout: float) -> Any:
-    """Run `work()` on a **daemon** thread, waiting at most `timeout` seconds.
-
-    Raises `_DeadlineExceeded` if it does not finish in time; otherwise returns
-    its value, or re-raises whatever it raised, on the caller's thread.
-
-    The daemon thread is the whole point, and a `ThreadPoolExecutor` cannot do
-    this. Pool workers are non-daemon, and `concurrent.futures` registers an
-    atexit hook that joins them — so `shutdown(wait=False)` does not skip the
-    wait, it defers it to interpreter shutdown. The caller returns promptly and
-    then the *process* blocks on the call we already gave up on. Measured
-    directly: give up on a 5s call after 0.5s and the process still takes 5.06s
-    to exit.
-
-    That is worst exactly where it hurts. The SDK client is built with its own
-    120s timeout and the SDK's default retries, so an abandoned call can stay
-    alive for minutes. Under `make evals` the suite prints its report, reports
-    `exit=0`, and then sits there — indistinguishable from a hang, and a Ctrl-C
-    at that point loses a paid run. A daemon thread is abandoned outright and
-    can never hold up exit.
-
-    The abandoned call is not cancelled, because there is nothing to cancel: the
-    SDK offers no cooperative hook here, and `Future.cancel()` was already a
-    no-op once the call had started. Its own timeout ends it.
-    """
-    box: dict[str, Any] = {}
-
-    def run() -> None:
-        try:
-            box["value"] = work()
-        except BaseException as exc:  # noqa: BLE001 — re-raised on the caller's thread
-            box["error"] = exc
-
-    thread = threading.Thread(target=run, name="llm-call", daemon=True)
-    thread.start()
-    thread.join(timeout)
-    if thread.is_alive():
-        raise _DeadlineExceeded
-    if "error" in box:
-        raise box["error"]
-    return box.get("value")
-
-
 def _create_with_timeout(sdk_client: Any, timeout: float, op: str, **kwargs: Any) -> Any:
     """Run `sdk_client.messages.create(**kwargs)` on a daemon thread and wait
     at most `timeout` seconds, then raise `LlmTimeoutError(op)`. A hung call
-    hangs neither the caller nor, via `_call_within_deadline`, the process at
+    hangs neither the caller nor, via `deadline.call_within_deadline`, the process at
     exit.
 
     Anthropic SDK transport/status failures are logged here (class, status,
     op — never message/body text) before re-raise so SSE/route mapping to
     `LLM_UNAVAILABLE` is diagnosable in prod/dev logs."""
     try:
-        return _call_within_deadline(lambda: sdk_client.messages.create(**kwargs), timeout)
-    except _DeadlineExceeded:
+        return call_within_deadline(
+            lambda: sdk_client.messages.create(**kwargs), timeout, name="llm-call"
+        )
+    except DeadlineExceeded:
         timeout_exc = LlmTimeoutError(op, timeout)
         log_llm_unavailable(
             _logger,
@@ -173,8 +128,8 @@ def _stream_final_with_timeout(sdk_client: Any, timeout: float, op: str, **kwarg
                 active_stream.pop("value", None)
 
     try:
-        return _call_within_deadline(consume, timeout)
-    except _DeadlineExceeded:
+        return call_within_deadline(consume, timeout, name="llm-call")
+    except DeadlineExceeded:
         # Closing the stream is what actually ends the abandoned call here —
         # it breaks the read loop the daemon thread is parked on, so the
         # thread exits rather than lingering until the SDK's own timeout.
