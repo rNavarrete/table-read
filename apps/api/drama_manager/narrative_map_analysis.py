@@ -21,6 +21,9 @@ from schemas import (
     NarrativeMapVerification,
 )
 
+# 3.1: the verifier must settle a finding before filing it, rather than
+# retracting it inside an unsupportedClaims reason (PROMPT_VERSION 0.46.0).
+#
 # 3.0: an act's escalation carries its own beat citations (PROMPT_VERSION
 # 0.45.0). The synthesis response and the persisted map both change shape, so
 # no earlier checkpoint's synthesis can be reused.
@@ -40,7 +43,7 @@ from schemas import (
 # block keys on this constant — a prompt fix that changes what the analysis
 # produces has to be a new analysis version or the rejected run can never be
 # retried at all.
-NARRATIVE_MAP_ANALYSIS_VERSION = "3.0"
+NARRATIVE_MAP_ANALYSIS_VERSION = "3.1"
 NARRATIVE_MAP_SCENE_CHUNK_CHAR_BUDGET = 24_000
 NARRATIVE_MAP_SCENES_PER_CHUNK = 1
 NARRATIVE_MAP_VERIFICATION_EXCERPT_CHARS = 520

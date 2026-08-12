@@ -25,7 +25,14 @@ import secrets
 from typing import Any
 
 # Prompt spec §8 / hard rule 7: every template carries a PROMPT_VERSION (semver);
-# it is logged with each call and bumped on any template change. 0.45.0 makes
+# it is logged with each call and bumped on any template change. 0.46.0 tells
+# the Narrative Map verifier to settle a finding before filing it. Giving the
+# blocking list a reason field in 0.43.0 gave the model somewhere to reason, and
+# it reasons after committing the path: real runs produced blocking entries
+# whose reasons read "fine as-is, but no issue here", "this is supported.
+# Retracting" and "Retracted." — three of nine across three runs, each one
+# discarding the map. The list is what the server reads; the prose is not.
+# 0.45.0 makes
 # an act's escalation cite its own beats. 0.44.0 told the verifier that
 # escalation is act-scoped and gave it act membership to reason with, which
 # helped and did not settle it: across ten replays the conflation with
@@ -109,7 +116,7 @@ from typing import Any
 # 0.10.0 typed segment starts; 0.9.0 lock-aware narrative repair. Earlier:
 # 0.8.0 suggest; 0.7.0 scene skeleton; 0.6.0 continuity; 0.5.0 regenerate;
 # 0.4.0 blast; 0.3.0 tune; 0.2.0 candidate + §0 system prompt.
-PROMPT_VERSION = "0.45.0"
+PROMPT_VERSION = "0.46.0"
 
 
 def new_nonce() -> str:
@@ -727,7 +734,16 @@ def build_narrative_map_verification_prompt(
         "filler, an invented character or event, or a claim that contradicts or materially "
         "exceeds what is quoted. A claim you find supported but arrived at partly by "
         "inference is an advisory, not a rejection, and so is a claim that overstates a "
-        "degree while its substance holds. Use missingSceneIds only when the candidate omits "
+        "degree while its substance holds. Settle each finding before you write it down. "
+        "Work out whether the excerpts carry the claim first, and only then put it in a "
+        "list — every entry in unsupportedClaims must still be one you would reject on "
+        "reading it back. If, while writing a reason, you conclude the claim is supported, "
+        "or fine as it stands, or better placed as advice, then it was never a rejection: "
+        "put it in advisories and write the reason there. A reason that argues its own "
+        "claim is supported still rejects the map, because the server reads the list you "
+        "put it in and not the prose. Never write 'retracted', 'no issue', 'this is "
+        "supported' or 'moved to advisories' inside an unsupportedClaims reason — move the "
+        "finding instead. Use missingSceneIds only when the candidate omits "
         "a supplied scene; an empty optional section is an advisory, never a rejection by "
         "itself. In both lists, path names the disputed field and nothing else — "
         "themes[0].evidence, acts[2].escalation, sceneTurns[scene-22].turn — indexing into it "
