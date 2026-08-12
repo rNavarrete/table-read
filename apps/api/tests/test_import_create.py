@@ -1052,26 +1052,17 @@ def test_verifier_coverage_rejection_finishes_from_cache_without_more_model_call
         headers={"If-Match": original_head},
     ).json()
     execute_run(first["id"], mock_llm)
-    synthesis_calls = mock_llm.invocation_count("infer_narrative_map_synthesis")
-    verification_calls = mock_llm.invocation_count("verify_narrative_map")
-
-    latest = client.get(f"/api/v1/projects/{project_id}/narrative-map/runs/latest").json()
-    resumed = client.post(
-        f"/api/v1/projects/{project_id}/narrative-map",
-        headers={"If-Match": original_head},
-    ).json()
-    execute_run(resumed["id"], mock_llm)
     db_session.expire_all()
 
     stored = db_session.get(NarrativeMapRunRow, first["id"])
     persisted = db_session.get(ProjectRow, project_id)
-    assert latest["retryAllowed"] is True
-    assert "no model call" in latest["errorMessage"]
-    assert resumed["id"] == first["id"]
+    # Repaired on the first pass, not on a resume. This used to reject here and
+    # only publish if the writer clicked again — while the panel told them a
+    # retry was blocked to prevent another charge, for a repair that costs none.
     assert stored.status == "completed"
     assert stored.checkpoint["verificationAdjudication"]["providerCalls"] == 0
-    assert mock_llm.invocation_count("infer_narrative_map_synthesis") == synthesis_calls
-    assert mock_llm.invocation_count("verify_narrative_map") == verification_calls
+    assert mock_llm.invocation_count("infer_narrative_map_synthesis") == 1
+    assert mock_llm.invocation_count("verify_narrative_map") == 1
     assert persisted.doc["seasons"][0]["episodes"][0]["narrativeMap"] is not None
     assert persisted.head_snapshot_id != original_head
 

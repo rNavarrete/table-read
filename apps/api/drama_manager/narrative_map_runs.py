@@ -962,21 +962,7 @@ def _synthesize_and_verify(
     )
     if use_local_verification_repair:
         verification = NarrativeMapVerification.model_validate(cached_verification)
-        claim_count_before_repair = len(candidate.themes) + len(candidate.thread_movements)
-        candidate, repairs = repair_candidate_from_verification(candidate, verification)
-        checkpoint["verificationRepairs"] = repairs
-        checkpoint["verificationAdjudication"] = {
-            "policyVersion": 2,
-            "providerCalls": 0,
-            "removedClaimCount": claim_count_before_repair
-            - len(candidate.themes)
-            - len(candidate.thread_movements),
-            "coverageAdvisories": [
-                repair
-                for repair in repairs
-                if repair.get("action") in {"record_coverage_advisory", "record_verifier_advisory"}
-            ],
-        }
+        candidate = _apply_local_verification_repair(candidate, verification, checkpoint)
     candidate_doc = copy.deepcopy(source_doc)
     try:
         merge_narrative_map(candidate_doc, source.episode_id, candidate)
@@ -1029,8 +1015,54 @@ def _synthesize_and_verify(
     checkpoint["verification"] = verification.model_dump(by_alias=True)
     _touch(run, phase="verification", checkpoint=checkpoint)
     session.commit()
+
+    # A first-pass rejection whose every claim is prunable is not a reason to
+    # throw the analysis away. This repair used to run only on a *resumed* run,
+    # because the policy flag that gated it is set at resume time — so a writer
+    # was told "no map, and a retry is blocked to prevent another charge" for a
+    # map that the second attempt then published for free. Measured on the West
+    # Wing pilot: three blocking claims, all prunable, zero provider calls to
+    # resolve them. Anything unprunable still fails closed below.
+    if verification_supports_local_repair(verification):
+        candidate = _apply_local_verification_repair(candidate, verification, checkpoint)
+        candidate_doc = copy.deepcopy(source_doc)
+        try:
+            merge_narrative_map(candidate_doc, source.episode_id, candidate)
+        except NarrativeMapValidationError as exc:
+            raise NarrativeMapAnalysisValidationError(exc.diagnostics) from None
+        _touch(run, phase="verification", checkpoint=checkpoint)
+        session.commit()
+        _logger.info(
+            "narrative_map_local_verification_repair run_id=%s removed_claims=%d provider_calls=0",
+            run.id,
+            checkpoint["verificationAdjudication"]["removedClaimCount"],
+        )
+        return candidate_doc
+
     validate_verification(verification)
     return candidate_doc
+
+
+def _apply_local_verification_repair(candidate, verification, checkpoint: dict):
+    """Prune verifier-rejected optional claims and record that it cost nothing.
+
+    Shared by the first-pass and resumed paths so a map's fate does not depend
+    on which attempt surfaced the verdict.
+    """
+    before = len(candidate.themes) + len(candidate.thread_movements)
+    repaired, repairs = repair_candidate_from_verification(candidate, verification)
+    checkpoint["verificationRepairs"] = repairs
+    checkpoint["verificationAdjudication"] = {
+        "policyVersion": 2,
+        "providerCalls": 0,
+        "removedClaimCount": before - len(repaired.themes) - len(repaired.thread_movements),
+        "coverageAdvisories": [
+            repair
+            for repair in repairs
+            if repair.get("action") in {"record_coverage_advisory", "record_verifier_advisory"}
+        ],
+    }
+    return repaired
 
 
 def _reject_run(
