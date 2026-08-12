@@ -1115,3 +1115,49 @@ def test_schema_retry_reuses_the_same_cached_system_prefix():
 
     assert len(sdk.messages.calls) == 2
     assert sdk.messages.calls[0]["system"] == sdk.messages.calls[1]["system"]
+
+
+def test_a_timed_out_call_leaves_no_thread_that_can_delay_process_exit():
+    """The worker abandoned on timeout must be a daemon.
+
+    `_create_with_timeout` used a `ThreadPoolExecutor` and ended with
+    `shutdown(wait=False)`, which reads like "do not wait" but is not: pool
+    workers are non-daemon and `concurrent.futures` registers an atexit hook
+    that joins them, so the wait moves to interpreter shutdown. The caller
+    returned promptly and the *process* then blocked on the call it had already
+    given up on — under `make evals`, a suite that printed its report, said
+    `exit=0`, and sat there looking hung, where a Ctrl-C loses a paid run.
+    """
+    import threading
+    import time
+
+    from llm.anthropic_client import _create_with_timeout
+    from llm.errors import LlmTimeoutError
+
+    started = threading.Event()
+    release = threading.Event()
+    captured: dict[str, threading.Thread] = {}
+
+    def never_returns_in_time(**_kwargs):
+        captured["worker"] = threading.current_thread()
+        started.set()
+        release.wait(10)  # outlives the deadline below, as a hung call would
+
+    sdk = type(
+        "Sdk", (), {"messages": type("M", (), {"create": staticmethod(never_returns_in_time)})()}
+    )()
+
+    t0 = time.monotonic()
+    with pytest.raises(LlmTimeoutError):
+        _create_with_timeout(sdk, 0.05, "segment_scene", model="m")
+    elapsed = time.monotonic() - t0
+
+    assert elapsed < 5, "the caller must not wait for the abandoned call"
+    assert started.wait(1), "the call really did start, so there is a live worker to strand"
+    worker = captured["worker"]
+    assert worker.is_alive(), "still running — this is the case that used to block exit"
+    assert worker.daemon, (
+        "the stranded worker must be a daemon thread; a non-daemon worker is joined "
+        "by the interpreter at exit, which is the hang this guards"
+    )
+    release.set()

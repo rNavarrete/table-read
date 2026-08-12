@@ -25,9 +25,8 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-from collections.abc import Iterator
-from concurrent.futures import ThreadPoolExecutor
-from concurrent.futures import TimeoutError as FuturesTimeoutError
+import threading
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
 
@@ -73,46 +72,85 @@ DEFAULT_LLM_CALL_TIMEOUT_SECONDS = 120
 _logger = logging.getLogger("llm.anthropic_client")
 
 
+class _DeadlineExceeded(Exception):
+    """Internal: the worker did not finish inside the call deadline."""
+
+
+def _call_within_deadline(work: Callable[[], Any], timeout: float) -> Any:
+    """Run `work()` on a **daemon** thread, waiting at most `timeout` seconds.
+
+    Raises `_DeadlineExceeded` if it does not finish in time; otherwise returns
+    its value, or re-raises whatever it raised, on the caller's thread.
+
+    The daemon thread is the whole point, and a `ThreadPoolExecutor` cannot do
+    this. Pool workers are non-daemon, and `concurrent.futures` registers an
+    atexit hook that joins them — so `shutdown(wait=False)` does not skip the
+    wait, it defers it to interpreter shutdown. The caller returns promptly and
+    then the *process* blocks on the call we already gave up on. Measured
+    directly: give up on a 5s call after 0.5s and the process still takes 5.06s
+    to exit.
+
+    That is worst exactly where it hurts. The SDK client is built with its own
+    120s timeout and the SDK's default retries, so an abandoned call can stay
+    alive for minutes. Under `make evals` the suite prints its report, reports
+    `exit=0`, and then sits there — indistinguishable from a hang, and a Ctrl-C
+    at that point loses a paid run. A daemon thread is abandoned outright and
+    can never hold up exit.
+
+    The abandoned call is not cancelled, because there is nothing to cancel: the
+    SDK offers no cooperative hook here, and `Future.cancel()` was already a
+    no-op once the call had started. Its own timeout ends it.
+    """
+    box: dict[str, Any] = {}
+
+    def run() -> None:
+        try:
+            box["value"] = work()
+        except BaseException as exc:  # noqa: BLE001 — re-raised on the caller's thread
+            box["error"] = exc
+
+    thread = threading.Thread(target=run, name="llm-call", daemon=True)
+    thread.start()
+    thread.join(timeout)
+    if thread.is_alive():
+        raise _DeadlineExceeded
+    if "error" in box:
+        raise box["error"]
+    return box.get("value")
+
+
 def _create_with_timeout(sdk_client: Any, timeout: float, op: str, **kwargs: Any) -> Any:
-    """Run `sdk_client.messages.create(**kwargs)` on a worker thread and wait
-    at most `timeout` seconds. On timeout, best-effort cancel (a no-op once
-    the SDK call has actually started -- the underlying HTTP request has no
-    cooperative cancellation hook here) and raise `LlmTimeoutError(op)`. Does
-    not wait for the executor to shut down: a genuinely hung call must not
-    also hang the caller during teardown.
+    """Run `sdk_client.messages.create(**kwargs)` on a daemon thread and wait
+    at most `timeout` seconds, then raise `LlmTimeoutError(op)`. A hung call
+    hangs neither the caller nor, via `_call_within_deadline`, the process at
+    exit.
 
     Anthropic SDK transport/status failures are logged here (class, status,
     op — never message/body text) before re-raise so SSE/route mapping to
     `LLM_UNAVAILABLE` is diagnosable in prod/dev logs."""
-    executor = ThreadPoolExecutor(max_workers=1)
-    future = executor.submit(sdk_client.messages.create, **kwargs)
     try:
-        try:
-            return future.result(timeout=timeout)
-        except FuturesTimeoutError:
-            future.cancel()
-            timeout_exc = LlmTimeoutError(op, timeout)
+        return _call_within_deadline(lambda: sdk_client.messages.create(**kwargs), timeout)
+    except _DeadlineExceeded:
+        timeout_exc = LlmTimeoutError(op, timeout)
+        log_llm_unavailable(
+            _logger,
+            timeout_exc,
+            where="anthropic_client",
+            op=op,
+            model=kwargs.get("model"),
+        )
+        raise timeout_exc from None
+    except Exception as exc:
+        mod = getattr(type(exc), "__module__", "") or ""
+        if mod.startswith("anthropic"):
             log_llm_unavailable(
                 _logger,
-                timeout_exc,
+                exc,
                 where="anthropic_client",
                 op=op,
                 model=kwargs.get("model"),
             )
-            raise timeout_exc from None
-        except Exception as exc:
-            mod = getattr(type(exc), "__module__", "") or ""
-            if mod.startswith("anthropic"):
-                log_llm_unavailable(
-                    _logger,
-                    exc,
-                    where="anthropic_client",
-                    op=op,
-                    model=kwargs.get("model"),
-                )
-            raise
-    finally:
-        executor.shutdown(wait=False)
+        raise
 
 
 def _stream_final_with_timeout(sdk_client: Any, timeout: float, op: str, **kwargs: Any) -> Any:
@@ -134,42 +172,39 @@ def _stream_final_with_timeout(sdk_client: Any, timeout: float, op: str, **kwarg
             finally:
                 active_stream.pop("value", None)
 
-    executor = ThreadPoolExecutor(max_workers=1)
-    future = executor.submit(consume)
     try:
-        try:
-            return future.result(timeout=timeout)
-        except FuturesTimeoutError:
-            future.cancel()
-            stream = active_stream.get("value")
-            close = getattr(stream, "close", None)
-            if close is not None:
-                try:
-                    close()
-                except Exception:
-                    pass
-            timeout_exc = LlmTimeoutError(op, timeout)
+        return _call_within_deadline(consume, timeout)
+    except _DeadlineExceeded:
+        # Closing the stream is what actually ends the abandoned call here —
+        # it breaks the read loop the daemon thread is parked on, so the
+        # thread exits rather than lingering until the SDK's own timeout.
+        stream = active_stream.get("value")
+        close = getattr(stream, "close", None)
+        if close is not None:
+            try:
+                close()
+            except Exception:
+                pass
+        timeout_exc = LlmTimeoutError(op, timeout)
+        log_llm_unavailable(
+            _logger,
+            timeout_exc,
+            where="anthropic_client_stream",
+            op=op,
+            model=kwargs.get("model"),
+        )
+        raise timeout_exc from None
+    except Exception as exc:
+        mod = getattr(type(exc), "__module__", "") or ""
+        if mod.startswith("anthropic"):
             log_llm_unavailable(
                 _logger,
-                timeout_exc,
+                exc,
                 where="anthropic_client_stream",
                 op=op,
                 model=kwargs.get("model"),
             )
-            raise timeout_exc from None
-        except Exception as exc:
-            mod = getattr(type(exc), "__module__", "") or ""
-            if mod.startswith("anthropic"):
-                log_llm_unavailable(
-                    _logger,
-                    exc,
-                    where="anthropic_client_stream",
-                    op=op,
-                    model=kwargs.get("model"),
-                )
-            raise
-    finally:
-        executor.shutdown(wait=False)
+        raise
 
 
 def _response_with_timeout(
