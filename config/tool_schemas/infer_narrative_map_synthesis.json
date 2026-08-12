@@ -62,6 +62,22 @@
           "escalation": {
             "type": "string"
           },
+          "escalationEvidence": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "beatId": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "beatId"
+              ],
+              "additionalProperties": false
+            }
+          },
           "turnBeatId": {
             "type": "string"
           }
@@ -70,6 +86,7 @@
           "act",
           "dramaticQuestion",
           "escalation",
+          "escalationEvidence",
           "turnBeatId"
         ],
         "additionalProperties": false

@@ -70,6 +70,7 @@ describe('InferredNarrativeMap', () => {
           act: 0,
           dramaticQuestion: 'Will Marta get an answer?',
           escalation: 'The proof makes silence untenable.',
+          escalationEvidence: [{ beatId: 'beat-1' }],
           turnBeatId: 'beat-1',
         },
       ],

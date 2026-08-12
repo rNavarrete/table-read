@@ -318,6 +318,9 @@ class NarrativeAct(_Base):
     act: int = Field(ge=0)
     dramatic_question: str
     escalation: str
+    # Server-filled; see the Zod definition for why the escalation carries its
+    # own evidence and the turn beat's quote is not a substitute for it.
+    escalation_evidence: list[NarrativeEvidence] = []
     turn_beat_id: Id
     evidence_quote: str = Field(min_length=1, max_length=200)
 
@@ -1119,6 +1122,7 @@ class InferredNarrativeAct(_Base):
     act: int = Field(ge=0)
     dramatic_question: str
     escalation: str
+    escalation_evidence: list[InferredNarrativeEvidence] = Field(min_length=1, max_length=3)
     turn_beat_id: Id
 
 

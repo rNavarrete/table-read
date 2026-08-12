@@ -25,7 +25,15 @@ import secrets
 from typing import Any
 
 # Prompt spec §8 / hard rule 7: every template carries a PROMPT_VERSION (semver);
-# it is logged with each call and bumped on any template change. 0.44.0 tells
+# it is logged with each call and bumped on any template change. 0.45.0 makes
+# an act's escalation cite its own beats. 0.44.0 told the verifier that
+# escalation is act-scoped and gave it act membership to reason with, which
+# helped and did not settle it: across ten replays the conflation with
+# turnBeatId kept resurfacing, because the claim's scope was still inferred
+# rather than stated. The synthesis now names one to three beats from the act
+# that show it escalating, the server checks they belong to that act, and the
+# verifier weighs the claim against those excerpts instead of the turn beat's.
+# 0.44.0 tells
 # the Narrative Map verifier to judge each claim at its own scope. An act's
 # escalation describes the whole act while its turnBeatId names one beat, and
 # the verifier had no act membership to tell them apart — so it judged the prose
@@ -101,7 +109,7 @@ from typing import Any
 # 0.10.0 typed segment starts; 0.9.0 lock-aware narrative repair. Earlier:
 # 0.8.0 suggest; 0.7.0 scene skeleton; 0.6.0 continuity; 0.5.0 regenerate;
 # 0.4.0 blast; 0.3.0 tune; 0.2.0 candidate + §0 system prompt.
-PROMPT_VERSION = "0.44.0"
+PROMPT_VERSION = "0.45.0"
 
 
 def new_nonce() -> str:
@@ -659,7 +667,13 @@ def build_narrative_map_synthesis_prompt(
         "dramatic conflict or character change from them. Packets marked "
         "analysisStatus=source_fallback preserve chronology from a source-backed imported "
         "outline after a weak scene response; use them for the event they state, but never "
-        "as the sole support for a theme, character arc, or inferred motive. Return exactly "
+        "as the sole support for a theme, character arc, or inferred motive. An act's "
+        "turnBeatId and its escalationEvidence answer different questions: the turn is the "
+        "one beat the act pivots on, while the escalation describes how the whole act "
+        "raises the stakes and cites one to three beats — from anywhere in that act — that "
+        "show it doing so. Write the escalation from those beats. If the only beat you can "
+        "cite for it is the turn beat itself, the sentence is describing the turn rather "
+        "than the act, so widen it to what the act builds through. Return exactly "
         "one act row for every "
         "act represented by the packets. Hero's Journey is optional: set applies=false "
         "when the episode is better understood as ensemble, procedural, or otherwise "
@@ -694,17 +708,17 @@ def build_narrative_map_verification_prompt(
         "characters/events, and claims that contradict or materially exceed the supplied "
         "excerpts. Treat sourceKind=front_matter as production metadata and sourceKind="
         "establishing as orientation, never as evidence of dramatic conflict or character "
-        "change. Judge every claim at its own scope. An act's escalation and "
-        "dramaticQuestion describe the whole act, so weigh them against any beat in that "
-        "act — narrative_map_audit_evidence gives each beat its act, and actScenes gives "
-        "each act its full list of scenes. Its turnBeatId names one beat and is judged "
-        "against that beat alone. Do not reject act-level prose because the detail it "
-        "reports sits in a different scene of the same act; that is where an act's "
-        "escalation is supposed to look. The same split holds for a scene: dramaticFunction, "
-        "conflict and stakes read the scene, while turnBeatId names one beat in it. "
-        "Where an act spans scenes you were given no excerpt for, say so as an advisory "
-        "rather than a rejection — you were not shown that scene, which is not the same as "
-        "the claim being unsupported. "
+        "change. Judge every claim against the beats that claim cites, not against a "
+        "neighbouring field's. An act's escalation is supported by its escalationEvidence "
+        "beats, which the server has already confirmed belong to that act; its turnBeatId "
+        "is a separate claim judged against that beat alone. Never weigh an escalation "
+        "against the turn beat's excerpt — they are different claims about different "
+        "spans, and the escalation is meant to reach across the act. The same split holds "
+        "for a scene: dramaticFunction, conflict and stakes read the scene, while "
+        "turnBeatId names one beat in it. Where a claim rests on a scene you were given no "
+        "excerpt for, say so as an advisory rather than a rejection — not being shown a "
+        "scene is not the same as the claim being unsupported; actScenes lists every scene "
+        "in each act so you can tell those apart. "
         "Every finding goes in exactly one list, and the list you choose is the "
         "whole verdict: unsupportedClaims rejects the map and discards the analysis, "
         "advisories keeps it. Never file the same finding in both — a claim you can also "

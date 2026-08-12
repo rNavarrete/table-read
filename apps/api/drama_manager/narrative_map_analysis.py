@@ -21,6 +21,10 @@ from schemas import (
     NarrativeMapVerification,
 )
 
+# 3.0: an act's escalation carries its own beat citations (PROMPT_VERSION
+# 0.45.0). The synthesis response and the persisted map both change shape, so
+# no earlier checkpoint's synthesis can be reused.
+#
 # 2.9: the verifier judges each claim at its own scope — act-level prose against
 # any beat in the act, not against the single cited turn beat (PROMPT_VERSION
 # 0.44.0). The audit packet gains each beat's act and each act's scene span.
@@ -36,7 +40,7 @@ from schemas import (
 # block keys on this constant — a prompt fix that changes what the analysis
 # produces has to be a new analysis version or the rejected run can never be
 # retried at all.
-NARRATIVE_MAP_ANALYSIS_VERSION = "2.9"
+NARRATIVE_MAP_ANALYSIS_VERSION = "3.0"
 NARRATIVE_MAP_SCENE_CHUNK_CHAR_BUDGET = 24_000
 NARRATIVE_MAP_SCENES_PER_CHUNK = 1
 NARRATIVE_MAP_VERIFICATION_EXCERPT_CHARS = 520
@@ -766,6 +770,12 @@ def _candidate_beat_ids(candidate: dict) -> set[str]:
     for act in candidate.get("acts") or []:
         if isinstance(act, dict):
             add(act.get("turnBeatId") or act.get("turn_beat_id"))
+            # The beats the escalation rests on. Without these the verifier is
+            # back to judging act-scoped prose against the turn beat's excerpt,
+            # which is the whole failure this citation exists to end.
+            for evidence in act.get("escalationEvidence") or act.get("escalation_evidence") or []:
+                if isinstance(evidence, dict):
+                    add(evidence.get("beatId") or evidence.get("beat_id"))
     journey = candidate.get("heroJourney") or candidate.get("hero_journey") or {}
     if isinstance(journey, dict):
         for stage in journey.get("stages") or []:

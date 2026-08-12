@@ -335,6 +335,7 @@ def _default_responses() -> dict[str, BaseModel]:
                     "act": 1,
                     "dramaticQuestion": "Will Marta get Dan to explain the transfer?",
                     "escalation": "The proof turns suspicion into confrontation.",
+                    "escalationEvidence": [{"beatId": "beat-1-1"}],
                     "turnBeatId": "beat-1-1",
                 }
             ],
@@ -486,6 +487,7 @@ def _default_responses() -> dict[str, BaseModel]:
                     "escalation": (
                         "The unexplained transaction gives her a concrete reason to challenge Dan."
                     ),
+                    "escalationEvidence": [{"beatId": "beat-1-1"}],
                     "turnBeatId": "beat-1-1",
                 }
             ],
@@ -563,6 +565,7 @@ def _mock_narrative_map(user_message: str) -> InferredNarrativeMap:
                 "act": act,
                 "dramaticQuestion": "What will the characters risk to change the situation?",
                 "escalation": str(beat.get("whatHappens") or "The pressure advances."),
+                "escalationEvidence": [{"beatId": beat["beatId"]}],
                 "turnBeatId": beat["beatId"],
             }
         )
@@ -659,6 +662,7 @@ def _mock_narrative_map_synthesis(user_message: str) -> InferredNarrativeMapSynt
                     f"How will the pressure created by {packet['summary']} develop?"
                 ),
                 "escalation": packet["turn"],
+                "escalationEvidence": [{"beatId": packet["turnBeatId"]}],
                 "turnBeatId": packet["turnBeatId"],
             }
         )

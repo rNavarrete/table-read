@@ -165,6 +165,11 @@ export const NarrativeAct = z.object({
   act: z.number().int().min(0),
   dramaticQuestion: z.string(),
   escalation: z.string(),
+  // Server-filled from the inferred act's `escalationEvidence` (§2a) — quotes
+  // are derived on merge, never sent by the model. Defaulted so maps saved
+  // before this field validate, and because an act whose escalation was
+  // cleared keeps its coverage and loses only the claim.
+  escalationEvidence: z.array(NarrativeEvidence).default([]),
   turnBeatId: Id,
   evidenceQuote: z.string().min(1).max(200),
 })
@@ -396,6 +401,14 @@ export const InferredNarrativeMap = z.object({
         act: z.number().int().min(0),
         dramaticQuestion: z.string(),
         escalation: z.string(),
+        // `turnBeatId` is the one beat the act pivots on; `escalation` is prose
+        // about how the whole act raises the stakes. Only one of them used to
+        // carry evidence, so a verifier judged the escalation against the turn
+        // beat's excerpt and rejected claims that were on the page elsewhere in
+        // the same act. The claim now names the 1-3 beats it rests on, and the
+        // server rejects any that fall outside this act (merge diagnostic
+        // `act_escalation_evidence_mismatch`, repairable).
+        escalationEvidence: z.array(z.object({ beatId: Id })).min(1).max(3),
         turnBeatId: Id,
       }),
     )

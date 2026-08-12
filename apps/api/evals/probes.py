@@ -430,6 +430,7 @@ def _narrative_map_verification_prompt(ctx: FixtureCtx) -> tuple[str, str]:
                 "act": packet["act"],
                 "dramaticQuestion": "How will the opening problem develop?",
                 "escalation": packet["turn"],
+                "escalationEvidence": [{"beatId": beat_id}],
                 "turnBeatId": beat_id,
             }
         ],

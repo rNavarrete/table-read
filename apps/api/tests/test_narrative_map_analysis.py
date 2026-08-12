@@ -117,6 +117,7 @@ def _candidate_map() -> InferredNarrativeMap:
                     "act": 0,
                     "dramaticQuestion": "Will Nora open the drawer?",
                     "escalation": "The hidden letter makes avoidance impossible.",
+                    "escalationEvidence": [{"beatId": "beat-1-1"}],
                     "turnBeatId": "beat-1-1",
                 }
             ],
@@ -765,6 +766,7 @@ def test_rejected_act_escalation_is_cleared_and_the_act_survives():
             "act": 1,
             "dramaticQuestion": "Is Josh going to be fired for insulting Mary Marsh?",
             "escalation": "Leo converts a bad soundcheck into a lost alliance with Caldwell.",
+            "escalationEvidence": [{"beatId": "beat-1-1"}],
             "turnBeatId": "beat-1-1",
         }
     ]
@@ -809,9 +811,9 @@ def test_act_escalation_repair_resolves_by_act_number_not_list_position():
     payload = _candidate_map().model_dump(by_alias=True)
     payload["acts"] = [
         {"act": 0, "dramaticQuestion": "Cold open.", "escalation": "Keep me.",
-         "turnBeatId": "beat-1-1"},
+         "escalationEvidence": [{"beatId": "beat-1-1"}], "turnBeatId": "beat-1-1"},
         {"act": 1, "dramaticQuestion": "Act one.", "escalation": "Clear me.",
-         "turnBeatId": "beat-1-1"},
+         "escalationEvidence": [{"beatId": "beat-1-1"}], "turnBeatId": "beat-1-1"},
     ]
     candidate = InferredNarrativeMap.model_validate(payload)
     verdict = NarrativeMapVerification.model_validate(

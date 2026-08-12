@@ -311,6 +311,12 @@ export const NarrativeAct = z.object({
   act: z.number().int().min(0),
   dramaticQuestion: z.string(),
   escalation: z.string(),
+  // Server-filled from `InferredNarrativeAct.escalationEvidence` — quotes are
+  // derived here, never sent by the model, same as `NarrativeTheme.evidence`.
+  // Defaulted so maps saved before this field validate unchanged, and because
+  // an act whose escalation was cleared (by verifier repair, or by evidence
+  // that would not ground) keeps its coverage and loses only the claim.
+  escalationEvidence: z.array(NarrativeEvidence).default([]),
   turnBeatId: Id,
   evidenceQuote: z.string().min(1).max(200),
 })
@@ -1154,10 +1160,24 @@ const InferredNarrativeTheme = z.object({
   evidence: z.array(InferredNarrativeEvidence).min(1),
 })
 
+// `turnBeatId` names the one beat the act turns on; `escalation` is prose about
+// how the whole act raises the stakes, and the two were persistently confused
+// because only one of them carried evidence. A verifier with nothing but the
+// turn beat's excerpt judged the escalation against it and rejected act 2 of a
+// West Wing episode for a line that was on the page in a later scene of the
+// same act. Telling the verifier about act membership helped and did not
+// settle it — across ten replays the conflation kept resurfacing, because the
+// scope of the claim was still something to be inferred rather than stated.
+//
+// `escalationEvidence` states it. The claim now carries the beats it rests on,
+// the server checks they belong to this act, and the excerpts reach the
+// verifier the same way a theme's do. Capped because an escalation is one
+// sentence: a citation list longer than this is shotgunning, not support.
 const InferredNarrativeAct = z.object({
   act: z.number().int().min(0),
   dramaticQuestion: z.string(),
   escalation: z.string(),
+  escalationEvidence: z.array(InferredNarrativeEvidence).min(1).max(3),
   turnBeatId: Id,
 })
 

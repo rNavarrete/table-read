@@ -474,6 +474,16 @@ tool with thinking disabled, and separates blocking evidence failures from
 non-blocking editorial advisories. This prevents a second full-screenplay
 verification bill while preserving an auditable source read.
 
+An act's `escalation` carries its own `escalationEvidence` (1-3 beats), separate
+from `turnBeatId`. The two are different claims about different spans — the turn
+is one beat, the escalation is how the whole act builds — and while only the turn
+carried evidence, verifiers judged the escalation against it and rejected
+readings that were on the page elsewhere in the same act. The server checks the
+cited beats belong to that act before the verifier sees them
+(`act_escalation_evidence_mismatch`, repairable), so act membership is never
+something the model has to infer. Ships as Narrative Map analysis version `3.0`
+at `PROMPT_VERSION 0.45.0`.
+
 Those two channels — `unsupportedClaims` and `advisories` — are **mutually
 exclusive**, and both carry `{path, reason}`. Only `unsupportedClaims` (or
 `missingSceneIds`) rejects the map; `approved` is the model's opinion and a

@@ -829,6 +829,7 @@ def _fixture_valid_input_for(op_name: str) -> dict:
                     "act": 0,
                     "dramaticQuestion": "Can Marta make Dan answer?",
                     "escalation": "The evidence forces a confrontation.",
+                    "escalationEvidence": [{"beatId": "beat-1"}],
                     "turnBeatId": "beat-1",
                 }
             ],
@@ -890,6 +891,7 @@ def _fixture_valid_input_for(op_name: str) -> dict:
                     "act": 0,
                     "dramaticQuestion": "Can Marta make Dan explain the transfer?",
                     "escalation": "The evidence forces a confrontation.",
+                    "escalationEvidence": [{"beatId": "beat-1"}],
                     "turnBeatId": "beat-1",
                 }
             ],

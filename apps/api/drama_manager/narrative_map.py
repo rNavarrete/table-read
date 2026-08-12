@@ -354,11 +354,45 @@ def merge_narrative_map(doc: dict, episode_id: str, result: InferredNarrativeMap
                 {"code": "act_turn_beat_mismatch", "path": path, "beatId": item.turn_beat_id}
             )
             continue
+        # Escalation is act-scoped prose, so its evidence must come from this
+        # act — that is the whole reason the claim cites beats at all, and it
+        # is a deterministic check the verifier should never have to make.
+        # A citation outside the act is a diagnostic, which fails the merge and
+        # earns the import's one focused repair, exactly as an ungrounded theme
+        # citation does. Repair is the right answer over silently dropping the
+        # claim: the reading may well be sound and the citation simply wrong,
+        # and only the model can tell us which beat it meant.
+        escalation_evidence: list[dict] = []
+        # A cleared escalation keeps no citations. The verifier repair path
+        # blanks the prose on the pre-merge candidate, where the evidence list
+        # is `min(1)` and cannot be emptied in step with it; resolving that
+        # here keeps the persisted invariant simple — the claim and its
+        # evidence are both present or both absent, never one without the other.
+        cited_beats = item.escalation_evidence if item.escalation.strip() else []
+        for evidence_index, cited in enumerate(cited_beats):
+            cited_path = f"{path}.escalationEvidence[{evidence_index}]"
+            cited_beat = _grounded_beat(beat_by_id, cited.beat_id, diagnostics, cited_path)
+            if cited_beat is None:
+                continue
+            cited_scene = scene_by_id[beat_scene_ids[cited.beat_id]]
+            if int(cited_scene.get("act", 0)) != item.act:
+                diagnostics.append(
+                    {
+                        "code": "act_escalation_evidence_mismatch",
+                        "path": cited_path,
+                        "beatId": cited.beat_id,
+                    }
+                )
+                continue
+            escalation_evidence.append(
+                {"beatId": cited.beat_id, "quote": _source_quote(cited_beat)}
+            )
         acts.append(
             {
                 "act": item.act,
                 "dramaticQuestion": item.dramatic_question,
-                "escalation": item.escalation,
+                "escalation": item.escalation if escalation_evidence else "",
+                "escalationEvidence": escalation_evidence,
                 "turnBeatId": item.turn_beat_id,
                 "evidenceQuote": _source_quote(beat),
             }

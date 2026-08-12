@@ -79,12 +79,14 @@ def _result(**overrides) -> InferredNarrativeMap:
                 "act": 1,
                 "dramaticQuestion": "Will Nora discover the secret?",
                 "escalation": "The letter gives Nora a tangible question to pursue.",
+                "escalationEvidence": [{"beatId": "beat-1-1"}],
                 "turnBeatId": "beat-1-1",
             },
             {
                 "act": 2,
                 "dramaticQuestion": "Can Cass keep the secret buried?",
                 "escalation": "Cass destroys the evidence rather than explain it.",
+                "escalationEvidence": [{"beatId": "beat-2-1"}],
                 "turnBeatId": "beat-2-1",
             },
         ],
@@ -353,3 +355,58 @@ def test_merge_preserves_a_locked_narrative_map():
     merge_narrative_map(doc, "ep-1", _result())
 
     assert doc["seasons"][0]["episodes"][0]["narrativeMap"] == prior
+
+
+def test_escalation_evidence_from_another_act_is_a_repairable_diagnostic():
+    """The check that makes the citation mean something.
+
+    An escalation describes how *this* act raises the stakes, so a beat from a
+    different act does not support it — and because the server owns act
+    membership, this never has to reach the verifier at all. It fails the merge
+    the same way an ungrounded theme citation does, which earns the import's one
+    focused repair: the reading may be sound and only the citation wrong, and
+    only the model can say which beat it meant.
+    """
+    doc = _doc()
+    payload = _result().model_dump(by_alias=True)
+    # beat-2-1 lives in scene-2, which is act 2 — not act 1.
+    payload["acts"][0]["escalationEvidence"] = [{"beatId": "beat-2-1"}]
+
+    with pytest.raises(NarrativeMapValidationError) as excinfo:
+        merge_narrative_map(doc, "ep-1", InferredNarrativeMap.model_validate(payload))
+
+    assert excinfo.value.diagnostics == [
+        {
+            "code": "act_escalation_evidence_mismatch",
+            "path": "acts[0].escalationEvidence[0]",
+            "beatId": "beat-2-1",
+        }
+    ]
+
+
+def test_an_escalation_cleared_by_repair_keeps_the_act_and_drops_its_citations():
+    """Verifier repair blanks the prose on the pre-merge candidate, where the
+    evidence list is `min(1)` and cannot be emptied in step with it. The merge
+    resolves that: claim and evidence are both present or both absent."""
+    doc = _doc()
+    payload = _result().model_dump(by_alias=True)
+    payload["acts"][0]["escalation"] = ""
+
+    merged = merge_narrative_map(doc, "ep-1", InferredNarrativeMap.model_validate(payload))
+
+    acts = merged["seasons"][0]["episodes"][0]["narrativeMap"]["acts"]
+    act_one = next(act for act in acts if act["act"] == 1)
+    assert act_one["turnBeatId"] == "beat-1-1", "coverage survives"
+    assert act_one["escalation"] == ""
+    assert act_one["escalationEvidence"] == [], "no citations for a claim that is gone"
+
+
+def test_escalation_evidence_is_persisted_with_a_server_derived_quote():
+    doc = _doc()
+    merged = merge_narrative_map(doc, "ep-1", _result())
+
+    acts = merged["seasons"][0]["episodes"][0]["narrativeMap"]["acts"]
+    act_one = next(act for act in acts if act["act"] == 1)
+    assert [item["beatId"] for item in act_one["escalationEvidence"]] == ["beat-1-1"]
+    assert act_one["escalationEvidence"][0]["quote"], "the quote is derived, never sent"
+    assert act_one["escalation"].startswith("The letter gives Nora")
