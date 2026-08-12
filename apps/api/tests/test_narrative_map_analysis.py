@@ -1151,3 +1151,48 @@ def test_a_bare_character_arc_rejection_still_removes_the_whole_arc():
     repaired, repairs = repair_candidate_from_verification(candidate, verdict)
     assert repaired.character_arcs == []
     assert repairs[0]["action"] == "remove_character_arc"
+
+
+def test_audit_evidence_gives_each_beat_its_act_and_each_act_its_full_span():
+    """Act-level prose cannot be judged without act membership.
+
+    An act's `escalation` describes the whole act while its `turnBeatId` names
+    one beat. Given no act membership, a verifier can only weigh the prose
+    against that single excerpt — which is exactly how a West Wing run came to
+    reject act 2's escalation for the line "C.J. finds the press pack following
+    Billy's scent". That line is in scene-16, inside act 2, and its beat was in
+    the packet the whole time; the verifier was reading beat-12-6.
+
+    `actScenes` carries every scene in the act, including ones with no excerpt
+    here, so a verifier can tell "I was not shown this" from "this is invented".
+    """
+    doc = _doc()
+    episode = doc["seasons"][0]["episodes"][0]
+    episode["scenes"].append(
+        {
+            "id": "scene-2",
+            "act": 1,
+            "location": "INT. NEWSROOM - DAY",
+            "beats": [
+                {
+                    "id": "beat-2-1",
+                    "scriptText": "Marta reads the letter aloud to a silent room.",
+                    "whatHappens": "",
+                    "audienceLearns": "",
+                    "audienceFeels": "",
+                }
+            ],
+        }
+    )
+    source = prepare_narrative_map_source(doc)
+    candidate = {"acts": [{"turnBeatId": "beat-1-1"}, {"turnBeatId": "beat-2-1"}]}
+
+    evidence = verification_audit_evidence(source.scene_sources, [], candidate)
+
+    by_beat = {beat["beatId"]: beat for beat in evidence["sourceBeats"]}
+    assert by_beat["beat-1-1"]["act"] == 0
+    assert by_beat["beat-2-1"]["act"] == 1
+    assert evidence["actScenes"] == [
+        {"act": 0, "sceneIds": ["scene-1"]},
+        {"act": 1, "sceneIds": ["scene-2"]},
+    ]

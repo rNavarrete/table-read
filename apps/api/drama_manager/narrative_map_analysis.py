@@ -21,6 +21,10 @@ from schemas import (
     NarrativeMapVerification,
 )
 
+# 2.9: the verifier judges each claim at its own scope — act-level prose against
+# any beat in the act, not against the single cited turn beat (PROMPT_VERSION
+# 0.44.0). The audit packet gains each beat's act and each act's scene span.
+#
 # 2.8: the verifier's blocking and advisory lists are mutually exclusive, and
 # the blocking one carries a reason so no explanation has to ride along in the
 # path (PROMPT_VERSION 0.43.0). The checkpointed verification changes shape with
@@ -32,7 +36,7 @@ from schemas import (
 # block keys on this constant — a prompt fix that changes what the analysis
 # produces has to be a new analysis version or the rejected run can never be
 # retried at all.
-NARRATIVE_MAP_ANALYSIS_VERSION = "2.8"
+NARRATIVE_MAP_ANALYSIS_VERSION = "2.9"
 NARRATIVE_MAP_SCENE_CHUNK_CHAR_BUDGET = 24_000
 NARRATIVE_MAP_SCENES_PER_CHUNK = 1
 NARRATIVE_MAP_VERIFICATION_EXCERPT_CHARS = 520
@@ -800,6 +804,19 @@ def verification_audit_evidence(
     verifier instead receives exact excerpts for only the beat ids the candidate
     cites, plus source-owned anchors selected during scene validation. This
     preserves independent review while avoiding a second full-screenplay bill.
+
+    `act` on each beat, and `actScenes` for the full span, exist because an
+    act's `escalation` and `dramaticQuestion` describe the whole act while its
+    `turnBeatId` names one beat, and a verifier with no act membership can only
+    judge the prose against that single excerpt. A real West Wing run rejected
+    act 2's escalation for a detail its own advisory placed in scene-16 — which
+    is inside act 2 (scenes 11-16). It found the evidence and called the claim
+    unsupported anyway, because it was checking the wrong scope.
+
+    `actScenes` lists every scene in the act, not just the ones with excerpts
+    here, so absence is legible: a verifier that cannot see the scene a claim
+    rests on knows it was not shown it, rather than reading silence as
+    fabrication.
     """
     candidate_beat_ids = _candidate_beat_ids(candidate)
     quotes_by_beat: dict[str, list[str]] = {}
@@ -825,14 +842,26 @@ def verification_audit_evidence(
                 {
                     "beatId": beat_id,
                     "sceneId": scene["sceneId"],
+                    "act": scene.get("act"),
                     "sourceKind": scene.get("sourceKind"),
                     "scriptExcerpt": _bounded_script_excerpt(str(beat.get("scriptText") or "")),
                     "sourceQuotes": quotes_by_beat.get(beat_id, []),
                 }
             )
+
+    scenes_by_act: dict[int | None, list[str]] = {}
+    for scene in scene_sources:
+        scenes_by_act.setdefault(scene.get("act"), []).append(scene["sceneId"])
+
     return {
         "serverCheckedSceneIds": [scene["sceneId"] for scene in scene_sources],
         "candidateBeatIds": sorted(candidate_beat_ids),
+        "actScenes": [
+            {"act": act, "sceneIds": scene_ids}
+            for act, scene_ids in sorted(
+                scenes_by_act.items(), key=lambda item: (item[0] is None, item[0])
+            )
+        ],
         "sourceBeats": source_beats,
     }
 

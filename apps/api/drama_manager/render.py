@@ -25,7 +25,15 @@ import secrets
 from typing import Any
 
 # Prompt spec §8 / hard rule 7: every template carries a PROMPT_VERSION (semver);
-# it is logged with each call and bumped on any template change. 0.43.0 makes
+# it is logged with each call and bumped on any template change. 0.44.0 tells
+# the Narrative Map verifier to judge each claim at its own scope. An act's
+# escalation describes the whole act while its turnBeatId names one beat, and
+# the verifier had no act membership to tell them apart — so it judged the prose
+# against the single cited excerpt. A West Wing run rejected act 2's escalation
+# over a detail its own advisory placed in scene-16, which is inside act 2. The
+# audit packet now carries each beat's act and each act's full scene span, and
+# an act spanning scenes with no excerpt is an advisory, not a rejection.
+# 0.43.0 makes
 # the Narrative Map verifier's two findings lists mutually exclusive and gives
 # the blocking one a reason field. 0.32.0 told the verifier what each list was
 # FOR but never that a finding belongs to exactly one, and the blocking list was
@@ -93,7 +101,7 @@ from typing import Any
 # 0.10.0 typed segment starts; 0.9.0 lock-aware narrative repair. Earlier:
 # 0.8.0 suggest; 0.7.0 scene skeleton; 0.6.0 continuity; 0.5.0 regenerate;
 # 0.4.0 blast; 0.3.0 tune; 0.2.0 candidate + §0 system prompt.
-PROMPT_VERSION = "0.43.0"
+PROMPT_VERSION = "0.44.0"
 
 
 def new_nonce() -> str:
@@ -686,7 +694,18 @@ def build_narrative_map_verification_prompt(
         "characters/events, and claims that contradict or materially exceed the supplied "
         "excerpts. Treat sourceKind=front_matter as production metadata and sourceKind="
         "establishing as orientation, never as evidence of dramatic conflict or character "
-        "change. Every finding goes in exactly one list, and the list you choose is the "
+        "change. Judge every claim at its own scope. An act's escalation and "
+        "dramaticQuestion describe the whole act, so weigh them against any beat in that "
+        "act — narrative_map_audit_evidence gives each beat its act, and actScenes gives "
+        "each act its full list of scenes. Its turnBeatId names one beat and is judged "
+        "against that beat alone. Do not reject act-level prose because the detail it "
+        "reports sits in a different scene of the same act; that is where an act's "
+        "escalation is supposed to look. The same split holds for a scene: dramaticFunction, "
+        "conflict and stakes read the scene, while turnBeatId names one beat in it. "
+        "Where an act spans scenes you were given no excerpt for, say so as an advisory "
+        "rather than a rejection — you were not shown that scene, which is not the same as "
+        "the claim being unsupported. "
+        "Every finding goes in exactly one list, and the list you choose is the "
         "whole verdict: unsupportedClaims rejects the map and discards the analysis, "
         "advisories keeps it. Never file the same finding in both — a claim you can also "
         "describe as an advisory is an advisory. Use unsupportedClaims only when the "
