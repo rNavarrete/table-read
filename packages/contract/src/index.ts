@@ -1348,10 +1348,31 @@ export type InferredNarrativeMapSynthesis = z.infer<
 // invited that double-filing. The names now say which list rejects.
 export const NarrativeMapVerification = z.object({
   approved: z.boolean(),
+  // `excerptCarriesClaim` is declared LAST on purpose. Property order is the
+  // decoding grammar's order (see `render_tool_schema`), so the model states
+  // the path, works the question out in `reason`, and only then commits to an
+  // answer — which is the order it was already reasoning in, and the order the
+  // old shape gave it no way to record.
+  //
+  // It exists because the verifier talks itself out of rejections and leaves
+  // them rejecting. Real reasons, verbatim: "fine as-is, but no issue here",
+  // "this is supported. Retracting", "so this is actually supported. Retained
+  // here only for the compound claim". Each one discarded a map. 0.46.0 told
+  // the model in the prompt not to do this, naming those exact phrases, and it
+  // did it anyway on the next real run — a claim it argued was supported still
+  // blocked, because placement in a list was the only thing the server could
+  // read.
+  //
+  // Now the server reads the answer instead. `true` means the excerpt does
+  // carry the claim, so the finding is not a rejection whatever list it
+  // arrived in, and `partition_self_retracted_claims` moves it to advisories
+  // before anything downstream sees it. The model is no longer asked to be
+  // disciplined about placement; it is asked a question it can answer.
   unsupportedClaims: z.array(
     z.object({
       path: z.string(),
       reason: z.string(),
+      excerptCarriesClaim: z.boolean(),
     }),
   ),
   missingSceneIds: z.array(Id),

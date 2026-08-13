@@ -492,8 +492,21 @@ export const InferredNarrativeMap = z.object({
 // every double-filed advisory into a rejection.
 export const NarrativeMapVerification = z.object({
   approved: z.boolean(),
+  // `excerptCarriesClaim` is declared last so the model states the path,
+  // reasons in `reason`, and only then commits to an answer — property order
+  // is the decoding grammar's order. The verifier talks itself out of
+  // rejections and leaves them rejecting ("so this is actually supported.
+  // Retained here only for the compound claim"), and asking it in the prompt
+  // not to did not work. `true` means the excerpt does carry the claim, so the
+  // finding is not a rejection whatever list it arrived in, and
+  // `partition_self_retracted_claims` moves it to advisories before anything
+  // downstream sees it. Keyed on the boolean, never on the prose.
   unsupportedClaims: z.array(
-    z.object({ path: z.string(), reason: z.string() }),
+    z.object({
+      path: z.string(),
+      reason: z.string(),
+      excerptCarriesClaim: z.boolean(),
+    }),
   ),
   missingSceneIds: z.array(Id),
   advisories: z.array(z.object({ path: z.string(), reason: z.string() })),

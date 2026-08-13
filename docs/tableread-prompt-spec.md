@@ -484,6 +484,15 @@ cited beats belong to that act before the verifier sees them
 something the model has to infer. Ships as Narrative Map analysis version `3.0`
 at `PROMPT_VERSION 0.45.0`.
 
+Each `unsupportedClaims` entry ends with `excerptCarriesClaim`, answered after
+its `reason`. That answer, not list placement, decides the finding: a claim
+answered `true` is moved to `advisories` server-side and keeps the map. It
+exists because the verifier reasons after committing to a list and then
+retracts inside the reason — "this is supported. Retracting", still blocking —
+and a prompt rule naming those phrases (0.46.0) did not stop it. The server
+reads the boolean and never parses the prose. Ships as Narrative Map analysis
+version `3.3` at `PROMPT_VERSION 0.48.0`.
+
 Those two channels — `unsupportedClaims` and `advisories` — are **mutually
 exclusive**, and both carry `{path, reason}`. Only `unsupportedClaims` (or
 `missingSceneIds`) rejects the map; `approved` is the model's opinion and a

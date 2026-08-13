@@ -12,6 +12,7 @@ from drama_manager.narrative_map_analysis import (
     deterministic_non_narrative_packets,
     normalize_scene_packet_focal_characters,
     normalize_scene_packet_quality,
+    partition_self_retracted_claims,
     prepare_narrative_map_source,
     repair_candidate_from_verification,
     reusable_scene_packets,
@@ -185,7 +186,7 @@ def test_verifier_rejected_arc_claim_is_cleared_without_rewriting_it():
             "unsupportedClaims": [
                 {
                     "path": 'characterArcs[0].arcSummary - recruitment is not supported',
-                    "reason": "",
+                    "reason": "", "excerptCarriesClaim": False
                 }
             ],
             "missingSceneIds": [],
@@ -541,12 +542,14 @@ def test_cached_verifier_repair_prunes_only_named_optional_claims():
         {
             "approved": False,
             "unsupportedClaims": [
-                {"path": "themes[0].evidence[0]", "reason": "Overstates the cited beat."},
+                {"path": "themes[0].evidence[0]", "reason": "Overstates the cited beat.",
+                    "excerptCarriesClaim": False},
                 {
                     "path": "threadMovements[thread-letter, beatId beat-1-1].summary",
-                    "reason": "Interpretive.",
+                    "reason": "Interpretive.", "excerptCarriesClaim": False
                 },
-                {"path": "characterArcs", "reason": "Empty despite a possible arc."},
+                {"path": "characterArcs", "reason": "Empty despite a possible arc.",
+                    "excerptCarriesClaim": False},
             ],
             "missingSceneIds": [],
             "advisories": [
@@ -576,7 +579,8 @@ def test_cached_verifier_repair_fails_closed_for_missing_scenes_or_unknown_paths
     verdict = NarrativeMapVerification.model_validate(
         {
             "approved": False,
-            "unsupportedClaims": [{"path": 'acts[0].dramaticQuestion', "reason": ""}],
+            "unsupportedClaims": [{"path": 'acts[0].dramaticQuestion', "reason": "",
+                "excerptCarriesClaim": False}],
             "missingSceneIds": ["scene-2"],
             "advisories": [],
         }
@@ -596,7 +600,7 @@ def test_cached_verifier_repair_uses_stable_beat_when_old_thread_id_is_stale():
                     "path": (
                         "threadMovements[thread-old-random-id, beatId beat-1-1].summary"
                     ),
-                    "reason": "Unsupported.",
+                    "reason": "Unsupported.", "excerptCarriesClaim": False
                 }
             ],
             "missingSceneIds": [],
@@ -649,7 +653,7 @@ def test_character_arc_addressed_by_name_is_repairable():
             "unsupportedClaims": [
                 {
                     "path": 'characterArcs[Mandy].turningPoints[beat-15-4]',
-                    "reason": "",
+                    "reason": "", "excerptCarriesClaim": False
                 }
             ],
             "missingSceneIds": [],
@@ -685,7 +689,7 @@ def test_theme_addressed_by_label_is_repairable():
             "unsupportedClaims": [
                 {
                     "path": 'themes[Loyalty across shifting teams].evidence[beat-10-1]',
-                    "reason": "",
+                    "reason": "", "excerptCarriesClaim": False
                 }
             ],
             "missingSceneIds": [],
@@ -706,7 +710,7 @@ def test_thread_movement_in_dotted_form_is_repairable():
             "unsupportedClaims": [
                 {
                     "path": 'threadMovements[thread-b8f342b76ceb].beatId=beat-16-1',
-                    "reason": "",
+                    "reason": "", "excerptCarriesClaim": False
                 }
             ],
             "missingSceneIds": [],
@@ -727,7 +731,7 @@ def test_structural_coverage_still_fails_closed():
         verdict = NarrativeMapVerification.model_validate(
             {
                 "approved": False,
-                "unsupportedClaims": [{"path": path, "reason": ""}],
+                "unsupportedClaims": [{"path": path, "reason": "", "excerptCarriesClaim": False}],
                 "missingSceneIds": [],
                 "advisories": [],
             }
@@ -748,7 +752,8 @@ def test_an_unresolvable_name_fails_closed_rather_than_removing_the_wrong_entry(
     verdict = NarrativeMapVerification.model_validate(
         {
             "approved": False,
-            "unsupportedClaims": [{"path": 'themes[A theme this map does not have]', "reason": ""}],
+            "unsupportedClaims": [{"path": 'themes[A theme this map does not have]', "reason": "",
+                "excerptCarriesClaim": False}],
             "missingSceneIds": [],
             "advisories": [],
         }
@@ -781,7 +786,7 @@ def test_rejected_act_escalation_is_cleared_and_the_act_survives():
                     "reason": (
                         "The turn at beat-1-1 is on the page, but the 'lost alliance "
                         "with Caldwell' reading of it is not."
-                    ),
+                    ), "excerptCarriesClaim": False
                 }
             ],
             "missingSceneIds": [],
@@ -819,7 +824,8 @@ def test_act_escalation_repair_resolves_by_act_number_not_list_position():
     candidate = InferredNarrativeMap.model_validate(payload)
     verdict = NarrativeMapVerification.model_validate(
         {"approved": False,
-         "unsupportedClaims": [{"path": "acts[1].escalation", "reason": "Unsupported."}],
+         "unsupportedClaims": [{"path": "acts[1].escalation", "reason": "Unsupported.",
+             "excerptCarriesClaim": False}],
          "missingSceneIds": [], "advisories": []}
     )
     repaired, _ = repair_candidate_from_verification(candidate, verdict)
@@ -832,7 +838,7 @@ def test_act_rejection_without_an_escalation_claim_is_not_repairable():
         {"approved": False, "unsupportedClaims": [
             {
                 "path": 'acts[1].turnBeatId=beat-6-5',
-                "reason": "",
+                "reason": "", "excerptCarriesClaim": False
             }
         ],
          "missingSceneIds": [], "advisories": []}
@@ -868,7 +874,8 @@ def test_a_blocking_claim_carries_its_reason_into_the_diagnostics():
         {
             "approved": False,
             "unsupportedClaims": [
-                {"path": "sceneTurns[scene-22].turn", "reason": "No refusal is quoted."}
+                {"path": "sceneTurns[scene-22].turn", "reason": "No refusal is quoted.",
+                    "excerptCarriesClaim": False}
             ],
             "missingSceneIds": [],
             "advisories": [],
@@ -890,7 +897,8 @@ def test_an_approved_verdict_with_a_blocking_claim_still_rejects():
     verdict = NarrativeMapVerification.model_validate(
         {
             "approved": True,
-            "unsupportedClaims": [{"path": "themes[0].evidence", "reason": "Invented."}],
+            "unsupportedClaims": [{"path": "themes[0].evidence", "reason": "Invented.",
+                "excerptCarriesClaim": False}],
             "missingSceneIds": [],
             "advisories": [],
         }
@@ -921,6 +929,7 @@ def test_the_word_escalation_in_a_reason_cannot_repair_a_turn_beat_rejection():
                         "scent' — not evidenced at beat-12-6 (that beat is Leo/Josh "
                         "dialogue about Mandy/Russell)"
                     ),
+                    "excerptCarriesClaim": False,
                 }
             ],
             "missingSceneIds": [],
@@ -941,7 +950,7 @@ def test_rejected_scene_turn_prose_is_cleared_and_the_scene_stays_covered():
             "unsupportedClaims": [
                 {
                     "path": 'sceneTurns[0].dramaticFunction (scene-1)',
-                    "reason": "",
+                    "reason": "", "excerptCarriesClaim": False
                 }
             ],
             "missingSceneIds": [],
@@ -966,7 +975,7 @@ def test_scene_turn_prose_repair_resolves_by_scene_id():
         {"approved": False, "unsupportedClaims": [
             {
                 "path": 'sceneTurns[scene-1].stakes',
-                "reason": "",
+                "reason": "", "excerptCarriesClaim": False
             }
         ],
          "missingSceneIds": [], "advisories": []}
@@ -981,7 +990,7 @@ def test_scene_turn_turn_beat_rejection_is_not_repairable():
         {"approved": False, "unsupportedClaims": [
             {
                 "path": 'sceneTurns[0].turnBeatId=beat-1-1',
-                "reason": "",
+                "reason": "", "excerptCarriesClaim": False
             }
         ],
          "missingSceneIds": [], "advisories": []}
@@ -1000,7 +1009,7 @@ def test_cleared_prose_passes_the_publishable_text_gate():
         {"approved": False, "unsupportedClaims": [
             {
                 "path": 'sceneTurns[0].dramaticFunction',
-                "reason": "",
+                "reason": "", "excerptCarriesClaim": False
             }
         ],
          "missingSceneIds": [], "advisories": []}
@@ -1062,7 +1071,7 @@ def test_disputed_turning_point_drops_only_that_point():
                     "reason": (
                         "beat-9-3 is characterized as C.J. 'making it the story she "
                         "owes an answer to', which the excerpt does not carry."
-                    ),
+                    ), "excerptCarriesClaim": False
                 }
             ],
             "missingSceneIds": [],
@@ -1091,7 +1100,7 @@ def test_dropping_the_last_turning_point_removes_the_arc():
          "unsupportedClaims": [
              {
                  "path": 'characterArcs[C.J.].turningPoints (beat-9-3 unsupported)',
-                 "reason": "",
+                 "reason": "", "excerptCarriesClaim": False
              }
          ],
          "missingSceneIds": [], "advisories": []}
@@ -1110,7 +1119,7 @@ def test_turning_point_rejection_naming_no_beat_removes_the_arc():
          "unsupportedClaims": [
              {
                  "path": 'characterArcs[C.J.].turningPoints are not supported',
-                 "reason": "",
+                 "reason": "", "excerptCarriesClaim": False
              }
          ],
          "missingSceneIds": [], "advisories": []}
@@ -1128,7 +1137,7 @@ def test_cleared_arc_claim_passes_the_publishable_text_gate():
         {"approved": False, "unsupportedClaims": [
             {
                 "path": 'characterArcs[C.J.].internalConflict',
-                "reason": "",
+                "reason": "", "excerptCarriesClaim": False
             }
         ],
          "missingSceneIds": [], "advisories": []}
@@ -1146,7 +1155,7 @@ def test_a_bare_character_arc_rejection_still_removes_the_whole_arc():
         {"approved": False, "unsupportedClaims": [
             {
                 "path": 'characterArcs[C.J.] is unsupported',
-                "reason": "",
+                "reason": "", "excerptCarriesClaim": False
             }
         ],
          "missingSceneIds": [], "advisories": []}
@@ -1227,3 +1236,100 @@ def test_character_footprint_counts_who_actually_carries_scenes():
         {"characterName": "Bartlet", "focalSceneCount": 1, "focalSceneIds": ["scene-4"]},
         {"characterName": "C.J.", "focalSceneCount": 1, "focalSceneIds": ["scene-3"]},
     ], "ordered by how much each carries, then by name; unfocused scenes contribute nobody"
+
+
+def test_a_claim_the_verifier_answers_supported_stops_blocking_the_map():
+    """The retraction, taken as an answer instead of read out of prose.
+
+    Verbatim from a real run at 0.46.0 — the version whose *prompt* forbade
+    exactly this, naming the phrases. The model wrote the reason, argued itself
+    to "this is actually supported", and left the claim blocking, because
+    placement in a list was the only thing the server could read.
+    """
+    verdict = NarrativeMapVerification.model_validate(
+        {
+            "approved": False,
+            "unsupportedClaims": [
+                {
+                    "path": "themes[0].evidence[0]",
+                    "reason": (
+                        "no textual indication of amusement is questionable since excerpt "
+                        "does say '(smiling)', so this is actually supported."
+                    ),
+                    "excerptCarriesClaim": True,
+                },
+                {
+                    "path": "characterArcs[C.J.].arcSummary",
+                    "reason": "Not supported by any cited beat.",
+                    "excerptCarriesClaim": False,
+                },
+            ],
+            "missingSceneIds": [],
+            "advisories": [{"path": "acts[0].escalation", "reason": "Inferential."}],
+        }
+    )
+
+    corrected, moved = partition_self_retracted_claims(verdict)
+
+    assert [c.path for c in corrected.unsupported_claims] == [
+        "characterArcs[C.J.].arcSummary"
+    ], "only the claim it stood behind still blocks"
+    assert [a.path for a in corrected.advisories] == [
+        "acts[0].escalation",
+        "themes[0].evidence[0]",
+    ], "the retracted claim is kept as advice, not dropped"
+    assert moved == [
+        {
+            "action": "record_self_retracted_claim",
+            "path": "themes[0].evidence[0]",
+            "reason": corrected.advisories[1].reason,
+        }
+    ]
+
+
+def test_a_verdict_with_nothing_retracted_is_returned_untouched():
+    verdict = NarrativeMapVerification.model_validate(
+        {
+            "approved": False,
+            "unsupportedClaims": [
+                {"path": "themes[0].evidence", "reason": "Invented.", "excerptCarriesClaim": False}
+            ],
+            "missingSceneIds": [],
+            "advisories": [],
+        }
+    )
+
+    corrected, moved = partition_self_retracted_claims(verdict)
+
+    assert corrected is verdict, "no copy when there is nothing to move"
+    assert moved == []
+
+
+def test_a_reason_that_argues_supported_still_blocks_when_answered_false():
+    """The field is the answer; prose is never parsed for a verdict.
+
+    Reading retraction out of the reason text is the same move as the
+    escalation matcher that fired on a word inside a sentence and failed open
+    on a rejected turn beat. A verifier that answers `false` is taken at its
+    word — being wrong in the field is a different problem from being
+    undisciplined about a list, and only the first is the model's to fix.
+    """
+    verdict = NarrativeMapVerification.model_validate(
+        {
+            "approved": False,
+            "unsupportedClaims": [
+                {
+                    "path": "themes[0].evidence",
+                    "reason": "Retracted — this is supported, no issue here.",
+                    "excerptCarriesClaim": False,
+                }
+            ],
+            "missingSceneIds": [],
+            "advisories": [],
+        }
+    )
+
+    corrected, moved = partition_self_retracted_claims(verdict)
+
+    assert [c.path for c in corrected.unsupported_claims] == ["themes[0].evidence"]
+    assert moved == []

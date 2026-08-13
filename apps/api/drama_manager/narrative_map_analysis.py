@@ -19,8 +19,13 @@ from schemas import (
     InferredNarrativeMapSynthesis,
     InferredNarrativeSceneAnalysisBatch,
     NarrativeMapVerification,
+    NarrativeMapVerificationNote,
 )
 
+# 3.3: each blocking claim carries excerptCarriesClaim, and a claim the
+# verifier answers true is moved to advisories server-side (0.48.0). The
+# checkpointed verification changes shape.
+#
 # 3.2: synthesis reads a server-counted character footprint, so an arc needs a
 # character who carries scenes rather than one who outranks them (0.47.0).
 #
@@ -46,7 +51,7 @@ from schemas import (
 # block keys on this constant — a prompt fix that changes what the analysis
 # produces has to be a new analysis version or the rejected run can never be
 # retried at all.
-NARRATIVE_MAP_ANALYSIS_VERSION = "3.2"
+NARRATIVE_MAP_ANALYSIS_VERSION = "3.3"
 NARRATIVE_MAP_SCENE_CHUNK_CHAR_BUDGET = 24_000
 NARRATIVE_MAP_SCENES_PER_CHUNK = 1
 NARRATIVE_MAP_VERIFICATION_EXCERPT_CHARS = 520
@@ -1395,6 +1400,51 @@ def repair_candidate_from_verification(
         for advisory in result.advisories
     )
     return repaired, repairs
+
+
+def partition_self_retracted_claims(
+    result: NarrativeMapVerification,
+) -> tuple[NarrativeMapVerification, list[dict]]:
+    """Move claims the verifier answered `excerptCarriesClaim: true` to advisories.
+
+    A finding whose own answer says the excerpt carries the claim is not a
+    rejection, whichever list it arrived in. Applied once, as soon as a verdict
+    is in hand, so nothing downstream — repair, validation, diagnostics — has to
+    know this happened.
+
+    This is deliberately keyed on the boolean and never on the prose. The reason
+    text is where the retractions were visible ("this is supported. Retracting"),
+    and reading them out of prose is the same move as the escalation matcher that
+    fired on a word inside a sentence and failed open on a rejected turn beat. A
+    verifier that answers `false` while arguing the opposite in its reason is
+    taken at its word and still blocks: the field is the answer, and being wrong
+    in it is a different problem from being undisciplined about a list.
+
+    Returns the corrected verdict and one record per moved claim, for the run's
+    checkpoint.
+    """
+    retracted = [claim for claim in result.unsupported_claims if claim.excerpt_carries_claim]
+    if not retracted:
+        return result, []
+    kept = [claim for claim in result.unsupported_claims if not claim.excerpt_carries_claim]
+    moved = [
+        {"action": "record_self_retracted_claim", "path": claim.path, "reason": claim.reason}
+        for claim in retracted
+    ]
+    corrected = result.model_copy(
+        update={
+            "unsupported_claims": kept,
+            "advisories": [
+                *result.advisories,
+                *[
+                    NarrativeMapVerificationNote(path=claim.path, reason=claim.reason)
+                    for claim in retracted
+                ],
+            ],
+        },
+        deep=True,
+    )
+    return corrected, moved
 
 
 def validate_verification(result: NarrativeMapVerification) -> None:

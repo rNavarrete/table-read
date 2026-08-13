@@ -1252,12 +1252,25 @@ class NarrativeMapVerificationNote(_Base):
     reason: str
 
 
+class NarrativeMapUnsupportedClaim(_Base):
+    """A blocking finding, plus the answer the server actually reads.
+
+    `excerpt_carries_claim` is last to match the Zod declaration order, which
+    is the decoding grammar's order: state the path, reason it out, then
+    commit. See the Zod definition for the retractions that made it necessary.
+    """
+
+    path: str
+    reason: str
+    excerpt_carries_claim: bool
+
+
 # Mirrors the Zod contract: `unsupported_claims` blocks, `advisories` never
 # does, and both carry a reason so the verifier never has to smuggle one into
 # the path. See the Zod definition for what that used to cost.
 class NarrativeMapVerification(_Base):
     approved: bool
-    unsupported_claims: list[NarrativeMapVerificationNote]
+    unsupported_claims: list[NarrativeMapUnsupportedClaim]
     missing_scene_ids: list[Id]
     advisories: list[NarrativeMapVerificationNote]
 

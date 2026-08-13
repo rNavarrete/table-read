@@ -912,7 +912,8 @@ def test_narrative_map_verifier_rejection_never_writes_a_snapshot(
         "verify_narrative_map",
         NarrativeMapVerification(
             approved=False,
-            unsupportedClaims=[{"path": 'themes[0].statement', "reason": ""}],
+            unsupportedClaims=[{"path": 'themes[0].statement', "reason": "",
+                "excerptCarriesClaim": False}],
             missingSceneIds=[],
             advisories=[
                 {
@@ -977,7 +978,7 @@ def test_saved_scene_packet_repair_requeues_only_compact_verification(
                 "unsupportedClaims": [
                     {
                         "path": 'sceneTurns[0].conflict contains placeholder filler',
-                        "reason": "",
+                        "reason": "", "excerptCarriesClaim": False
                     }
                 ],
                 "missingSceneIds": [],
@@ -1029,7 +1030,7 @@ def test_verifier_coverage_rejection_finishes_from_cache_without_more_model_call
             unsupportedClaims=[
                 {
                     "path": 'characterArcs (empty despite a possible arc)',
-                    "reason": "",
+                    "reason": "", "excerptCarriesClaim": False
                 }
             ],
             missingSceneIds=[],
@@ -1100,7 +1101,7 @@ def test_rejected_character_arc_is_offered_as_a_no_cost_saved_repair(
                 "unsupportedClaims": [
                     {
                         "path": 'characterArcs[0].arcSummary is unsupported by its cited beat',
-                        "reason": "",
+                        "reason": "", "excerptCarriesClaim": False
                     }
                 ],
                 "missingSceneIds": [],

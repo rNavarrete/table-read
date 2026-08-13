@@ -35,6 +35,7 @@ from drama_manager.narrative_map_analysis import (
     deterministic_non_narrative_packets,
     normalize_scene_packet_focal_characters,
     normalize_scene_packet_quality,
+    partition_self_retracted_claims,
     prepare_narrative_map_source,
     repair_candidate_from_verification,
     reusable_scene_packets,
@@ -964,6 +965,9 @@ def _synthesize_and_verify(
     )
     if use_local_verification_repair:
         verification = NarrativeMapVerification.model_validate(cached_verification)
+        verification, self_retracted = partition_self_retracted_claims(verification)
+        if self_retracted:
+            checkpoint["selfRetractedClaims"] = self_retracted
         candidate = _apply_local_verification_repair(candidate, verification, checkpoint)
     candidate_doc = copy.deepcopy(source_doc)
     try:
@@ -1014,6 +1018,14 @@ def _synthesize_and_verify(
             prompt_version=render.PROMPT_VERSION,
         ),
     )
+    verification, self_retracted = partition_self_retracted_claims(verification)
+    if self_retracted:
+        checkpoint["selfRetractedClaims"] = self_retracted
+        _logger.info(
+            "narrative_map_self_retracted_claims run_id=%s moved_to_advisories=%d",
+            run.id,
+            len(self_retracted),
+        )
     checkpoint["verification"] = verification.model_dump(by_alias=True)
     _touch(run, phase="verification", checkpoint=checkpoint)
     session.commit()

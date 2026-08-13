@@ -25,7 +25,15 @@ import secrets
 from typing import Any
 
 # Prompt spec §8 / hard rule 7: every template carries a PROMPT_VERSION (semver);
-# it is logged with each call and bumped on any template change. 0.47.0 gives
+# it is logged with each call and bumped on any template change. 0.48.0 has the
+# verifier answer excerptCarriesClaim on each blocking claim, after its reason,
+# and the server reads that instead of list placement. 0.46.0 asked in prose for
+# the same discipline — naming the exact retraction phrases — and the next real
+# run retracted anyway: "so this is actually supported. Retained here only for
+# the compound claim", still blocking, still discarding the map. Asking the
+# model to be disciplined about a list did not work; asking it a question it can
+# answer is the move that has.
+# 0.47.0 gives
 # Narrative Map synthesis a server-counted character_footprint and tells it an
 # arc needs a character who carries scenes. Bartlet is focal in one scene of the
 # West Wing pilot and named in three, and the synthesis wrote him a full arc
@@ -125,7 +133,7 @@ from typing import Any
 # 0.10.0 typed segment starts; 0.9.0 lock-aware narrative repair. Earlier:
 # 0.8.0 suggest; 0.7.0 scene skeleton; 0.6.0 continuity; 0.5.0 regenerate;
 # 0.4.0 blast; 0.3.0 tune; 0.2.0 candidate + §0 system prompt.
-PROMPT_VERSION = "0.47.0"
+PROMPT_VERSION = "0.48.0"
 
 
 def new_nonce() -> str:
@@ -753,16 +761,16 @@ def build_narrative_map_verification_prompt(
         "filler, an invented character or event, or a claim that contradicts or materially "
         "exceeds what is quoted. A claim you find supported but arrived at partly by "
         "inference is an advisory, not a rejection, and so is a claim that overstates a "
-        "degree while its substance holds. Settle each finding before you write it down. "
-        "Work out whether the excerpts carry the claim first, and only then put it in a "
-        "list — every entry in unsupportedClaims must still be one you would reject on "
-        "reading it back. If, while writing a reason, you conclude the claim is supported, "
-        "or fine as it stands, or better placed as advice, then it was never a rejection: "
-        "put it in advisories and write the reason there. A reason that argues its own "
-        "claim is supported still rejects the map, because the server reads the list you "
-        "put it in and not the prose. Never write 'retracted', 'no issue', 'this is "
-        "supported' or 'moved to advisories' inside an unsupportedClaims reason — move the "
-        "finding instead. Use missingSceneIds only when the candidate omits "
+        "degree while its substance holds. Every unsupportedClaims entry ends with "
+        "excerptCarriesClaim, which you answer after writing its reason: true if, having "
+        "worked it through, the excerpts do carry the claim, false if they do not. That "
+        "answer decides the finding — the server reads it, not the list you happened to "
+        "start writing in, and a claim answered true is treated as advice and keeps the "
+        "map. So a finding you argue your way out of costs nothing: answer true and move "
+        "on. Do not leave a claim you have talked yourself out of sitting in the list with "
+        "a reason that says so, and do not answer false to justify having listed it — "
+        "answer the question you just reasoned about. Use missingSceneIds only when the "
+        "candidate omits "
         "a supplied scene; an empty optional section is an advisory, never a rejection by "
         "itself. In both lists, path names the disputed field and nothing else — "
         "themes[0].evidence, acts[2].escalation, sceneTurns[scene-22].turn — indexing into it "
