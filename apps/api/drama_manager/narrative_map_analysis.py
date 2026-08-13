@@ -21,6 +21,9 @@ from schemas import (
     NarrativeMapVerification,
 )
 
+# 3.2: synthesis reads a server-counted character footprint, so an arc needs a
+# character who carries scenes rather than one who outranks them (0.47.0).
+#
 # 3.1: the verifier must settle a finding before filing it, rather than
 # retracting it inside an unsupportedClaims reason (PROMPT_VERSION 0.46.0).
 #
@@ -43,7 +46,7 @@ from schemas import (
 # block keys on this constant — a prompt fix that changes what the analysis
 # produces has to be a new analysis version or the rejected run can never be
 # retried at all.
-NARRATIVE_MAP_ANALYSIS_VERSION = "3.1"
+NARRATIVE_MAP_ANALYSIS_VERSION = "3.2"
 NARRATIVE_MAP_SCENE_CHUNK_CHAR_BUDGET = 24_000
 NARRATIVE_MAP_SCENES_PER_CHUNK = 1
 NARRATIVE_MAP_VERIFICATION_EXCERPT_CHARS = 520
@@ -595,6 +598,43 @@ def reusable_scene_packets(scene_sources: list[dict], prior_packets: list[dict])
                 continue
             break
     return reusable
+
+
+def character_footprint(scene_packets: list[dict]) -> list[dict]:
+    """How much of the episode each character actually carries, counted here.
+
+    The synthesis is asked for arcs only where there is sustained on-page
+    change, and it has the material to judge that — `focalCharacterName` is on
+    every spine row. But judging it means counting across twenty-seven rows
+    while doing everything else, and a character's standing in the world will
+    beat an impression formed that way.
+
+    President Bartlet is the case. He is focal in one scene of the West Wing
+    pilot and named in three, arriving only at the end — and the synthesis gave
+    him a full arc anyway, twice, inventing the specifics both times: a
+    granddaughter named "Annie" (the excerpt says "my thirteen-year-old
+    granddaughter"; the name appears to come from the Raggedy Ann doll beside
+    it) and a want "to settle the Commandments argument", which the verifier
+    called an invented detail not traceable to the evidence. The evidence gate
+    caught both and dropped the arc, so the writer lost a character rather than
+    read a fabrication — but it costs a full analysis' worth of that character
+    every run.
+
+    Counting it server-side turns "sustained on-page change" from a feeling
+    into a number the model can read. Deliberately only `focal`: it is exact
+    and server-owned, where counting mentions would mean matching names inside
+    prose, and this session has already paid for one matcher that fired on a
+    word inside a sentence.
+    """
+    counts: dict[str, list[str]] = {}
+    for packet in scene_packets:
+        name = str(packet.get("focalCharacterName") or "").strip()
+        if name:
+            counts.setdefault(name, []).append(packet["sceneId"])
+    return [
+        {"characterName": name, "focalSceneCount": len(scene_ids), "focalSceneIds": scene_ids}
+        for name, scene_ids in sorted(counts.items(), key=lambda item: (-len(item[1]), item[0]))
+    ]
 
 
 def synthesis_scene_spine(scene_packets: list[dict]) -> list[dict]:

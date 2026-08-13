@@ -25,7 +25,16 @@ import secrets
 from typing import Any
 
 # Prompt spec §8 / hard rule 7: every template carries a PROMPT_VERSION (semver);
-# it is logged with each call and bumped on any template change. 0.46.0 tells
+# it is logged with each call and bumped on any template change. 0.47.0 gives
+# Narrative Map synthesis a server-counted character_footprint and tells it an
+# arc needs a character who carries scenes. Bartlet is focal in one scene of the
+# West Wing pilot and named in three, and the synthesis wrote him a full arc
+# anyway — twice, inventing the specifics both times ("Annie" for a granddaughter
+# the excerpt leaves unnamed, then a want "to settle the Commandments argument").
+# The gate caught both and dropped the arc, so the writer lost the character
+# rather than read a fabrication. Standing in the world was beating a count the
+# model had to derive across 27 spine rows; now it reads it.
+# 0.46.0 tells
 # the Narrative Map verifier to settle a finding before filing it. Giving the
 # blocking list a reason field in 0.43.0 gave the model somewhere to reason, and
 # it reasons after committing the path: real runs produced blocking entries
@@ -116,7 +125,7 @@ from typing import Any
 # 0.10.0 typed segment starts; 0.9.0 lock-aware narrative repair. Earlier:
 # 0.8.0 suggest; 0.7.0 scene skeleton; 0.6.0 continuity; 0.5.0 regenerate;
 # 0.4.0 blast; 0.3.0 tune; 0.2.0 candidate + §0 system prompt.
-PROMPT_VERSION = "0.46.0"
+PROMPT_VERSION = "0.47.0"
 
 
 def new_nonce() -> str:
@@ -652,12 +661,15 @@ def build_narrative_map_synthesis_prompt(
     threads: list[dict],
     story_overview: dict | None,
     nonce: str,
+    character_footprint: list[dict] | None = None,
 ) -> tuple[str, str]:
     """Build the macro pass from verified scene packets, not empty beat plans."""
     user = (
         source_data("show_format", project.get("format") or {}, nonce)
         + "\n"
         + source_data("known_cast", known_cast, nonce)
+        + "\n"
+        + source_data("character_footprint", character_footprint or [], nonce)
         + "\n"
         + source_data("story_threads", threads, nonce)
         + "\n"
@@ -682,7 +694,14 @@ def build_narrative_map_synthesis_prompt(
         "cite for it is the turn beat itself, the sentence is describing the turn rather "
         "than the act, so widen it to what the act builds through. Return exactly "
         "one act row for every "
-        "act represented by the packets. Hero's Journey is optional: set applies=false "
+        "act represented by the packets. Give a character an arc only where "
+        "character_footprint shows they carry scenes and those scenes show them change. "
+        "That count is the evidence for sustained on-page change; how important a "
+        "character is in the world is not. A character focal in one scene of many has "
+        "not been shown wanting or needing anything across this episode, however "
+        "senior they are — leave them out rather than describe an inner life the "
+        "excerpts do not contain, and never name a person, object or dispute that no "
+        "excerpt names. Hero's Journey is optional: set applies=false "
         "when the episode is better understood as ensemble, procedural, or otherwise "
         "non-monomyth storytelling, and explain that conclusion from the evidence. "
         "Do not invent off-page backstory, outcomes, characters, or threads. Never use "

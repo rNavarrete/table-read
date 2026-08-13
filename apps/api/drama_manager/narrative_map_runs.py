@@ -30,6 +30,7 @@ from drama_manager.narrative_map_analysis import (
     NarrativeMapAnalysisValidationError,
     NarrativeMapReadinessError,
     build_inferred_narrative_map,
+    character_footprint,
     chunk_scene_sources,
     deterministic_non_narrative_packets,
     normalize_scene_packet_focal_characters,
@@ -933,6 +934,7 @@ def _synthesize_and_verify(
             source.threads,
             source.story_overview,
             render.new_nonce(),
+            character_footprint=character_footprint(scene_packets),
         )
         synthesis = _call_with_run_heartbeat(
             run.id,

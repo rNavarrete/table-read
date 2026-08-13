@@ -7,6 +7,7 @@ import pytest
 from drama_manager.narrative_map_analysis import (
     NarrativeMapAnalysisValidationError,
     NarrativeMapReadinessError,
+    character_footprint,
     chunk_scene_sources,
     deterministic_non_narrative_packets,
     normalize_scene_packet_focal_characters,
@@ -1198,3 +1199,31 @@ def test_audit_evidence_gives_each_beat_its_act_and_each_act_its_full_span():
         {"act": 0, "sceneIds": ["scene-1"]},
         {"act": 1, "sceneIds": ["scene-2"]},
     ]
+
+
+def test_character_footprint_counts_who_actually_carries_scenes():
+    """The count an arc claim should rest on, computed rather than felt.
+
+    Bartlet is focal in one scene of the West Wing pilot and named in three,
+    arriving only at the end — and the synthesis wrote him a full arc anyway,
+    twice, inventing the specifics both times. The spine already carried
+    `focalCharacterName` on every row, but deriving a count across 27 rows
+    while doing everything else loses to a character's standing in the world.
+    """
+    packets = [
+        {"sceneId": "scene-1", "focalCharacterName": "Sam"},
+        {"sceneId": "scene-2", "focalCharacterName": "Sam"},
+        {"sceneId": "scene-3", "focalCharacterName": "C.J."},
+        {"sceneId": "scene-4", "focalCharacterName": "Bartlet"},
+        # Establishing shots have no focal character and must not invent one.
+        {"sceneId": "scene-5", "focalCharacterName": None},
+        {"sceneId": "scene-6", "focalCharacterName": "  "},
+    ]
+
+    footprint = character_footprint(packets)
+
+    assert footprint == [
+        {"characterName": "Sam", "focalSceneCount": 2, "focalSceneIds": ["scene-1", "scene-2"]},
+        {"characterName": "Bartlet", "focalSceneCount": 1, "focalSceneIds": ["scene-4"]},
+        {"characterName": "C.J.", "focalSceneCount": 1, "focalSceneIds": ["scene-3"]},
+    ], "ordered by how much each carries, then by name; unfocused scenes contribute nobody"
