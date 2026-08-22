@@ -408,6 +408,36 @@ export function NarrativeMapCard({
       </div>
 
       <div className="px-5 py-5">
+        {narrativeMapRun?.status === 'completed' &&
+        narrativeMapRun.removedClaims?.length ? (
+          <section
+            className="mb-5 rounded-card border border-tr-border bg-tr-surface-clay p-4"
+            data-testid="narrative-map-removals"
+          >
+            <h3 className="font-script text-11 uppercase tracking-[0.1em] text-tr-text-muted">
+              Removed before publishing
+            </h3>
+            <p className="mt-1 text-12 text-tr-text-secondary">
+              The evidence check could not find support in the script for these,
+              so they were taken out of the map rather than shown as fact.
+            </p>
+            <ul className="mt-2 flex flex-col gap-1.5">
+              {narrativeMapRun.removedClaims.map((claim) => (
+                <li
+                  key={claim.path}
+                  className="text-12 leading-snug text-tr-text-secondary"
+                >
+                  <span className="font-medium text-tr-text-primary">
+                    {claim.subject}
+                  </span>
+                  {claim.reason ? (
+                    <span className="block">{claim.reason}</span>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
         <div className="grid gap-5 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
           <section>
             <h3 className="font-script text-11 uppercase tracking-[0.1em] text-tr-text-muted">

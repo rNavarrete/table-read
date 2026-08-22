@@ -540,4 +540,97 @@ describe('NarrativeMapCard', () => {
     // A diagnostic with no reason still shows its path rather than a blank row.
     expect(panel.textContent).toContain('themes[0].evidence')
   })
+
+  it('tells the writer what the evidence check removed from a published map', () => {
+    render(
+      <NarrativeMapCard
+        project={project()}
+        narrativeMap={narrativeMap()}
+        narrativeMapRun={{
+          id: 'nmap-1',
+          projectId: 'proj-1',
+          sourceSnapshotId: 'snap-1',
+          sourceHash: 'source-hash',
+          analysisVersion: '3.3',
+          status: 'completed',
+          phase: 'complete',
+          sceneCount: 2,
+          completedSceneCount: 2,
+          attemptCount: 1,
+          retryAllowed: false,
+          estimatedCostUsd: null,
+          actualInputTokens: null,
+          actualOutputTokens: null,
+          resultSnapshotId: 'snap-2',
+          errorCode: null,
+          errorMessage: null,
+          rejectionDiagnostics: [],
+          removedClaims: [
+            {
+              action: 'remove_character_arc',
+              path: 'characterArcs[Cass]',
+              subject: "Cass's character arc",
+              reason:
+                'No cited beat shows Cass wanting anything across the episode.',
+            },
+            {
+              action: 'clear_act_escalation',
+              path: 'acts[1].escalation',
+              subject: 'Act 1 escalation',
+              reason: '',
+            },
+          ],
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        }}
+        onJumpToScene={vi.fn()}
+      />,
+    )
+
+    const panel = screen.getByTestId('narrative-map-removals')
+    expect(panel.textContent).toContain('Removed before publishing')
+    expect(panel.textContent).toContain("Cass's character arc")
+    expect(panel.textContent).toContain(
+      'No cited beat shows Cass wanting anything across the episode.',
+    )
+    // A removal with no reason still names what was removed.
+    expect(panel.textContent).toContain('Act 1 escalation')
+    // The map itself still renders beneath the notice.
+    expect(screen.getByTestId('narrative-themes')).not.toBeNull()
+  })
+
+  it('shows no removals panel when the gate pruned nothing', () => {
+    render(
+      <NarrativeMapCard
+        project={project()}
+        narrativeMap={narrativeMap()}
+        narrativeMapRun={{
+          id: 'nmap-1',
+          projectId: 'proj-1',
+          sourceSnapshotId: 'snap-1',
+          sourceHash: 'source-hash',
+          analysisVersion: '3.3',
+          status: 'completed',
+          phase: 'complete',
+          sceneCount: 2,
+          completedSceneCount: 2,
+          attemptCount: 1,
+          retryAllowed: false,
+          estimatedCostUsd: null,
+          actualInputTokens: null,
+          actualOutputTokens: null,
+          resultSnapshotId: 'snap-2',
+          errorCode: null,
+          errorMessage: null,
+          rejectionDiagnostics: [],
+          removedClaims: [],
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        }}
+        onJumpToScene={vi.fn()}
+      />,
+    )
+
+    expect(screen.queryByTestId('narrative-map-removals')).toBeNull()
+  })
 })

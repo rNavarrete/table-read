@@ -437,6 +437,13 @@ class NarrativeMapRejectionDiagnostic(_Base):
     reason: str = ""
 
 
+class NarrativeMapRemovedClaim(_Base):
+    action: str
+    path: str
+    subject: str
+    reason: str = ""
+
+
 class NarrativeMapRun(_Base):
     id: Id
     project_id: Id
@@ -457,6 +464,7 @@ class NarrativeMapRun(_Base):
     error_message: str | None
     # Why the evidence gate rejected this run — see the Zod docstring.
     rejection_diagnostics: list[NarrativeMapRejectionDiagnostic] = []
+    removed_claims: list[NarrativeMapRemovedClaim] = []
     created_at: str
     updated_at: str
 

@@ -82,3 +82,124 @@ def test_run_without_diagnostics_reports_an_empty_list():
     )
 
     assert narrative_map_runs.serialize_run(run)["rejectionDiagnostics"] == []
+
+
+def _completed_run(checkpoint: dict) -> SimpleNamespace:
+    return SimpleNamespace(
+        id="nmap-3",
+        project_id="proj-1",
+        source_snapshot_id="snap-1",
+        source_hash="h",
+        analysis_version=NARRATIVE_MAP_ANALYSIS_VERSION,
+        status="completed",
+        phase="complete",
+        scene_count=27,
+        completed_scene_count=27,
+        attempt_count=1,
+        estimated_cost_usd=None,
+        actual_input_tokens=None,
+        actual_output_tokens=None,
+        result_snapshot_id="snap-2",
+        error_code=None,
+        error_message=None,
+        checkpoint=checkpoint,
+        created_at=datetime(2026, 8, 13, tzinfo=UTC),
+        updated_at=datetime(2026, 8, 13, tzinfo=UTC),
+    )
+
+
+def test_completed_run_says_what_the_evidence_gate_removed_and_why():
+    """A map that publishes after local repair has had claims pruned from it,
+    and the writer saw a smaller map with no word about why. On one real run
+    the gate dropped an entire character; on the next, a whole theme and a
+    character's arc summary. "Never rewrite silently" is the design doc's
+    first trust rule — this is the gate's half of keeping it."""
+    run = _completed_run(
+        {
+            "verification": {
+                "unsupportedClaims": [
+                    {
+                        "path": "themes[0].evidence[0] (beat-10-1)",
+                        "reason": "beat-10-1 shows Josh replaying the tape, nothing more.",
+                        "excerptCarriesClaim": False,
+                    },
+                    {
+                        "path": "characterArcs[C.J.].arcSummary",
+                        "reason": "No cited beat shows C.J. admitting to anything.",
+                        "excerptCarriesClaim": False,
+                    },
+                ]
+            },
+            "verificationRepairs": [
+                {
+                    "action": "remove_theme",
+                    "path": "themes[0].evidence[0] (beat-10-1)",
+                    "label": "Tactlessness as the price of conviction",
+                },
+                {
+                    "action": "clear_character_arc_claim",
+                    "path": "characterArcs[C.J.].arcSummary",
+                    "characterName": "C.J.",
+                    "field": "arcSummary",
+                },
+                {"action": "remove_character_arc", "path": "characterArcs[Bartlet]",
+                 "characterName": "Bartlet"},
+                {"action": "clear_act_escalation", "path": "acts[0].escalation", "act": 0},
+                {"action": "clear_scene_turn_claim", "path": "sceneTurns[scene-14].stakes",
+                 "sceneId": "scene-14", "field": "stakes"},
+                # Advisories did nothing to the map and must not be listed.
+                {"action": "record_verifier_advisory", "path": "acts[4].turnBeatId",
+                 "reason": "Supported, worth a look."},
+                {"action": "record_self_retracted_claim", "path": "themes[1].statement",
+                 "reason": "Actually supported."},
+                "not-a-dict",
+            ],
+        }
+    )
+
+    payload = narrative_map_runs.serialize_run(run)
+
+    assert payload["removedClaims"] == [
+        {
+            "action": "remove_theme",
+            "path": "themes[0].evidence[0] (beat-10-1)",
+            "subject": 'Theme "Tactlessness as the price of conviction"',
+            "reason": "beat-10-1 shows Josh replaying the tape, nothing more.",
+        },
+        {
+            "action": "clear_character_arc_claim",
+            "path": "characterArcs[C.J.].arcSummary",
+            "subject": "C.J.'s arc summary",
+            "reason": "No cited beat shows C.J. admitting to anything.",
+        },
+        {
+            "action": "remove_character_arc",
+            "path": "characterArcs[Bartlet]",
+            "subject": "Bartlet's character arc",
+            "reason": "",
+        },
+        {
+            "action": "clear_act_escalation",
+            "path": "acts[0].escalation",
+            "subject": "Cold open escalation",
+            "reason": "",
+        },
+        {
+            "action": "clear_scene_turn_claim",
+            "path": "sceneTurns[scene-14].stakes",
+            "subject": "Scene 14 stakes",
+            "reason": "",
+        },
+    ]
+
+
+def test_removed_claims_are_empty_unless_the_run_completed():
+    """A rejected run has `rejectionDiagnostics`; nothing was pruned from a map
+    that was never published, whatever the checkpoint holds."""
+    run = _completed_run(
+        {"verificationRepairs": [{"action": "remove_theme", "path": "themes[0]", "label": "x"}]}
+    )
+    run.status = "rejected"
+
+    assert narrative_map_runs.serialize_run(run)["removedClaims"] == []
+    assert narrative_map_runs.serialize_run(_completed_run({}))["removedClaims"] == []

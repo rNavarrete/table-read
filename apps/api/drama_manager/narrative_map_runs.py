@@ -119,6 +119,7 @@ def serialize_run(run: NarrativeMapRunRow) -> dict:
         "errorCode": run.error_code,
         "errorMessage": error_message,
         "rejectionDiagnostics": _rejection_diagnostics(run),
+        "removedClaims": _removed_claims(run),
         "createdAt": _utc_z(run.created_at),
         "updatedAt": _utc_z(run.updated_at),
     }
@@ -158,6 +159,109 @@ def _rejection_diagnostics(run: NarrativeMapRunRow) -> list[dict]:
                     "reason": str(entry.get("reason") or "").strip(),
                 }
             )
+    return out
+
+
+# Field names the repair records carry, in the writer's words. A path like
+# `characterArcs[C.J.].arcSummary` is an address; "C.J.'s arc summary" is what
+# was taken out of their map.
+_CLAIM_FIELD_LABELS = {
+    "want": "want",
+    "need": "need",
+    "internalConflict": "internal conflict",
+    "externalPressure": "external pressure",
+    "arcSummary": "arc summary",
+    "dramaticFunction": "dramatic function",
+    "conflict": "conflict",
+    "stakes": "stakes",
+}
+
+
+def _scene_label(scene_id: object) -> str:
+    text = str(scene_id or "")
+    return f"Scene {text.removeprefix('scene-')}" if text.startswith("scene-") else text
+
+
+def _act_label(act: object) -> str:
+    # Contract: `act: 0 = cold open`.
+    return "Cold open" if act == 0 else f"Act {act}"
+
+
+def _removed_claim_subject(repair: dict) -> str | None:
+    """What a repair took out of the map, named for the writer; None if nothing was."""
+    action = repair.get("action")
+    name = str(repair.get("characterName") or "").strip()
+    field = _CLAIM_FIELD_LABELS.get(str(repair.get("field") or ""), str(repair.get("field") or ""))
+    if action == "remove_theme":
+        label = str(repair.get("label") or "").strip()
+        return f'Theme "{label}"' if label else "A theme"
+    if action == "remove_character_arc":
+        return f"{name}'s character arc" if name else "A character arc"
+    if action == "clear_character_arc_claim":
+        return f"{name}'s {field}" if name else f"A character's {field}"
+    if action == "drop_character_arc_turning_point":
+        beats = ", ".join(str(b) for b in repair.get("beatIds") or [])
+        return f"{name}'s turning point at {beats}" if name and beats else f"{name}'s turning point"
+    if action == "remove_thread_movement":
+        return "A thread movement"
+    if action == "remove_thread_movements_for_beat":
+        count = repair.get("count") or 0
+        noun = "thread movement" if count == 1 else "thread movements"
+        return f"{count} {noun} at {repair.get('beatId')}"
+    if action == "clear_scene_turn_claim":
+        return f"{_scene_label(repair.get('sceneId'))} {field}"
+    if action == "clear_act_escalation":
+        return f"{_act_label(repair.get('act'))} escalation"
+    # record_* actions are advisories and self-retractions: nothing was removed.
+    return None
+
+
+def _removed_claims(run: NarrativeMapRunRow) -> list[dict]:
+    """What the evidence gate took out of a map it then published.
+
+    The counterpart of `_rejection_diagnostics` for the run that succeeded. A
+    map that publishes after local repair has had claims pruned from it — a
+    whole theme, a character's arc summary, on one West Wing run an entire
+    character — and the writer saw a map with fewer things in it and no word
+    about why. The design doc's first trust rule is "never rewrite silently";
+    this is the gate's half of keeping it.
+
+    Each entry names what was removed in the writer's terms and carries the
+    verifier's own reason, joined by path from the verdict the repair acted on.
+    Advisories are not listed: nothing was done to the map on their account.
+    Same rule-5 footing as the rejection diagnostics — this goes to the writer
+    about their own script, and nothing here is logged.
+    """
+    if run.status != "completed":
+        return []
+    checkpoint = run.checkpoint if isinstance(run.checkpoint, dict) else {}
+    repairs = checkpoint.get("verificationRepairs")
+    if not isinstance(repairs, list):
+        return []
+    raw_verdict = checkpoint.get("verification")
+    verdict = raw_verdict if isinstance(raw_verdict, dict) else {}
+    reasons: dict[str, str] = {}
+    for claim in verdict.get("unsupportedClaims") or []:
+        if isinstance(claim, dict) and claim.get("path"):
+            reasons[str(claim["path"])] = str(claim.get("reason") or "").strip()
+    out: list[dict] = []
+    for repair in repairs:
+        if not isinstance(repair, dict):
+            continue
+        subject = _removed_claim_subject(repair)
+        if subject is None:
+            continue
+        path = str(repair.get("path") or "").strip()
+        out.append(
+            {
+                "action": str(repair.get("action")),
+                "path": path,
+                "subject": subject,
+                "reason": reasons.get(path, ""),
+            }
+        )
+        if len(out) == _MAX_SURFACED_DIAGNOSTICS:
+            break
     return out
 
 
