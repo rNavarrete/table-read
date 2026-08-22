@@ -111,9 +111,13 @@ def _completed_run(checkpoint: dict) -> SimpleNamespace:
 def test_completed_run_says_what_the_evidence_gate_removed_and_why():
     """A map that publishes after local repair has had claims pruned from it,
     and the writer saw a smaller map with no word about why. On one real run
-    the gate dropped an entire character; on the next, a whole theme and a
-    character's arc summary. "Never rewrite silently" is the design doc's
-    first trust rule — this is the gate's half of keeping it."""
+    the gate blanked a character's want; on the next, it removed a whole theme
+    and cleared another character's arc summary. "Never rewrite silently" is
+    the design doc's first trust rule — this is the gate's half of keeping it.
+
+    (An earlier version of this docstring said the gate had "dropped an entire
+    character". It had not: the arc published with its want cleared. The check
+    that said otherwise matched a name against a hex character id.)"""
     run = _completed_run(
         {
             "verification": {

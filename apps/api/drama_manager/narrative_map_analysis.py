@@ -621,9 +621,10 @@ def character_footprint(scene_packets: list[dict]) -> list[dict]:
     granddaughter"; the name appears to come from the Raggedy Ann doll beside
     it) and a want "to settle the Commandments argument", which the verifier
     called an invented detail not traceable to the evidence. The evidence gate
-    caught both and dropped the arc, so the writer lost a character rather than
-    read a fabrication — but it costs a full analysis' worth of that character
-    every run.
+    caught both and cleared the field, so the arc published with a blank want
+    beside four readings the verifier had not checked as closely — the writer
+    got a President with no want, not a fabrication, but not a grounded arc
+    either.
 
     Counting it server-side turns "sustained on-page change" from a feeling
     into a number the model can read. Deliberately only `focal`: it is exact

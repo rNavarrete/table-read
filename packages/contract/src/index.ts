@@ -476,9 +476,8 @@ export const NarrativeMapRun = z.object({
     .default([]),
   // The counterpart for a run that succeeded: what the evidence gate pruned
   // from the map before publishing it. A map that passes after local repair
-  // has had claims removed — a theme, a character's arc summary, on one real
-  // run an entire character — and the writer saw fewer things and no word
-  // why. Design doc: "never rewrite silently". `subject` is the removed thing
+  // has had claims removed — a theme, a character's arc summary, a
+  // character's want — and the writer saw fewer things and no word why. Design doc: "never rewrite silently". `subject` is the removed thing
   // in the writer's terms ("C.J.'s arc summary"); `path` is the address;
   // `reason` is the verifier's own words, joined by path. Advisories are not
   // listed, since nothing was done to the map on their account. Defaulted so

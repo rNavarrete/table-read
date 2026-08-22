@@ -221,10 +221,10 @@ def _removed_claims(run: NarrativeMapRunRow) -> list[dict]:
 
     The counterpart of `_rejection_diagnostics` for the run that succeeded. A
     map that publishes after local repair has had claims pruned from it — a
-    whole theme, a character's arc summary, on one West Wing run an entire
-    character — and the writer saw a map with fewer things in it and no word
-    about why. The design doc's first trust rule is "never rewrite silently";
-    this is the gate's half of keeping it.
+    whole theme, a character's arc summary, a character's want — and the
+    writer saw a map with less in it and no word about why. The design doc's
+    first trust rule is "never rewrite silently"; this is the gate's half of
+    keeping it.
 
     Each entry names what was removed in the writer's terms and carries the
     verifier's own reason, joined by path from the verdict the repair acted on.
