@@ -938,6 +938,9 @@ export const LedgerExtraction = z.object({
 // existing bible (matching on name/aliases) and mints new ids for anything
 // unresolved — the model never sets/knows ids. Every entity carries at least
 // one evidence citation (scene id + short quote) for the review UI.
+// A character whose name and aliases match more than one existing row is
+// neither attached nor minted; it becomes an open `[merge_proposal]` scene
+// flag pointing at Merge into (T9.8).
 // InferredWorldElement rows land as SeriesBible.worldQA entries
 // (`q: "Where/What is <name>?"`, `a: note`) — no first-class Project field
 // in P0; a dedicated world-element entity is P1.

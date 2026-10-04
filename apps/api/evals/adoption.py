@@ -679,7 +679,7 @@ def alias_resolution_eval(
             )
             continue
 
-        merged, _relationship_states = fountain_characters.merge_inferred_entities(
+        merged, _relationship_states, _ = fountain_characters.merge_inferred_entities(
             {"characters": []}, result
         )
         for pair in pairs:

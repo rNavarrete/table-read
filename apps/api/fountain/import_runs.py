@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 from drama_manager import render
 from storage.models import ImportRunRow, ImportRunUnitRow, ProjectRow
 
-IMPORT_ANALYSIS_VERSION = "2026-10-04.3"
+IMPORT_ANALYSIS_VERSION = "2026-10-04.4"
 # Saved units hold verbatim script text, so an unfinished run is not kept
 # indefinitely for a retry that may never come.
 UNFINISHED_RUN_RETENTION = timedelta(days=7)

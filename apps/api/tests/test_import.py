@@ -2441,3 +2441,76 @@ def test_import_leaves_a_scene_field_blank_when_the_read_omits_it(unlocked_proje
     scene = analysis.new_doc["seasons"][0]["episodes"][0]["scenes"][0]
     assert scene["whatHappens"] == ""
     assert scene["socialSituation"] == ""
+
+
+def test_an_ambiguous_inferred_name_reaches_the_writer_as_a_merge_proposal(
+    unlocked_project,
+):
+    """T9.8: the proposal is an open flag on the scene the model cited, and no
+    third row is minted for a person the cast already holds twice."""
+    src = "\n".join(
+        [
+            "INT. CLASSROOM - DAY",
+            "Kids wait.",
+            "INT. HALL - DAY",
+            "MALLORY",
+            "Hello.",
+            "",
+            "O'BRIEN",
+            "Hi.",
+        ]
+    )
+    llm = MockLlmClient()
+    llm.set_responses("segment_scene", one_beat_per_scene(src))
+    llm.set_response(
+        "infer_story_entities",
+        entities(
+            characters=[
+                {
+                    "name": "Mallory O'Brien",
+                    "aliases": [],
+                    "role": "supporting",
+                    "traits": "",
+                    "evidence": [{"sceneId": "scene-2", "quote": "Hello."}],
+                }
+            ]
+        ),
+    )
+    llm.set_response(
+        "extract_ledger_facts",
+        extraction([{**one_fact(), "knownBy": ["Mallory O'Brien"]}]),
+    )
+    llm.set_response("scan_consistency", scan())
+
+    _events, analysis = _drain_analysis(
+        pipeline.analyze_import(unlocked_project["project"], [], src, llm)
+    )
+
+    names = [c["name"] for c in analysis.new_doc["seriesBible"]["characters"]]
+    assert {"Mallory", "O'Brien"} <= set(names)
+    assert "Mallory O'Brien" not in names
+    proposals = [f for f in analysis.raw_flags if "[merge_proposal]" in f["explanation"]]
+    assert [(f["objectType"], f["objectId"], f["status"]) for f in proposals] == [
+        ("scene", "scene-2", "open")
+    ]
+
+
+def test_extraction_cannot_mint_a_knower_the_script_never_names(unlocked_project):
+    """T9.8: knownBy gets the entity merge's grounding gate, against the
+    imported script."""
+    src = "INT. OFFICE - DAY\nMARTA\nWe close at nine.\n"
+    llm = MockLlmClient()
+    llm.set_responses("segment_scene", one_beat_per_scene(src))
+    llm.set_response(
+        "extract_ledger_facts",
+        extraction([{**one_fact(), "knownBy": ["Zelda Fitzgerald", "Marta"]}]),
+    )
+    llm.set_response("scan_consistency", scan())
+
+    _events, analysis = _drain_analysis(
+        pipeline.analyze_import(unlocked_project["project"], [], src, llm)
+    )
+
+    names = [c["name"] for c in analysis.new_doc["seriesBible"]["characters"]]
+    assert "Zelda Fitzgerald" not in names
+    assert len(analysis.new_facts[0]["knownBy"]) == 1

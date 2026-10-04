@@ -105,10 +105,10 @@ _END_OF_RE = re.compile(r"^END OF\b")
 # cues and the dialogue under them is real, but they are roles, not people the
 # story tracks — and in the People rail they crowd out the actual cast.
 #
-# Matched on the HEAD noun rather than the whole string, because English
-# compounds are head-final: "Moving Man" and "Security Officer" are generic
-# for the same reason "Man" and "Officer" are, while "Mary Marsh" and
-# "Mrs. Landingham" are not generic no matter what precedes them.
+# Matched on every word after the first, not only the head noun: "Moving Man"
+# ends in a role, but "All reporters present" and "Man in Grey Coat"-style
+# descriptions put a modifier after it. A leading role word is a title
+# ("Agent Carter", "Uncle Mickey") unless it stands alone.
 _GENERIC_ROLE_HEADS = frozenset(
     {
         # people, unspecified
@@ -202,9 +202,9 @@ def is_generic_role(name: str) -> bool:
     """
     stripped = _PARENTHETICAL_RE.sub("", name or "").strip()
     tokens = re.findall(r"[A-Za-z]+", stripped)
-    if not tokens:
-        return False
-    return tokens[-1].casefold() in _GENERIC_ROLE_HEADS
+    # ponytail: a title after the first word ("Special Agent Carter") reads as
+    # a role; needs a name lexicon if real names start getting dropped.
+    return any(token.casefold() in _GENERIC_ROLE_HEADS for token in tokens[1:] or tokens)
 
 
 # "C.J." / "J.R." — every dot-separated segment is a single letter.
@@ -213,13 +213,35 @@ _INITIALISM_RE = re.compile(r"^(?:[A-Za-z]\.){2,}$")
 _AUDIENCE_TOKENS = frozenset({"audience", "the audience", "viewer", "viewers"})
 
 
+# Share of cue lines that must have dialogue directly under them before the
+# script is trusted to format cues that way (see extract_character_cues).
+_DIALOGUE_FOLLOWS_MAJORITY = 0.5
+
+
 def extract_character_cues(lines: Iterable[str]) -> list[str]:
-    """Return ordered unique display names from Fountain-style character cues."""
-    seen: set[str] = set()
-    out: list[str] = []
-    for line in lines:
+    """Return ordered unique display names from Fountain-style character cues.
+
+    A cue counts only when dialogue (or a parenthetical) is on the next line:
+    a caps shot heading such as "WIDE ANGLE ON GARAGE" has the cue shape but
+    a blank line under it. Enforced only when most cue lines pass, because
+    some PDF extraction puts a blank line under every cue.
+    """
+    lines = list(lines)
+    cues: list[tuple[str, bool]] = []
+    for index, line in enumerate(lines):
         name = _cue_display_name(line)
         if name is None:
+            continue
+        following = lines[index + 1] if index + 1 < len(lines) else ""
+        spoken = following.strip() and not (
+            _CUE_RE.match(following) or is_slugline(following)
+        )
+        cues.append((name, bool(spoken)))
+    enforce = sum(spoken for _, spoken in cues) > len(cues) * _DIALOGUE_FOLLOWS_MAJORITY
+    seen: set[str] = set()
+    out: list[str] = []
+    for name, spoken in cues:
+        if enforce and not spoken:
             continue
         key = name.casefold()
         if key in seen:
@@ -302,11 +324,16 @@ def merge_characters_into_bible(
 def normalize_known_by(
     known_by: Iterable[str],
     characters: list[dict],
+    source_text: str = "",
 ) -> tuple[list[str], list[dict]]:
     """Map ``knownBy`` entries to character ids; mint missing name-like knowers.
 
-    Drops audience tokens. Returns ``(normalized_ids, characters)`` — characters
-    may grow when a knower cannot be resolved.
+    Drops audience tokens. An unresolved knower passes the same gates as an
+    inferred character (`merge_inferred_entities`) before it is minted: not a
+    role, not filler, not matching several existing rows, and named in
+    ``source_text`` when that is supplied.
+    Returns ``(normalized_ids, characters)`` — characters may grow when a
+    knower cannot be resolved.
     """
     chars = list(characters)
     resolved: list[str] = []
@@ -325,8 +352,14 @@ def normalize_known_by(
                 continue
             display = _display_from_token(token)
             # Don't re-mint what the cue filter and entity merge just refused;
-            # a fact "known by" a Reporter names a role, not a person.
-            if is_generic_role(display):
+            # a fact "known by" a Reporter names a role, not a person, and a
+            # name matching several rows already got a merge proposal (T9.8).
+            if (
+                is_generic_role(display)
+                or is_filler_prose(display)
+                or (source_text and not name_is_grounded(display, source_text))
+                or len(_matching_rows(display, chars)) > 1
+            ):
                 continue
             minted = empty_character(display)
             chars.append(minted)
@@ -474,6 +507,12 @@ def _alias_match(name: str, characters: list[dict]) -> dict | None:
     The ambiguity guard is what keeps this safe: with both JOHN SMITH and
     JANE SMITH present, a bare SMITH matches two characters and is left
     alone rather than silently folded into whichever came first."""
+    candidates = _matching_rows(name, characters)
+    return candidates[0] if len(candidates) == 1 else None
+
+
+def _matching_rows(name: str, characters: list[dict]) -> list[dict]:
+    """The exact name/alias match, else every prefix/suffix candidate."""
     key = name.casefold()
     candidates = []
     for c in characters:
@@ -481,9 +520,9 @@ def _alias_match(name: str, characters: list[dict]) -> dict | None:
         if not other:
             continue
         if other == key:
-            return c
+            return [c]
         if key in {a.casefold() for a in (c.get("aliases") or []) if a}:
-            return c
+            return [c]
         if (
             other.startswith(key + " ")
             or key.startswith(other + " ")
@@ -491,9 +530,7 @@ def _alias_match(name: str, characters: list[dict]) -> dict | None:
             or key.endswith(" " + other)
         ):
             candidates.append(c)
-    if len(candidates) == 1:
-        return candidates[0]
-    return None
+    return candidates
 
 
 def _find_character(token: str, characters: list[dict]) -> dict | None:
@@ -574,7 +611,7 @@ _FILLER_PROSE = frozenset(
 
 def is_filler_prose(text: str) -> bool:
     """Is this a required field filled with a non-answer rather than content?"""
-    return (text or "").strip().strip(".").casefold() in _FILLER_PROSE
+    return (text or "").strip().strip(".<>").casefold() in _FILLER_PROSE
 
 
 def name_is_grounded(name: str, source_text: str) -> bool:
@@ -606,7 +643,7 @@ def name_is_grounded(name: str, source_text: str) -> bool:
 
 def merge_inferred_entities(
     bible: dict, entities: StoryEntities, source_text: str = ""
-) -> tuple[list[dict], list[dict]]:
+) -> tuple[list[dict], list[dict], list[dict]]:
     """Fold `infer_story_entities` output into `bible` (T7.15).
 
     `source_text` is the imported script; when supplied, an inferred
@@ -614,10 +651,12 @@ def merge_inferred_entities(
     `name_is_grounded`). Defaults to "" — meaning "no source to check
     against, keep everything" — so existing callers and tests are unaffected.
 
-    - Characters: resolved names (exact/casefold/alias, `_find_character`)
-      extend the matched row's `aliases` (deduped, union of old+new); an
-      unresolved name mints a new shell (`empty_character`) with `aliases`
-      set from the inferred row. When unlocked and empty, copy inferred
+    - Characters: when the inferred name and aliases together match exactly
+      one existing row (exact/alias, else prefix/suffix), that row's
+      `aliases` gain the name and aliases (deduped); when they match several
+      rows nothing is attached or minted and a merge proposal is returned
+      (T9.8); an unmatched name mints a new shell (`empty_character`) with
+      `aliases` set from the inferred row. When unlocked and empty, copy inferred
       `traits` into `traits` and `summary` (T7.31 profile). A `locked: true`
       matched row's fields are never modified -- only its id is used for
       relationship resolution. Never renames or deletes any existing character.
@@ -635,26 +674,54 @@ def merge_inferred_entities(
 
     Mutates and returns `bible["characters"]`; `bible["relationships"]` and
     `bible["worldQA"]` are updated in place too. Returns
-    `(characters, relationship_states)` -- the latter is not stored on
-    `bible` (it belongs on the episode; the caller assigns it there).
+    `(characters, relationship_states, merge_proposals)` -- the latter two
+    are not stored on `bible` (states belong on the episode; each proposal,
+    `{sceneIds, explanation}`, becomes an open flag; the caller does both).
     """
     characters = list(bible.get("characters") or [])
     dropped_ungrounded = 0
     dropped_generic = 0
+    merge_proposals: list[dict] = []
+    proposed: set[frozenset[str]] = set()
 
     for inferred in entities.characters:
         name = (inferred.name or "").strip()
         if not name:
             continue
-        existing = _find_character(name, characters)
-        # Only gate NEW names. An already-known character (minted from a cue,
-        # or writer-authored) is grounded by whatever put it there, and this
-        # check must never delete or skip an existing row.
+        hits = {
+            row["id"]: row
+            for token in [name, *inferred.aliases]
+            if token.strip()
+            for row in _matching_rows(token.strip(), characters)
+        }
+        existing = next(iter(hits.values())) if len(hits) == 1 else None
+        # Only gate names that don't attach. An already-known character
+        # (minted from a cue, or writer-authored) is grounded by whatever put
+        # it there, and this check must never delete or skip an existing row.
         if existing is None and source_text and not name_is_grounded(name, source_text):
             dropped_ungrounded += 1
             continue
         if existing is None and is_generic_role(name):
             dropped_generic += 1
+            continue
+        if len(hits) > 1:
+            # Attaching to any one row would be a guess; the writer decides
+            # with Merge into (T7.16).
+            key = frozenset(hits)
+            if key not in proposed:
+                proposed.add(key)
+                merge_proposals.append(
+                    {
+                        "sceneIds": [e.scene_id for e in inferred.evidence],
+                        "explanation": (
+                            f'[merge_proposal] The breakdown names "{name}", which '
+                            "matches more than one cast entry: "
+                            f"{', '.join(row['name'] for row in hits.values())}. "
+                            "If they are one person, combine them with Merge into "
+                            "(Ledger, Cast, Manage)."
+                        ),
+                    }
+                )
             continue
         traits = (inferred.traits or "").strip()
         if is_filler_prose(traits):
@@ -670,7 +737,7 @@ def merge_inferred_entities(
             characters.append(minted)
         elif not existing.get("locked"):
             existing["aliases"] = _dedupe_aliases(
-                [*(existing.get("aliases") or []), *inferred.aliases],
+                [*(existing.get("aliases") or []), name, *inferred.aliases],
                 exclude=existing.get("name") or "",
             )
             if traits:
@@ -716,12 +783,13 @@ def merge_inferred_entities(
     bible["characters"] = characters
     bible["relationships"] = relationships
     bible["worldQA"] = world_qa
-    if dropped_relationships or dropped_ungrounded or dropped_generic:
+    if dropped_relationships or dropped_ungrounded or dropped_generic or merge_proposals:
         _logger.info(
             "merge_inferred_entities relationships_dropped=%d "
-            "characters_ungrounded=%d characters_generic=%d",
+            "characters_ungrounded=%d characters_generic=%d merge_proposals=%d",
             dropped_relationships,
             dropped_ungrounded,
             dropped_generic,
+            len(merge_proposals),
         )
-    return characters, relationship_states
+    return characters, relationship_states, merge_proposals

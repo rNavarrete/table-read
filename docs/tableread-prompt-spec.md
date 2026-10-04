@@ -259,7 +259,7 @@ Purpose: import-time cast/relationship/world-element read, run once per import b
 
 **Input:** scene plan summaries (`{id, location, whatHappens}`) plus each scene's early script text, and the ground-truth speaker list already minted from cues (`fountain/characters.cues_from_scenes`) as a floor to extend, never replace — inside `<source_data_{nonce}>` tags per §8b.
 
-**Output schema (`StoryEntities`):** characters (incl. non-speaking), relationships, and world elements (locations/objects) — **names, not ids**: the model never mints or knows character/scene ids, only refers to entities by name string. The server resolves each name against the existing bible (exact/casefold/alias match) and mints a new id for anything unresolved. Every entity carries at least one `EntityEvidence` (`{sceneId, quote}`) citation for the review UI — `min(1)`, enforced by the schema, not a convention.
+**Output schema (`StoryEntities`):** characters (incl. non-speaking), relationships, and world elements (locations/objects) — **names, not ids**: the model never mints or knows character/scene ids, only refers to entities by name string. The server resolves each name against the existing bible (exact/casefold/alias match) and mints a new id for anything unresolved; a character whose name and aliases match several existing rows is neither attached nor minted but filed as an open `[merge_proposal]` flag for the writer's Merge into (T9.8). Every entity carries at least one `EntityEvidence` (`{sceneId, quote}`) citation for the review UI — `min(1)`, enforced by the schema, not a convention.
 
 ```json
 {

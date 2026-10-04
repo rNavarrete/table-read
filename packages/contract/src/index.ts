@@ -1010,6 +1010,9 @@ export type InitialSceneSkeleton = z.infer<typeof InitialSceneSkeleton>
 // existing bible (matching on name/aliases) and mints new ids for anything
 // unresolved — the model never sets/knows ids. Every entity carries at least
 // one evidence citation (scene id + short quote) for the review UI.
+// A character whose name and aliases match more than one existing row is
+// neither attached nor minted; it becomes an open `[merge_proposal]` scene
+// flag pointing at Merge into (T9.8).
 export const EntityEvidence = z.object({
   sceneId: Id,
   quote: z.string(), // verbatim-ish; server-truncated to 200 chars

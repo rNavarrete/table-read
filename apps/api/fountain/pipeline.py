@@ -461,7 +461,7 @@ def analyze_import(
     # "placeholder"). Uses the post-front-matter `content`, so a name that
     # only ever appeared on the title page or SETS list doesn't count as
     # grounding either.
-    characters, relationship_states = merge_inferred_entities(
+    characters, relationship_states, merge_proposals = merge_inferred_entities(
         bible, entities, content
     )
     _episode_ref(new_doc, episode_id)["relationshipStates"] = relationship_states
@@ -600,12 +600,14 @@ def analyze_import(
     for extraction in extractions:
         for ef in extraction.new_facts:
             fact = _to_ledger_fact(ef, fact_minter.mint(), beat_index)
-            normalized, characters = normalize_known_by(fact["knownBy"], characters)
+            normalized, characters = normalize_known_by(
+                fact["knownBy"], characters, content
+            )
             fact["knownBy"] = normalized
             resolved_events = []
             for event in fact["knowledgeEvents"]:
                 event_character_ids, characters = normalize_known_by(
-                    event["characterNames"], characters
+                    event["characterNames"], characters, content
                 )
                 resolved_events.append(
                     {
@@ -688,6 +690,22 @@ def analyze_import(
                 "objectId": beat_id,
                 "factId": None,
                 "explanation": _segmentation_issue_explanation(issue),
+                "severity": "tension",
+                "status": "open",
+                "sourceChange": "",
+            }
+        )
+    for proposal in merge_proposals:
+        raw_flags.append(
+            {
+                "id": flag_minter.mint(),
+                "objectType": "scene",
+                "objectId": next(
+                    (sid for sid in proposal["sceneIds"] if sid in scene_docs_by_id),
+                    scene_docs[0]["id"],
+                ),
+                "factId": None,
+                "explanation": proposal["explanation"],
                 "severity": "tension",
                 "status": "open",
                 "sourceChange": "",

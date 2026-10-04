@@ -218,7 +218,7 @@ def test_merge_mints_character_with_aliases_and_non_speaking_character():
             },
         ]
     )
-    characters, relationship_states = merge_inferred_entities(bible, entities)
+    characters, relationship_states, _ = merge_inferred_entities(bible, entities)
     by_name = {c["name"]: c for c in characters}
     assert set(by_name) == {"Doc Brown", "Einstein"}
     assert by_name["Doc Brown"]["aliases"] == ["Doc"]
@@ -273,7 +273,7 @@ def test_merge_appends_resolved_relationship_and_drops_unresolvable():
             },
         ],
     )
-    characters, relationship_states = merge_inferred_entities(bible, entities)
+    characters, relationship_states, _ = merge_inferred_entities(bible, entities)
     doc_id = next(c["id"] for c in characters if c["name"] == "Doc Brown")
     marty_id = next(c["id"] for c in characters if c["name"] == "Marty")
     assert bible["relationships"] == [
@@ -333,7 +333,7 @@ def test_merge_never_touches_locked_character_fields():
             }
         ]
     )
-    characters, _relationship_states = merge_inferred_entities(bible, entities)
+    characters, _relationship_states, _ = merge_inferred_entities(bible, entities)
     assert characters == [
         {
             "id": "char-locked-doc",
@@ -380,7 +380,7 @@ def test_merge_does_not_overwrite_locked_traits_or_summary():
             }
         ]
     )
-    characters, _ = merge_inferred_entities(bible, entities)
+    characters, _, _ = merge_inferred_entities(bible, entities)
     doc = characters[0]
     assert doc["traits"] == "original"
     assert doc["summary"] == "original summary"
@@ -461,7 +461,7 @@ def test_ungrounded_inferred_character_is_dropped():
             "worldElements": [],
         }
     )
-    characters, _states = merge_inferred_entities(
+    characters, _states, _ = merge_inferred_entities(
         bible, entities, "INT. BAR - NIGHT\n\nMARTA\nWhere is it?\n"
     )
     assert [c["name"] for c in characters] == ["Marta"]
@@ -481,7 +481,7 @@ def test_a_non_speaking_character_mentioned_in_action_survives():
             "worldElements": [],
         }
     )
-    characters, _states = merge_inferred_entities(
+    characters, _states, _ = merge_inferred_entities(
         bible,
         entities,
         "INT. BAR - NIGHT\n\nA photograph of Elena sits behind the register.\n",
@@ -503,7 +503,7 @@ def test_grounding_never_removes_an_existing_character():
             "worldElements": [],
         }
     )
-    characters, _states = merge_inferred_entities(bible, entities, "INT. BAR - NIGHT\n")
+    characters, _states, _ = merge_inferred_entities(bible, entities, "INT. BAR - NIGHT\n")
     assert [c["id"] for c in characters] == ["char-ghost"]
 
 
@@ -517,7 +517,7 @@ def test_without_source_text_everything_is_kept():
             "worldElements": [],
         }
     )
-    characters, _states = merge_inferred_entities(bible, entities)
+    characters, _states, _ = merge_inferred_entities(bible, entities)
     assert [c["name"] for c in characters] == ["placeholder"]
 
 
@@ -574,7 +574,7 @@ def test_generic_inferred_entity_is_dropped():
             "worldElements": [],
         }
     )
-    characters, _states = merge_inferred_entities(
+    characters, _states, _ = merge_inferred_entities(
         bible, entities, "INT. LOBBY - DAY\n\nThe press corps waits.\n\nJOSH\nLater.\n"
     )
     assert [c["name"] for c in characters] == ["Josh"]
@@ -688,7 +688,7 @@ def test_filler_traits_do_not_become_a_character_profile():
             "worldElements": [],
         }
     )
-    characters, _ = merge_inferred_entities(
+    characters, _, _ = merge_inferred_entities(
         bible, entities, "INT. OFFICE - DAY\n\nSAM\nHi.\n\nJOSH\nHi.\n"
     )
     by_name = {c["name"]: c for c in characters}
@@ -701,3 +701,108 @@ def test_other_filler_spellings_are_also_rejected():
     for filler in ["N/A", "none", "TBD", "unknown", "—", "not specified"]:
         assert is_filler_prose(filler) is True, filler
     assert is_filler_prose("a quiet, watchful aide") is False
+
+
+def test_an_inferred_full_name_attaches_to_the_row_its_alias_names():
+    """T9.8: "Joshua Lyman" never prefix-matches "Josh"; only the alias links
+    them, and without it the cast held the same person twice."""
+    bible = {"characters": [empty_character("Josh", character_id="char-josh")]}
+    entities = _entities(characters=[{**_inferred("Joshua Lyman"), "aliases": ["Josh"]}])
+    result = merge_inferred_entities(bible, entities, "JOSH\nJoshua Lyman, hi.\n")
+    characters = result[0]
+    assert [c["id"] for c in characters] == ["char-josh"]
+    assert characters[0]["aliases"] == ["Joshua Lyman"]
+    assert result[-1] == []
+
+
+def test_an_inferred_name_matching_two_rows_is_proposed_not_guessed():
+    """T9.8: "Mallory O'Brien" matches both "Mallory" and "O'Brien". Folding
+    it into either is a guess and minting a third row duplicates her, so the
+    writer gets a merge proposal pointing at Merge into (T7.16) instead."""
+    bible = {
+        "characters": [
+            empty_character("Mallory", character_id="char-mallory"),
+            empty_character("O'Brien", character_id="char-obrien"),
+        ]
+    }
+    entities = _entities(
+        characters=[{**_inferred("Mallory O'Brien"), "evidence": _evidence("scene-2")}]
+    )
+    result = merge_inferred_entities(bible, entities, "MALLORY O'BRIEN\nHi.\n")
+    assert [(c["id"], c["aliases"]) for c in result[0]] == [
+        ("char-mallory", []),
+        ("char-obrien", []),
+    ]
+    [proposal] = result[-1]
+    assert proposal["sceneIds"] == ["scene-2"]
+    assert proposal["explanation"].startswith("[merge_proposal]")
+    for expected in ["Mallory O'Brien", "Mallory,", "O'Brien.", "Merge into"]:
+        assert expected in proposal["explanation"], expected
+
+
+def test_ledger_knowers_cannot_mint_filler_or_a_described_group():
+    """T9.8: extraction minted characters called "<unknown>" and "All
+    reporters present" because knownBy had none of the entity-merge gates."""
+    resolved, characters = normalize_known_by(
+        ["<unknown>", "All reporters present", "Sam"],
+        [empty_character("Sam", character_id="char-sam")],
+    )
+    assert resolved == ["char-sam"]
+    assert [c["name"] for c in characters] == ["Sam"]
+
+
+def test_an_ambiguous_knower_is_dropped_rather_than_minted():
+    """T9.8: entity merge files a proposal for "Mallory O'Brien"; minting her
+    here would bring back the third row the proposal exists to prevent."""
+    cast = [
+        empty_character("Mallory", character_id="char-mallory"),
+        empty_character("O'Brien", character_id="char-obrien"),
+    ]
+    resolved, characters = normalize_known_by(
+        ["Mallory O'Brien", "Mallory"], cast, "MALLORY O'BRIEN\nHi.\n"
+    )
+    assert resolved == ["char-mallory"]
+    assert [c["id"] for c in characters] == ["char-mallory", "char-obrien"]
+
+
+def test_an_ungrounded_knower_is_dropped_rather_than_minted():
+    resolved, characters = normalize_known_by(
+        ["Zelda Fitzgerald", "Toby"], [], "INT. OFFICE - DAY\n\nTOBY\nNo.\n"
+    )
+    assert [c["name"] for c in characters] == ["Toby"]
+    assert resolved == [characters[0]["id"]]
+
+
+def test_a_caps_line_with_no_dialogue_under_it_is_not_a_speaker():
+    """A shot heading in caps ("WIDE ANGLE ON GARAGE") has the cue shape but
+    a blank line, not dialogue, under it."""
+    lines = [
+        "INT. GARAGE - NIGHT",
+        "",
+        "WIDE ANGLE ON GARAGE",
+        "",
+        "Rain on the roof.",
+        "",
+        "MARTY",
+        "Doc?",
+        "",
+        "DOC",
+        "(whispering)",
+        "Over here.",
+    ]
+    assert extract_character_cues(lines) == ["Marty", "Doc"]
+
+
+def test_the_dialogue_rule_is_off_when_most_cues_have_a_blank_line_under_them():
+    """Some PDF extraction puts a blank line between every cue and its
+    dialogue; enforcing the rule there would empty the cast."""
+    lines = ["SAM", "", "Morning.", "", "JOSH", "", "Hi.", "", "WIDE ANGLE ON GARAGE", ""]
+    assert extract_character_cues(lines) == ["Sam", "Josh", "Wide Angle On Garage"]
+
+
+def test_a_role_anywhere_after_the_first_word_makes_the_phrase_generic():
+    """T9.8: the head-noun check missed a role with a modifier after it."""
+    for phrase in ["All reporters present", "Tall Man in Grey Coat", "Female Voice On Phone"]:
+        assert is_generic_role(phrase) is True, phrase
+    for name in ["Agent Carter", "Uncle Mickey", "Mary Marsh", "Captain Kirk"]:
+        assert is_generic_role(name) is False, name
