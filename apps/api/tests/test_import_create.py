@@ -1889,6 +1889,42 @@ def test_resume_reuses_no_unit_saved_before_numbered_headings_split(
     assert mock_llm.invocation_count("infer_act_breaks") == 2
 
 
+def test_resume_reuses_no_act_guess_saved_before_printed_markers_counted(
+    db_session, mock_llm, monkeypatch
+):
+    src = "\n".join(
+        [
+            "ACT ONE",
+            "INT. BAR - NIGHT",
+            "Dan pours a drink.",
+            "ACT TWO",
+            "INT. OFFICE - DAY",
+            "Marta waits.",
+            "ACT THREE",
+            "INT. DOCK - NIGHT",
+            "They leave.",
+        ]
+    )
+    _configure_success(mock_llm, src)
+    current_version = import_runs.IMPORT_ANALYSIS_VERSION
+    monkeypatch.setattr(import_runs, "IMPORT_ANALYSIS_VERSION", "2026-10-04.2")  # pre-T9.7
+    from_markers = pipeline.acts.acts_from_markers
+    monkeypatch.setattr(pipeline.acts, "acts_from_markers", lambda *args: None)
+    restore = _failing(monkeypatch, mock_llm, "infer_story_entities")
+    assert _post_import("t97-markers", src)[-1][0] == "failed"
+    assert mock_llm.invocation_count("infer_act_breaks") == 1
+
+    monkeypatch.setattr(import_runs, "IMPORT_ANALYSIS_VERSION", current_version)
+    monkeypatch.setattr(pipeline.acts, "acts_from_markers", from_markers)
+    restore()
+    resumed = _post_import("t97-markers", src)
+
+    assert resumed[-1][0] == "complete"
+    scenes = resumed[-1][1]["result"]["project"]["seasons"][0]["episodes"][0]["scenes"]
+    assert [scene["act"] for scene in scenes] == [0, 0, 1, 2]
+    assert mock_llm.invocation_count("infer_act_breaks") == 1
+
+
 def test_unfinished_runs_past_retention_are_purged_with_their_units(
     db_session, mock_llm, monkeypatch
 ):

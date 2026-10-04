@@ -366,6 +366,63 @@ def test_import_assigns_inferred_acts_and_allows_empty_sections(
     assert [scene["act"] for scene in scenes] == [1, 1, 3, 3, 5, 5]
 
 
+MARKED_SCRIPT = "\n".join(
+    [
+        "INT. BAR - NIGHT\nMarta pours.\nEND OF TEASER\nACT ONE",
+        "INT. KITCHEN - DAY\nDan waits.\nEND OF ACT ONE",
+        "INT. CELLAR - NIGHT\nThe key.\nACT THREE",
+        "INT. OFFICE - DAY\nDan reads.\nEND OF ACT THREE\nACT FOUR",
+        "EXT. STREET - NIGHT\nThey part.",
+    ]
+)
+
+
+def test_import_uses_printed_act_markers_without_asking_the_model(
+    unlocked_project, db_session, mock_llm
+):
+    mock_llm.set_responses("segment_scene", one_beat_per_scene(MARKED_SCRIPT))
+    mock_llm.set_response("extract_ledger_facts", extraction())
+    mock_llm.set_response("scan_consistency", scan())
+
+    from fountain.pipeline import run_import
+
+    project = db_session.get(ProjectRow, PROJECT_ID)
+    assert project.doc["format"]["actCount"] == 4
+    assert project.doc["format"]["coldOpen"] is True
+    result = run_import(
+        db_session, project, MARKED_SCRIPT, mock_llm, instruction="Import test"
+    )
+    scenes = result["project"]["seasons"][0]["episodes"][0]["scenes"]
+    assert [scene["act"] for scene in scenes] == [0, 1, 2, 3, 4]
+    assert mock_llm.invocation_count("infer_act_breaks") == 0
+
+
+def test_import_asks_the_model_when_printed_markers_are_partial(
+    unlocked_project, db_session, mock_llm
+):
+    source = MARKED_SCRIPT.replace("END OF ACT ONE", "")
+    mock_llm.set_responses("segment_scene", one_beat_per_scene(source))
+    mock_llm.set_response(
+        "infer_act_breaks",
+        act_breaks(
+            {"act": 0, "startSceneIndex": 0},
+            {"act": 2, "startSceneIndex": 3},
+        ),
+    )
+    mock_llm.set_response("extract_ledger_facts", extraction())
+    mock_llm.set_response("scan_consistency", scan())
+
+    from fountain.pipeline import run_import
+
+    project = db_session.get(ProjectRow, PROJECT_ID)
+    result = run_import(
+        db_session, project, source, mock_llm, instruction="Import test"
+    )
+    scenes = result["project"]["seasons"][0]["episodes"][0]["scenes"]
+    assert [scene["act"] for scene in scenes] == [0, 0, 0, 2, 2]
+    assert mock_llm.invocation_count("infer_act_breaks") == 1
+
+
 def test_import_retries_semantically_invalid_act_inference_once(
     unlocked_project, db_session, mock_llm
 ):
@@ -439,10 +496,11 @@ def test_infer_act_pipeline_logs_only_safe_metadata(
     ]
     assert len(records) == 1
     assert records[0].msg == (
-        "import_infer_acts scenes=%d boundaries=%d retried=%s prompt_version=%s"
+        "import_infer_acts scenes=%d boundaries=%d retried=%s from_markers=%s "
+        "prompt_version=%s"
     )
-    assert records[0].args[:3] == (2, 2, False)
-    assert isinstance(records[0].args[3], str)
+    assert records[0].args[:4] == (2, 2, False, False)
+    assert isinstance(records[0].args[4], str)
     logged = records[0].getMessage()
     for private_text in (
         "PRIVATE LOCATION",

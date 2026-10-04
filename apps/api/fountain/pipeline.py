@@ -238,10 +238,17 @@ def analyze_import(
     yield ImportStageStarted(STAGE_INFERRING_ACTS)
     summaries = acts.scene_summaries(spans, [beats for beats, _r in per_scene_results])
     cached_scene_acts = _load_scene_acts_checkpoint(checkpoint, len(spans))
+    marker_acts = acts.acts_from_markers(spans, project_doc["format"])
     if cached_scene_acts is not None:
         scene_acts = cached_scene_acts
         retried_acts = False
         boundary_count = 0
+        yield ImportStageProgress(STAGE_INFERRING_ACTS, 1, 1)
+    elif marker_acts is not None:
+        # The script prints its act breaks (owner decision 3): no model call.
+        scene_acts = marker_acts
+        retried_acts = False
+        boundary_count = len(set(marker_acts))
         yield ImportStageProgress(STAGE_INFERRING_ACTS, 1, 1)
     else:
         yield ImportStageProgress(STAGE_INFERRING_ACTS, 0, 1)
@@ -291,10 +298,12 @@ def analyze_import(
         )
         yield ImportStageProgress(STAGE_INFERRING_ACTS, 1, 1)
     _logger.info(
-        "import_infer_acts scenes=%d boundaries=%d retried=%s prompt_version=%s",
+        "import_infer_acts scenes=%d boundaries=%d retried=%s from_markers=%s "
+        "prompt_version=%s",
         len(spans),
         boundary_count,
         retried_acts,
+        marker_acts is not None,
         render.PROMPT_VERSION,
     )
 
