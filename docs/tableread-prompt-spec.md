@@ -442,10 +442,10 @@ script is empty. Missing raw text is a hard rejection, before any model call.
 scene exactly once, a source-owned `turnBeatId`, and one or more key moments
 whose `beatId` resolves to a saved beat; the server, not the model, attaches a
 verbatim `sourceQuote` from that beat's screenplay. A semantic evidence failure
-does not trigger another paid request. When the imported outline already holds
-a publishable source-backed summary, the server preserves it as a visibly
-marked low-resolution `source_fallback` packet; otherwise the run stops with
-its accepted checkpoints intact.
+gets exactly one re-roll with the same prompt; a scene that fails again is
+listed in the map's `unanalyzedSceneIds` with no scene turn, and the server
+writes no prose in its place (analysis version `3.6`). Earlier versions
+published a server-written `source_fallback` packet instead.
 Scene analysis uses strict tools with `tool_choice: auto` and adaptive thinking
 at medium effort. Synthesis is intentionally different: Claude Opus 5 counts
 thinking against its total response budget, and thinking is incompatible with a
@@ -463,12 +463,14 @@ version `3.4`).
 but receives a compact spine from verified scene packets plus resolved cast,
 established threads, and the saved overview. It returns macro structure,
 character arcs, thread movement, and the optional Hero's Journey lens; scene
-turns come from the already-grounded scene pass. Packets marked `source_fallback` preserve
-chronology but cannot independently support themes, arcs, or inferred motives.
+turns come from the already-grounded scene pass. Unanalysed scenes are left out
+of the spine, the saved overview's outline and beat-sheet rows, and the
+verifier's evidence; merge rejects any claim citing one. (The prompt still mentions
+`source_fallback` packets; since `3.6` none are sent.)
 `verify_narrative_map` uses the independent `writer` role (`claude-sonnet-5`)
 to reject unsupported claims, generic filler, placeholders, or missing scenes
-before persistence. The server first rejects placeholder packet fields and
-locally repairs any recoverable checkpoint from its saved source-backed outline.
+before persistence. The server first sets aside any checkpointed packet with
+placeholder fields as unanalysed.
 The independent verifier receives only the map candidate, thread registry, and
 bounded exact excerpts for the candidate's cited beat ids; scene/citation
 coverage remains deterministic server work. The verifier uses a forced strict

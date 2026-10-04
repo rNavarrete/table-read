@@ -17,6 +17,7 @@ Two test styles, matching test_import.py's own split:
 
 from __future__ import annotations
 
+import copy
 import json
 import logging
 import threading
@@ -792,26 +793,28 @@ def test_provider_call_heartbeats_a_running_narrative_map(db_session, mock_llm, 
     snapshots.purge_project(db_session, project["id"])
 
 
-def _placeholder_scene_analysis(scene_id: str, beat_id: str) -> InferredNarrativeSceneAnalysisBatch:
-    """A schema-valid scene analysis the server rejects, forcing the source fallback."""
+def _scene_analysis(
+    scene_id: str, beat_id: str, text: str = "<UNKNOWN>"
+) -> InferredNarrativeSceneAnalysisBatch:
+    """A scene analysis; the default placeholder text is schema-valid but rejected."""
     return InferredNarrativeSceneAnalysisBatch.model_validate(
         {
             "scenes": [
                 {
                     "sceneId": scene_id,
-                    "summary": "<UNKNOWN>",
+                    "summary": text,
                     "focalCharacterName": None,
-                    "dramaticFunction": "<UNKNOWN>",
-                    "conflict": "<UNKNOWN>",
-                    "stakes": "<UNKNOWN>",
+                    "dramaticFunction": text,
+                    "conflict": text,
+                    "stakes": text,
                     "turnBeatId": beat_id,
-                    "turn": "<UNKNOWN>",
+                    "turn": text,
                     "keyMoments": [
                         {
                             "beatId": beat_id,
-                            "summary": "<UNKNOWN>",
-                            "dramaticFunction": "<UNKNOWN>",
-                            "consequence": "<UNKNOWN>",
+                            "summary": text,
+                            "dramaticFunction": text,
+                            "consequence": text,
                         }
                     ],
                 }
@@ -820,74 +823,230 @@ def _placeholder_scene_analysis(scene_id: str, beat_id: str) -> InferredNarrativ
     )
 
 
-def test_narrative_map_repairs_one_invalid_scene_then_checkpoints_it(
+def _spy(monkeypatch, llm: MockLlmClient, op: str) -> list[str]:
+    """Record the user message of every `op` call while keeping the mock's answer."""
+    seen: list[str] = []
+    original = getattr(llm, op)
+
+    def spy(**kwargs):
+        seen.append(kwargs["system"] + kwargs["user_message"])
+        return original(**kwargs)
+
+    monkeypatch.setattr(llm, op, spy)
+    return seen
+
+
+def _edit_episode(db_session, project_id: str, edit) -> None:
+    def mutator(state: snapshots.MutationState) -> snapshots.MutationState:
+        doc = copy.deepcopy(state.doc)
+        edit(doc["seasons"][0]["episodes"][0])
+        return snapshots.MutationState(doc=doc, ledger=state.ledger, flags=state.flags)
+
+    snapshots.mutate(db_session, project_id, "Test edit", mutator)
+
+
+def _imported_project(mock_llm, monkeypatch, src: str) -> dict:
+    _configure_success(mock_llm, src, fact=True)
+    monkeypatch.setattr(routes, "enqueue_run", lambda *args: None)
+    return _parse_sse(client.post(URL, json=_body(src), headers=_headers()).text)[-1][1]["result"][
+        "project"
+    ]
+
+
+def test_narrative_map_rerolls_a_rejected_scene_once_with_the_same_prompt(
     db_session, mock_llm, monkeypatch, caplog
 ):
     src = "INT. BAR - NIGHT\nDan pours a drink."
-    _configure_success(mock_llm, src, fact=True)
-    monkeypatch.setattr(routes, "enqueue_run", lambda *args: None)
-    project = _parse_sse(client.post(URL, json=_body(src), headers=_headers()).text)[-1][1][
-        "result"
-    ]["project"]
-    project_id = project["id"]
+    project = _imported_project(mock_llm, monkeypatch, src)
     scene = project["seasons"][0]["episodes"][0]["scenes"][0]
-    scene_id = scene["id"]
-    beat_id = scene["beats"][0]["id"]
     mock_llm.set_responses(
-        "infer_narrative_scene_analysis", [_placeholder_scene_analysis(scene_id, beat_id)]
+        "infer_narrative_scene_analysis",
+        [_scene_analysis(scene["id"], scene["beats"][0]["id"])],
     )
-    response = client.post(
-        f"/api/v1/projects/{project_id}/narrative-map",
-        headers={"If-Match": project["headSnapshotId"]},
-    )
+    prompts = _spy(monkeypatch, mock_llm, "infer_narrative_scene_analysis")
+    run_id = client.post(f"/api/v1/projects/{project['id']}/narrative-map").json()["id"]
 
     with caplog.at_level(logging.INFO, logger="drama_manager.narrative_map_runs"):
-        execute_run(response.json()["id"], mock_llm)
+        execute_run(run_id, mock_llm)
     db_session.expire_all()
 
-    run = db_session.get(NarrativeMapRunRow, response.json()["id"])
+    run = db_session.get(NarrativeMapRunRow, run_id)
     assert run.status == "completed"
-    assert run.completed_scene_count == 1
-    assert len(run.checkpoint["scenePackets"]) == 1
-    assert run.checkpoint["fallbackSceneIds"] == [scene_id]
-    assert mock_llm.invocation_count("infer_narrative_scene_analysis") == 1
+    assert len(prompts) == 2 and prompts[0] == prompts[1]
+    assert "fallbackSceneIds" not in run.checkpoint
+    assert "analysisStatus" not in run.checkpoint["scenePackets"][0]
+    persisted = db_session.get(ProjectRow, project["id"])
+    narrative_map = persisted.doc["seasons"][0]["episodes"][0]["narrativeMap"]
+    assert [turn["sceneId"] for turn in narrative_map["sceneTurns"]] == [scene["id"]]
+    assert narrative_map["unanalyzedSceneIds"] == []
     joined = " ".join(record.getMessage() for record in caplog.records)
     assert "narrative_map_scene_rejected" in joined
-    assert "narrative_map_scene_source_fallback" in joined
-    assert "narrative_map_scene_checkpointed" in joined
+    assert "attempt=2" in joined
     assert src not in joined
 
-    snapshots.purge_project(db_session, project_id)
+    snapshots.purge_project(db_session, project["id"])
+
+
+def test_narrative_map_never_writes_prose_for_a_scene_that_fails_twice(
+    db_session, mock_llm, monkeypatch, caplog
+):
+    src = "INT. BAR - NIGHT\nDan pours a drink."
+    project = _imported_project(mock_llm, monkeypatch, src)
+    scene = project["seasons"][0]["episodes"][0]["scenes"][0]
+    bad = _scene_analysis(scene["id"], scene["beats"][0]["id"])
+    mock_llm.set_responses("infer_narrative_scene_analysis", [bad, bad])
+    run_id = client.post(f"/api/v1/projects/{project['id']}/narrative-map").json()["id"]
+
+    with caplog.at_level(logging.INFO, logger="drama_manager.narrative_map_runs"):
+        execute_run(run_id, mock_llm)
+    db_session.expire_all()
+
+    run = db_session.get(NarrativeMapRunRow, run_id)
+    persisted = db_session.get(ProjectRow, project["id"])
+    # No scene could be read, so there is nothing to synthesise from.
+    assert (run.status, run.error_code) == ("rejected", "EVIDENCE_REJECTED")
+    assert run.checkpoint["unanalyzedSceneIds"] == [scene["id"]]
+    assert run.checkpoint.get("scenePackets", []) == []
+    assert "fallbackSceneIds" not in run.checkpoint
+    assert mock_llm.invocation_count("infer_narrative_scene_analysis") == 2
+    assert mock_llm.invocation_count("infer_narrative_map_synthesis") == 0
+    assert persisted.doc["seasons"][0]["episodes"][0]["narrativeMap"] is None
+    assert "narrative_map_scene_unanalyzed" in " ".join(r.getMessage() for r in caplog.records)
+
+    snapshots.purge_project(db_session, project["id"])
+
+
+@pytest.mark.parametrize("lock", ["episode", "narrativeMap"])
+def test_locked_map_with_unanalyzed_scenes_is_never_analysed_again(
+    db_session, mock_llm, monkeypatch, lock
+):
+    src = "INT. BAR - NIGHT\nDan pours a drink.\n\nINT. BAR - LATER\nMarta counts the till."
+    project = _imported_project(mock_llm, monkeypatch, src)
+    first, second = project["seasons"][0]["episodes"][0]["scenes"]
+    bad = _scene_analysis(second["id"], second["beats"][0]["id"])
+    good = _scene_analysis(first["id"], first["beats"][0]["id"], "Dan pours a drink for himself.")
+    mock_llm.set_responses("infer_narrative_scene_analysis", [good, bad, bad])
+    url = f"/api/v1/projects/{project['id']}/narrative-map"
+    run_id = client.post(url).json()["id"]
+    execute_run(run_id, mock_llm)
+    db_session.expire_all()
+    assert db_session.get(NarrativeMapRunRow, run_id).status == "completed"
+
+    def lock_it(episode: dict) -> None:
+        (episode if lock == "episode" else episode["narrativeMap"])["locked"] = True
+
+    _edit_episode(db_session, project["id"], lock_it)
+    locked_doc = copy.deepcopy(db_session.get(ProjectRow, project["id"]).doc)
+
+    response = client.post(url)
+
+    assert response.status_code == 409
+    db_session.expire_all()
+    assert db_session.get(NarrativeMapRunRow, run_id).status == "completed"
+    assert mock_llm.invocation_count("infer_narrative_scene_analysis") == 3
+    assert db_session.get(ProjectRow, project["id"]).doc == locked_doc
+
+    snapshots.purge_project(db_session, project["id"])
+
+
+def test_unanalyzed_scene_is_listed_then_analysed_again_on_request(
+    db_session, mock_llm, monkeypatch
+):
+    from llm.mock import _source_data_value
+
+    src = "INT. BAR - NIGHT\nDan pours a drink.\n\nINT. BAR - LATER\nMarta counts the till."
+    project = _imported_project(mock_llm, monkeypatch, src)
+    first, second = project["seasons"][0]["episodes"][0]["scenes"]
+
+    def overview_covers_second(episode: dict) -> None:
+        overview = episode["storyOverview"]
+        overview["outline"].append({"sceneId": second["id"], "summary": "Marta counts."})
+        overview["beatSheet"].append(
+            {"beatId": second["beats"][0]["id"], "label": "Count", "summary": "Marta counts."}
+        )
+
+    _edit_episode(db_session, project["id"], overview_covers_second)
+    bad = _scene_analysis(second["id"], second["beats"][0]["id"])
+    mock_llm.set_responses(
+        "infer_narrative_scene_analysis",
+        [
+            _scene_analysis(first["id"], first["beats"][0]["id"], "Dan pours a drink for himself."),
+            bad,
+            bad,
+        ],
+    )
+    synthesis_prompts = _spy(monkeypatch, mock_llm, "infer_narrative_map_synthesis")
+    verify_prompts = _spy(monkeypatch, mock_llm, "verify_narrative_map")
+    url = f"/api/v1/projects/{project['id']}/narrative-map"
+    run_id = client.post(url).json()["id"]
+
+    execute_run(run_id, mock_llm)
+    db_session.expire_all()
+
+    run = db_session.get(NarrativeMapRunRow, run_id)
+    assert run.status == "completed"
+    assert run.checkpoint["unanalyzedSceneIds"] == [second["id"]]
+    narrative_map = db_session.get(ProjectRow, project["id"]).doc["seasons"][0]["episodes"][0][
+        "narrativeMap"
+    ]
+    assert narrative_map["unanalyzedSceneIds"] == [second["id"]]
+    assert [turn["sceneId"] for turn in narrative_map["sceneTurns"]] == [first["id"]]
+    spine = _source_data_value(synthesis_prompts[0], "narrative_scene_macro_spine")
+    assert [row["sceneId"] for row in spine] == [first["id"]]
+    overview = _source_data_value(synthesis_prompts[0], "story_overview")
+    assert [row["sceneId"] for row in overview["outline"]] == [first["id"]]
+    assert second["beats"][0]["id"] not in {row["beatId"] for row in overview["beatSheet"]}
+    audit = _source_data_value(verify_prompts[0], "narrative_map_audit_evidence")
+    assert audit["serverCheckedSceneIds"] == [first["id"]]
+    assert all(second["id"] not in row["sceneIds"] for row in audit["actScenes"])
+
+    latest = client.get(f"{url}/runs/latest").json()
+    assert latest["retryAllowed"] is True
+    resumed = client.post(url).json()
+    assert (resumed["id"], resumed["status"]) == (run_id, "queued")
+
+    execute_run(run_id, mock_llm)
+    db_session.expire_all()
+
+    run = db_session.get(NarrativeMapRunRow, run_id)
+    assert run.status == "completed"
+    assert run.checkpoint.get("unanalyzedSceneIds", []) == []
+    # Only the unanalysed scene is read again; the analysed packet is reused.
+    assert mock_llm.invocation_count("infer_narrative_scene_analysis") == 4
+    assert mock_llm.invocation_count("infer_narrative_map_synthesis") == 2
+    narrative_map = db_session.get(ProjectRow, project["id"]).doc["seasons"][0]["episodes"][0][
+        "narrativeMap"
+    ]
+    assert narrative_map["unanalyzedSceneIds"] == []
+    assert [turn["sceneId"] for turn in narrative_map["sceneTurns"]] == [
+        first["id"],
+        second["id"],
+    ]
+    assert client.get(f"{url}/runs/latest").json()["retryAllowed"] is False
+
+    snapshots.purge_project(db_session, project["id"])
 
 
 def test_narrative_map_never_reuses_a_fallback_scene_packet(db_session, mock_llm, monkeypatch):
     """Fallback run -> a run that reused its packet unmarked (as 2.6 did) -> third run."""
     src = "INT. BAR - NIGHT\nDan pours a drink."
-    _configure_success(mock_llm, src, fact=True)
-    monkeypatch.setattr(routes, "enqueue_run", lambda *args: None)
-    project = _parse_sse(client.post(URL, json=_body(src), headers=_headers()).text)[-1][1][
-        "result"
-    ]["project"]
+    project = _imported_project(mock_llm, monkeypatch, src)
     project_id = project["id"]
     scene = project["seasons"][0]["episodes"][0]["scenes"][0]
-    mock_llm.set_responses(
-        "infer_narrative_scene_analysis",
-        [_placeholder_scene_analysis(scene["id"], scene["beats"][0]["id"])],
-    )
     url = f"/api/v1/projects/{project_id}/narrative-map"
     fallback_run_id = client.post(url).json()["id"]
     execute_run(fallback_run_id, mock_llm)
     db_session.expire_all()
+    # Runs no longer fall back; stamp this one the way analysis 2.5 recorded it.
     fallback_run = db_session.get(NarrativeMapRunRow, fallback_run_id)
-    fallback_packet = fallback_run.checkpoint["scenePackets"][0]
-    assert fallback_run.checkpoint["fallbackSceneIds"] == [scene["id"]]
-    assert fallback_packet["analysisStatus"] == "source_fallback"
-
-    laundered = {
-        key: value
-        for key, value in fallback_packet.items()
-        if key not in {"analysisStatus", "analysisDiagnostics"}
+    packet = fallback_run.checkpoint["scenePackets"][0]
+    fallback_run.checkpoint = {
+        **fallback_run.checkpoint,
+        "fallbackSceneIds": [scene["id"]],
+        "scenePackets": [{**packet, "analysisStatus": "source_fallback"}],
     }
+    db_session.commit()
+
     db_session.add(
         NarrativeMapRunRow(
             id="nmap-reused-fallback",
@@ -901,7 +1060,7 @@ def test_narrative_map_never_reuses_a_fallback_scene_packet(db_session, mock_llm
             scene_count=1,
             completed_scene_count=1,
             attempt_count=1,
-            checkpoint={"scenePackets": [laundered]},
+            checkpoint={"scenePackets": [packet]},
             updated_at=fallback_run.updated_at + timedelta(seconds=1),
         )
     )

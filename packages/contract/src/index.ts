@@ -413,6 +413,10 @@ export const NarrativeMap = z.object({
   characterArcs: z.array(NarrativeCharacterArc),
   sceneTurns: z.array(SceneTurn).min(1),
   threadMovements: z.array(ThreadMovement),
+  // Scenes the analysis could not read after one re-roll. They have no
+  // sceneTurn and nothing cites them; the map says nothing about them rather
+  // than publishing server-written prose (owner decision 2, T9.3).
+  unanalyzedSceneIds: z.array(Id).default([]),
   provenance: z.enum(['inferred', 'writer_authored']).default('inferred'),
   locked: z.boolean().default(false),
 })

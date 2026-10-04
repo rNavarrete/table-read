@@ -18,6 +18,8 @@ from typing import TYPE_CHECKING
 from fountain.characters import resolve_character_id
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from schemas import InferredNarrativeMap, InferredNarrativeMapSynthesis
 
 _logger = logging.getLogger("drama_manager.narrative_map")
@@ -299,12 +301,19 @@ def scene_has_no_source(scene: dict) -> bool:
     )
 
 
-def merge_narrative_map(doc: dict, episode_id: str, result: InferredNarrativeMap) -> dict:
+def merge_narrative_map(
+    doc: dict,
+    episode_id: str,
+    result: InferredNarrativeMap,
+    *,
+    unanalyzed_scene_ids: Sequence[str] = (),
+) -> dict:
     """Attach a validated `narrativeMap` to an episode without touching locks.
 
     This function intentionally either replaces the complete inferred map or
     raises before mutating it. The import caller uses that failure to make one
     focused repair request and then preserves its all-or-nothing transaction.
+    A scene in `unanalyzed_scene_ids` is covered by being listed, not by a turn.
     """
     episode = _find_episode(doc, episode_id)
     existing = episode.get("narrativeMap")
@@ -320,10 +329,14 @@ def merge_narrative_map(doc: dict, episode_id: str, result: InferredNarrativeMap
         for scene in episode.get("scenes") or []
         if not scene_has_no_source(scene)
     ]
-    scene_by_id = {scene.get("id"): scene for scene in scenes if scene.get("id")}
+    # An unanalysed scene grounds nothing, so a claim on it fails like one on
+    # an unknown beat or scene (relabelled below).
+    unanalyzed = set(unanalyzed_scene_ids)
+    analyzed_scenes = [scene for scene in scenes if scene.get("id") not in unanalyzed]
+    scene_by_id = {scene.get("id"): scene for scene in analyzed_scenes if scene.get("id")}
     beat_by_id: dict[str, dict] = {}
     beat_scene_ids: dict[str, str] = {}
-    for scene in scenes:
+    for scene in analyzed_scenes:
         scene_id = scene.get("id")
         for beat in scene.get("beats") or []:
             beat_id = beat.get("id")
@@ -333,7 +346,7 @@ def merge_narrative_map(doc: dict, episode_id: str, result: InferredNarrativeMap
 
     diagnostics: list[dict] = []
     _validate_analysis_quality(result, diagnostics)
-    expected_acts = {int(scene.get("act", 0)) for scene in scenes}
+    expected_acts = {int(scene.get("act", 0)) for scene in analyzed_scenes}
     seen_acts: set[int] = set()
     acts: list[dict] = []
     for index, item in enumerate(result.acts):
@@ -502,8 +515,8 @@ def merge_narrative_map(doc: dict, episode_id: str, result: InferredNarrativeMap
                 "evidenceQuote": _source_quote(beat),
             }
         )
-    expected_scene_ids = set(scene_by_id)
-    if seen_scene_ids != expected_scene_ids:
+    expected_scene_ids = {scene.get("id") for scene in scenes if scene.get("id")}
+    if seen_scene_ids | unanalyzed != expected_scene_ids:
         diagnostics.append(
             {
                 "code": "scene_turn_coverage_incomplete",
@@ -555,6 +568,15 @@ def merge_narrative_map(doc: dict, episode_id: str, result: InferredNarrativeMap
                 }
             )
 
+    unanalyzed_beat_ids = {
+        beat.get("id")
+        for scene in scenes
+        if scene.get("id") in unanalyzed
+        for beat in scene.get("beats") or []
+    }
+    for item in diagnostics:
+        if item.get("beatId") in unanalyzed_beat_ids or item.get("sceneId") in unanalyzed:
+            item["code"] = "cites_unanalyzed_scene"
     if diagnostics:
         raise NarrativeMapValidationError(diagnostics)
 
@@ -573,6 +595,7 @@ def merge_narrative_map(doc: dict, episode_id: str, result: InferredNarrativeMap
         "characterArcs": character_arcs,
         "sceneTurns": scene_turns,
         "threadMovements": thread_movements,
+        "unanalyzedSceneIds": list(unanalyzed_scene_ids),
         "provenance": "inferred",
         "locked": False,
     }

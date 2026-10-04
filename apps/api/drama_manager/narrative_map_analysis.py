@@ -22,6 +22,10 @@ from schemas import (
     NarrativeMapVerificationNote,
 )
 
+# 3.6: a scene that fails validation gets one same-prompt re-roll, then is
+# listed in `unanalyzedSceneIds` with no turn; no server-written fallback prose
+# is published (owner decision 2, T9.3).
+#
 # 3.5: a verdict with both blocking lists empty publishes whatever `approved`
 # says, so a run rejected only because the verifier withdrew every claim can be
 # retried.
@@ -58,7 +62,7 @@ from schemas import (
 # block keys on this constant — a prompt fix that changes what the analysis
 # produces has to be a new analysis version or the rejected run can never be
 # retried at all.
-NARRATIVE_MAP_ANALYSIS_VERSION = "3.5"
+NARRATIVE_MAP_ANALYSIS_VERSION = "3.6"
 NARRATIVE_MAP_SCENE_CHUNK_CHAR_BUDGET = 24_000
 NARRATIVE_MAP_SCENES_PER_CHUNK = 1
 NARRATIVE_MAP_VERIFICATION_EXCERPT_CHARS = 520
@@ -329,89 +333,6 @@ def _moment_beat(source_beats: list[dict], beat_id: str) -> dict | None:
     if beat_id in by_id:
         return by_id[beat_id]
     return source_beats[0] if len(source_beats) == 1 else None
-
-
-def source_backed_scene_fallback(
-    source_scene: dict,
-    result: InferredNarrativeSceneAnalysisBatch,
-    diagnostics: list[dict],
-) -> dict | None:
-    """Build a transparent low-resolution packet after one weak model read.
-
-    The fallback never invents plot. It is available only when import already
-    produced a publishable source-backed outline summary and the screenplay
-    still supplies a real beat/excerpt. Valid model fields are retained; weak
-    fields become explicit connective-scene language. The packet is marked so
-    macro synthesis and durable diagnostics cannot mistake it for a full scene
-    analysis.
-    """
-    overview = str(source_scene.get("overviewSummary") or "").strip()
-    anchor = _source_anchor_for_hint(source_scene, overview)
-    if not is_usable_analysis_text(overview) or anchor is None or not result.scenes:
-        return None
-
-    analysis = result.scenes[0]
-    beat_id, source_quote = anchor
-
-    def usable(value: str, fallback: str) -> str:
-        return value.strip() if is_usable_analysis_text(value) else fallback
-
-    summary = usable(analysis.summary, overview)
-    dramatic_function = usable(
-        analysis.dramatic_function,
-        f"The episode advances through this source-backed event: {overview}",
-    )
-    conflict = usable(
-        analysis.conflict,
-        f"The scene's immediate pressure is contained in this source-backed event: {overview}",
-    )
-    stakes = usable(
-        analysis.stakes,
-        f"What is at stake follows from this source-backed development: {overview}",
-    )
-    turn = usable(analysis.turn, overview)
-
-    usable_moment = next(
-        (
-            moment
-            for moment in analysis.key_moments
-            if is_usable_analysis_text(moment.summary)
-            and is_usable_analysis_text(moment.dramatic_function)
-            and is_usable_analysis_text(moment.consequence)
-        ),
-        None,
-    )
-    moment = {
-        "beatId": beat_id,
-        "summary": usable_moment.summary if usable_moment else overview,
-        "dramaticFunction": (
-            usable_moment.dramatic_function if usable_moment else dramatic_function
-        ),
-        "consequence": (
-            usable_moment.consequence
-            if usable_moment
-            else "This source-backed development sets the conditions for the next sequence."
-        ),
-        "sourceQuote": source_quote,
-    }
-    return {
-        "sceneId": source_scene["sceneId"],
-        "act": source_scene["act"],
-        "location": source_scene["location"],
-        "sourceKind": "narrative",
-        "analysisStatus": "source_fallback",
-        "analysisDiagnostics": [
-            str(item.get("code", "unknown")) for item in diagnostics if isinstance(item, dict)
-        ],
-        "summary": summary,
-        "focalCharacterName": analysis.focal_character_name,
-        "dramaticFunction": dramatic_function,
-        "conflict": conflict,
-        "stakes": stakes,
-        "turnBeatId": beat_id,
-        "turn": turn,
-        "keyMoments": [moment],
-    }
 
 
 def deterministic_non_narrative_packets(scene_sources: list[dict]) -> list[dict]:
@@ -762,71 +683,23 @@ def _packet_quality_diagnostics(packet: dict) -> list[dict]:
 def normalize_scene_packet_quality(
     scene_packets: list[dict], scene_sources: list[dict]
 ) -> tuple[list[dict], list[str]]:
-    """Heal recoverable checkpoint filler from source-backed summaries.
+    """Set aside checkpointed narrative packets whose prose is filler.
 
     A strict tool schema can still accept a literal such as ``placeholder``.
-    Rather than let that filler flow into a costly macro read, repair only the
-    affected saved packet with the already-imported outline and source anchor.
-    This never asks a model to invent a replacement and fails closed when the
-    source cannot support a conservative fallback.
+    Such a scene is returned as unanalysed rather than rewritten from the
+    outline: the server never writes analysis prose of its own (rule 9).
     """
-    source_by_scene = {scene["sceneId"]: scene for scene in scene_sources}
-    normalized: list[dict] = []
-    repaired_scene_ids: list[str] = []
-
+    narrative_scene_ids = {
+        scene["sceneId"] for scene in scene_sources if scene.get("sourceKind") == "narrative"
+    }
+    kept: list[dict] = []
+    unanalyzed_scene_ids: list[str] = []
     for packet in scene_packets:
-        source_scene = source_by_scene.get(packet.get("sceneId"))
-        if source_scene is None or source_scene.get("sourceKind") != "narrative":
-            normalized.append(packet)
-            continue
-        diagnostics = _packet_quality_diagnostics(packet)
-        if not diagnostics:
-            normalized.append(packet)
-            continue
-        try:
-            result = InferredNarrativeSceneAnalysisBatch.model_validate(
-                {
-                    "scenes": [
-                        {
-                            "sceneId": packet.get("sceneId"),
-                            "summary": packet.get("summary"),
-                            "focalCharacterName": packet.get("focalCharacterName"),
-                            "dramaticFunction": packet.get("dramaticFunction"),
-                            "conflict": packet.get("conflict"),
-                            "stakes": packet.get("stakes"),
-                            "turnBeatId": packet.get("turnBeatId"),
-                            "turn": packet.get("turn"),
-                            "keyMoments": packet.get("keyMoments"),
-                        }
-                    ]
-                }
-            )
-        except ValueError as exc:
-            raise NarrativeMapAnalysisValidationError(
-                [
-                    *diagnostics,
-                    {
-                        "code": "scene_packet_repair_unavailable",
-                        "sceneId": packet.get("sceneId"),
-                    },
-                ]
-            ) from exc
-
-        fallback = source_backed_scene_fallback(source_scene, result, diagnostics)
-        if fallback is None:
-            raise NarrativeMapAnalysisValidationError(
-                [
-                    *diagnostics,
-                    {
-                        "code": "scene_packet_repair_unavailable",
-                        "sceneId": packet.get("sceneId"),
-                    },
-                ]
-            )
-        normalized.append(fallback)
-        repaired_scene_ids.append(source_scene["sceneId"])
-
-    return normalized, repaired_scene_ids
+        if packet.get("sceneId") in narrative_scene_ids and _packet_quality_diagnostics(packet):
+            unanalyzed_scene_ids.append(packet["sceneId"])
+        else:
+            kept.append(packet)
+    return kept, unanalyzed_scene_ids
 
 
 def _candidate_beat_ids(candidate: dict) -> set[str]:

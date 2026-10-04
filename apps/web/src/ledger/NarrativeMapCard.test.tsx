@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import type { NarrativeMap, Project } from 'contract'
+import type { NarrativeMap, NarrativeMapRun, Project } from 'contract'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { NarrativeMapCard } from './NarrativeMapCard'
 
@@ -127,8 +127,44 @@ function narrativeMap(): NarrativeMap {
         evidenceQuote: 'Cass burns the letter.',
       },
     ],
+    unanalyzedSceneIds: [],
     provenance: 'inferred',
     locked: false,
+  }
+}
+
+function completedRun(retryAllowed: boolean): NarrativeMapRun {
+  return {
+    id: 'nmap-1',
+    projectId: 'proj-1',
+    sourceSnapshotId: 'snap-1',
+    sourceHash: 'source-hash',
+    analysisVersion: '3.6',
+    status: 'completed',
+    phase: 'complete',
+    sceneCount: 2,
+    completedSceneCount: 1,
+    attemptCount: 1,
+    retryAllowed,
+    estimatedCostUsd: null,
+    actualInputTokens: null,
+    actualOutputTokens: null,
+    resultSnapshotId: 'snap-2',
+    errorCode: null,
+    errorMessage: null,
+    rejectionDiagnostics: [],
+    removedClaims: [],
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  }
+}
+
+function mapWithSceneTwoUnanalyzed(): NarrativeMap {
+  const map = narrativeMap()
+  return {
+    ...map,
+    sceneTurns: map.sceneTurns.filter((turn) => turn.sceneId === 'scene-1'),
+    unanalyzedSceneIds: ['scene-2'],
   }
 }
 
@@ -632,5 +668,92 @@ describe('NarrativeMapCard', () => {
     )
 
     expect(screen.queryByTestId('narrative-map-removals')).toBeNull()
+  })
+
+  it('lists unanalysed scenes plainly and offers to analyse them', async () => {
+    const user = userEvent.setup()
+    const onGenerateNarrativeMap = vi.fn()
+    const onJumpToScene = vi.fn()
+    render(
+      <NarrativeMapCard
+        project={project()}
+        narrativeMap={mapWithSceneTwoUnanalyzed()}
+        narrativeMapRun={completedRun(true)}
+        onJumpToScene={onJumpToScene}
+        onGenerateNarrativeMap={onGenerateNarrativeMap}
+      />,
+    )
+
+    // The map is still shown; the unanalysed scene is listed, not hidden.
+    expect(screen.getByTestId('narrative-map-card')).not.toBeNull()
+    const panel = screen.getByTestId('narrative-map-unanalyzed')
+    expect(panel.textContent).toContain('Not analyzed (1)')
+    expect(panel.textContent).toContain('model calls')
+    await user.click(screen.getByRole('button', { name: 'Scene 2' }))
+    expect(onJumpToScene).toHaveBeenCalledWith('scene-2')
+    await user.click(screen.getByTestId('analyze-unanalyzed-scenes'))
+    expect(onGenerateNarrativeMap).toHaveBeenCalledOnce()
+  })
+
+  it('does not offer analysis the latest run cannot start', () => {
+    render(
+      <NarrativeMapCard
+        project={project()}
+        narrativeMap={mapWithSceneTwoUnanalyzed()}
+        narrativeMapRun={completedRun(false)}
+        onJumpToScene={vi.fn()}
+        onGenerateNarrativeMap={vi.fn()}
+      />,
+    )
+
+    expect(
+      (screen.getByTestId('analyze-unanalyzed-scenes') as HTMLButtonElement)
+        .disabled,
+    ).toBe(true)
+  })
+
+  it('renders a map saved before unanalysed scenes were recorded', () => {
+    // Stored docs reach the card unparsed, so the Zod default never runs.
+    const stored: Partial<NarrativeMap> = narrativeMap()
+    delete stored.unanalyzedSceneIds
+    render(
+      <NarrativeMapCard
+        project={project()}
+        narrativeMap={stored as NarrativeMap}
+        onJumpToScene={vi.fn()}
+        onGenerateNarrativeMap={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByTestId('narrative-map-card')).not.toBeNull()
+    expect(screen.queryByTestId('narrative-map-unanalyzed')).toBeNull()
+  })
+
+  it('does not offer to analyse scenes of a locked map', () => {
+    render(
+      <NarrativeMapCard
+        project={project()}
+        narrativeMap={{ ...mapWithSceneTwoUnanalyzed(), locked: true }}
+        narrativeMapRun={completedRun(true)}
+        onJumpToScene={vi.fn()}
+        onGenerateNarrativeMap={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByTestId('narrative-map-unanalyzed')).not.toBeNull()
+    expect(screen.queryByTestId('analyze-unanalyzed-scenes')).toBeNull()
+  })
+
+  it('shows no unanalysed panel when every scene was analysed', () => {
+    render(
+      <NarrativeMapCard
+        project={project()}
+        narrativeMap={narrativeMap()}
+        onJumpToScene={vi.fn()}
+        onGenerateNarrativeMap={vi.fn()}
+      />,
+    )
+
+    expect(screen.queryByTestId('narrative-map-unanalyzed')).toBeNull()
   })
 })

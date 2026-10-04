@@ -303,6 +303,43 @@ def test_merge_rejects_partial_scene_turn_coverage():
     assert any(item["code"] == "scene_turn_coverage_incomplete" for item in error.value.diagnostics)
 
 
+def test_merge_covers_a_scene_listed_unanalyzed_without_a_turn_for_it():
+    doc = _doc()
+    analysed_only = _result(
+        acts=[_result().acts[0].model_dump(by_alias=True)],
+        sceneTurns=[_result().scene_turns[0].model_dump(by_alias=True)],
+        threadMovements=[],
+    )
+
+    merge_narrative_map(doc, "ep-1", analysed_only, unanalyzed_scene_ids=["scene-2"])
+
+    narrative_map = doc["seasons"][0]["episodes"][0]["narrativeMap"]
+    assert narrative_map["unanalyzedSceneIds"] == ["scene-2"]
+    assert [row["sceneId"] for row in narrative_map["sceneTurns"]] == ["scene-1"]
+    # scene-2 was act 2's only scene, so no act row is owed for it.
+    assert [row["act"] for row in narrative_map["acts"]] == [1]
+
+    complete = _doc()
+    merge_narrative_map(complete, "ep-1", _result())
+    assert complete["seasons"][0]["episodes"][0]["narrativeMap"]["unanalyzedSceneIds"] == []
+
+
+def test_merge_rejects_any_claim_on_a_scene_listed_unanalyzed():
+    doc = _doc()
+    # Act 1 only, but the theme, the thread and a scene turn all reach into scene-2.
+    theme = {**_result().themes[0].model_dump(by_alias=True), "evidence": [{"beatId": "beat-2-1"}]}
+    cites_scene_2 = _result(acts=[_result().acts[0].model_dump(by_alias=True)], themes=[theme])
+
+    with pytest.raises(NarrativeMapValidationError) as error:
+        merge_narrative_map(doc, "ep-1", cites_scene_2, unanalyzed_scene_ids=["scene-2"])
+
+    assert doc["seasons"][0]["episodes"][0]["narrativeMap"] is None
+    flagged = {
+        item["path"] for item in error.value.diagnostics if item["code"] == "cites_unanalyzed_scene"
+    }
+    assert flagged == {"themes[0].evidence[0]", "sceneTurns[1]", "threadMovements[0]"}
+
+
 def test_merge_rejects_an_act_turn_from_another_act():
     doc = _doc()
     acts = [item.model_dump(by_alias=True) for item in _result().acts]

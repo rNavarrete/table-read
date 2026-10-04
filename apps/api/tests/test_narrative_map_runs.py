@@ -207,3 +207,13 @@ def test_removed_claims_are_empty_unless_the_run_completed():
 
     assert narrative_map_runs.serialize_run(run)["removedClaims"] == []
     assert narrative_map_runs.serialize_run(_completed_run({}))["removedClaims"] == []
+
+
+def test_completed_run_is_retryable_only_for_what_it_could_not_analyse():
+    assert narrative_map_runs.serialize_run(_completed_run({}))["retryAllowed"] is False
+    with_gaps = _completed_run({"unanalyzedSceneIds": ["scene-4"]})
+    assert narrative_map_runs.serialize_run(with_gaps)["retryAllowed"] is True
+    # A map converted by the T9.3 migration sits on a pre-3.6 run; Generate starts a new one.
+    older = _completed_run({})
+    older.analysis_version = "2.6"
+    assert narrative_map_runs.serialize_run(older)["retryAllowed"] is True

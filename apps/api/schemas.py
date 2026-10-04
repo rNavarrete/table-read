@@ -408,6 +408,8 @@ class NarrativeMap(_Base):
     character_arcs: list[NarrativeCharacterArc]
     scene_turns: list[SceneTurn] = Field(min_length=1)
     thread_movements: list[ThreadMovement]
+    # See the Zod comment: listed scenes have no turn and nothing cites them.
+    unanalyzed_scene_ids: list[Id] = []
     provenance: StoryOverviewProvenance = StoryOverviewProvenance.inferred
     locked: bool = False
 
