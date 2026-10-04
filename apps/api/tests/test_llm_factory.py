@@ -64,3 +64,39 @@ def test_real_network_access_is_blocked_by_the_suite_wide_guard():
     test hermetic."""
     with pytest.raises(AssertionError, match="network access attempted"):
         socket.create_connection(("1.1.1.1", 443), timeout=2)
+
+
+def test_the_sdk_client_never_retries_on_its_own(monkeypatch):
+    """T9.4: the SDK default (`max_retries=2`) silently re-sends a timed-out
+    call, billing it again. `AnthropicClient` retries overloads itself."""
+    import anthropic
+
+    from llm.factory import build_sdk_client
+
+    built: dict = {}
+    monkeypatch.setattr(anthropic, "Anthropic", lambda **kwargs: built.update(kwargs))
+
+    build_sdk_client("not-a-real-key")
+
+    assert built["max_retries"] == 0
+
+
+def test_every_real_sdk_client_is_built_by_the_factory():
+    """The eval judge built its own `anthropic.Anthropic(...)` and so kept the
+    SDK's hidden retries; only `build_sdk_client` may construct one."""
+    api_dir = Path(__file__).resolve().parents[1]
+    offenders = [
+        str(path.relative_to(api_dir))
+        for path in api_dir.rglob("*.py")
+        if ".venv" not in path.parts
+        and path.parent.name != "tests"
+        and path.name != "factory.py"
+        and "anthropic.Anthropic(" in path.read_text()
+    ]
+    assert offenders == []
+
+    import llm.factory
+
+    factory_src = (api_dir / "llm" / "factory.py").read_text()
+    assert factory_src.count("anthropic.Anthropic(") == 1
+    assert "build_sdk_client(" in inspect.getsource(llm.factory.build_anthropic_client)

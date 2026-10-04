@@ -25,7 +25,8 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-from collections.abc import Iterator
+import time
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
 
@@ -69,7 +70,32 @@ DEFAULT_MAX_TOKENS = 4096
 # schema-invalid response, never on a timeout (see `LlmTimeoutError`).
 DEFAULT_LLM_CALL_TIMEOUT_SECONDS = 120
 
+_OVERLOAD_BACKOFF_SECONDS = 5.0
+
 _logger = logging.getLogger("llm.anthropic_client")
+
+
+def _retry_once_if_overloaded(
+    attempt: Callable[[], Any], *, where: str, op: str, model: Any
+) -> Any:
+    """Run `attempt()`, and once more after a backoff if the API rejected it
+    with 429, 529 or another 5xx: those requests are not billed. The SDK is
+    built with `max_retries=0`, so this is the only retry. Never after a
+    timeout (the SDK's, a 504 gateway timeout, or our deadline): that request
+    may have run and been billed."""
+    try:
+        return attempt()
+    except Exception as exc:
+        status = getattr(exc, "status_code", None)
+        if not (
+            (getattr(type(exc), "__module__", "") or "").startswith("anthropic")
+            and isinstance(status, int)
+            and (status == 429 or (status >= 500 and status != 504))
+        ):
+            raise
+        log_llm_unavailable(_logger, exc, where=where, op=op, model=model)
+    time.sleep(_OVERLOAD_BACKOFF_SECONDS)
+    return attempt()
 
 
 def _create_with_timeout(sdk_client: Any, timeout: float, op: str, **kwargs: Any) -> Any:
@@ -81,9 +107,15 @@ def _create_with_timeout(sdk_client: Any, timeout: float, op: str, **kwargs: Any
     Anthropic SDK transport/status failures are logged here (class, status,
     op — never message/body text) before re-raise so SSE/route mapping to
     `LLM_UNAVAILABLE` is diagnosable in prod/dev logs."""
-    try:
+
+    def attempt() -> Any:
         return call_within_deadline(
-            lambda: sdk_client.messages.create(**kwargs), timeout, name="llm-call"
+            lambda: sdk_client.messages.create(**kwargs, timeout=timeout), timeout, name="llm-call"
+        )
+
+    try:
+        return _retry_once_if_overloaded(
+            attempt, where="anthropic_client", op=op, model=kwargs.get("model")
         )
     except DeadlineExceeded:
         timeout_exc = LlmTimeoutError(op, timeout)
@@ -120,7 +152,7 @@ def _stream_final_with_timeout(sdk_client: Any, timeout: float, op: str, **kwarg
     active_stream: dict[str, Any] = {}
 
     def consume() -> Any:
-        with sdk_client.messages.stream(**kwargs) as stream:
+        with sdk_client.messages.stream(**kwargs, timeout=timeout) as stream:
             active_stream["value"] = stream
             try:
                 return stream.get_final_message()
@@ -128,7 +160,12 @@ def _stream_final_with_timeout(sdk_client: Any, timeout: float, op: str, **kwarg
                 active_stream.pop("value", None)
 
     try:
-        return call_within_deadline(consume, timeout, name="llm-call")
+        return _retry_once_if_overloaded(
+            lambda: call_within_deadline(consume, timeout, name="llm-call"),
+            where="anthropic_client_stream",
+            op=op,
+            model=kwargs.get("model"),
+        )
     except DeadlineExceeded:
         # Closing the stream is what actually ends the abandoned call here —
         # it breaks the read loop the daemon thread is parked on, so the
