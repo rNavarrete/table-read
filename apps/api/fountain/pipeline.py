@@ -40,7 +40,7 @@ from typing import cast
 from pydantic import BaseModel
 
 from drama_manager import locks, render
-from drama_manager.ledger_policy import IdMinter
+from drama_manager.ledger_policy import IdMinter, locate_quote
 from drama_manager.narrative_map import NarrativeMapValidationError, merge_narrative_map
 from drama_manager.overview import merge_story_overview
 from drama_manager.promises import merge_narrative_promises
@@ -63,7 +63,6 @@ from fountain.parse import (
     ImportedBeat,
     SceneSpan,
     SegmentationIssue,
-    locate_source_text,
     normalize_and_slice,
     split_into_scenes,
     strip_screenplay_front_matter,
@@ -1482,7 +1481,7 @@ def _episode_ref(doc: dict, episode_id: str) -> dict:
 def _to_ledger_fact(extracted, fact_id: str, beat_index: dict) -> dict:
     """Convert one model `ExtractedFact` into a persisted `LedgerFact` wire dict:
     server-assigned id, `inferred`/`pending_review` (§4 step 2), and char
-    offsets located verbatim within the referenced beat (§5).
+    offsets located within the referenced beat by `locate_quote` (§5).
 
     `knowledgeEvents` is carried through with names still unresolved
     (`characterNames`, not `characterIds`) — the caller (`analyze_import`)
@@ -1495,7 +1494,7 @@ def _to_ledger_fact(extracted, fact_id: str, beat_index: dict) -> dict:
     beat = beat_index.get(span["beatId"])
     char_start, char_end = (None, None)
     if beat is not None:
-        char_start, char_end = locate_source_text(
+        char_start, char_end = locate_quote(
             beat["scriptText"], dump["sourceText"], span["startLine"], span["endLine"]
         )
     span["charStart"] = char_start

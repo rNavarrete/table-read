@@ -357,7 +357,9 @@ export const SourceSpan = z.object({
   beatId: Id,
   // Offsets within the beat's scriptText. Lines are model-reported (input is
   // line-numbered); char offsets are computed server-side by locating
-  // sourceText verbatim within the line range (disambiguates duplicates).
+  // sourceText within the line range (disambiguates duplicates). Import also
+  // searches the whole beat and ignores whitespace, HTML entities and page
+  // furniture (T9.9); null means the quote was not found on the page.
   startLine: z.number().int().min(0).nullable().default(null),
   endLine: z.number().int().min(0).nullable().default(null),
   charStart: z.number().int().min(0).nullable().default(null),

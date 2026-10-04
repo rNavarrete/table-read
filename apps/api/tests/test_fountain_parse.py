@@ -1,15 +1,13 @@
 """Deterministic Fountain parse (apps/api/fountain/parse.py): stage-1 split,
-server-owned segment-start normalization, byte-identity reconstruction, and §5 offset
-location. Pure logic, no LLM/DB — the byte-identity heart of T1.3."""
+server-owned segment-start normalization and byte-identity reconstruction.
+Pure logic, no LLM/DB — the byte-identity heart of T1.3."""
 
 from __future__ import annotations
 
 import pytest
 
 from fountain.parse import (
-    ImportedBeat,
     is_slugline,
-    locate_source_text,
     normalize_and_slice,
     reconstruct,
     split_into_scenes,
@@ -410,28 +408,3 @@ def test_reconstruct_byte_identical_with_unassigned_buckets():
     assert reconstruct([b1, b2]) == source
     # unassigned surfaced with absolute source line numbers (scene 1 starts at 0)
     assert any(b.unassigned == [(3, 3)] for b in b1)
-
-
-# ── §5 offset location ──────────────────────────────────────────────────────
-
-
-def test_locate_source_text_finds_offsets():
-    beat = ImportedBeat("", "", "", "INT. BAR - NIGHT\nDan pours a drink.")
-    start, end = locate_source_text(beat.script_text, "Dan pours", 2, 2)
-    assert beat.script_text[start:end] == "Dan pours"
-
-
-def test_locate_source_text_disambiguates_by_line_window():
-    text = "the money\nnothing here\nthe money"  # duplicate quote
-    # line 3 window should resolve to the SECOND occurrence
-    start, end = locate_source_text(text, "the money", 3, 3)
-    assert start == text.rindex("the money")
-    assert text[start:end] == "the money"
-
-
-def test_locate_source_text_absent_returns_none():
-    assert locate_source_text("Dan pours.", "not present", 1, 1) == (None, None)
-
-
-def test_locate_source_text_empty_returns_none():
-    assert locate_source_text("Dan pours.", "", 1, 1) == (None, None)

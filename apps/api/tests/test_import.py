@@ -686,6 +686,26 @@ def test_all_import_facts_are_pending_review(unlocked_project, mock_llm):
     assert len(ledger) == len(body["newFacts"])
 
 
+def test_import_fact_offsets_located_off_window_and_through_typography(
+    unlocked_project, mock_llm
+):
+    src = "INT. BAR - NIGHT\nDan’s pouring\na drink."
+    mock_llm.set_responses("segment_scene", one_beat_per_scene(src))
+    # Straight apostrophe, one line, window pointing at the slugline.
+    fact = {**one_fact(), "sourceText": "Dan's pouring a drink."}
+    mock_llm.set_response("extract_ledger_facts", extraction([fact]))
+    mock_llm.set_response("scan_consistency", scan())
+
+    body = client.post(
+        f"/api/v1/projects/{PROJECT_ID}/import", json={"format": "fountain", "content": src}
+    ).json()
+    stored = body["newFacts"][0]
+    span = stored["sourceSpan"]
+    beat = body["project"]["seasons"][0]["episodes"][0]["scenes"][0]["beats"][0]
+    assert beat["scriptText"][span["charStart"]:span["charEnd"]] == "Dan’s pouring\na drink."
+    assert stored["status"] == "pending_review"  # offsets only, never activation
+
+
 def test_import_scan_flags_persisted_open(unlocked_project, mock_llm):
     src = "INT. BAR - NIGHT\nDan pours a drink."
     mock_llm.set_responses("segment_scene", one_beat_per_scene(src))

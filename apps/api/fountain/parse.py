@@ -410,34 +410,6 @@ def reconstruct(scenes_beats: list[list[ImportedBeat]]) -> str:
     return "\n".join(beat.script_text for beats in scenes_beats for beat in beats)
 
 
-def locate_source_text(
-    script_text: str, source_text: str, start_line: int, end_line: int
-) -> tuple[int | None, int | None]:
-    """§5 offset verification: locate ``source_text`` verbatim within the beat's
-    ``scriptText``, preferring the model-reported line window (1-based, inclusive;
-    disambiguates a quote that occurs twice), and return character offsets into
-    ``scriptText``. Returns ``(None, None)`` when the quote is empty or absent —
-    the caller leaves offsets null (import facts are ``pending_review`` regardless)."""
-    if not source_text:
-        return (None, None)
-    lines = script_text.split("\n")
-    offsets: list[int] = []
-    acc = 0
-    for line in lines:
-        offsets.append(acc)
-        acc += len(line) + 1  # +1 for the joining "\n"
-
-    lo, hi = start_line - 1, end_line - 1
-    if 0 <= lo <= hi < len(lines):
-        window_start = offsets[lo]
-        window_end = offsets[hi] + len(lines[hi])  # end of line hi (before its "\n")
-        idx = script_text.find(source_text, window_start, window_end)
-        if idx != -1:
-            return (idx, idx + len(source_text))
-    idx = script_text.find(source_text)  # fall back to anywhere in the beat
-    return (idx, idx + len(source_text)) if idx != -1 else (None, None)
-
-
 @dataclass
 class _FinalBeat:
     start: int  # 1-based, inclusive, within the scene

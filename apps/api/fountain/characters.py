@@ -763,6 +763,9 @@ def merge_inferred_entities(
                 "locked": False,
             }
         )
+        # DESIGN-GAP(T9.15): T9.9 asks for locate_quote offsets on these quotes,
+        # but RelationshipState has no offset fields (adding them is a contract
+        # change) and its evidence names a scene, not a beat or line window.
         for evidence in rel.evidence:
             relationship_states.append(
                 {
