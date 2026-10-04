@@ -23,6 +23,20 @@ describe('analyzeSource', () => {
     expect(stats.charCount).toBe(source.length)
   })
 
+  it('counts numbered, forced and EXT/INT headings but not prose or ellipses', () => {
+    const source = [
+      '17 INT. OFFICE - DAY 17',
+      'A12 EXT. STREET - NIGHT',
+      '.FLASHBACK',
+      'EXT/INT CAR - DAY',
+      'int. kitchen - day',
+      'Int. Kitchen - Day',
+      'Ext. is short for exterior.',
+      '...and then he left.',
+    ].join('\n')
+    expect(analyzeSource(source).detectedSceneCount).toBe(6)
+  })
+
   it('treats sluglineless content as one scene when non-empty', () => {
     expect(analyzeSource('Just some plain text.').detectedSceneCount).toBe(1)
   })

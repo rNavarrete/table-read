@@ -39,6 +39,11 @@ def test_extract_cues_keeps_speakers_drops_transitions():
     assert extract_character_cues(lines) == ["Doc", "Marty", "Jennifer"]
 
 
+def test_numbered_scene_headings_are_not_cues():
+    lines = ["17 INT. OFFICE 17", "", "A12 EXT. ALLEY", "", "MARTA", "Hi."]
+    assert extract_character_cues(lines) == ["Marta"]
+
+
 def test_merge_skips_existing_and_respects_locked_name():
     bible = {
         "characters": [

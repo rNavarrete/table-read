@@ -1861,6 +1861,34 @@ def test_resume_reuses_no_unit_after_a_prompt_or_model_change(
     assert mock_llm.invocation_count("infer_act_breaks") == 2
 
 
+def test_resume_reuses_no_unit_saved_before_numbered_headings_split(
+    db_session, mock_llm, monkeypatch
+):
+    """Entity, promise and overview units carry scene ids from the split that
+    made them and are not content-checked, so T9.6's re-split must not reuse
+    any unit a pre-T9.6 run saved."""
+    src = "\n".join(
+        ["INT. BAR - NIGHT", "Dan pours a drink.", "17 INT. OFFICE - DAY 17", "Marta waits."]
+    )
+    _configure_success(mock_llm, src)
+    current_version = import_runs.IMPORT_ANALYSIS_VERSION
+    monkeypatch.setattr(import_runs, "IMPORT_ANALYSIS_VERSION", "2026-10-04.1")  # pre-T9.6
+    monkeypatch.setattr(pipeline, "split_into_scenes", _whole_source_as_one_scene)
+    restore = _failing(monkeypatch, mock_llm, "infer_narrative_promises")
+    assert _post_import("t96-resplit", src)[-1][0] == "failed"
+    assert mock_llm.invocation_count("infer_story_entities") == 1
+
+    monkeypatch.setattr(import_runs, "IMPORT_ANALYSIS_VERSION", current_version)
+    monkeypatch.setattr(pipeline, "split_into_scenes", split_into_scenes)
+    restore()
+    resumed = _post_import("t96-resplit", src)
+
+    assert resumed[-1][0] == "complete"
+    assert len(resumed[-1][1]["result"]["project"]["seasons"][0]["episodes"][0]["scenes"]) == 2
+    assert mock_llm.invocation_count("infer_story_entities") == 2
+    assert mock_llm.invocation_count("infer_act_breaks") == 2
+
+
 def test_unfinished_runs_past_retention_are_purged_with_their_units(
     db_session, mock_llm, monkeypatch
 ):

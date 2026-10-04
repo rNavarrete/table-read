@@ -24,6 +24,8 @@ import uuid
 from collections.abc import Iterable
 from typing import TYPE_CHECKING
 
+from fountain.parse import is_slugline
+
 if TYPE_CHECKING:
     from schemas import StoryEntities
 
@@ -37,11 +39,6 @@ _logger = logging.getLogger("fountain.characters")
 _CUE_RE = re.compile(
     r"^\s*([A-Z0-9][A-Z0-9 \.'.\-]*?[A-Z0-9.]|[A-Z0-9])"
     r"(?:\s*\([^)]*\))?\s*$"
-)
-
-_SLUGLINE_RE = re.compile(
-    r"^\s*(INT\./EXT\.?|INT/EXT\.?|I/E\.?|INT\.?|EXT\.?|EST\.?)[\s.]",
-    re.IGNORECASE,
 )
 
 _TRANSITION_EXACT = frozenset(
@@ -388,7 +385,7 @@ def _strip_terminal_period(token: str) -> str:
 
 
 def _cue_display_name(line: str) -> str | None:
-    if not line or _SLUGLINE_RE.match(line):
+    if not line or is_slugline(line):
         return None
     match = _CUE_RE.match(line)
     if match is None:

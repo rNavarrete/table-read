@@ -12,7 +12,9 @@ jumps, so they never produce an anchor.
 
 from __future__ import annotations
 
-from fountain.timeline import merge_timeline_anchors
+import pytest
+
+from fountain.timeline import merge_timeline_anchors, slugline_time
 
 
 def _scene(scene_id: str, location: str) -> dict:
@@ -123,3 +125,23 @@ def test_multiple_anchors_ordered_by_scene_order():
 
 def test_empty_scene_list_returns_empty():
     assert merge_timeline_anchors([]) == []
+
+
+@pytest.mark.parametrize(
+    ("location", "time"),
+    [
+        ("INT. BAR - NIGHT", "NIGHT"),
+        ("17 INT. OFFICE - DAY 17", "DAY"),
+        ("A12 EXT. STREET - NIGHT A12", "NIGHT"),
+        ("INT. OFFICE -- DAY", "DAY"),
+        ("INT. OFFICE—DAY", "DAY"),
+        ("INT. OFFICE – MORNING", "MORNING"),
+        ("25 INT. APARTMENT ~ DAY 25", "DAY"),
+        ("EXT. HOUSE ~ ESTABLISHING - DAWN", "DAWN"),
+        ("INT. HOUSE - 1985", "1985"),
+        ("INT. SEMI-DETACHED HOUSE", ""),
+        ("INT. KITCHEN", ""),
+    ],
+)
+def test_slugline_time_strips_scene_numbers_and_reads_any_dash_or_tilde(location, time):
+    assert slugline_time(location) == time

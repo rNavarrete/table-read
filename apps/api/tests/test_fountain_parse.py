@@ -8,6 +8,7 @@ import pytest
 
 from fountain.parse import (
     ImportedBeat,
+    is_slugline,
     locate_source_text,
     normalize_and_slice,
     reconstruct,
@@ -72,6 +73,37 @@ def test_split_with_no_sluglines_is_one_bucket():
 def test_split_recognizes_int_ext_variants():
     for heading in ("INT. X", "EXT. X", "int. x", "EST. X", "INT./EXT. X", "I/E. X"):
         assert split_into_scenes(heading)[0].location == heading
+
+
+@pytest.mark.parametrize(
+    "heading",
+    [
+        "17 INT. OFFICE - DAY 17",
+        "A12 EXT. STREET - NIGHT",
+        "12A INT. HALL - DAY 12A",
+        ".FLASHBACK",
+        "EXT./INT. CAR - DAY",
+        "EXT/INT CAR - DAY",
+        "Int. Kitchen - Day",
+        "4 Ext. Street - Night",
+    ],
+)
+def test_numbered_forced_and_ext_int_headings_start_a_scene(heading):
+    scenes = split_into_scenes(f"INT. BAR - NIGHT\nDan pours.\n{heading}\nMarta waits.")
+    assert [s.location for s in scenes] == ["INT. BAR - NIGHT", heading]
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "Ext. is short for exterior.",
+        "Int. is where he lives.",
+        "...and then he left.",
+        ". . . later",
+    ],
+)
+def test_action_prose_and_ellipses_are_not_headings(line):
+    assert not is_slugline(line)
 
 
 def test_strip_front_matter_removes_title_sets_and_cast_through_fade_in():
@@ -201,14 +233,10 @@ def test_duplicate_starts_become_unassigned_and_discard_conflicting_metadata():
 
 def test_out_of_bounds_start_is_discarded_and_flagged_without_losing_text():
     scene = _scene("INT. BAR - NIGHT\nDan pours.")  # 2 lines
-    normalized = normalize_and_slice(
-        scene, _seg([(1, "a", "b", "c"), (5, "d", "e", "f")])
-    )
+    normalized = normalize_and_slice(scene, _seg([(1, "a", "b", "c"), (5, "d", "e", "f")]))
     assert normalized.beats[0].script_text == "INT. BAR - NIGHT\nDan pours."
     assert normalized.score.discarded_beat_metadata == 1
-    assert any(
-        issue.code == "out_of_bounds_start" for issue in normalized.beats[0].review_issues
-    )
+    assert any(issue.code == "out_of_bounds_start" for issue in normalized.beats[0].review_issues)
 
 
 def test_unordered_segment_objects_are_sorted_with_metadata_attached():

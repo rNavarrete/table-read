@@ -21,12 +21,17 @@ from dataclasses import dataclass, field
 from schemas import SegmentedScene, SegmentedSceneBeat, SegmentedSceneUnassigned
 
 # Fountain scene heading (slugline): a line beginning (after optional leading
-# whitespace) with a standard set/interior prefix. Case-insensitive per the
-# Fountain spec. Forced headings ("." prefix) and the blank-line-before rule
-# are out of MVP scope — export never emits either, and importers of hand
-# authored Fountain get the common prefixes. See the task report.
+# whitespace and an optional production scene number, "17 " / "A12 ") with a
+# standard set/interior prefix, or a forced heading (one "." then a non-".",
+# so "..." stays an ellipsis). A mixed-case prefix ("Int. Kitchen - Day") is
+# a heading only when the next word is not lowercase: "Ext. is short for
+# exterior." is action prose. The blank-line-before rule is out of MVP scope.
+_HEADING_PREFIX = r"INT\./EXT|INT/EXT|EXT\./INT|EXT/INT|I/E|INT|EXT|EST"
 _SLUGLINE_RE = re.compile(
-    r"^\s*(INT\./EXT\.?|INT/EXT\.?|I/E\.?|INT\.?|EXT\.?|EST\.?)[\s.]", re.IGNORECASE
+    r"^\s*(?:(?:[A-Za-z]?\d+[A-Za-z]?\s+)?"
+    rf"(?:(?:{_HEADING_PREFIX}|{_HEADING_PREFIX.lower()})[\s.]"
+    rf"|(?i:{_HEADING_PREFIX})[\s.](?!\s*[a-z]))"
+    r"|\.[^.\s])"
 )
 
 

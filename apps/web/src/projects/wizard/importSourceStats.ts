@@ -7,8 +7,10 @@
 // during Create & analyze is what actually determines scene ownership.
 import { estimateImportCost } from './importCostEstimate'
 
+// Mixed case is spelled out as Title case: the (?i:) group the API uses is
+// not supported in every browser yet.
 const SLUGLINE_RE =
-  /^\s*(INT\.\/EXT\.?|INT\/EXT\.?|I\/E\.?|INT\.?|EXT\.?|EST\.?)[\s.]/i
+  /^\s*(?:(?:[A-Za-z]?\d+[A-Za-z]?\s+)?(?:(?:INT\.\/EXT|INT\/EXT|EXT\.\/INT|EXT\/INT|I\/E|INT|EXT|EST|int\.\/ext|int\/ext|ext\.\/int|ext\/int|i\/e|int|ext|est)[\s.]|(?:Int\.\/Ext|Int\/Ext|Ext\.\/Int|Ext\/Int|Int|Ext|Est)[\s.](?!\s*[a-z]))|\.[^.\s])/
 
 export interface ImportSourceStats {
   charCount: number
