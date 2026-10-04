@@ -29,6 +29,8 @@ Logging is IDs + counts only — never script/plan/fact content (hard rule 5).
 from __future__ import annotations
 
 import copy
+import hashlib
+import json
 import logging
 from collections.abc import Callable, Generator
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -59,6 +61,7 @@ from fountain.object_states import detect_object_conflicts, infer_object_states
 from fountain.parse import (
     CoverageError,
     ImportedBeat,
+    SceneSpan,
     SegmentationIssue,
     locate_source_text,
     normalize_and_slice,
@@ -204,7 +207,7 @@ def analyze_import(
     yield ImportStageProgress(STAGE_PARSING_SCENES, 1, 1)
 
     yield ImportStageStarted(STAGE_SEGMENTING_BEATS)
-    cached_beats = _load_segment_checkpoints(checkpoint, len(spans))
+    cached_beats = _load_segment_checkpoints(checkpoint, spans)
     # One whole-script payload for every scene's segmentation call. Boundaries
     # are decided locally, but what a beat MEANS — that it plants something a
     # later scene pays off — is only visible with the rest of the episode in
@@ -555,12 +558,8 @@ def analyze_import(
     # pending_review, regardless of confidence. Fresh ledger → no existing
     # facts to contradict. ───────────────────────────────────────────────────
     yield ImportStageStarted(STAGE_EXTRACTING_FACTS)
-    cached_extractions = _load_model_unit_checkpoints(
-        checkpoint,
-        STAGE_EXTRACTING_FACTS,
-        len(scene_docs),
-        LedgerExtraction,
-    )
+    scene_hashes = [_scene_text_hash(scene) for scene in scene_docs]
+    cached_extractions = _load_extract_checkpoints(checkpoint, scene_hashes)
     # One whole-episode payload, built once and reused verbatim by every scene
     # call, so the prompt prefix stays byte-identical and caches (§ measured at
     # ~0.1x input per warm call). Extraction is the op that most needs it: who
@@ -580,7 +579,10 @@ def analyze_import(
         on_result=lambda index, extraction: _write_checkpoint(
             checkpoint_writer,
             STAGE_EXTRACTING_FACTS,
-            extraction.model_dump(by_alias=True, mode="json"),
+            {
+                "sceneHash": scene_hashes[index],
+                "extraction": extraction.model_dump(by_alias=True, mode="json"),
+            },
             index,
         ),
     )
@@ -839,8 +841,9 @@ _EMPTY_READING = {
 
 
 def _load_segment_checkpoints(
-    checkpoint: dict, scene_count: int
+    checkpoint: dict, spans: list[SceneSpan]
 ) -> list[tuple[list[ImportedBeat], dict[str, str]] | None]:
+    scene_count = len(spans)
     results: list[tuple[list[ImportedBeat], dict[str, str]] | None] = [None] * scene_count
     units = checkpoint.get(STAGE_SEGMENTING_BEATS)
     if not isinstance(units, dict):
@@ -857,12 +860,36 @@ def _load_segment_checkpoints(
         raw_beats = value.get("beats") if isinstance(value, dict) else value
         reading = value.get("reading") if isinstance(value, dict) else None
         beats = _load_imported_beats(raw_beats)
-        if beats is None:
+        # A unit saved under another split belongs to other text.
+        if beats is None or "\n".join(b.script_text for b in beats) != "\n".join(
+            spans[index].lines
+        ):
             continue
         results[index] = (
             beats,
             {**_EMPTY_READING, **(reading if isinstance(reading, dict) else {})},
         )
+    return results
+
+
+def _scene_text_hash(scene: dict) -> str:
+    # Ids and verbatim text only: motivations carry freshly minted character ids.
+    key = [scene["id"], [[beat["id"], beat["scriptText"]] for beat in scene["beats"]]]
+    return hashlib.sha256(json.dumps(key).encode("utf-8")).hexdigest()
+
+
+def _load_extract_checkpoints(
+    checkpoint: dict, scene_hashes: list[str]
+) -> list[LedgerExtraction | None]:
+    units = checkpoint.get(STAGE_EXTRACTING_FACTS)
+    units = units if isinstance(units, dict) else {}
+    results: list[LedgerExtraction | None] = []
+    for index, scene_hash in enumerate(scene_hashes):
+        unit = units.get(str(index))
+        if isinstance(unit, dict) and unit.get("sceneHash") == scene_hash:
+            results.append(_load_model_checkpoint(unit, "extraction", LedgerExtraction))
+        else:
+            results.append(None)
     return results
 
 

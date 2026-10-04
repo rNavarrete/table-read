@@ -31,14 +31,14 @@ import pytest
 from fastapi.testclient import TestClient
 
 import routes
-from drama_manager import narrative_map_runs
+from drama_manager import narrative_map_runs, render
 from drama_manager.narrative_map_analysis import (
     NARRATIVE_MAP_ANALYSIS_VERSION,
     prepare_narrative_map_source,
 )
 from drama_manager.narrative_map_runs import execute_run
-from fountain import create_import, pipeline
-from fountain.parse import split_into_scenes
+from fountain import create_import, import_runs, pipeline
+from fountain.parse import SceneSpan, split_into_scenes
 from llm.dependency import get_llm_client
 from llm.errors import LlmTimeoutError, SchemaInvalidLlmError
 from llm.mock import MockLlmClient
@@ -1742,6 +1742,195 @@ def test_retry_resumes_saved_scene_and_act_checkpoints_without_rebilling(
     assert run.status == "completed"
     assert run.checkpoint == {}
     assert db_session.query(ImportRunUnitRow).filter_by(run_id=run.id).count() == 0
+
+
+# ── T9.5: saved units must match the scene text, prompt and models ──────────
+
+_TWO_SCENES = "\n".join(
+    ["INT. BAR - NIGHT", "Dan pours a drink.", "INT. OFFICE - DAY", "Marta opens the file."]
+)
+
+
+def _failing(monkeypatch, llm: MockLlmClient, op: str):
+    """Make `op` fail validation; call the returned function to restore it."""
+    original = getattr(llm, op)
+
+    def fail(**kwargs):
+        del kwargs
+        raise SchemaInvalidLlmError(op)
+
+    monkeypatch.setattr(llm, op, fail)
+    return lambda: monkeypatch.setattr(llm, op, original)
+
+
+def _whole_source_as_one_scene(source: str) -> list[SceneSpan]:
+    """Another parser's split of the same source, as a re-split would give."""
+    return [SceneSpan(location="", lines=source.split("\n"), start_line=0)]
+
+
+def _post_import(key: str, src: str = _TWO_SCENES) -> list[tuple[str, dict]]:
+    return _parse_sse(client.post(URL, json=_body(src), headers=_headers(key)).text)
+
+
+def _run_for(db_session, key: str) -> ImportRunRow | None:
+    db_session.expire_all()
+    return db_session.query(ImportRunRow).filter_by(idempotency_key=key).one_or_none()
+
+
+def _unit_count(db_session, run_id: str) -> int:
+    return db_session.query(ImportRunUnitRow).filter_by(run_id=run_id).count()
+
+
+def test_resume_resegments_a_scene_whose_saved_beats_are_other_text(
+    db_session, mock_llm, monkeypatch
+):
+    _configure_success(mock_llm, _TWO_SCENES)
+    monkeypatch.setattr(pipeline, "split_into_scenes", _whole_source_as_one_scene)
+    restore = _failing(monkeypatch, mock_llm, "infer_story_entities")
+    failed = _post_import("t95-resplit-segment")
+    assert failed[-1][1]["error"]["code"] == "SCHEMA_INVALID_LLM"
+    assert mock_llm.invocation_count("segment_scene") == 1
+
+    monkeypatch.setattr(pipeline, "split_into_scenes", split_into_scenes)
+    restore()
+    resumed = _post_import("t95-resplit-segment")
+
+    assert resumed[-1][0] == "complete"
+    assert mock_llm.invocation_count("segment_scene") == 3
+    scenes = resumed[-1][1]["result"]["project"]["seasons"][0]["episodes"][0]["scenes"]
+    assert ["\n".join(b["scriptText"] for b in s["beats"]) for s in scenes] == [
+        "\n".join(span.lines) for span in split_into_scenes(_TWO_SCENES)
+    ]
+
+
+def test_resume_reextracts_a_scene_whose_saved_facts_came_from_other_text(
+    db_session, mock_llm, monkeypatch
+):
+    _configure_success(mock_llm, _TWO_SCENES)
+    monkeypatch.setattr(pipeline, "split_into_scenes", _whole_source_as_one_scene)
+    restore = _failing(monkeypatch, mock_llm, "scan_consistency")
+    failed = _post_import("t95-resplit-extract")
+    assert failed[-1][1]["error"]["code"] == "SCHEMA_INVALID_LLM"
+    assert mock_llm.invocation_count("extract_ledger_facts") == 1
+
+    monkeypatch.setattr(pipeline, "split_into_scenes", split_into_scenes)
+    restore()
+    resumed = _post_import("t95-resplit-extract")
+
+    assert resumed[-1][0] == "complete"
+    assert mock_llm.invocation_count("extract_ledger_facts") == 3
+
+
+def test_resume_reuses_saved_extractions_for_unchanged_scenes(
+    db_session, mock_llm, monkeypatch
+):
+    _configure_success(mock_llm, _TWO_SCENES)
+    restore = _failing(monkeypatch, mock_llm, "scan_consistency")
+    assert _post_import("t95-unchanged")[-1][0] == "failed"
+    assert mock_llm.invocation_count("extract_ledger_facts") == 2
+
+    restore()
+    resumed = _post_import("t95-unchanged")
+
+    assert resumed[-1][0] == "complete"
+    assert mock_llm.invocation_count("segment_scene") == 2
+    assert mock_llm.invocation_count("extract_ledger_facts") == 2
+
+
+@pytest.mark.parametrize("change", ["prompt", "models"])
+def test_resume_reuses_no_unit_after_a_prompt_or_model_change(
+    db_session, mock_llm, monkeypatch, tmp_path, change
+):
+    key = f"t95-version-{change}"
+    _configure_success(mock_llm, _TWO_SCENES)
+    restore = _failing(monkeypatch, mock_llm, "infer_story_entities")
+    assert _post_import(key)[-1][0] == "failed"
+    assert mock_llm.invocation_count("segment_scene") == 2
+
+    if change == "prompt":
+        monkeypatch.setattr(render, "PROMPT_VERSION", f"{render.PROMPT_VERSION}-next")
+    else:
+        models = tmp_path / "models.toml"
+        models.write_text(import_runs._MODELS_CONFIG.read_text() + "\n# repinned\n")
+        monkeypatch.setattr(import_runs, "_MODELS_CONFIG", models)
+    restore()
+    resumed = _post_import(key)
+
+    assert resumed[-1][0] == "complete"
+    assert mock_llm.invocation_count("segment_scene") == 4
+    assert mock_llm.invocation_count("infer_act_breaks") == 2
+
+
+def test_unfinished_runs_past_retention_are_purged_with_their_units(
+    db_session, mock_llm, monkeypatch
+):
+    _configure_success(mock_llm, _TWO_SCENES)
+    restore = _failing(monkeypatch, mock_llm, "infer_story_entities")
+    assert _post_import("t95-expired")[-1][0] == "failed"
+    assert _post_import("t95-retained")[-1][0] == "failed"
+    expired = _run_for(db_session, "t95-expired")
+    retained = _run_for(db_session, "t95-retained")
+    expired_id = expired.id
+    expired.updated_at -= import_runs.UNFINISHED_RUN_RETENTION + timedelta(hours=1)
+    retained.updated_at -= import_runs.UNFINISHED_RUN_RETENTION - timedelta(hours=1)
+    db_session.commit()
+    assert _unit_count(db_session, expired_id) == 2
+
+    restore()
+    resumed = _post_import("t95-expired")
+
+    assert resumed[-1][0] == "complete"
+    assert mock_llm.invocation_count("segment_scene") == 6
+    assert _unit_count(db_session, expired_id) == 0
+    assert _run_for(db_session, "t95-expired").id != expired_id
+    assert _unit_count(db_session, _run_for(db_session, "t95-retained").id) == 2
+
+
+def test_deleting_an_imported_project_purges_runs_that_hold_its_script(
+    db_session, mock_llm, monkeypatch
+):
+    other_src = "INT. DOCK - DAY\nSal ties a rope."
+    _configure_success(mock_llm, _TWO_SCENES)
+    restore = _failing(monkeypatch, mock_llm, "infer_story_entities")
+    assert _post_import("t95-delete-failed")[-1][0] == "failed"
+    assert _post_import("t95-delete-other", other_src)[-1][0] == "failed"
+    failed_id = _run_for(db_session, "t95-delete-failed").id
+    other_id = _run_for(db_session, "t95-delete-other").id
+
+    restore()
+    done = _post_import("t95-delete-done")
+    pid = done[-1][1]["result"]["project"]["id"]
+    assert client.delete(f"/api/v1/projects/{pid}").status_code == 204
+
+    assert _run_for(db_session, "t95-delete-failed") is None
+    assert _run_for(db_session, "t95-delete-done") is None
+    assert _unit_count(db_session, failed_id) == 0
+    assert _run_for(db_session, "t95-delete-other") is not None
+    assert _unit_count(db_session, other_id) > 0
+
+
+def test_deleting_a_project_spares_a_live_import_of_the_same_script(
+    db_session, mock_llm, monkeypatch
+):
+    _configure_success(mock_llm, _TWO_SCENES)
+    restore = _failing(monkeypatch, mock_llm, "infer_story_entities")
+    assert _post_import("t95-live")[-1][0] == "failed"
+    assert _post_import("t95-stalled")[-1][0] == "failed"
+    live = _run_for(db_session, "t95-live")
+    stalled = _run_for(db_session, "t95-stalled")
+    live_id, stalled_id = live.id, stalled.id
+    live.status = stalled.status = "running"
+    stalled.updated_at -= import_runs.RUN_RECOVERY_AGE + timedelta(minutes=1)
+    db_session.commit()
+
+    restore()
+    pid = _post_import("t95-live-done")[-1][1]["result"]["project"]["id"]
+    assert client.delete(f"/api/v1/projects/{pid}").status_code == 204
+
+    assert _run_for(db_session, "t95-live") is not None
+    assert _unit_count(db_session, live_id) == 2
+    assert _run_for(db_session, "t95-stalled") is None
+    assert _unit_count(db_session, stalled_id) == 0
 
 
 # ── idempotency (T4 semantics, over SSE) ─────────────────────────────────────

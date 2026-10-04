@@ -42,12 +42,15 @@ import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from sqlalchemy import update
+from sqlalchemy import or_, update
 from sqlalchemy.orm import Session
 
+from fountain.import_runs import RUN_RECOVERY_AGE
 from storage.models import (
     ChangeSetRow,
     ConsistencyFlagRow,
+    ImportRunRow,
+    ImportRunUnitRow,
     LedgerFactRow,
     NarrativeMapRunRow,
     ProjectRow,
@@ -500,8 +503,35 @@ def purge_project(session: Session, project_id: str) -> None:
     previews), `consistency_flags`, `suggestion_history` (embeddings live in
     its `embedding` column — no separate store), and finally `projects`. One
     transaction; rolls back whole on failure.
+
+    Also deletes the import run that created the project and every failed or
+    stalled run of the same script: their saved units hold verbatim script
+    text. A run a worker may still be writing is left to the retention sweep.
     """
     try:
+        source_hashes = session.query(ImportRunRow.source_hash).filter_by(
+            result_project_id=project_id
+        )
+        run_ids = [
+            run_id
+            for (run_id,) in session.query(ImportRunRow.id).filter(
+                or_(
+                    ImportRunRow.result_project_id == project_id,
+                    or_(
+                        ImportRunRow.status == "failed",
+                        (ImportRunRow.status != "completed")
+                        & (ImportRunRow.updated_at < _utcnow() - RUN_RECOVERY_AGE),
+                    )
+                    & ImportRunRow.source_hash.in_(source_hashes.scalar_subquery()),
+                )
+            )
+        ]
+        session.query(ImportRunUnitRow).filter(ImportRunUnitRow.run_id.in_(run_ids)).delete(
+            synchronize_session=False
+        )
+        session.query(ImportRunRow).filter(ImportRunRow.id.in_(run_ids)).delete(
+            synchronize_session=False
+        )
         for model in (
             SnapshotRow,
             LedgerFactRow,
