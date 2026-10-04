@@ -940,6 +940,51 @@ def test_an_approved_verdict_with_a_blocking_claim_still_rejects():
         validate_verification(verdict)
 
 
+def test_a_verdict_whose_every_blocking_claim_was_withdrawn_publishes():
+    """5b6ab04 moved the claim to advisories and left `approved=False`, which
+    rejected with a pathless, reasonless diagnostic and blocked the retry."""
+    verdict = NarrativeMapVerification.model_validate(
+        {
+            "approved": False,
+            "unsupportedClaims": [
+                {"path": "sceneTurns[0].turnBeatId", "reason": "Supported after all.",
+                    "excerptCarriesClaim": True}
+            ],
+            "missingSceneIds": [],
+            "advisories": [],
+        }
+    )
+
+    corrected, _ = partition_self_retracted_claims(verdict)
+
+    validate_verification(corrected)  # does not raise
+
+
+def test_a_disapproval_with_nothing_in_either_blocking_list_publishes():
+    """The outcome comes from the lists; a rejection with nothing to name is
+    one the writer can neither read nor act on."""
+    verdict = NarrativeMapVerification.model_validate(
+        {"approved": False, "unsupportedClaims": [], "missingSceneIds": [], "advisories": []}
+    )
+
+    validate_verification(verdict)  # does not raise
+
+
+def test_a_missing_scene_rejection_names_the_scene_and_says_why():
+    verdict = NarrativeMapVerification.model_validate(
+        {"approved": True, "unsupportedClaims": [], "missingSceneIds": ["scene-3"],
+            "advisories": []}
+    )
+
+    with pytest.raises(NarrativeMapAnalysisValidationError) as excinfo:
+        validate_verification(verdict)
+    [diagnostic] = excinfo.value.diagnostics
+    assert diagnostic["code"] == "verifier_missing_scene"
+    assert diagnostic["sceneId"] == "scene-3"
+    assert diagnostic["path"] == "sceneTurns[scene-3]", "pathless diagnostics are never shown"
+    assert diagnostic["reason"]
+
+
 def test_the_word_escalation_in_a_reason_cannot_repair_a_turn_beat_rejection():
     """The failure this schema change exists to stop.
 

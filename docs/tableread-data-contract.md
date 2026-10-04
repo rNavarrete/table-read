@@ -478,7 +478,8 @@ export const InferredNarrativeMap = z.object({
 // them rejects: a nonempty `unsupportedClaims` (or `missingSceneIds`) discards
 // the whole analysis, `advisories` never does. `approved` is the model's
 // opinion; the server re-derives the verdict from the lists, so a nonempty
-// blocking list overrides an approval.
+// blocking list overrides an approval and two empty ones override a rejection
+// (analysis version 3.5).
 //
 // Both carry `{path, reason}`. `path` names the disputed field alone —
 // indexing into it only where that identifies which item is meant, as in

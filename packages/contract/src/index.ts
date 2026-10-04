@@ -464,7 +464,8 @@ export const NarrativeMapRun = z.object({
   // and never in a log. Hard rule 5 is satisfied at the logging boundary:
   // `narrative_map_runs` emits `diagnostic_codes` only. Defaulted so older
   // clients still parse; `reason` defaults for diagnostics recorded before it
-  // existed and for codes like `verifier_missing_scene` that carry no prose.
+  // existed and for codes like `verification_repair_path_unresolved` that
+  // carry no prose.
   rejectionDiagnostics: z
     .array(
       z.object({

@@ -22,6 +22,10 @@ from schemas import (
     NarrativeMapVerificationNote,
 )
 
+# 3.5: a verdict with both blocking lists empty publishes whatever `approved`
+# says, so a run rejected only because the verifier withdrew every claim can be
+# retried.
+#
 # 3.4: a scene that fell back in any prior run is re-analysed instead of
 # reused, so a map built from laundered fallback prose can be regenerated.
 #
@@ -54,7 +58,7 @@ from schemas import (
 # block keys on this constant — a prompt fix that changes what the analysis
 # produces has to be a new analysis version or the rejected run can never be
 # retried at all.
-NARRATIVE_MAP_ANALYSIS_VERSION = "3.4"
+NARRATIVE_MAP_ANALYSIS_VERSION = "3.5"
 NARRATIVE_MAP_SCENE_CHUNK_CHAR_BUDGET = 24_000
 NARRATIVE_MAP_SCENES_PER_CHUNK = 1
 NARRATIVE_MAP_VERIFICATION_EXCERPT_CHARS = 520
@@ -1471,17 +1475,23 @@ def partition_self_retracted_claims(
 
 
 def validate_verification(result: NarrativeMapVerification) -> None:
-    """Require an explicit approval or a concrete blocking audit finding."""
-    if result.approved and not result.unsupported_claims and not result.missing_scene_ids:
-        return
+    """Reject on the blocking lists alone; `approved` is the model's opinion.
+
+    Deriving the outcome from the lists means every rejection names what it
+    rejects, and a verdict whose claims were all withdrawn publishes.
+    """
     diagnostics = [
         {"code": "verifier_rejected", "path": claim.path, "reason": claim.reason}
         for claim in result.unsupported_claims
     ]
     diagnostics.extend(
-        {"code": "verifier_missing_scene", "sceneId": scene_id}
+        {
+            "code": "verifier_missing_scene",
+            "sceneId": scene_id,
+            "path": f"sceneTurns[{scene_id}]",
+            "reason": "The verifier reported this scene as missing from the map.",
+        }
         for scene_id in result.missing_scene_ids
     )
-    if not diagnostics:
-        diagnostics.append({"code": "verifier_rejected"})
-    raise NarrativeMapAnalysisValidationError(diagnostics)
+    if diagnostics:
+        raise NarrativeMapAnalysisValidationError(diagnostics)

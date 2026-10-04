@@ -1006,6 +1006,48 @@ def test_narrative_map_verifier_rejection_never_writes_a_snapshot(
     snapshots.purge_project(db_session, project_id)
 
 
+def test_narrative_map_publishes_when_the_verifier_withdrew_every_blocking_claim(
+    db_session, mock_llm, monkeypatch
+):
+    src = "INT. BAR - NIGHT\nDan pours a drink."
+    _configure_success(mock_llm, src, fact=True)
+    monkeypatch.setattr(routes, "enqueue_run", lambda *args: None)
+    mock_llm.set_response(
+        "verify_narrative_map",
+        NarrativeMapVerification(
+            approved=False,
+            # A path local repair cannot prune: only the withdrawal lets it pass.
+            unsupportedClaims=[{"path": "sceneTurns[0].turnBeatId", "reason": "Supported.",
+                "excerptCarriesClaim": True}],
+            missingSceneIds=[],
+            advisories=[],
+        ),
+    )
+    project = _parse_sse(client.post(URL, json=_body(src), headers=_headers()).text)[-1][1][
+        "result"
+    ]["project"]
+    project_id = project["id"]
+
+    response = client.post(
+        f"/api/v1/projects/{project_id}/narrative-map",
+        headers={"If-Match": project["headSnapshotId"]},
+    )
+    execute_run(response.json()["id"], mock_llm)
+    db_session.expire_all()
+
+    run = db_session.get(NarrativeMapRunRow, response.json()["id"])
+    persisted = db_session.get(ProjectRow, project_id)
+    assert (run.status, run.error_code) == ("completed", None)
+    assert [c["path"] for c in run.checkpoint["selfRetractedClaims"]] == [
+        "sceneTurns[0].turnBeatId"
+    ]
+    assert mock_llm.invocation_count("verify_narrative_map") == 1
+    assert persisted.doc["seasons"][0]["episodes"][0]["narrativeMap"] is not None
+    assert persisted.head_snapshot_id != project["headSnapshotId"]
+
+    snapshots.purge_project(db_session, project_id)
+
+
 def test_saved_scene_packet_repair_requeues_only_compact_verification(
     db_session, mock_llm, monkeypatch
 ):

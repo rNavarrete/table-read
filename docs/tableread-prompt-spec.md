@@ -498,7 +498,8 @@ version `3.3` at `PROMPT_VERSION 0.48.0`.
 Those two channels — `unsupportedClaims` and `advisories` — are **mutually
 exclusive**, and both carry `{path, reason}`. Only `unsupportedClaims` (or
 `missingSceneIds`) rejects the map; `approved` is the model's opinion and a
-nonempty blocking list overrides it. `path` names the disputed field alone,
+nonempty blocking list overrides it, as two empty ones do (analysis version
+`3.5`). `path` names the disputed field alone,
 indexing into it where that identifies the item (`characterArcs[C.J.]
 .turningPoints[beat-9-3]`), and every word of explanation belongs in `reason`
 — the server pattern-matches `path` to decide which claim to prune locally, so
