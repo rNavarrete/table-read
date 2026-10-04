@@ -22,6 +22,9 @@ from schemas import (
     NarrativeMapVerificationNote,
 )
 
+# 3.4: a scene that fell back in any prior run is re-analysed instead of
+# reused, so a map built from laundered fallback prose can be regenerated.
+#
 # 3.3: each blocking claim carries excerptCarriesClaim, and a claim the
 # verifier answers true is moved to advisories server-side (0.48.0). The
 # checkpointed verification changes shape.
@@ -51,7 +54,7 @@ from schemas import (
 # block keys on this constant — a prompt fix that changes what the analysis
 # produces has to be a new analysis version or the rejected run can never be
 # retried at all.
-NARRATIVE_MAP_ANALYSIS_VERSION = "3.3"
+NARRATIVE_MAP_ANALYSIS_VERSION = "3.4"
 NARRATIVE_MAP_SCENE_CHUNK_CHAR_BUDGET = 24_000
 NARRATIVE_MAP_SCENES_PER_CHUNK = 1
 NARRATIVE_MAP_VERIFICATION_EXCERPT_CHARS = 520
@@ -571,14 +574,30 @@ def validate_scene_analysis_batch(
     return packets
 
 
-def reusable_scene_packets(scene_sources: list[dict], prior_packets: list[dict]) -> list[dict]:
-    """Revalidate prior-version checkpoints and return safe packets in source order."""
+def reusable_scene_packets(scene_sources: list[dict], prior_checkpoints: list[dict]) -> list[dict]:
+    """Revalidate prior-version checkpoints and return safe packets in source order.
+
+    A scene that fell back in any prior run is never reused: run 2.6 copied run
+    2.5's fallback packets without their marker or `fallbackSceneIds`, so only
+    the union across every run catches those copies.
+    """
+    # ponytail: excludes by scene, so a later genuine analysis of a scene that
+    # once fell back is re-paid on each version bump; match on the fallback's
+    # content if that cost shows up.
+    fallback_scene_ids: set[str] = set()
     prior_by_scene: dict[str, list[dict]] = {}
-    for packet in prior_packets:
-        if isinstance(packet, dict) and packet.get("sceneId"):
+    for checkpoint in prior_checkpoints:
+        fallback_scene_ids.update(checkpoint.get("fallbackSceneIds") or [])
+        for packet in checkpoint.get("scenePackets") or []:
+            if not (isinstance(packet, dict) and packet.get("sceneId")):
+                continue
+            if packet.get("analysisStatus") == "source_fallback":
+                fallback_scene_ids.add(packet["sceneId"])
             prior_by_scene.setdefault(packet["sceneId"], []).append(packet)
     reusable: list[dict] = []
     for source_scene in scene_sources:
+        if source_scene["sceneId"] in fallback_scene_ids:
+            continue
         for packet in prior_by_scene.get(source_scene["sceneId"], []):
             try:
                 result = InferredNarrativeSceneAnalysisBatch.model_validate(
@@ -598,9 +617,12 @@ def reusable_scene_packets(scene_sources: list[dict], prior_packets: list[dict])
                         ]
                     }
                 )
-                reusable.extend(validate_scene_analysis_batch([source_scene], result))
+                revalidated = validate_scene_analysis_batch([source_scene], result)
             except ValueError:
                 continue
+            if "analysisStatus" in packet:
+                revalidated[0]["analysisStatus"] = packet["analysisStatus"]
+            reusable.extend(revalidated)
             break
     return reusable
 

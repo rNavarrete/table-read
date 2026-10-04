@@ -507,8 +507,41 @@ def test_prior_checkpoint_is_reused_only_after_current_source_validation():
         "summary": "<UNKNOWN>",
     }
 
-    assert reusable_scene_packets(source.scene_sources, [invalid]) == []
-    assert reusable_scene_packets(source.scene_sources, [invalid, valid]) == [valid]
+    assert reusable_scene_packets(source.scene_sources, [{"scenePackets": [invalid]}]) == []
+    assert reusable_scene_packets(
+        source.scene_sources, [{"scenePackets": [invalid]}, {"scenePackets": [valid]}]
+    ) == [valid]
+
+
+def test_prior_checkpoint_never_reuses_a_scene_that_fell_back():
+    source = prepare_narrative_map_source(_doc())
+    packet = validate_scene_analysis_batch(source.scene_sources, _scene_packet())[0]
+    marked = {**packet, "analysisStatus": "source_fallback"}
+
+    assert reusable_scene_packets(source.scene_sources, [{"scenePackets": [packet]}]) == [packet]
+    assert (
+        reusable_scene_packets(
+            source.scene_sources, [{"scenePackets": [packet], "fallbackSceneIds": ["scene-1"]}]
+        )
+        == []
+    )
+    # Newest first: an unmarked copy in a later run is still the older run's fallback.
+    assert (
+        reusable_scene_packets(
+            source.scene_sources, [{"scenePackets": [packet]}, {"scenePackets": [marked]}]
+        )
+        == []
+    )
+
+
+def test_reused_checkpoint_keeps_its_analysis_status():
+    source = prepare_narrative_map_source(_doc())
+    packet = {
+        **validate_scene_analysis_batch(source.scene_sources, _scene_packet())[0],
+        "analysisStatus": "accepted",
+    }
+
+    assert reusable_scene_packets(source.scene_sources, [{"scenePackets": [packet]}]) == [packet]
 
 
 def test_scene_analysis_requests_are_single_scene_for_exact_coverage_and_checkpointing():

@@ -792,6 +792,34 @@ def test_provider_call_heartbeats_a_running_narrative_map(db_session, mock_llm, 
     snapshots.purge_project(db_session, project["id"])
 
 
+def _placeholder_scene_analysis(scene_id: str, beat_id: str) -> InferredNarrativeSceneAnalysisBatch:
+    """A schema-valid scene analysis the server rejects, forcing the source fallback."""
+    return InferredNarrativeSceneAnalysisBatch.model_validate(
+        {
+            "scenes": [
+                {
+                    "sceneId": scene_id,
+                    "summary": "<UNKNOWN>",
+                    "focalCharacterName": None,
+                    "dramaticFunction": "<UNKNOWN>",
+                    "conflict": "<UNKNOWN>",
+                    "stakes": "<UNKNOWN>",
+                    "turnBeatId": beat_id,
+                    "turn": "<UNKNOWN>",
+                    "keyMoments": [
+                        {
+                            "beatId": beat_id,
+                            "summary": "<UNKNOWN>",
+                            "dramaticFunction": "<UNKNOWN>",
+                            "consequence": "<UNKNOWN>",
+                        }
+                    ],
+                }
+            ]
+        }
+    )
+
+
 def test_narrative_map_repairs_one_invalid_scene_then_checkpoints_it(
     db_session, mock_llm, monkeypatch, caplog
 ):
@@ -806,33 +834,7 @@ def test_narrative_map_repairs_one_invalid_scene_then_checkpoints_it(
     scene_id = scene["id"]
     beat_id = scene["beats"][0]["id"]
     mock_llm.set_responses(
-        "infer_narrative_scene_analysis",
-        [
-            InferredNarrativeSceneAnalysisBatch.model_validate(
-                {
-                    "scenes": [
-                        {
-                            "sceneId": scene_id,
-                            "summary": "<UNKNOWN>",
-                            "focalCharacterName": None,
-                            "dramaticFunction": "<UNKNOWN>",
-                            "conflict": "<UNKNOWN>",
-                            "stakes": "<UNKNOWN>",
-                            "turnBeatId": beat_id,
-                            "turn": "<UNKNOWN>",
-                            "keyMoments": [
-                                {
-                                    "beatId": beat_id,
-                                    "summary": "<UNKNOWN>",
-                                    "dramaticFunction": "<UNKNOWN>",
-                                    "consequence": "<UNKNOWN>",
-                                }
-                            ],
-                        }
-                    ]
-                }
-            )
-        ],
+        "infer_narrative_scene_analysis", [_placeholder_scene_analysis(scene_id, beat_id)]
     )
     response = client.post(
         f"/api/v1/projects/{project_id}/narrative-map",
@@ -854,6 +856,63 @@ def test_narrative_map_repairs_one_invalid_scene_then_checkpoints_it(
     assert "narrative_map_scene_source_fallback" in joined
     assert "narrative_map_scene_checkpointed" in joined
     assert src not in joined
+
+    snapshots.purge_project(db_session, project_id)
+
+
+def test_narrative_map_never_reuses_a_fallback_scene_packet(db_session, mock_llm, monkeypatch):
+    """Fallback run -> a run that reused its packet unmarked (as 2.6 did) -> third run."""
+    src = "INT. BAR - NIGHT\nDan pours a drink."
+    _configure_success(mock_llm, src, fact=True)
+    monkeypatch.setattr(routes, "enqueue_run", lambda *args: None)
+    project = _parse_sse(client.post(URL, json=_body(src), headers=_headers()).text)[-1][1][
+        "result"
+    ]["project"]
+    project_id = project["id"]
+    scene = project["seasons"][0]["episodes"][0]["scenes"][0]
+    mock_llm.set_responses(
+        "infer_narrative_scene_analysis",
+        [_placeholder_scene_analysis(scene["id"], scene["beats"][0]["id"])],
+    )
+    url = f"/api/v1/projects/{project_id}/narrative-map"
+    fallback_run_id = client.post(url).json()["id"]
+    execute_run(fallback_run_id, mock_llm)
+    db_session.expire_all()
+    fallback_run = db_session.get(NarrativeMapRunRow, fallback_run_id)
+    fallback_packet = fallback_run.checkpoint["scenePackets"][0]
+    assert fallback_run.checkpoint["fallbackSceneIds"] == [scene["id"]]
+    assert fallback_packet["analysisStatus"] == "source_fallback"
+
+    laundered = {
+        key: value
+        for key, value in fallback_packet.items()
+        if key not in {"analysisStatus", "analysisDiagnostics"}
+    }
+    db_session.add(
+        NarrativeMapRunRow(
+            id="nmap-reused-fallback",
+            project_id=project_id,
+            run_key=f"{project_id}:reusing:{fallback_run.source_hash}",
+            source_snapshot_id=fallback_run.source_snapshot_id,
+            source_hash=fallback_run.source_hash,
+            analysis_version="reusing",
+            status="completed",
+            phase="completed",
+            scene_count=1,
+            completed_scene_count=1,
+            attempt_count=1,
+            checkpoint={"scenePackets": [laundered]},
+            updated_at=fallback_run.updated_at + timedelta(seconds=1),
+        )
+    )
+    db_session.commit()
+
+    monkeypatch.setattr(narrative_map_runs, "NARRATIVE_MAP_ANALYSIS_VERSION", "third")
+    third = client.post(url).json()
+
+    assert third["completedSceneCount"] == 0
+    execute_run(third["id"], mock_llm)
+    assert mock_llm.invocation_count("infer_narrative_scene_analysis") == 2
 
     snapshots.purge_project(db_session, project_id)
 

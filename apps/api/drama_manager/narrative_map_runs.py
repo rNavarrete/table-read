@@ -582,22 +582,19 @@ def create_or_resume_run(
             return existing, True
         return existing, False
 
-    prior_packets: list[dict] = []
     prior_runs = (
         session.query(NarrativeMapRunRow)
         .filter_by(project_id=project.id, source_hash=source.source_hash)
         .order_by(NarrativeMapRunRow.updated_at.desc())
         .all()
     )
-    for prior_run in prior_runs:
-        for packet in (prior_run.checkpoint or {}).get("scenePackets", []):
-            if isinstance(packet, dict) and packet.get("sceneId"):
-                prior_packets.append(packet)
     deterministic_packets = deterministic_non_narrative_packets(source.scene_sources)
     narrative_sources = [
         scene for scene in source.scene_sources if scene.get("sourceKind") == "narrative"
     ]
-    reused_packets = reusable_scene_packets(narrative_sources, prior_packets)
+    reused_packets = reusable_scene_packets(
+        narrative_sources, [prior_run.checkpoint or {} for prior_run in prior_runs]
+    )
     seeded_by_scene = {
         packet["sceneId"]: packet for packet in [*deterministic_packets, *reused_packets]
     }

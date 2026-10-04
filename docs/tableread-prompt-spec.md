@@ -455,7 +455,9 @@ call with a bounded number of claims. This prevents a feature-length script
 from truncating a required response field after the paid scene pass completes.
 This corrected request path ships as Narrative Map analysis version `2.6` at
 `PROMPT_VERSION 0.32.0`; a newer version reuses valid scene checkpoints from a
-failed older run before it makes any provider call.
+failed older run before it makes any provider call, except a scene that fell
+back to `source_fallback` in any earlier run, which is analysed again (analysis
+version `3.4`).
 
 **Macro pass and audit:** `infer_narrative_map_synthesis` also uses Opus 5,
 but receives a compact spine from verified scene packets plus resolved cast,
