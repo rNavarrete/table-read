@@ -22,6 +22,10 @@ from schemas import (
     NarrativeMapVerificationNote,
 )
 
+# 3.7: persisted map quotes cite a beat's first substantive dialogue line
+# (`quote_for_beat`) before its first non-cue line, which could be
+# "(remembering)" (T9.12).
+#
 # 3.6: a scene that fails validation gets one same-prompt re-roll, then is
 # listed in `unanalyzedSceneIds` with no turn; no server-written fallback prose
 # is published (owner decision 2, T9.3).
@@ -62,7 +66,7 @@ from schemas import (
 # block keys on this constant — a prompt fix that changes what the analysis
 # produces has to be a new analysis version or the rejected run can never be
 # retried at all.
-NARRATIVE_MAP_ANALYSIS_VERSION = "3.6"
+NARRATIVE_MAP_ANALYSIS_VERSION = "3.7"
 NARRATIVE_MAP_SCENE_CHUNK_CHAR_BUDGET = 24_000
 NARRATIVE_MAP_SCENES_PER_CHUNK = 1
 NARRATIVE_MAP_VERIFICATION_EXCERPT_CHARS = 520

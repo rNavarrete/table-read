@@ -293,6 +293,81 @@ def test_merge_prefers_dialogue_or_action_over_teleplay_markup_for_evidence():
     )
 
 
+def test_every_map_quote_cites_substance_and_none_goes_empty():
+    """Synthetic replay of the stored-map probe (T9.12). Beat 1's first non-cue
+    line is "(remembering)"; the line worth citing is the dialogue under it.
+    Beat 2's only line is too short for `quote_for_beat`, which would return
+    "" — every map quote must still be non-empty. Each site cites both beats."""
+    expected = {"beat-1-1": "I kept the letter because it was mine.", "beat-2-1": "No."}
+    doc = _doc()
+    episode = doc["seasons"][0]["episodes"][0]
+    episode["threads"] = []
+    episode["scenes"][0]["beats"][0]["scriptText"] = f"(remembering)\nNORA\n{expected['beat-1-1']}"
+    episode["scenes"][1]["beats"][0]["scriptText"] = "CASS\nNo."
+    payload = _result().model_dump(by_alias=True)
+    del payload["sceneTurns"]
+    payload["themes"][0]["evidence"].append({"beatId": "beat-2-1"})
+    payload["characterArcs"][0]["turningPoints"].append(
+        {"beatId": "beat-2-1", "change": "Curiosity hardens into suspicion of Cass."}
+    )
+    payload["heroJourney"]["stages"].append(
+        {"stage": "refusal", "beatId": "beat-2-1", "summary": "Cass refuses Nora an answer."}
+    )
+    payload["threadMovements"] = [
+        {"threadId": thread_id, "beatId": beat_id, "phase": phase, "summary": summary}
+        for thread_id, beat_id, phase, summary in (
+            ("thread-letter", "beat-1-1", "setup", "Nora finds the letter she was never sent."),
+            ("thread-letter", "beat-2-1", "payoff", "Cass refuses to explain the letter."),
+            ("thread-fire", "beat-2-1", "setup", "Cass keeps a fire going all night."),
+            ("thread-fire", "beat-1-1", "payoff", "Nora learns what the fire was for."),
+        )
+    ]
+    synthesis = InferredNarrativeMapSynthesis.model_validate(payload)
+
+    materialize_synthesized_threads(doc, "ep-1", synthesis)
+    merge_narrative_map(doc, "ep-1", _result(**synthesis.model_dump(by_alias=True)))
+
+    narrative_map = episode["narrativeMap"]
+    beat_of_scene = {"scene-1": "beat-1-1", "scene-2": "beat-2-1"}
+    cited = [
+        *(
+            ("theme", e["beatId"], e["quote"])
+            for t in narrative_map["themes"]
+            for e in t["evidence"]
+        ),
+        *(("act", a["turnBeatId"], a["evidenceQuote"]) for a in narrative_map["acts"]),
+        *(
+            ("escalation", e["beatId"], e["quote"])
+            for a in narrative_map["acts"]
+            for e in a["escalationEvidence"]
+        ),
+        *(
+            ("arc", p["beatId"], p["quote"])
+            for arc in narrative_map["characterArcs"]
+            for p in arc["turningPoints"]
+        ),
+        *(("scene", s["turnBeatId"], s["evidenceQuote"]) for s in narrative_map["sceneTurns"]),
+        *(
+            ("hero", s["beatId"], s["evidenceQuote"])
+            for s in narrative_map["heroJourney"]["stages"]
+        ),
+        *(
+            ("movement", m["beatId"], m["evidenceQuote"])
+            for m in narrative_map["threadMovements"]
+        ),
+        *(("setup", beat_of_scene[t["setupSceneId"]], t["setupQuote"]) for t in episode["threads"]),
+        *(
+            ("payoff", beat_of_scene[t["payoffSceneId"]], t["payoffQuote"])
+            for t in episode["threads"]
+        ),
+    ]
+    sites = {"theme", "act", "escalation", "arc", "scene", "hero", "movement", "setup", "payoff"}
+    assert {(site, beat_id) for site, beat_id, _ in cited} == {
+        (site, beat_id) for site in sites for beat_id in expected
+    }, "all nine display-quote sites cite both beats"
+    assert cited == [(site, beat_id, expected[beat_id]) for site, beat_id, _ in cited]
+
+
 def test_merge_rejects_partial_scene_turn_coverage():
     doc = _doc()
     bad = _result(sceneTurns=[_result().scene_turns[0].model_dump(by_alias=True)])

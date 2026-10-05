@@ -164,6 +164,18 @@ def _source_quote(beat: dict) -> str:
     return excerpts[0][:200] if excerpts else ""
 
 
+def _evidence_quote(scene: dict, beat: dict) -> str:
+    """The cited beat's line worth quoting; empty only when `_source_quote` is.
+
+    `_source_quote` picks by position, so it cited "(remembering)" over the
+    dialogue under it. `quote_for_beat` prefers that dialogue but returns ""
+    for a line under three words, and a map quote must never be empty.
+    """
+    from drama_manager.promises import quote_for_beat  # promises imports this module
+
+    return quote_for_beat(scene, beat.get("id"))[0] or _source_quote(beat)
+
+
 def materialize_synthesized_threads(
     doc: dict,
     episode_id: str,
@@ -183,7 +195,7 @@ def materialize_synthesized_threads(
     if episode.get("threads") or not result.thread_movements:
         return 0
 
-    beat_context: dict[str, tuple[str, dict]] = {}
+    beat_context: dict[str, tuple[dict, dict]] = {}
     for scene in episode.get("scenes") or []:
         scene_id = scene.get("id")
         if not scene_id:
@@ -191,7 +203,7 @@ def materialize_synthesized_threads(
         for beat in scene.get("beats") or []:
             beat_id = beat.get("id")
             if beat_id:
-                beat_context[beat_id] = (scene_id, beat)
+                beat_context[beat_id] = (scene, beat)
 
     grouped: dict[str, list] = {}
     for movement in result.thread_movements:
@@ -212,12 +224,13 @@ def materialize_synthesized_threads(
             (movement for movement in grounded if str(movement.phase) == "payoff"),
             None,
         )
-        setup_scene_id, setup_beat = beat_context[setup.beat_id]
+        setup_scene, setup_beat = beat_context[setup.beat_id]
         payoff_scene_id = None
         payoff_quote = ""
         if payoff is not None:
-            payoff_scene_id, payoff_beat = beat_context[payoff.beat_id]
-            payoff_quote = _source_quote(payoff_beat)
+            payoff_scene, payoff_beat = beat_context[payoff.beat_id]
+            payoff_scene_id = payoff_scene["id"]
+            payoff_quote = _evidence_quote(payoff_scene, payoff_beat)
 
         label_words = [
             word
@@ -249,9 +262,9 @@ def materialize_synthesized_threads(
                 "summary": summary,
                 "status": "paid_off" if payoff is not None else "open",
                 "ownerCharacterIds": owner_ids,
-                "setupSceneId": setup_scene_id,
+                "setupSceneId": setup_scene["id"],
                 "payoffSceneId": payoff_scene_id,
-                "setupQuote": _source_quote(setup_beat),
+                "setupQuote": _evidence_quote(setup_scene, setup_beat),
                 "payoffQuote": payoff_quote,
                 "locked": False,
             }
@@ -398,7 +411,7 @@ def merge_narrative_map(
                 )
                 continue
             escalation_evidence.append(
-                {"beatId": cited.beat_id, "quote": _source_quote(cited_beat)}
+                {"beatId": cited.beat_id, "quote": _evidence_quote(cited_scene, cited_beat)}
             )
         acts.append(
             {
@@ -407,7 +420,7 @@ def merge_narrative_map(
                 "escalation": item.escalation if escalation_evidence else "",
                 "escalationEvidence": escalation_evidence,
                 "turnBeatId": item.turn_beat_id,
-                "evidenceQuote": _source_quote(beat),
+                "evidenceQuote": _evidence_quote(turn_scene, beat),
             }
         )
     if seen_acts != expected_acts:
@@ -426,7 +439,8 @@ def merge_narrative_map(
             path = f"themes[{index}].evidence[{evidence_index}]"
             beat = _grounded_beat(beat_by_id, item.beat_id, diagnostics, path)
             if beat is not None:
-                evidence.append({"beatId": item.beat_id, "quote": _source_quote(beat)})
+                quote = _evidence_quote(scene_by_id[beat_scene_ids[item.beat_id]], beat)
+                evidence.append({"beatId": item.beat_id, "quote": quote})
         if len(evidence) == len(theme.evidence):
             themes.append(
                 {
@@ -458,7 +472,7 @@ def merge_narrative_map(
                     {
                         "beatId": turn.beat_id,
                         "change": turn.change,
-                        "quote": _source_quote(beat),
+                        "quote": _evidence_quote(scene_by_id[beat_scene_ids[turn.beat_id]], beat),
                     }
                 )
         if len(turns) == len(arc.turning_points):
@@ -512,7 +526,7 @@ def merge_narrative_map(
                 "stakes": turn.stakes,
                 "turnBeatId": turn.turn_beat_id,
                 "turn": turn.turn,
-                "evidenceQuote": _source_quote(beat),
+                "evidenceQuote": _evidence_quote(scene_by_id[turn.scene_id], beat),
             }
         )
     expected_scene_ids = {scene.get("id") for scene in scenes if scene.get("id")}
@@ -541,7 +555,9 @@ def merge_narrative_map(
                         "stage": stage.stage,
                         "beatId": stage.beat_id,
                         "summary": stage.summary,
-                        "evidenceQuote": _source_quote(beat),
+                        "evidenceQuote": _evidence_quote(
+                            scene_by_id[beat_scene_ids[stage.beat_id]], beat
+                        ),
                     }
                 )
         if not hero_stages:
@@ -564,7 +580,9 @@ def merge_narrative_map(
                     "beatId": movement.beat_id,
                     "phase": movement.phase,
                     "summary": movement.summary,
-                    "evidenceQuote": _source_quote(beat),
+                    "evidenceQuote": _evidence_quote(
+                        scene_by_id[beat_scene_ids[movement.beat_id]], beat
+                    ),
                 }
             )
 

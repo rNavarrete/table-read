@@ -514,7 +514,9 @@ appended to each path; every double-filed advisory became a rejection.
 **Durability and merge:** the run is keyed to its source snapshot/hash and
 checkpoints each accepted scene using a fresh JSON assignment. It allows one
 diagnostic-only scene repair and one diagnostic-only synthesis repair, derives
-all persisted excerpts from authoritative `scriptText`, and writes a snapshot
+all persisted excerpts from authoritative `scriptText` (each is the cited
+beat's first dialogue line of three or more words, else its first line that is
+not a heading or cue, so never empty; analysis version `3.7`), and writes a snapshot
 only when the head has not changed. Timeouts preserve the run and pause retries
 to avoid duplicate provider work; rejected or stale runs never alter the
 imported script. Run progress and evidence-rejection codes are written to the
