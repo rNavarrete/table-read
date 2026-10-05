@@ -1085,9 +1085,6 @@ def _segment_one(
     )
     first = normalize_and_slice(span, segmented)
     selected = first
-    # The scene-level reading belongs to whichever attempt we keep, so it is
-    # carried alongside the sliced beats rather than read off the last response.
-    selected_raw = segmented
     retried = False
     if first.should_retry:
         retried = True
@@ -1103,9 +1100,8 @@ def _segment_one(
             cache_prefix=split_source,
         )
         second = normalize_and_slice(span, retry_segmented)
-        if second.score.ranking_key() < first.score.ranking_key():
+        if second.ranking_key() < first.ranking_key():
             selected = second
-            selected_raw = retry_segmented
     _logger.info(
         "import_segment scene_index=%d scene_lines=%d retried=%s discarded_metadata=%d "
         "affected_lines=%d repair_events=%d prompt_version=%s",
@@ -1117,22 +1113,7 @@ def _segment_one(
         selected.score.event_count,
         render.PROMPT_VERSION,
     )
-    return selected.beats, _scene_reading(selected_raw)
-
-
-def _scene_reading(segmented) -> dict[str, str]:
-    """The scene-level craft fields from a `segment_scene` response.
-
-    Keyed as the scene doc wants them so the caller stays a plain update. A
-    model that omits one leaves "" — the same as before this existed — so a
-    thin scene degrades to the old blank rather than to invented copy.
-    """
-    return {
-        "whatHappens": segmented.scene_what_happens,
-        "audienceLearns": segmented.scene_audience_learns,
-        "audienceFeels": segmented.scene_audience_feels,
-        "socialSituation": segmented.scene_social_situation,
-    }
+    return selected.beats, selected.reading
 
 
 def _extract_one(
@@ -1351,14 +1332,21 @@ def _segmentation_issue_explanation(issue: SegmentationIssue) -> str:
         return (
             "[no_beats_returned] The model returned no beats for this scene; the server "
             f"preserved {line_range} as a single beat with no description. The scene's "
-            "text is intact, but its beat breakdown is missing. Re-run the breakdown for "
-            "this scene."
+            "text is intact, but its beat breakdown is missing. You can write the "
+            "beat's description yourself in the Plan inspector."
         )
     if issue.code == "empty_beat_fields":
         return (
             f"[empty_beat_fields] The beat covering {line_range} came back with no "
             "description; the server kept the boundary but has nothing to show for it. "
-            "Re-run the breakdown for this scene."
+            "You can write the description yourself in the Plan inspector."
+        )
+    if issue.code == "tool_markup":
+        return (
+            "[tool_markup] The model's description of this scene contained tool-call "
+            "markup; the server blanked each affected field rather than store it. The "
+            "scene's text is intact. You can write the missing description yourself "
+            "in the Plan inspector."
         )
     if issue.code == "unordered_segments":
         return (

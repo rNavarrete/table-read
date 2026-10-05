@@ -34,6 +34,20 @@ _SLUGLINE_RE = re.compile(
     r"|\.[^.\s])"
 )
 
+# A heading and up to two short lines of picture: an all-unassigned answer
+# there is an establishing shot with nothing to break down, not a failed
+# breakdown. Characters as well as lines, because native Fountain keeps a whole
+# action paragraph on one line; the stored hard-wrapped short scenes top out
+# at 128 body characters.
+# DESIGN-GAP(T9.16): the owner has not confirmed these numbers.
+_SHORT_SCENE_MAX_BODY_LINES = 2
+_SHORT_SCENE_MAX_BODY_CHARS = 130
+
+# A tool-call parameter boundary leaked into a text field. Stored imports show
+# the namespace separator mangled (".", ". ", fullwidth colon, a Devanagari
+# sign), so any short run is allowed there.
+_TOOL_MARKUP_RE = re.compile(r"</?\s*(?:antml\S{0,2}\s*)?(?:parameter|invoke|function_calls)\b")
+
 
 class CoverageError(ValueError):
     """The deterministic source partition cannot be constructed at all.
@@ -110,10 +124,14 @@ class RepairScore:
 @dataclass(frozen=True)
 class NormalizedScene:
     beats: list[ImportedBeat]
+    # The scene-level fields, keyed as the scene doc wants them.
+    reading: dict[str, str]
     score: RepairScore
     repair_ratio: float
     empty_output: bool
     duplicate_start: bool
+    no_beats: bool  # all unassigned, on a scene longer than an establishing shot
+    tool_markup: bool  # leaked markup was found (and blanked)
     diagnostics: list[dict]
 
     @property
@@ -121,9 +139,17 @@ class NormalizedScene:
         return (
             self.empty_output
             or self.duplicate_start
+            or self.no_beats
+            or self.tool_markup
             or self.score.discarded_beat_metadata > 0
             or self.repair_ratio > 0.05
         )
+
+    def ranking_key(self) -> tuple[int, ...]:
+        """Lower is better. An attempt that says nothing about the scene, or
+        leaked markup, loses to any that doesn't, whatever its repair score."""
+        no_semantic_beat = not any(beat.what_happens.strip() for beat in self.beats)
+        return (int(no_semantic_beat), int(self.tool_markup), *self.score.ranking_key())
 
 
 def is_slugline(line: str) -> bool:
@@ -366,14 +392,56 @@ def normalize_and_slice(scene: SceneSpan, segmented: SegmentedScene) -> Normaliz
         }
         for issue in repairs
     ]
+    body = [line for line in (scene.lines[1:] if scene.location else scene.lines) if line.strip()]
+    short = (
+        len(body) <= _SHORT_SCENE_MAX_BODY_LINES
+        and sum(len(line) for line in body) <= _SHORT_SCENE_MAX_BODY_CHARS
+    )
+    no_beats = not short and not any(claim.is_beat for claim in claims)
+    beats = _merge(scene, claims, flag_no_beats=not short)
+    reading = {
+        "whatHappens": segmented.scene_what_happens,
+        "audienceLearns": segmented.scene_audience_learns,
+        "audienceFeels": segmented.scene_audience_feels,
+        "socialSituation": segmented.scene_social_situation,
+    }
+    tool_markup = _blank_tool_markup(beats, reading)
+    # Codes only: the retry prompt renders these as data, so it learns what
+    # went wrong without any template change.
+    if no_beats:
+        diagnostics.append({"code": "no_beats_returned"})
+    if tool_markup:
+        diagnostics.append({"code": "tool_markup"})
     return NormalizedScene(
-        beats=_merge(scene, claims),
+        beats=beats,
+        reading=reading,
         score=score,
         repair_ratio=affected_lines / k,
         empty_output=empty_output,
         duplicate_start=duplicate_start,
+        no_beats=no_beats,
+        tool_markup=tool_markup,
         diagnostics=diagnostics,
     )
+
+
+def _blank_tool_markup(beats: list[ImportedBeat], reading: dict[str, str]) -> bool:
+    """Blank every model-written field holding leaked tool-call markup and flag
+    its beat (the first beat for the scene reading). Whatever follows the tag
+    belongs to another field, so none of the field can be kept."""
+    flagged: set[int] = set()
+    for key, value in reading.items():
+        if _TOOL_MARKUP_RE.search(value):
+            reading[key] = ""
+            flagged.add(0)
+    for index, beat in enumerate(beats):
+        for name in ("what_happens", "audience_learns", "audience_feels"):
+            if _TOOL_MARKUP_RE.search(getattr(beat, name)):
+                setattr(beat, name, "")
+                flagged.add(index)
+    for index in sorted(flagged):
+        beats[index].review_issues.append(SegmentationIssue(code="tool_markup"))
+    return bool(flagged)
 
 
 def validate_and_slice(scene: SceneSpan, segmented: SegmentedScene) -> list[ImportedBeat]:
@@ -430,7 +498,7 @@ class _Claim:
     issues: list[SegmentationIssue] = field(default_factory=list)
 
 
-def _merge(scene: SceneSpan, claims: list[_Claim]) -> list[ImportedBeat]:
+def _merge(scene: SceneSpan, claims: list[_Claim], *, flag_no_beats: bool) -> list[ImportedBeat]:
     """Turn the derived partition into final beats: each model beat anchors
     a final beat; unassigned ranges attach to the nearest beat (the preceding
     one, or the following one if they lead the scene). A scene whose model
@@ -477,7 +545,26 @@ def _merge(scene: SceneSpan, claims: list[_Claim]) -> list[ImportedBeat]:
         # spine — entity summaries, narrative promises, the story overview —
         # silently receives empty strings. Every real import to date landed
         # here for every scene without emitting a single signal, so the
-        # synthetic beat now always carries its own flag.
+        # synthetic beat carries its own flag unless the scene is too short
+        # to have anything to break down.
+        #
+        # Every claim here is unassigned, so each would otherwise add a "review
+        # the boundary" flag — pointing at a boundary that does not exist and
+        # burying the one flag that names the real failure. Other codes still
+        # carry information (discarded metadata, out-of-range starts) and are kept.
+        issues = [
+            issue
+            for claim in claims
+            for issue in claim.issues
+            if issue.code != "model_unassigned"
+        ]
+        if flag_no_beats:
+            issues.insert(
+                0,
+                SegmentationIssue(
+                    code="no_beats_returned", start_line=1, end_line=len(scene.lines)
+                ),
+            )
         finals.append(
             _FinalBeat(
                 start=1,
@@ -486,43 +573,23 @@ def _merge(scene: SceneSpan, claims: list[_Claim]) -> list[ImportedBeat]:
                 audience_learns="",
                 audience_feels="",
                 unassigned=[(claim.start, claim.end) for claim in claims],
-                review_issues=[
-                    SegmentationIssue(
-                        code="no_beats_returned",
-                        start_line=1,
-                        end_line=len(scene.lines),
-                    ),
-                    # Every claim here is unassigned, so each would otherwise add
-                    # a "review the boundary" flag — pointing at a boundary that
-                    # does not exist and burying the one flag that names the real
-                    # failure. Other codes still carry information (discarded
-                    # metadata, out-of-range starts) and are kept.
-                    *(
-                        issue
-                        for claim in claims
-                        for issue in claim.issues
-                        if issue.code != "model_unassigned"
-                    ),
-                ],
+                review_issues=issues,
             )
         )
-
-    # A beat that came back with no semantic content is the same failure in a
-    # quieter form: the partition is fine, but the beat says nothing. Flag it
-    # rather than let an empty whatHappens pass for analysis. The synthetic
-    # beat above is empty by construction and already carries its own code —
-    # flagging it twice would just double the noise for one problem.
-    for fb in finals:
-        if any(issue.code == "no_beats_returned" for issue in fb.review_issues):
-            continue
-        if not (fb.what_happens or "").strip():
-            fb.review_issues.append(
-                SegmentationIssue(
-                    code="empty_beat_fields",
-                    start_line=fb.start,
-                    end_line=fb.end,
+    else:
+        # A beat that came back with no semantic content is the same failure in
+        # a quieter form: the partition is fine, but the beat says nothing. Flag
+        # it rather than let an empty whatHappens pass for analysis. The
+        # synthetic beat above is empty by construction and is handled there.
+        for fb in finals:
+            if not (fb.what_happens or "").strip():
+                fb.review_issues.append(
+                    SegmentationIssue(
+                        code="empty_beat_fields",
+                        start_line=fb.start,
+                        end_line=fb.end,
+                    )
                 )
-            )
 
     abs_start = scene.start_line  # source-wide offset for flag line numbers
     return [

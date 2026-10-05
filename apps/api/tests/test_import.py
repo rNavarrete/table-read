@@ -7,6 +7,7 @@ transaction, the response shape, and the zero-persistence guarantees.
 
 from __future__ import annotations
 
+import json
 import re
 import threading
 import time
@@ -851,6 +852,52 @@ def test_missing_initial_start_retries_then_persists_selected_repair_flag(
     ]
     assert "\n".join(b["scriptText"] for b in persisted_beats) == src
     assert persisted.head_snapshot_id == body["project"]["headSnapshotId"]
+
+
+class _RecordingSegmentLlm(MockLlmClient):
+    def __init__(self):
+        super().__init__()
+        self.segment_messages: list[str] = []
+
+    def segment_scene(self, *, user_message, **kwargs):
+        self.segment_messages.append(user_message)
+        return super().segment_scene(user_message=user_message, **kwargs)
+
+
+def test_retry_with_beats_replaces_an_all_unassigned_first_attempt():
+    span = split_into_scenes("INT. BAR - NIGHT\nDan pours.\nMarta enters.\nReyes waits.")[0]
+    llm = _RecordingSegmentLlm()
+    llm.set_responses("segment_scene", [seg([], unassigned=[(1, 4)]), seg([(1, 4)])])
+
+    beats, _reading = pipeline._segment_one(0, span, {"title": "T", "format": {}}, llm, "n0nce")
+
+    assert len(llm.segment_messages) == 2
+    # The retry is told what went wrong, as data rather than new prompt text.
+    assert '"code": "no_beats_returned"' in llm.segment_messages[1]
+    assert [beat.what_happens for beat in beats] == ["w"]
+    assert not any(issue.code == "no_beats_returned" for issue in beats[0].review_issues)
+
+
+def test_leaked_tool_markup_is_never_stored(unlocked_project, mock_llm):
+    src = "INT. BAR - NIGHT\nDan pours."
+    leaked = "\x3c/antml.parameter>\n\x3cparameter name=\"sceneAudienceFeels\">Calm"
+    marked = seg([(1, 2)]).model_copy(
+        update={"scene_audience_learns": leaked, "scene_audience_feels": "Calm"}
+    )
+    mock_llm.set_responses("segment_scene", [marked, marked])
+    mock_llm.set_response("extract_ledger_facts", extraction())
+    mock_llm.set_response("scan_consistency", scan())
+
+    body = client.post(
+        f"/api/v1/projects/{PROJECT_ID}/import", json={"format": "fountain", "content": src}
+    ).json()
+
+    assert mock_llm.invocation_count("segment_scene") == 2
+    scene = body["project"]["seasons"][0]["episodes"][0]["scenes"][0]
+    assert scene["audienceLearns"] == ""
+    assert scene["audienceFeels"] == "Calm"
+    assert "parameter" not in json.dumps(scene)
+    assert any("[tool_markup]" in f["explanation"] for f in body["consistencyFlags"])
 
 
 def test_empty_content_rejected(seeded_project, mock_llm):
@@ -2357,20 +2404,22 @@ def test_scene_with_no_beats_reaches_the_writer_as_a_flag(unlocked_project):
         [
             "INT. ALPHA - DAY",
             "Alpha hides the key.",
+            "Alpha checks the door.",
+            "Alpha leaves.",
             "INT. BETA - DAY",
             "Beta searches the room.",
+            "Beta finds nothing.",
+            "Beta sits.",
         ]
     )
     llm = MockLlmClient()
-    # What the real model has actually been returning: unassigned, no beats.
-    llm.set_responses(
+    # What the real model has actually been returning: unassigned, no beats,
+    # on the first attempt and on the retry.
+    llm.set_response(
         "segment_scene",
-        [
-            SegmentedScene.model_validate(
-                {"segments": [{"kind": "unassigned", "startLine": 1, "reason": "orphan"}]}
-            )
-            for _ in split_into_scenes(src)
-        ],
+        SegmentedScene.model_validate(
+            {"segments": [{"kind": "unassigned", "startLine": 1, "reason": "orphan"}]}
+        ),
     )
     llm.set_response("extract_ledger_facts", extraction())
     llm.set_response("scan_consistency", scan())
@@ -2382,8 +2431,11 @@ def test_scene_with_no_beats_reaches_the_writer_as_a_flag(unlocked_project):
     flagged = [f for f in analysis.raw_flags if "no_beats_returned" in f["explanation"]]
     assert len(flagged) == 2, "every scene that lost its beats should raise a flag"
     assert {f["objectType"] for f in flagged} == {"beat"}
-    # The writer is told which scene and what to do, without the script text.
-    assert "Re-run the breakdown" in flagged[0]["explanation"]
+    assert llm.invocation_count("segment_scene") == 4  # one retry per scene
+    # The writer is told which scene and what they can do, without the script
+    # text; the app has no way to re-run one scene's breakdown.
+    assert "Re-run the breakdown" not in flagged[0]["explanation"]
+    assert "Plan inspector" in flagged[0]["explanation"]
 
 
 def test_import_fills_scene_time_from_the_slugline(unlocked_project):

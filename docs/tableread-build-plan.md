@@ -257,6 +257,9 @@ _Accept:_ report lists empty beats, unlocated quotes, flag counts by code and ac
 **T9.15 Relationship-quote offsets (open question from T9.9; blocks T9.9 done).** T9.9 asks for `locate_quote` offsets on `relationshipStates` quotes, but `RelationshipState` is `{between, label, sceneId, quote}` with no offset fields, and its evidence names a scene, not a beat or line window. Owner to choose: (a) add nullable `charStart`/`charEnd` to `RelationshipState` (Zod, Pydantic, data contract; not a tool schema), counted into the scene's beats joined with `"\n"` and set by `locate_quote` with no window; or (b) drop `relationshipStates` from T9.9.
 _Accept:_ the owner's choice is recorded here; for (a), a unit test and `make check-contract`; the `DESIGN-GAP(T9.15)` in `fountain/characters.py` is removed.
 
+**T9.16 Short establishing scene threshold (open question from T9.10).** T9.10 exempts short establishing scenes from the `no_beats_returned` retry and flag but does not say how short. Shipped default: at most 2 non-blank lines and at most 130 characters after the heading (the stored hard-wrapped short scenes top out at 128; native Fountain puts a whole action paragraph on one line, so a line count alone would silence a real two-paragraph scene). Owner to confirm or replace the numbers.
+_Accept:_ the owner's numbers are recorded here and in prompt spec §import; the `DESIGN-GAP(T9.16)` in `fountain/parse.py` is removed.
+
 **Deferred (paid).** Plan items 3.1 (motivations cite an evidence beat; server derives the quote), 3.2 (one typed verifier verdict per server-listed claim), 3.3 (knowledge-layer typed fields) and 3.4 (per-scene re-breakdown, then promises, overview and a full map re-run) each change a tool schema or spend model calls and wait for authorization. Eval debt owed: scoped `make evals` sign-off with `--only schema --runs 1` and `--only act-validity --runs 1` for `PROMPT_VERSION` 0.46.0–0.48.0 — not run.
 
 ## Sequencing & parallelism

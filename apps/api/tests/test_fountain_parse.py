@@ -190,6 +190,10 @@ def _scene(source: str):
     return split_into_scenes(source)[0]
 
 
+# Long enough that an all-unassigned answer is a failure, not an establishing shot.
+_LONG_SCENE = "INT. BAR - NIGHT\nDan pours.\nMarta enters.\nReyes waits.\nThe door closes."
+
+
 def test_valid_tiling_slices_beats_verbatim():
     scene = _scene("INT. BAR - NIGHT\nDan pours.\nMarta enters.")  # 3 lines
     seg = _seg([(1, "a", "b", "c"), (3, "d", "e", "f")])
@@ -299,11 +303,11 @@ def test_scene_entirely_unassigned_synthesizes_one_flagged_beat():
 
 
 def test_empty_segmentation_synthesizes_flagged_unassigned_scene_and_requests_retry():
-    scene = _scene("INT. BAR - NIGHT\nDan pours.")
+    scene = _scene(_LONG_SCENE)
     normalized = normalize_and_slice(scene, _seg([]))
     assert normalized.should_retry is True
-    assert normalized.beats[0].script_text == "INT. BAR - NIGHT\nDan pours."
-    assert normalized.beats[0].unassigned == [(1, 2)]
+    assert normalized.beats[0].script_text == _LONG_SCENE
+    assert normalized.beats[0].unassigned == [(1, 5)]
     assert {i.code for i in normalized.beats[0].review_issues} >= {
         "empty_output",
         "no_beats_returned",
@@ -314,10 +318,10 @@ def test_scene_with_no_beats_is_flagged_not_silently_synthesized():
     """A scene the model declines to break down keeps its text but loses its
     whole semantic layer. That is a failure of the operation, and it stayed
     invisible through every real import until this flag existed."""
-    scene = _scene("INT. BAR - NIGHT\nmystery block")
+    scene = _scene(_LONG_SCENE)
     normalized = normalize_and_slice(scene, _seg([], unassigned=[(1, "could not segment")]))
     assert len(normalized.beats) == 1
-    assert normalized.beats[0].script_text == "INT. BAR - NIGHT\nmystery block"  # intact
+    assert normalized.beats[0].script_text == _LONG_SCENE  # intact
     codes = [i.code for i in normalized.beats[0].review_issues]
     assert "no_beats_returned" in codes
     # One problem, one flag: the synthetic beat is empty by construction, so it
@@ -345,8 +349,8 @@ def test_zero_beat_scene_replaces_boundary_noise_with_one_accurate_flag():
     that had no beat breakdown at all. There is no boundary to review when the
     model returned nothing — one flag naming the real failure beats eight
     pointing at the wrong one."""
-    scene = _scene("INT. BAR - NIGHT\nmystery block\nmore mystery")
-    seg = _seg([], unassigned=[(1, "a"), (2, "b"), (3, "c")])
+    scene = _scene(_LONG_SCENE)
+    seg = _seg([], unassigned=[(1, "a"), (2, "b"), (3, "c"), (4, "d")])
     normalized = normalize_and_slice(scene, seg)
     codes = [i.code for i in normalized.beats[0].review_issues]
     assert codes == ["no_beats_returned"]
@@ -354,7 +358,7 @@ def test_zero_beat_scene_replaces_boundary_noise_with_one_accurate_flag():
 
 def test_zero_beat_scene_keeps_informative_non_boundary_issues():
     """Suppression is narrow: only the redundant unassigned notices go."""
-    scene = _scene("INT. BAR - NIGHT\nDan pours.")
+    scene = _scene(_LONG_SCENE)
     seg = SegmentedScene.model_validate(
         {"segments": [{"kind": "unassigned", "startLine": 99, "reason": "out of range"}]}
     )
@@ -363,12 +367,97 @@ def test_zero_beat_scene_keeps_informative_non_boundary_issues():
     assert codes - {"no_beats_returned"}, "an out-of-bounds start should still be reported"
 
 
-def test_zero_beat_scene_does_not_trigger_a_retry():
-    """Flag only. The cause is unknown and every scene currently lands here,
-    so retrying would double segmentation cost without fixing anything."""
-    scene = _scene("INT. BAR - NIGHT\nmystery block")
+def test_zero_beat_scene_retries_and_tells_the_retry_why():
+    scene = _scene(_LONG_SCENE)
     normalized = normalize_and_slice(scene, _seg([], unassigned=[(1, "could not segment")]))
-    assert normalized.should_retry is False
+    assert normalized.should_retry is True
+    assert {"code": "no_beats_returned"} in normalized.diagnostics
+
+
+@pytest.mark.parametrize(
+    ("source", "short"),
+    [
+        ("EXT. FARMHOUSE - NIGHT\n\nThe porch light flickers.\n\nA dog barks.\n", True),
+        ("EXT. FARMHOUSE - NIGHT\n\nThe porch light flickers.\nA dog barks.\nA door opens.", False),
+        # Native Fountain keeps each action paragraph on one line: two lines can
+        # hold a whole scene's action.
+        (
+            "INT. BASEMENT - NIGHT\n\n"
+            + "Dan drags the duffel to the furnace, unzips it, and stares at the "
+            "bundled cash for a long moment before he feeds the first stack in.\n\n"
+            + "Marta watches from the stairs as he burns every last bill, then she "
+            "turns off the light and leaves him alone in the orange dark.\n",
+            False,
+        ),
+    ],
+)
+def test_short_establishing_scene_with_no_beats_is_neither_retried_nor_flagged(source, short):
+    """A heading and a line or two of picture has nothing to break down, so an
+    all-unassigned answer there is not a failure worth a call or a flag."""
+    normalized = normalize_and_slice(_scene(source), _seg([], unassigned=[(1, "establishing")]))
+    assert normalized.should_retry is not short
+    assert [i.code for i in normalized.beats[0].review_issues] == (
+        [] if short else ["no_beats_returned"]
+    )
+    assert normalized.beats[0].script_text == source
+
+
+def test_an_attempt_with_no_semantic_beat_ranks_below_any_attempt_with_one():
+    """On repair score alone an all-unassigned answer is (0,0,0,0), so no
+    retry that returned beats could ever replace it."""
+    scene = _scene(_LONG_SCENE)
+    no_beats = normalize_and_slice(scene, _seg([], unassigned=[(1, "could not segment")]))
+    repaired = normalize_and_slice(scene, _seg([(3, "a", "b", "c")]))  # missing line 1
+    assert no_beats.score.ranking_key() < repaired.score.ranking_key()
+    assert repaired.ranking_key() < no_beats.ranking_key()
+
+
+# ── leaked tool-call markup ─────────────────────────────────────────────────
+
+
+def _markup(separator: str) -> str:
+    # A leaked parameter boundary: only the closing tag, namespace separator
+    # mangled. Stored imports show it without the next opening tag too, and
+    # that tag alone would match whatever the separator handling did.
+    return f"Calm\x3c/antml{separator}parameter>"
+
+
+@pytest.mark.parametrize("separator", ["\x3a", "\uff1a", ".", ". ", "\u0903"])
+def test_markup_in_the_scene_reading_is_blanked_flagged_and_retried(separator):
+    seg = _seg([(1, "Dan pours", "he waits", "unease")]).model_copy(
+        update={"scene_what_happens": "Dan stalls.", "scene_audience_learns": _markup(separator)}
+    )
+    normalized = normalize_and_slice(_scene("INT. BAR - NIGHT\nDan pours."), seg)
+    assert normalized.should_retry is True
+    assert {"code": "tool_markup"} in normalized.diagnostics
+    assert normalized.reading["audienceLearns"] == ""
+    assert normalized.reading["whatHappens"] == "Dan stalls."
+    assert [i.code for i in normalized.beats[0].review_issues] == ["tool_markup"]
+
+
+def test_markup_in_a_beat_field_is_blanked_and_flagged_on_that_beat():
+    scene = _scene("INT. BAR - NIGHT\nDan pours.\nMarta enters.")
+    seg = _seg(
+        [(1, "Dan pours", _markup("."), "unease"), (3, "Marta enters", "she knows", "dread")]
+    )
+    normalized = normalize_and_slice(scene, seg)
+    assert normalized.should_retry is True
+    assert normalized.beats[0].audience_learns == ""
+    assert normalized.beats[0].what_happens == "Dan pours"
+    assert [i.code for i in normalized.beats[0].review_issues] == ["tool_markup"]
+    assert normalized.beats[1].review_issues == []
+
+
+def test_prose_about_parameters_is_not_markup():
+    seg = _seg([(1, "Dan invokes the parameters of the deal", "a < b in power", "x")])
+    assert normalize_and_slice(_scene("INT. BAR - NIGHT\nDan pours."), seg).should_retry is False
+
+
+def test_an_attempt_with_markup_ranks_below_a_clean_one():
+    scene = _scene(_LONG_SCENE)
+    clean = normalize_and_slice(scene, _seg([(3, "a", "b", "c")]))  # missing line 1
+    marked = normalize_and_slice(scene, _seg([(1, "a", _markup("."), "c")]))
+    assert clean.ranking_key() < marked.ranking_key()
 
 
 # ── byte-identity reconstruction ────────────────────────────────────────────
