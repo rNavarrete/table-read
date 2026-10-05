@@ -1023,8 +1023,8 @@ def test_llm_timeout_maps_to_llm_unavailable(unlocked_project):
 
 
 def test_schema_invalid_llm_maps(unlocked_project):
-    exc = SchemaInvalidLlmError("segment_scene")
-    app.dependency_overrides[get_llm_client] = lambda: _RaisingLlm(exc)
+    # A whole-script stage: a failing scene unit no longer aborts (T9.11).
+    app.dependency_overrides[get_llm_client] = lambda: _RaisingEntitiesLlm()
     try:
         resp = client.post(
             f"/api/v1/projects/{PROJECT_ID}/import",

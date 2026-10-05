@@ -161,7 +161,8 @@ class _FailingSecondSceneLlm(MockLlmClient):
             self._never_release.wait(0.5)
             return seg([(1, 2)])
         if "Beta waits." in user_message:
-            raise SchemaInvalidLlmError("segment_scene")
+            # Not a schema failure: that degrades one scene instead (T9.11).
+            raise LlmTimeoutError("segment_scene")
         if "Gamma waits." in user_message:
             self._never_release.wait(0.5)
         return seg([(1, 2)])
@@ -1540,9 +1541,10 @@ def test_empty_content_fails_zero_rows(db_session, mock_llm):
 
 
 def test_schema_invalid_llm_maps_to_failed_zero_rows(db_session, mock_llm):
+    # A whole-script stage: a failing scene unit no longer aborts (T9.11).
     class _Raising(MockLlmClient):
-        def segment_scene(self, **kwargs):
-            raise SchemaInvalidLlmError("segment_scene")
+        def infer_act_breaks(self, **kwargs):
+            raise SchemaInvalidLlmError("infer_act_breaks")
 
     app.dependency_overrides[get_llm_client] = lambda: _Raising()
     try:
@@ -1562,7 +1564,7 @@ def test_schema_invalid_llm_maps_to_failed_zero_rows(db_session, mock_llm):
             "type": "failed",
             "error": {
                 "code": "SCHEMA_INVALID_LLM",
-                "message": "segment_scene: LLM output failed schema validation twice",
+                "message": "infer_act_breaks: LLM output failed schema validation twice",
             },
         },
     )
@@ -1596,7 +1598,7 @@ def test_failing_scene_worker_fails_fast_with_zero_rows(db_session, monkeypatch)
 
     events = _parse_sse(resp.text)
     assert events[-1][0] == "failed"
-    assert events[-1][1]["error"]["code"] == "SCHEMA_INVALID_LLM"
+    assert events[-1][1]["error"]["code"] == "LLM_UNAVAILABLE"
     segment_progress = [
         data
         for name, data in events
@@ -2329,4 +2331,169 @@ def test_fault_saving_zero_rows(db_session, monkeypatch):
     )
     with pytest.raises(RuntimeError, match="injected"):
         _drain(gen)
+    _assert_no_new_rows(db_session, baseline)
+
+
+# ── T9.11: a scene that fails after its rule-9 retry does not block the import ─
+
+_THREE_SCENES = "\n".join(
+    [
+        "INT. ALPHA - DAY",
+        "Alpha waits.",
+        "INT. BETA - DAY",
+        "Beta waits.",
+        "INT. GAMMA - DAY",
+        "Gamma waits.",
+    ]
+)
+
+
+class _SceneFailsValidation(MockLlmClient):
+    """The client raises SchemaInvalidLlmError only after its own rule-9 retry,
+    so one raise here is a scene unit that failed twice."""
+
+    def __init__(self, *, segment: str = "", extract: str = "") -> None:
+        super().__init__()
+        self.segment_fails_on = segment
+        self.extract_fails_on = extract
+        self.set_response("segment_scene", seg([(1, 2)]))
+        self.set_response("scan_consistency", scan())
+
+    def segment_scene(self, *, user_message: str, **kwargs):
+        if self.segment_fails_on and self.segment_fails_on in user_message:
+            raise SchemaInvalidLlmError("segment_scene")
+        return super().segment_scene(user_message=user_message, **kwargs)
+
+    def extract_ledger_facts(self, *, user_message: str, **kwargs):
+        if self.extract_fails_on and self.extract_fails_on in user_message:
+            raise SchemaInvalidLlmError("extract_ledger_facts")
+        super().extract_ledger_facts(user_message=user_message, **kwargs)
+        return extraction([one_fact()] if "Alpha waits." in user_message else None)
+
+
+def _post_with(llm: MockLlmClient, key: str) -> list[tuple[str, dict]]:
+    app.dependency_overrides[get_llm_client] = lambda: llm
+    try:
+        return _post_import(key, _THREE_SCENES)
+    finally:
+        app.dependency_overrides.pop(get_llm_client, None)
+
+
+def _failure_flags(result: dict) -> set[tuple[str, str, str, str]]:
+    return {
+        (f["objectType"], f["objectId"], f["explanation"].split("]")[0] + "]", f["status"])
+        for f in result["consistencyFlags"]
+    }
+
+
+def test_a_scene_that_fails_twice_keeps_only_its_text_and_the_import_completes(
+    db_session,
+):
+    llm = _SceneFailsValidation(segment="Beta waits.", extract="Gamma waits.")
+
+    events = _post_with(llm, "t911-continue")
+
+    assert events[-1][0] == "complete", events[-1]
+    result = events[-1][1]["result"]
+    alpha, beta, gamma = result["project"]["seasons"][0]["episodes"][0]["scenes"]
+    assert [b["scriptText"] for b in beta["beats"]] == ["INT. BETA - DAY\nBeta waits."]
+    # Rule 9: nothing is written for the scene the model could not break down.
+    assert {
+        beat[field]
+        for beat in beta["beats"]
+        for field in ("whatHappens", "audienceLearns", "audienceFeels")
+    } | {
+        beta[field]
+        for field in ("whatHappens", "audienceLearns", "audienceFeels", "socialSituation")
+    } == {""}
+    assert [b["whatHappens"] for s in (alpha, gamma) for b in s["beats"]] == ["w", "w"]
+    assert [f["sourceSpan"]["sceneId"] for f in result["newFacts"]] == ["scene-1"]
+    assert _failure_flags(result) == {
+        ("scene", "scene-2", "[segmentation_failed]", "open"),
+        ("scene", "scene-3", "[extraction_failed]", "open"),
+    }
+
+
+def test_a_failed_scene_is_not_saved_so_a_resume_tries_it_again(
+    db_session, monkeypatch
+):
+    llm = _SceneFailsValidation(segment="Beta waits.", extract="Gamma waits.")
+    restore = _failing(monkeypatch, llm, "scan_consistency")
+
+    assert _post_with(llm, "t911-resume")[-1][1]["error"]["code"] == "SCHEMA_INVALID_LLM"
+    run = _run_for(db_session, "t911-resume")
+    saved = {
+        stage: {
+            unit.unit_index
+            for unit in db_session.query(ImportRunUnitRow).filter_by(
+                run_id=run.id, stage=stage
+            )
+        }
+        for stage in ("segmenting_beats", "extracting_facts")
+    }
+    assert saved == {"segmenting_beats": {0, 2}, "extracting_facts": {0, 1}}
+
+    restore()
+    llm.segment_fails_on = llm.extract_fails_on = ""
+    resumed = _post_with(llm, "t911-resume")
+
+    assert resumed[-1][0] == "complete", resumed[-1]
+    assert _failure_flags(resumed[-1][1]["result"]) == set()
+    assert llm.invocation_count("segment_scene") == 3
+    # Everything after segmentation was saved from a run where Beta had no
+    # breakdown, so none of it may be reused once Beta has one.
+    for op in (
+        "infer_act_breaks",
+        "infer_story_entities",
+        "infer_narrative_promises",
+        "infer_story_overview",
+    ):
+        assert llm.invocation_count(op) == 2, op
+    assert llm.invocation_count("extract_ledger_facts") == 2 + 3
+
+
+def test_a_resume_rescans_after_a_scene_whose_extraction_failed(
+    db_session, monkeypatch
+):
+    llm = _SceneFailsValidation(extract="Gamma waits.")
+    rewrite_flags = snapshots._rewrite_flags
+
+    def fail_once(*args, **kwargs):
+        monkeypatch.setattr(snapshots, "_rewrite_flags", rewrite_flags)
+        raise RuntimeError("injected saving failure")
+
+    monkeypatch.setattr(snapshots, "_rewrite_flags", fail_once)
+    with pytest.raises(RuntimeError, match="injected"):
+        _post_with(llm, "t911-rescan")
+
+    llm.extract_fails_on = ""
+    resumed = _post_with(llm, "t911-rescan")
+
+    assert resumed[-1][0] == "complete", resumed[-1]
+    assert _failure_flags(resumed[-1][1]["result"]) == set()
+    assert llm.invocation_count("extract_ledger_facts") == 2 + 1
+    # The first scan never saw Gamma's facts.
+    assert llm.invocation_count("scan_consistency") == 2
+    assert llm.invocation_count("infer_story_overview") == 1
+
+
+def test_an_acts_failure_still_aborts_with_zero_rows_after_a_scene_fails(
+    db_session, monkeypatch
+):
+    baseline = _table_counts(db_session)
+    llm = _SceneFailsValidation(segment="Beta waits.")
+    _failing(monkeypatch, llm, "infer_act_breaks")
+
+    events = _post_with(llm, "t911-acts")
+
+    assert events[-1] == (
+        "failed",
+        {
+            "type": "failed",
+            "error": {
+                "code": "SCHEMA_INVALID_LLM",
+                "message": "infer_act_breaks: LLM output failed schema validation twice",
+            },
+        },
+    )
     _assert_no_new_rows(db_session, baseline)

@@ -207,6 +207,10 @@ def analyze_import(
 
     yield ImportStageStarted(STAGE_SEGMENTING_BEATS)
     cached_beats = _load_segment_checkpoints(checkpoint, spans)
+    if any(unit is None for unit in cached_beats):
+        # Every later stage was saved from the beats of a run that lacked this
+        # scene's (a failed scene keeps only its text and is not saved, T9.11).
+        checkpoint = {}
     # One whole-script payload for every scene's segmentation call. Boundaries
     # are decided locally, but what a beat MEANS — that it plants something a
     # later scene pays off — is only visible with the rest of the episode in
@@ -214,17 +218,28 @@ def analyze_import(
     split_source = render.build_split_source_block(
         [(span.location, span.lines) for span in spans], run_nonce
     )
+    failed_segments: set[int] = set()
     per_scene_results = yield from _run_ordered_parallel(
         spans,
-        lambda index, span: _segment_one(
-            index, span, project_doc, llm, run_nonce, split_source
+        _continue_past_schema_failure(
+            lambda index, span: _segment_one(
+                index, span, project_doc, llm, run_nonce, split_source
+            ),
+            STAGE_SEGMENTING_BEATS,
+            failed_segments,
+            lambda span: (
+                [ImportedBeat("", "", "", script_text="\n".join(span.lines))],
+                dict(_EMPTY_READING),
+            ),
         ),
         stage=STAGE_SEGMENTING_BEATS,
         existing_results=cached_beats,
         # Every call carries `split_source`; without warming, the first four
         # workers each write it.
         warm_cache_first=True,
-        on_result=lambda index, unit: _write_checkpoint(
+        on_result=lambda index, unit: None
+        if index in failed_segments
+        else _write_checkpoint(
             checkpoint_writer,
             STAGE_SEGMENTING_BEATS,
             {"beats": _dump_imported_beats(unit[0]), "reading": unit[1]},
@@ -372,7 +387,7 @@ def analyze_import(
     # stay one chunk (same as the historical single call). Schema-invalid
     # output after the client's own retry-once (CLAUDE.md rule 9) propagates
     # as SchemaInvalidLlmError for any chunk — same atomic-failure contract
-    # as segmentation/act inference. ──────────────────────────────────────
+    # as act inference. ───────────────────────────────────────────────────
     yield ImportStageStarted(STAGE_INFERRING_ENTITIES)
     scene_summaries = _entity_scene_summaries(scene_docs)
     summary_chunks = chunk_entity_scene_summaries(
@@ -568,23 +583,34 @@ def analyze_import(
     yield ImportStageStarted(STAGE_EXTRACTING_FACTS)
     scene_hashes = [_scene_text_hash(scene) for scene in scene_docs]
     cached_extractions = _load_extract_checkpoints(checkpoint, scene_hashes)
+    if any(unit is None for unit in cached_extractions):
+        # A saved scan never saw this scene's facts.
+        checkpoint = {}
     # One whole-episode payload, built once and reused verbatim by every scene
     # call, so the prompt prefix stays byte-identical and caches (§ measured at
     # ~0.1x input per warm call). Extraction is the op that most needs it: who
     # already knows a fact, and whether a later scene contradicts it, are not
     # answerable from the target scene alone.
     episode_source = render.build_episode_source_block(scene_docs, run_nonce)
+    failed_extractions: set[int] = set()
     extractions = yield from _run_ordered_parallel(
         scene_docs,
-        lambda index, scene: _extract_one(
-            index, scene, new_doc, episode_id, characters, llm, run_nonce,
-            episode_source,
+        _continue_past_schema_failure(
+            lambda index, scene: _extract_one(
+                index, scene, new_doc, episode_id, characters, llm, run_nonce,
+                episode_source,
+            ),
+            STAGE_EXTRACTING_FACTS,
+            failed_extractions,
+            lambda _scene: LedgerExtraction(new_facts=[], contradictions=[]),
         ),
         stage=STAGE_EXTRACTING_FACTS,
         existing_results=cached_extractions,
         # Same race as segmentation — every call carries `episode_source`.
         warm_cache_first=True,
-        on_result=lambda index, extraction: _write_checkpoint(
+        on_result=lambda index, extraction: None
+        if index in failed_extractions
+        else _write_checkpoint(
             checkpoint_writer,
             STAGE_EXTRACTING_FACTS,
             {
@@ -679,6 +705,22 @@ def analyze_import(
                 "severity": dump["severity"],
                 "status": "open",
                 "sourceChange": "",  # stamped with the snapshot id by the caller's write
+            }
+        )
+    failed_units = [(i, "segmentation_failed") for i in sorted(failed_segments)] + [
+        (i, "extraction_failed") for i in sorted(failed_extractions)
+    ]
+    for index, code in failed_units:
+        raw_flags.append(
+            {
+                "id": flag_minter.mint(),
+                "objectType": "scene",
+                "objectId": scene_docs[index]["id"],
+                "factId": None,
+                "explanation": _UNIT_FAILED_EXPLANATIONS[code],
+                "severity": "tension",
+                "status": "open",
+                "sourceChange": "",
             }
         )
     for beat_id, issue in review_raw:
@@ -1060,6 +1102,48 @@ def _run_ordered_parallel[T, R](
     else:
         pool.shutdown(wait=True)
     return [cast(R, result) for result in results]
+
+
+_UNIT_FAILED_EXPLANATIONS = {
+    "segmentation_failed": (
+        "[segmentation_failed] The model's beat breakdown of this scene failed "
+        "validation twice, so the server kept the scene's text as a single beat with "
+        "no description and wrote nothing for it. You can write the description "
+        "yourself in the Plan inspector."
+    ),
+    "extraction_failed": (
+        "[extraction_failed] Fact extraction for this scene failed validation twice, "
+        "so no continuity facts were recorded from it. The scene's text is intact; "
+        "check it yourself for facts the Ledger should hold."
+    ),
+}
+
+
+def _continue_past_schema_failure[T, R](
+    worker: Callable[[int, T], R],
+    stage: str,
+    failed: set[int],
+    source_only: Callable[[T], R],
+) -> Callable[[int, T], R]:
+    """Owner decision 1 (T9.11): a scene unit that still fails validation after
+    rule 9's retry keeps only its source text and is recorded in `failed` for a
+    flag, instead of aborting the import. Callers do not checkpoint a failed
+    unit, so a resumed run asks the model again. Any other error still aborts."""
+
+    def run(index: int, item: T) -> R:
+        try:
+            return worker(index, item)
+        except SchemaInvalidLlmError:
+            _logger.warning(
+                "import_unit_failed stage=%s scene_index=%d prompt_version=%s",
+                stage,
+                index,
+                render.PROMPT_VERSION,
+            )
+            failed.add(index)
+            return source_only(item)
+
+    return run
 
 
 def _segment_one(
