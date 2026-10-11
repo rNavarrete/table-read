@@ -22,6 +22,11 @@ from schemas import (
     NarrativeMapVerificationNote,
 )
 
+# 3.8: verifier paths are cut to their address before resolving (a trailing
+# "(beat-10-1)" or sentence no longer fails a prunable claim closed), a claim
+# also filed as an advisory is advisory, and a rejected theme citation removes
+# only that citation (T9.13).
+#
 # 3.7: persisted map quotes cite a beat's first substantive dialogue line
 # (`quote_for_beat`) before its first non-cue line, which could be
 # "(remembering)" (T9.12).
@@ -66,7 +71,7 @@ from schemas import (
 # block keys on this constant — a prompt fix that changes what the analysis
 # produces has to be a new analysis version or the rejected run can never be
 # retried at all.
-NARRATIVE_MAP_ANALYSIS_VERSION = "3.7"
+NARRATIVE_MAP_ANALYSIS_VERSION = "3.8"
 NARRATIVE_MAP_SCENE_CHUNK_CHAR_BUDGET = 24_000
 NARRATIVE_MAP_SCENES_PER_CHUNK = 1
 NARRATIVE_MAP_VERIFICATION_EXCERPT_CHARS = 520
@@ -861,6 +866,7 @@ def build_inferred_narrative_map(
 # whole map was discarded over rejections the local repair was built to absorb.
 # Accept any key here and resolve it against the candidate below.
 _THEME_VERIFICATION_PATH = re.compile(r"^themes\[([^\]]+)\]")
+_THEME_EVIDENCE_VERIFICATION_PATH = re.compile(r"^themes\[[^\]]+\]\s*\.\s*evidence\s*\[([^\]]+)\]$")
 _THREAD_INDEX_VERIFICATION_PATH = re.compile(r"^threadMovements\[(\d+)\]\s*$")
 _THREAD_ID_VERIFICATION_PATH = re.compile(r"^threadMovements\[([^,\]]+),\s*beatId\s+([^\]]+)\]")
 # Same claim, dotted form: `threadMovements[<threadId>].beatId=<beatId>`.
@@ -939,6 +945,19 @@ _SCENE_TURN_PROSE_VERIFICATION_PATH = re.compile(
 )
 
 
+# The address a verifier path starts with: a name, then `[key]` and `.field`
+# steps, then an optional `=value`. Whatever follows — "(beat-10-1)", a dash and
+# a sentence — is the verifier's note, and is never matched against.
+_VERIFIER_PATH_ADDRESS = re.compile(
+    r"^\s*[A-Za-z_]\w*(?:\s*\[[^\]]*\]|\s*\.\s*[A-Za-z_]\w*)*(?:\s*=\s*[^\s(]+)?"
+)
+
+
+def verifier_path_address(path: str) -> str:
+    match = _VERIFIER_PATH_ADDRESS.match(path)
+    return match.group(0).strip() if match else path.strip()
+
+
 def _scene_turn_index_for(key: str, scene_turns: list) -> int | None:
     key = key.strip()
     if key.isdigit():
@@ -998,15 +1017,15 @@ def verification_supports_local_repair(result: NarrativeMapVerification) -> bool
     if result.missing_scene_ids or not result.unsupported_claims:
         return False
     return all(
-        _THEME_VERIFICATION_PATH.match(claim.path)
-        or _THREAD_INDEX_VERIFICATION_PATH.match(claim.path)
-        or _THREAD_ID_VERIFICATION_PATH.match(claim.path)
-        or _THREAD_ID_DOT_VERIFICATION_PATH.match(claim.path)
-        or _CHARACTER_ARC_VERIFICATION_PATH.match(claim.path)
-        or _EMPTY_CHARACTER_ARCS_VERIFICATION_PATH.match(claim.path)
-        or _ACT_ESCALATION_VERIFICATION_PATH.match(claim.path)
-        or _SCENE_TURN_PROSE_VERIFICATION_PATH.match(claim.path)
-        for claim in result.unsupported_claims
+        _THEME_VERIFICATION_PATH.match(address)
+        or _THREAD_INDEX_VERIFICATION_PATH.match(address)
+        or _THREAD_ID_VERIFICATION_PATH.match(address)
+        or _THREAD_ID_DOT_VERIFICATION_PATH.match(address)
+        or _CHARACTER_ARC_VERIFICATION_PATH.match(address)
+        or _EMPTY_CHARACTER_ARCS_VERIFICATION_PATH.match(address)
+        or _ACT_ESCALATION_VERIFICATION_PATH.match(address)
+        or _SCENE_TURN_PROSE_VERIFICATION_PATH.match(address)
+        for address in (verifier_path_address(claim.path) for claim in result.unsupported_claims)
     )
 
 
@@ -1037,6 +1056,7 @@ def repair_candidate_from_verification(
     diagnostics: list[dict] = []
     repairs: list[dict] = []
     theme_indexes: set[int] = set()
+    dropped_theme_evidence: dict[int, set[int]] = {}
     character_arc_indexes: set[int] = set()
     movement_indexes: set[int] = set()
     cleared_escalation_indexes: set[int] = set()
@@ -1051,25 +1071,44 @@ def repair_candidate_from_verification(
         )
 
     for claim in result.unsupported_claims:
+        # Records keep the verifier's own path, which is how the run joins
+        # each repair back to its reason.
         path = claim.path
-        theme_match = _THEME_VERIFICATION_PATH.match(path)
+        address = verifier_path_address(path)
+        theme_match = _THEME_VERIFICATION_PATH.match(address)
         if theme_match:
             resolved = _index_for(theme_match.group(1), candidate.themes, "label")
             if resolved is None:
                 diagnostics.append({"code": "verification_repair_path_unresolved", "path": path})
                 continue
-            index = resolved
-            theme_indexes.add(index)
-            repairs.append(
-                {
-                    "action": "remove_theme",
-                    "path": path,
-                    "label": candidate.themes[index].label,
-                }
+            theme = candidate.themes[resolved]
+            evidence_match = _THEME_EVIDENCE_VERIFICATION_PATH.match(address)
+            evidence_index = (
+                _index_for(evidence_match.group(1), theme.evidence, "beat_id")
+                if evidence_match
+                else None
             )
+            dropped = dropped_theme_evidence.setdefault(resolved, set())
+            # A citation the theme does not have, or its last one, takes the
+            # whole theme: `evidence` is min(1) in the contract.
+            if evidence_index is not None and len(dropped | {evidence_index}) < len(
+                theme.evidence
+            ):
+                dropped.add(evidence_index)
+                repairs.append(
+                    {
+                        "action": "remove_theme_evidence",
+                        "path": path,
+                        "label": theme.label,
+                        "beatId": theme.evidence[evidence_index].beat_id,
+                    }
+                )
+                continue
+            theme_indexes.add(resolved)
+            repairs.append({"action": "remove_theme", "path": path, "label": theme.label})
             continue
 
-        arc_field_match = _CHARACTER_ARC_FIELD_VERIFICATION_PATH.match(path)
+        arc_field_match = _CHARACTER_ARC_FIELD_VERIFICATION_PATH.match(address)
         if arc_field_match:
             resolved = _index_for(
                 arc_field_match.group(1), candidate.character_arcs, "character_name"
@@ -1092,7 +1131,7 @@ def repair_candidate_from_verification(
             )
             continue
 
-        turning_point_match = _CHARACTER_ARC_TURNING_POINT_VERIFICATION_PATH.match(path)
+        turning_point_match = _CHARACTER_ARC_TURNING_POINT_VERIFICATION_PATH.match(address)
         if turning_point_match:
             resolved = _index_for(
                 turning_point_match.group(1), candidate.character_arcs, "character_name"
@@ -1103,7 +1142,7 @@ def repair_candidate_from_verification(
             arc = candidate.character_arcs[resolved]
             named = {
                 beat_id
-                for beat_id in _BEAT_ID_IN_PATH.findall(path)
+                for beat_id in _BEAT_ID_IN_PATH.findall(address) or _BEAT_ID_IN_PATH.findall(path)
                 if any(point.beat_id == beat_id for point in arc.turning_points)
             }
             already = dropped_turning_points.get(resolved, set())
@@ -1132,7 +1171,7 @@ def repair_candidate_from_verification(
                 )
             continue
 
-        character_arc_match = _CHARACTER_ARC_VERIFICATION_PATH.match(path)
+        character_arc_match = _CHARACTER_ARC_VERIFICATION_PATH.match(address)
         if character_arc_match:
             resolved = _index_for(
                 character_arc_match.group(1), candidate.character_arcs, "character_name"
@@ -1151,7 +1190,7 @@ def repair_candidate_from_verification(
             )
             continue
 
-        movement_index_match = _THREAD_INDEX_VERIFICATION_PATH.match(path)
+        movement_index_match = _THREAD_INDEX_VERIFICATION_PATH.match(address)
         if movement_index_match:
             index = int(movement_index_match.group(1))
             if index >= len(candidate.thread_movements):
@@ -1162,8 +1201,8 @@ def repair_candidate_from_verification(
             continue
 
         movement_id_match = _THREAD_ID_VERIFICATION_PATH.match(
-            path
-        ) or _THREAD_ID_DOT_VERIFICATION_PATH.match(path)
+            address
+        ) or _THREAD_ID_DOT_VERIFICATION_PATH.match(address)
         if movement_id_match:
             thread_id, beat_id = movement_id_match.groups()
             matches = [
@@ -1199,7 +1238,7 @@ def repair_candidate_from_verification(
             )
             continue
 
-        scene_turn_match = _SCENE_TURN_PROSE_VERIFICATION_PATH.match(path)
+        scene_turn_match = _SCENE_TURN_PROSE_VERIFICATION_PATH.match(address)
         if scene_turn_match:
             resolved = _scene_turn_index_for(scene_turn_match.group(1), candidate.scene_turns)
             field = _SCENE_TURN_FIELDS[scene_turn_match.group(2)]
@@ -1220,7 +1259,7 @@ def repair_candidate_from_verification(
             )
             continue
 
-        act_escalation_match = _ACT_ESCALATION_VERIFICATION_PATH.match(path)
+        act_escalation_match = _ACT_ESCALATION_VERIFICATION_PATH.match(address)
         if act_escalation_match:
             resolved = _act_index_for(act_escalation_match.group(1), candidate.acts)
             if resolved is None:
@@ -1241,7 +1280,7 @@ def repair_candidate_from_verification(
             )
             continue
 
-        if _EMPTY_CHARACTER_ARCS_VERIFICATION_PATH.match(path) and not candidate.character_arcs:
+        if _EMPTY_CHARACTER_ARCS_VERIFICATION_PATH.match(address) and not candidate.character_arcs:
             repairs.append(
                 {
                     "action": "record_coverage_advisory",
@@ -1254,7 +1293,17 @@ def repair_candidate_from_verification(
         diagnostics.append({"code": "verification_repair_path_unsupported", "path": path})
 
     remaining_themes = [
-        theme for index, theme in enumerate(candidate.themes) if index not in theme_indexes
+        theme.model_copy(
+            update={
+                "evidence": [
+                    evidence
+                    for evidence_index, evidence in enumerate(theme.evidence)
+                    if evidence_index not in dropped_theme_evidence.get(index, set())
+                ]
+            }
+        )
+        for index, theme in enumerate(candidate.themes)
+        if index not in theme_indexes
     ]
     if not remaining_themes:
         diagnostics.append({"code": "verification_repair_removed_all_themes"})
@@ -1309,10 +1358,12 @@ def repair_candidate_from_verification(
 def partition_self_retracted_claims(
     result: NarrativeMapVerification,
 ) -> tuple[NarrativeMapVerification, list[dict]]:
-    """Move claims the verifier answered `excerptCarriesClaim: true` to advisories.
+    """Move claims the verifier answered `excerptCarriesClaim: true`, or also
+    filed as advisories, to advisories.
 
     A finding whose own answer says the excerpt carries the claim is not a
-    rejection, whichever list it arrived in. Applied once, as soon as a verdict
+    rejection, whichever list it arrived in, and neither is one the verifier
+    filed in both lists. Applied once, as soon as a verdict
     is in hand, so nothing downstream — repair, validation, diagnostics — has to
     know this happened.
 
@@ -1327,10 +1378,18 @@ def partition_self_retracted_claims(
     Returns the corrected verdict and one record per moved claim, for the run's
     checkpoint.
     """
-    retracted = [claim for claim in result.unsupported_claims if claim.excerpt_carries_claim]
+    advisory_addresses = {verifier_path_address(note.path) for note in result.advisories}
+
+    def withdrawn(claim) -> bool:
+        return (
+            claim.excerpt_carries_claim
+            or verifier_path_address(claim.path) in advisory_addresses
+        )
+
+    retracted = [claim for claim in result.unsupported_claims if withdrawn(claim)]
     if not retracted:
         return result, []
-    kept = [claim for claim in result.unsupported_claims if not claim.excerpt_carries_claim]
+    kept = [claim for claim in result.unsupported_claims if not withdrawn(claim)]
     moved = [
         {"action": "record_self_retracted_claim", "path": claim.path, "reason": claim.reason}
         for claim in retracted
@@ -1343,6 +1402,7 @@ def partition_self_retracted_claims(
                 *[
                     NarrativeMapVerificationNote(path=claim.path, reason=claim.reason)
                     for claim in retracted
+                    if verifier_path_address(claim.path) not in advisory_addresses
                 ],
             ],
         },

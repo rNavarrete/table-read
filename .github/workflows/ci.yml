@@ -25,7 +25,7 @@ jobs:
           python-version: "3.12"
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "24"
       - name: Lint (ruff + eslint + prettier + DESIGN-GAP grep)
         run: make lint
       - name: Tests (mock LLM)
