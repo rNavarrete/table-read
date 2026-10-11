@@ -23,7 +23,7 @@ const SOURCE = [
   'Marta sets a coaster straight on the bar.',
 ].join('\n')
 
-test('import a script → Plan shows scenes/beats and the Ledger pending queue', async ({
+test('import a script → the Ledger Story tab shows the pending queue', async ({
   page,
 }) => {
   await page.goto('/projects/new/import')
@@ -37,13 +37,14 @@ test('import a script → Plan shows scenes/beats and the Ledger pending queue',
   await expect(page.getByText(new RegExp(FILENAME))).toBeVisible()
   await page.getByRole('button', { name: 'Continue' }).click()
 
-  // Step 2 — confirm basics (title prefilled from the filename).
+  // Step 2 — Check & start: title prefilled from the filename, format read
+  // from the script (no act breaks printed, so actless).
   await expect(page.getByLabel('Title')).toHaveValue('the-long-pour')
-  await page.getByRole('button', { name: 'Continue' }).click()
-  // Step 3 — review source.
-  await page.getByRole('button', { name: 'Continue' }).click()
+  await expect(
+    page.getByText('Read from the script: no act breaks printed.'),
+  ).toBeVisible()
 
-  // Step 4 — the only AI trigger. Real SSE stream runs the create-and-import.
+  // The only AI trigger. Real SSE stream runs the create-and-import.
   await page.getByRole('button', { name: 'Create & analyze script' }).click()
 
   // On success the writer lands on the Ledger's Story tab.
