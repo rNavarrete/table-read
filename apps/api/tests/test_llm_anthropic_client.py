@@ -998,7 +998,7 @@ _VALID_STORY_ENTITIES_INPUT = {
 
 
 def test_infer_story_entities_requests_elevated_max_tokens():
-    sdk = FakeSdkClient(
+    sdk = FakeStreamingSdkClient(
         [
             FakeMessage(
                 content=[
@@ -1014,7 +1014,7 @@ def test_infer_story_entities_requests_elevated_max_tokens():
 
     client.infer_story_entities(system="sys", user_message="hi", prompt_version="0.1.0")
 
-    assert sdk.messages.calls[0]["max_tokens"] > 4096
+    assert sdk.messages.stream_calls[0]["max_tokens"] > 4096
 
 
 def test_extract_ledger_facts_requests_elevated_max_tokens():
@@ -1061,7 +1061,7 @@ def test_schema_invalid_logs_field_paths_not_values(caplog):
         ],
         "worldElements": [],
     }
-    sdk = FakeSdkClient(
+    sdk = FakeStreamingSdkClient(
         [
             FakeMessage(
                 content=[FakeToolUseBlock(input=bad, name="infer_story_entities", id="toolu_a")],
@@ -1085,7 +1085,7 @@ def test_schema_invalid_logs_field_paths_not_values(caplog):
     assert "stop_reason=max_tokens" in joined
     assert secret not in joined
     # Retry tool_result must also stay privacy-safe
-    retry_messages = sdk.messages.calls[1]["messages"]
+    retry_messages = sdk.messages.stream_calls[1]["messages"]
     tool_result = retry_messages[2]["content"][0]["content"]
     assert secret not in tool_result
     assert "betweenNames" in tool_result

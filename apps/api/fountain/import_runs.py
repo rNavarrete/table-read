@@ -19,7 +19,10 @@ from sqlalchemy.orm import Session
 from drama_manager import render
 from storage.models import ImportRunRow, ImportRunUnitRow, ProjectRow
 
-IMPORT_ANALYSIS_VERSION = "2026-10-04.7"
+# Saved units are reused only under the same version, PROMPT_VERSION and
+# model pins. Bump it when an op's output changes without either, as when
+# 2026-10-11.1 moved the cast step to `medium` effort and a larger ceiling.
+IMPORT_ANALYSIS_VERSION = "2026-10-11.1"
 # Saved units hold verbatim script text, so an unfinished run is not kept
 # indefinitely for a retry that may never come.
 UNFINISHED_RUN_RETENTION = timedelta(days=7)

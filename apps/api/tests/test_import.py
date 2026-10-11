@@ -1927,6 +1927,62 @@ def test_import_entity_inference_chunks_and_merges(db_session, mock_llm, monkeyp
     assert mentor["reallyLike"] == "father figure"
 
 
+class _ConcurrentEntitiesLlm(MockLlmClient):
+    """The first cast chunk runs alone to warm the shared cached prefix; every
+    later chunk must be in flight together, or the barrier times out and the
+    import fails."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._entity_calls = 0
+        self._entity_lock = threading.Lock()
+        self._rest_together = threading.Barrier(2, timeout=5)
+
+    def infer_story_entities(self, **kwargs):
+        with self._entity_lock:
+            self._entity_calls += 1
+            first = self._entity_calls == 1
+        if not first:
+            self._rest_together.wait()
+        return super().infer_story_entities(**kwargs)
+
+
+def test_import_runs_entity_chunks_concurrently(monkeypatch):
+    """Run one after another, three cast chunks were 4m20s of a 10m30s real
+    import. They are independent, so after the cache-warming first chunk the
+    rest run at the same time."""
+    import fountain.entity_inference as entity_inference
+
+    monkeypatch.setattr(entity_inference, "ENTITY_INFER_USER_CHAR_BUDGET", 800)
+    monkeypatch.setattr(pipeline, "ENTITY_INFER_USER_CHAR_BUDGET", 800)
+    llm = _ConcurrentEntitiesLlm()
+    app.dependency_overrides[get_llm_client] = lambda: llm
+    try:
+        created = client.post(
+            "/api/v1/projects",
+            json=NEW_PROJECT_BODY,
+            headers={"Idempotency-Key": "00000000-0000-4000-8000-000000000092"},
+        ).json()
+        pad = "\n".join(f"LINE {i} padding for entity chunk budget." for i in range(40))
+        src = (
+            "INT. LAB - NIGHT\n\nDOC\nGreat Scott!\n" + pad
+            + "\n\nINT. STREET - DAY\n\nMARTY\nWhoa.\n" + pad
+            + "\n\nINT. DINER - DAY\n\nGEORGE\nHello.\n" + pad
+        )
+        llm.set_responses("segment_scene", one_beat_per_scene(src))
+        llm.set_response("extract_ledger_facts", extraction())
+        llm.set_response("scan_consistency", scan())
+        response = client.post(
+            f"/api/v1/projects/{created['id']}/import",
+            json={"format": "fountain", "content": src},
+        )
+    finally:
+        app.dependency_overrides.pop(get_llm_client, None)
+
+    assert response.status_code == 200, response.text
+    assert llm._invocations.get("infer_story_entities") == 3
+
+
 def test_schema_invalid_entities_persists_nothing(unlocked_project, db_session):
     """Rule 9: schema-invalid `infer_story_entities` output (after the
     client's own retry-once is exhausted) fails the import atomically —
