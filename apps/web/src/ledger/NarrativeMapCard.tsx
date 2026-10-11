@@ -340,7 +340,7 @@ export function NarrativeMapCard({
             : 'Generate a detailed, evidence-grounded read of themes, character arcs, scene turns, and story structure when you are ready.'}
         </p>
         <p className="mt-2 text-12 text-tr-text-muted">
-          Analysis reads the saved screenplay in bounded Opus 5 scene passes,
+          Analysis reads the saved screenplay in bounded Opus scene passes,
           then independently verifies the final map before it is published.
         </p>
         {narrativeMapRun ? (

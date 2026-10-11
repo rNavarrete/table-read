@@ -1,22 +1,20 @@
 """Registry of Table Read's LLM operations (data contract §2a, plus
 `BeatCandidate` from §2 reused by `generate_beat_candidates`/`tune_beat` per
 docs/tableread-prompt-spec.md §1-§2). Single source of truth for: the tool
-`name` used in `tool_choice` forcing, the output schema, and the
+`name` each call offers and asks for, the output schema, and the
 writer/classifier/import_worker/import_analyst model-role split (prompt spec §8):
 
-- **classifier (Haiku):** grounded extraction / deterministic reads — blast
-  radius, ledger facts, suggestions, consistency scan. Runs at temperature 0.
-- **import_worker (Sonnet 5):** bounded, repeatable import work — per-scene
+- **classifier (Haiku 5.5):** grounded extraction / deterministic reads — blast
+  radius, ledger facts, suggestions, consistency scan. Runs at low effort.
+- **import_worker (Sonnet 5.5):** bounded, repeatable import work — per-scene
   segmentation and chunked entity extraction.
-- **import_analyst (Opus 5):** story-wide import judgment — act inference,
-  narrative promises, and story overview. Opus rejects non-default
-  temperature; anthropic_client omits `temperature`.
-- **writer (Sonnet 5):** synthesis / judgment, including the independent
-  Narrative Map over the saved Opus breakdown. Writer-tier models also reject
-  non-default temperature.
-- **writer (Sonnet):** synthesis / judgment — beat candidates, tune,
-  regenerate, scene skeleton. Writer-tier models reject non-default
-  temperature; anthropic_client omits `temperature` for writer ops.
+- **import_analyst (Opus 5.5):** story-wide import judgment — act inference,
+  narrative promises, and story overview.
+- **writer (Sonnet 5.5):** synthesis / judgment — beat candidates, tune,
+  regenerate, scene skeleton, and the independent Narrative Map verifier.
+
+No role sends `temperature`: every pinned model rejects a non-default value
+(config/models.toml).
 
 Reassigning import story-breakdown ops onto `import_analyst` is a versioned
 model-path change — requires `make evals` sign-off before merge
@@ -68,21 +66,21 @@ from schemas import (
 )
 
 Role = Literal["writer", "classifier", "import_worker", "import_analyst"]
-ToolChoiceMode = Literal["forced", "auto"]
 EffortLevel = Literal["low", "medium", "high", "xhigh", "max"]
 
 
 @dataclass(frozen=True)
 class LlmOp:
-    name: str  # tool name: matches tool_choice forcing and config/tool_schemas/<name>.json
+    name: str  # tool name: the one tool the call offers; config/tool_schemas/<name>.json
     schema_name: str  # matches the Zod (packages/contract) / Pydantic (schemas.py) type name
     model: type[BaseModel]
     role: Role
     description: str  # short, non-creative: the Anthropic tool `description` field
     # Optional per-op ceiling. Import reads (entities, promises, fact extract,
     # segmentation, consistency scan, overview) return large structured
-    # payloads; DEFAULT_MAX_TOKENS (4096) truncates mid-tool-input and
-    # surfaces as SCHEMA_INVALID_LLM.
+    # payloads; a ceiling that is too small truncates mid-tool-input and
+    # surfaces as SCHEMA_INVALID_LLM. Thinking counts toward it on every
+    # pinned 5.5 model, so ceilings cover reasoning plus the reply.
     max_tokens: int | None = None
     # Optional wall-clock ceiling for one Messages response (defaults to the
     # client's DEFAULT_LLM_CALL_TIMEOUT_SECONDS). Large max_tokens ops need
@@ -92,26 +90,15 @@ class LlmOp:
     # ping events keep the connection alive while still returning one complete
     # Message for the existing validation path.
     stream_response: bool = False
-    # Forced tool choice IS compatible with adaptive thinking. The "must use
-    # auto selection" restriction applies only to *manual* extended thinking
-    # (`thinking: {type: "enabled", budget_tokens: N}`), which this codebase
-    # never sends — see the Thinking-with-tool-use rules: "tool_choice options
-    # that force tool use return an error with manual extended thinking;
-    # adaptive thinking supports forced tool use." Keep ops that require a
-    # structured response on "forced".
-    tool_choice_mode: ToolChoiceMode = "forced"
+    # Every pinned model thinks adaptively when `thinking` is omitted; this
+    # only makes it explicit. Opus 5.5 and Sonnet 5.5 reject disabled thinking,
+    # so effort is the only way to spend less on it.
     adaptive_thinking: bool = False
-    # Disabling thinking on Claude Opus 5 has two documented failure modes:
-    # the model may emit a tool call as plain text (the turn succeeds, the
-    # call silently never runs, and no error is raised), and it may leak
-    # `<thinking>` tags into the response. Both are worse here than the
-    # thinking spend, because `_validate_tool_response` reads a missing
-    # tool_use block as SCHEMA_INVALID_LLM. Prefer adaptive thinking at a
-    # low/medium effort over disabling it.
-    thinking_disabled: bool = False
     # NOTE: effort is rendered into the prompt, so two calls that differ only
     # by effort do NOT share a prompt-cache prefix. Ops intended to reuse one
-    # cached source payload must agree on effort AND thinking config.
+    # cached source payload must agree on effort AND thinking config. Omitted
+    # means the model's default: `medium` on Opus 5.5 and Haiku 5.5, `high` on
+    # Sonnet 5.5.
     effort: EffortLevel | None = None
     # Schema repair is useful for generative calls, but a duplicate verifier
     # verdict is unnecessary spend. Operations can fail closed after the first
@@ -142,6 +129,7 @@ _OPS: tuple[LlmOp, ...] = (
         BlastRadius,
         "classifier",
         "List objects impacted by a proposed plan edit, each with a reason and a confidence level.",
+        effort="low",
     ),
     LlmOp(
         "regenerate_elements",
@@ -161,6 +149,7 @@ _OPS: tuple[LlmOp, ...] = (
         # at DEFAULT_MAX_TOKENS mid-tool-input → SCHEMA_INVALID_LLM.
         max_tokens=16_384,
         call_timeout_seconds=300.0,
+        effort="low",
     ),
     LlmOp(
         "suggest_instructions",
@@ -168,15 +157,21 @@ _OPS: tuple[LlmOp, ...] = (
         InstructionSuggestions,
         "classifier",
         "Suggest three diverse scene or beat instructions for the writer to choose from.",
+        effort="low",
     ),
     # Import story breakdown (Opus / import_analyst): act structure from
-    # segmented scene summaries. Omits temperature (Opus rejects non-default).
+    # segmented scene summaries. Opus 5.5 at `medium` already exceeds Opus 5 at
+    # its `high` default, so `medium` is set explicitly (as on promises and
+    # overview), with room for thinking before the call.
     LlmOp(
         "infer_act_breaks",
         "InferredActBreaks",
         InferredActBreaks,
         "import_analyst",
         "Infer ordered narrative act-start scene indices within the selected teleplay format.",
+        max_tokens=16_384,
+        call_timeout_seconds=300.0,
+        effort="medium",
     ),
     # §5a import-time entity inference (T7.15). This is bounded extraction,
     # not story-wide judgment, so it runs on the Sonnet import worker.
@@ -189,7 +184,7 @@ _OPS: tuple[LlmOp, ...] = (
         "world elements (locations/objects) implied by the imported script, "
         "each with source evidence. betweenNames must be exactly two name "
         "strings; every entity needs at least one evidence item.",
-        max_tokens=8_192,
+        max_tokens=16_384,
         call_timeout_seconds=180.0,
     ),
     # T7.19 narrative-promises P2. Runs after infer_story_entities and before
@@ -204,9 +199,10 @@ _OPS: tuple[LlmOp, ...] = (
         "extract structured world rules (limit/cost/exception) from the "
         "imported script, each with source evidence.",
         # The prompt carries every semantic beat plus bounded evidence. A
-        # selective motivation policy keeps 12k ample while preventing an
-        # oversized response from extending this import singleton indefinitely.
-        max_tokens=12_288,
+        # selective motivation policy keeps 12k ample for the reply while
+        # preventing an oversized response from extending this import
+        # singleton indefinitely; the rest is room for thinking.
+        max_tokens=24_576,
         # 300s was calibrated while the beat layer was empty: segment_scene
         # returned only `unassigned`, so "every semantic beat" was 27 blank
         # strings. With the strict-grammar fix the same episode carries 109
@@ -215,12 +211,13 @@ _OPS: tuple[LlmOp, ...] = (
         # as infer_narrative_map_synthesis.
         call_timeout_seconds=600.0,
         stream_response=True,
+        effort="medium",
     ),
     # T7.27/T7.28 story overview (design 2026-07-17-import-story-overview):
     # Runs after infer_narrative_promises and before extract_ledger_facts.
-    # Role: **import_analyst** (Opus 5) with the rest of import story
+    # Role: **import_analyst** (Opus) with the rest of import story
     # breakdown. Outline generation stays in this same single call (no second
-    # op). Opus must not send temperature=0 (400 on non-default sampling).
+    # op).
     # Role reassignment is a versioned model-path change — requires `make evals`
     # sign-off before merge (PROMPT_VERSION unchanged when prompt text untouched).
     LlmOp(
@@ -232,14 +229,16 @@ _OPS: tuple[LlmOp, ...] = (
         "anchored to existing beat ids, and a two-paragraph present-tense "
         "synopsis from the imported script.",
         # Large episodes (many outline rows + beat sheet + synopsis) truncated
-        # mid-field at 8192 ("INT. WESTA"); match other large import ceilings.
-        max_tokens=16_384,
+        # mid-field at 8192 ("INT. WESTA"); 16k for the reply plus room for
+        # thinking.
+        max_tokens=32_768,
         # Same recalibration as infer_narrative_promises above: this reads the
         # beat spine too, and its 180s was the tightest ceiling in the import
         # path despite the largest output budget. Fixing only promises would
         # have moved the failure one stage later.
         call_timeout_seconds=600.0,
         stream_response=True,
+        effort="medium",
     ),
     LlmOp(
         "infer_narrative_map",
@@ -248,9 +247,9 @@ _OPS: tuple[LlmOp, ...] = (
         "writer",
         "Build an evidence-grounded macro and micro narrative map: themes, acts, "
         "character arcs, scene turns, thread movements, and an optional Hero's Journey lens.",
-        # The map is an explicit post-import synthesis. Sonnet 5 keeps the
-        # large structured response under a practical UI timeout; Opus 5
-        # remains responsible for the source breakdown it reads.
+        # The map is an explicit post-import synthesis. The writer model keeps
+        # the large structured response under a practical UI timeout; the
+        # import analyst remains responsible for the source breakdown it reads.
         max_tokens=16_384,
         call_timeout_seconds=180.0,
     ),
@@ -267,11 +266,8 @@ _OPS: tuple[LlmOp, ...] = (
         "or claims that the supplied source is insufficient.",
         # A bounded chunk avoids the giant all-episode response that previously
         # timed out after spending tokens without yielding a usable map.
-        max_tokens=8_192,
+        max_tokens=16_384,
         call_timeout_seconds=180.0,
-        # Forced: this op must return a structured scene analysis. Auto let the
-        # model answer in prose instead, which surfaced as SCHEMA_INVALID_LLM.
-        tool_choice_mode="forced",
         adaptive_thinking=True,
         effort="medium",
     ),
@@ -286,10 +282,9 @@ _OPS: tuple[LlmOp, ...] = (
         "never add unsupported events, motives, or generic placeholder analysis.",
         # Thinking counts toward max_tokens, so this ceiling covers reasoning
         # plus the large structured map.
-        max_tokens=24_576,
+        max_tokens=32_768,
         call_timeout_seconds=600.0,
         stream_response=True,
-        tool_choice_mode="forced",
         adaptive_thinking=True,
         effort="medium",
         retry_schema_once=False,
@@ -305,10 +300,9 @@ _OPS: tuple[LlmOp, ...] = (
         "rewriting or inventing the analysis.",
         # Headroom for reasoning plus the verdict; a truncated response has no
         # tool_use block and fails closed (retry_schema_once=False).
-        max_tokens=8_192,
+        max_tokens=16_384,
         call_timeout_seconds=300.0,
         stream_response=True,
-        tool_choice_mode="forced",
         adaptive_thinking=True,
         effort="low",
         retry_schema_once=False,
@@ -326,9 +320,12 @@ _OPS: tuple[LlmOp, ...] = (
         "import_worker",
         "Segment one scene's numbered source objects into typed segment starts "
         "with inferred beat-plan fields; the server derives end lines.",
-        # Long scenes with many beats truncate mid-tool-input at 4096.
-        max_tokens=16_384,
+        # Long scenes with many beats truncate mid-tool-input at 4096; 16k for
+        # the reply plus room for thinking, streamed (the SDK refuses a
+        # ceiling this large on a plain request).
+        max_tokens=32_768,
         call_timeout_seconds=180.0,
+        stream_response=True,
     ),
     LlmOp(
         "scan_consistency",
@@ -340,6 +337,7 @@ _OPS: tuple[LlmOp, ...] = (
         # Post-import scans over large scripts can emit many flags.
         max_tokens=16_384,
         call_timeout_seconds=300.0,
+        effort="low",
     ),
     # §9.4 guided-setup scene skeleton (new-project-flow design spec §6/§9.4):
     # writer-role, one diverse candidate per call, driven 3x by

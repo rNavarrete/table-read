@@ -42,40 +42,16 @@ def test_every_op_has_a_non_empty_description_and_a_pydantic_model():
         assert isinstance(op.model, type) and issubclass(op.model, BaseModel)
 
 
-def test_no_fail_closed_op_disables_thinking():
-    """Disabled thinking + fail-closed is the silent-failure combination.
-
-    With `thinking: {"type": "disabled"}`, Claude Opus 5 can write a tool call
-    into its visible text instead of emitting a `tool_use` block. The turn
-    completes normally and no error is raised, but
-    `anthropic_client._validate_tool_response` sees no tool_use block and
-    raises. An op with `retry_schema_once=False` then fails straight to
-    SCHEMA_INVALID_LLM with no second chance.
-
-    Adaptive thinking at a low/medium effort is the supported way to keep the
-    spend down, and it is compatible with a forced strict tool.
-    """
-    offenders = [
+def test_effort_is_explicit_where_a_5_5_default_would_change_behaviour():
+    """Opus 5.5 changed what each effort level means (its `medium` default
+    exceeds Opus 5 at `high`), and Haiku 5.5 thinks by default where Haiku 4.5
+    did not. Every import_analyst op therefore names its effort, and every
+    classifier op runs at `low`."""
+    unset = [
         op.name
         for op in OP_REGISTRY.values()
-        if op.thinking_disabled and not op.retry_schema_once
+        if op.role == "import_analyst" and op.effort is None
     ]
-    assert offenders == [], (
-        "these ops disable thinking and cannot retry a malformed response: "
-        f"{offenders}"
-    )
-
-
-def test_ops_never_pair_disabled_thinking_with_a_forced_tool():
-    """A forced tool needs the model to actually call it.
-
-    Forced tool choice is compatible with adaptive thinking (the auto-only
-    restriction applies to manual `budget_tokens` thinking, which this
-    codebase never sends), so there is no reason to trade thinking away here.
-    """
-    offenders = [
-        op.name
-        for op in OP_REGISTRY.values()
-        if op.thinking_disabled and op.tool_choice_mode == "forced"
-    ]
-    assert offenders == []
+    classifier = {op.name: op.effort for op in OP_REGISTRY.values() if op.role == "classifier"}
+    assert unset == []
+    assert set(classifier.values()) == {"low"}, classifier

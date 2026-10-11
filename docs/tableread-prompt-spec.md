@@ -1,6 +1,6 @@
 # Table Read Prompt & Schema Spec (MVP)
 
-Companion to `narrative-sidekick-design-doc.md` §3, §6. Defines every LLM operation the MVP makes: prompt template, model, structured-output schema, and worked examples. All calls use the Anthropic API with tool-use forced JSON output (`tool_choice: {"type": "tool", "name": "<op>"}`) and **`strict: true` on every tool definition** (guaranteed schema-conformant tool input). Schema names here match the data contract (`tableread-data-contract.md`) — do not fork them.
+Companion to `narrative-sidekick-design-doc.md` §3, §6. Defines every LLM operation the MVP makes: prompt template, model, structured-output schema, and worked examples. All calls use the Anthropic API with tool-use JSON output: each call offers exactly one tool, with **`strict: true` on every tool definition** (guaranteed schema-conformant tool input), `tool_choice: {"type": "auto", "disable_parallel_tool_use": true}`, and a closing line in the user turn asking for that tool (`Answer by calling the <op> tool exactly once.`, `PROMPT_VERSION 0.49.0`). The 5.5 models reject a forced `tool_choice` (`tool`/`any`). A prose reply without the tool call gets one retry (CLAUDE.md hard rule 9), including on the fail-closed Narrative Map synthesis and verifier, which otherwise never retry a malformed tool input; a refusal (`stop_reason: "refusal"`) is not retried and surfaces as `SCHEMA_INVALID_LLM`. Schema names here match the data contract (`tableread-data-contract.md`) — do not fork them.
 
 **Streaming vs. trust policy:** candidate `scriptText` streams into the UI as provisional display text, but a candidate card becomes **actionable (Accept/Tune) only after the complete tool input parses and validates** against the schema. Provisional text renders with the card's actions disabled; validation failure discards the card and surfaces the retry, never a half-valid candidate. Non-streamed ops (classification, extraction, parsing) are validate-then-return only. Implementation details in §8a Streaming contract.
 
@@ -124,7 +124,7 @@ Purpose: revise an existing candidate with a short instruction (Tune action). Mo
 
 ## 3. `classify_blast_radius`
 
-Purpose: given a plan edit, list impacted objects (Review mode step 1). Model: `classifier` role. Temperature 0.
+Purpose: given a plan edit, list impacted objects (Review mode step 1). Model: `classifier` role, low effort.
 
 **Input:** full episode plan (JSON, compact), continuity ledger (active facts), and `EDIT: {target object id} -> {new value or instruction}`.
 
@@ -198,7 +198,7 @@ Only requested IDs may appear in `beats`/`scenes`; server rejects any extra (loc
 
 ## 5. `extract_ledger_facts`
 
-Purpose: continuity extraction after each accepted change. Model: `classifier` role, temperature 0.
+Purpose: continuity extraction after each accepted change. Model: `classifier` role, low effort.
 
 **Input:** the accepted delta (new/changed beat plans + scriptText with IDs, inside `<source_data kind="script">` tags with **line-numbered text**), **existing facts as full objects** (`id, fact, factType, status, sourceSpan, knownBy, audienceKnows`) — contradiction detection needs type/status/source context, not just text — and the character list.
 
@@ -255,7 +255,7 @@ Server-side policy (not the model's job): `confidence < 0.8` → review queue, e
 
 ## 5a. `infer_story_entities`
 
-Purpose: import-time cast/relationship/world-element read, run once per import between act inference and fact extraction (data contract §2a/§9.3 `inferring_entities` stage; T7.15). Model: `import_analyst` role (`claude-opus-5`) — import story breakdown; omits `temperature` (Opus rejects non-default sampling).
+Purpose: import-time cast/relationship/world-element read, run once per import between act inference and fact extraction (data contract §2a/§9.3 `inferring_entities` stage; T7.15). Model: `import_worker` role (`claude-sonnet-5-5`) — bounded import extraction in chunks.
 
 **Input:** scene plan summaries (`{id, location, whatHappens}`) plus each scene's early script text, and the ground-truth speaker list already minted from cues (`fountain/characters.cues_from_scenes`) as a floor to extend, never replace — inside `<source_data_{nonce}>` tags per §8b.
 
@@ -300,7 +300,7 @@ Server-side merge policy (Task 2): resolved characters extend existing rows with
 
 ## 5b. `infer_narrative_promises`
 
-Purpose: import-time threads/motivations/world-rule read (narrative-promises P2 design doc; T7.19–T7.22), run once per import between `infer_story_entities` and `extract_ledger_facts` — after entities so motivations can name the resolved cast, before facts. Model: `import_analyst` role (`claude-opus-5`) — import story breakdown; omits `temperature`.
+Purpose: import-time threads/motivations/world-rule read (narrative-promises P2 design doc; T7.19–T7.22), run once per import between `infer_story_entities` and `extract_ledger_facts` — after entities so motivations can name the resolved cast, before facts. Model: `import_analyst` role (`claude-opus-5-5`, `medium` effort) — import story breakdown.
 
 **Input (T7.20, bounded long-script read):** every segmented beat's semantic
 fields (`whatHappens`, `audienceLearns`, `audienceFeels`) in source order,
@@ -376,7 +376,7 @@ Purpose: 3 diverse scene/beat instruction suggestions ("Inspire me" / empty-fiel
 Purpose: Fountain/plain-text import → scenes/beats (MVP: single episode). **Two-stage pipeline — the LLM never controls text coverage:**
 
 1. **Deterministic scene split (no LLM):** Fountain parser (or slugline regex for plain text) produces ordered scenes, each owning an exact line range of the source. 100% of source lines belong to exactly one scene (pre-slugline material → a "FRONT MATTER" bucket).
-2. **LLM beat segmentation, per scene** (`import_analyst` role / Opus 5; no explicit temperature): input is one scene as structured `{lineNumber, text}` objects inside `<source_data kind="imported_script">` tags; output is an ordered list of typed segment **starts**, with beat metadata attached to each `kind: "beat"` start. The model never returns end lines.
+2. **LLM beat segmentation, per scene** (`import_worker` role / Sonnet 5.5): input is one scene as structured `{lineNumber, text}` objects inside `<source_data kind="imported_script">` tags; output is an ordered list of typed segment **starts**, with beat metadata attached to each `kind: "beat"` start. The model never returns end lines.
 
 **Output schema (`SegmentedScene`):**
 
@@ -405,7 +405,7 @@ Server rules: for starts `s₁…sₙ`, the server derives each end as `sᵢ₊�
 
 ### Import act inference
 
-The synchronized `infer_act_breaks` operation uses the `import_analyst` role (Opus 5; no explicit temperature). It runs only when the script's printed act markers are absent or invalid (data contract §4 import step 2: missing, partial, conflicting, or inconsistent with `format.actCount`/`coldOpen`); a script whose markers state a valid partition gets its acts from the server with no model call. After all scenes are segmented, its input contains compact scene summaries in source order: zero-based `sceneIndex`, heading/location, and each segmented beat's `whatHappens`, `audienceLearns`, and `audienceFeels`, plus the selected format's `runtimeMinutes`, `actCount`, and `coldOpen`. The renderer places this structured payload inside the nonce-wrapped `<source_data kind="import_scene_summaries">` boundary; imported and model-derived summary text is never interpolated outside `drama_manager/render.py`.
+The synchronized `infer_act_breaks` operation uses the `import_analyst` role (Opus 5.5, `medium` effort). It runs only when the script's printed act markers are absent or invalid (data contract §4 import step 2: missing, partial, conflicting, or inconsistent with `format.actCount`/`coldOpen`); a script whose markers state a valid partition gets its acts from the server with no model call. After all scenes are segmented, its input contains compact scene summaries in source order: zero-based `sceneIndex`, heading/location, and each segmented beat's `whatHappens`, `audienceLearns`, and `audienceFeels`, plus the selected format's `runtimeMinutes`, `actCount`, and `coldOpen`. The renderer places this structured payload inside the nonce-wrapped `<source_data kind="import_scene_summaries">` boundary; imported and model-derived summary text is never interpolated outside `drama_manager/render.py`.
 
 Its strict typed output contains only ordered `{act, startSceneIndex}` starts (`InferredActBreaks`), never scene ids, end indices, per-scene assignments, heading text, or a TAG. The first scene index must be 0; act and scene indices must strictly increase and remain within the selected format and parsed scene count. Omitted valid acts represent empty sections. The server validates those semantic constraints and expands accepted starts into exactly one act for every scene.
 
@@ -415,7 +415,7 @@ This operation shipped with `PROMPT_VERSION 0.11.0`; prompt/tool-schema changes 
 
 ### Import story overview (T7.27/T7.28 + content quality)
 
-**OVERVIEW (model path):** The synchronized `infer_story_overview` operation uses the **`import_analyst` role** (`claude-opus-5` via `config/models.toml`) with the rest of import story breakdown (segmentation, acts, entities, promises). It does **not** send `temperature=0` (Opus rejects non-default sampling). Classifier (Haiku) remains for ledger fact extraction and consistency scan. This is a versioned model-path change with **no prompt-template text change**; **`make evals` sign-off is still required before merge**. Verify in API logs: `op=infer_story_overview` with `model=claude-opus-5`.
+**OVERVIEW (model path):** The synchronized `infer_story_overview` operation uses the **`import_analyst` role** (`claude-opus-5-5` via `config/models.toml`, `medium` effort) with the rest of import story breakdown (acts, promises). Classifier (Haiku 5.5) remains for ledger fact extraction and consistency scan. This is a versioned model-path change with **no prompt-template text change**; **`make evals` sign-off is still required before merge**. Verify in API logs: `op=infer_story_overview` with `model=claude-opus-5-5`.
 
 It runs after `infer_narrative_promises` and before ledger fact extraction. Input is an explicit `show_format` block, `known_cast` (names only), an act-ordered `scene_spine` (`sceneId`, `act`, `location`, `whatHappens`, `audienceLearns`, `audienceFeels`, short `scriptExcerpt` — not full scriptText), and `known_beats` (`beatId`, `sceneId`, `whatHappens`, `audienceLearns`, `audienceFeels`) — all freeform text enters only through `drama_manager/render.py` nonce-wrapped `<source_data>` blocks.
 
@@ -438,7 +438,7 @@ This operation ships with `PROMPT_VERSION 0.18.0` (TV label harden + Tag module)
 script is empty. Missing raw text is a hard rejection, before any model call.
 
 **Scene pass:** `infer_narrative_scene_analysis` uses `import_analyst`
-(`claude-opus-5`) on one source-backed scene per request. It must return that
+(`claude-opus-5-5`) on one source-backed scene per request. It must return that
 scene exactly once, a source-owned `turnBeatId`, and one or more key moments
 whose `beatId` resolves to a saved beat; the server, not the model, attaches a
 verbatim `sourceQuote` from that beat's screenplay. A semantic evidence failure
@@ -446,12 +446,10 @@ gets exactly one re-roll with the same prompt; a scene that fails again is
 listed in the map's `unanalyzedSceneIds` with no scene turn, and the server
 writes no prose in its place (analysis version `3.6`). Earlier versions
 published a server-written `source_fallback` packet instead.
-Scene analysis uses strict tools with `tool_choice: auto` and adaptive thinking
-at medium effort. Synthesis is intentionally different: Claude Opus 5 counts
-thinking against its total response budget, and thinking is incompatible with a
-forced tool choice. The macro pass therefore receives a compact,
-evidence-addressable scene spine, disables thinking, and forces one strict tool
-call with a bounded number of claims. This prevents a feature-length script
+Scene analysis and synthesis both use one strict tool with adaptive thinking
+at medium effort. Thinking counts against the response budget, so the macro
+pass receives a compact, evidence-addressable scene spine and returns a
+bounded number of claims. This prevents a feature-length script
 from truncating a required response field after the paid scene pass completes.
 This corrected request path ships as Narrative Map analysis version `2.6` at
 `PROMPT_VERSION 0.32.0`; a newer version reuses valid scene checkpoints from a
@@ -459,7 +457,7 @@ failed older run before it makes any provider call, except a scene that fell
 back to `source_fallback` in any earlier run, which is analysed again (analysis
 version `3.4`).
 
-**Macro pass and audit:** `infer_narrative_map_synthesis` also uses Opus 5,
+**Macro pass and audit:** `infer_narrative_map_synthesis` also uses Opus 5.5,
 but receives a compact spine from verified scene packets plus resolved cast,
 established threads, and the saved overview. It returns macro structure,
 character arcs, thread movement, and the optional Hero's Journey lens; scene
@@ -467,14 +465,14 @@ turns come from the already-grounded scene pass. Unanalysed scenes are left out
 of the spine, the saved overview's outline and beat-sheet rows, and the
 verifier's evidence; merge rejects any claim citing one. (The prompt still mentions
 `source_fallback` packets; since `3.6` none are sent.)
-`verify_narrative_map` uses the independent `writer` role (`claude-sonnet-5`)
+`verify_narrative_map` uses the independent `writer` role (`claude-sonnet-5-5`)
 to reject unsupported claims, generic filler, placeholders, or missing scenes
 before persistence. The server first sets aside any checkpointed packet with
 placeholder fields as unanalysed.
 The independent verifier receives only the map candidate, thread registry, and
 bounded exact excerpts for the candidate's cited beat ids; scene/citation
-coverage remains deterministic server work. The verifier uses a forced strict
-tool with thinking disabled, and separates blocking evidence failures from
+coverage remains deterministic server work. The verifier uses one strict
+tool with adaptive thinking at low effort, and separates blocking evidence failures from
 non-blocking editorial advisories. This prevents a second full-screenplay
 verification bill while preserving an auditable source read.
 
@@ -525,7 +523,7 @@ a source-scene jump.
 
 ## 8. Cross-cutting conventions
 
-- **Model pinning:** prompts reference model _roles_ (`writer`, `classifier`, `import_analyst`), resolved via `config/models.toml`, which pins exact model IDs (e.g., `writer = "claude-sonnet-5"`, `import_analyst = "claude-opus-5"`) per PROMPT_VERSION. Every call logs both the role and the resolved model ID; changing a pinned ID (or reassigning an op's role in `llm/ops.py`) is a versioned change requiring `make evals`, same as a prompt edit. **Role split:** `classifier` (Haiku, temperature 0) = grounded extraction — §3 blast radius, §5 ledger extraction, §6 suggestions, §8c consistency scan; `import_analyst` (Opus 5, no explicit temperature) = import story breakdown and the raw-screenplay Narrative Map scene/macro passes; `writer` (Sonnet 5, no explicit temperature) = synthesis/judgment, including independent Narrative Map verification.
+- **Model pinning:** prompts reference model _roles_ (`writer`, `classifier`, `import_analyst`), resolved via `config/models.toml`, which pins exact model IDs (e.g., `writer = "claude-sonnet-5-5"`, `import_analyst = "claude-opus-5-5"`) per PROMPT_VERSION. Every call logs both the role and the resolved model ID; changing a pinned ID (or reassigning an op's role in `llm/ops.py`) is a versioned change requiring `make evals`, same as a prompt edit. **Role split:** `classifier` (Haiku 5.5, low effort) = grounded extraction — §3 blast radius, §5 ledger extraction, §6 suggestions, §8c consistency scan; `import_worker` (Sonnet 5.5) = per-scene segmentation and chunked entity extraction; `import_analyst` (Opus 5.5) = story-wide import judgment and the raw-screenplay Narrative Map scene/macro passes; `writer` (Sonnet 5.5) = synthesis/judgment, including independent Narrative Map verification. **No role sends `temperature`:** every pinned 5.5 model rejects a non-default value, Haiku 5.5 included, so the classifier's consistency comes from the strict schema and low effort (owner decision 2026-10-11; it replaced the earlier temperature-0 rule).
 - **Strict tool use:** every tool definition sets `strict: true`; candidate cards are actionable only after full tool-input validation (header policy + §8a).
 - **Real schemas, one source:** the canonical `input_schema` for every op is **generated from the Zod definitions in the data contract §2a** (`packages/contract`, via `z.toJSONSchema`) with `additionalProperties: false`, explicit `required` arrays, enums, and nullable fields — every operation type in this doc (`BeatCandidate`, `BlastRadius`, `RegeneratedElements`, `LedgerExtraction`, `InstructionSuggestions`, `InferredActBreaks`, `SegmentedScene`, `ConsistencyScan`) is defined there and CI-diffed; the JSON blocks in this doc are readable summaries, not the artifact. Example of the real thing, `BeatCandidate`:
 
@@ -587,7 +585,7 @@ a source-scene jump.
 
 - **Token budgets:** context bundles target < 6k tokens; if eligible facts exceed 40, rank by (a) characters-in-scene overlap, (b) recency of `sourceSpan`, and truncate.
 - **Privacy tier (exact language):** the Anthropic API does not train on API inputs/outputs under standard commercial terms; zero-data-retention (ZDR) is a separate contractual agreement, not a header or default. Product copy must say "not used for training" (true today) and may claim ZDR only once a ZDR agreement is executed — target: before any beta with professional writers.
-- **Determinism for tests:** all evals run with `temperature: 0` except candidate diversity tests.
+- **Determinism for tests:** the 5.5 models accept no `temperature`, so evals measure run-to-run variance at the models' defaults (the 0.70 determinism gates exist because outputs were never exactly repeatable, even at temperature 0).
 - **Prompt versioning:** every template carries `PROMPT_VERSION` (semver); log it with each call for regression bisection.
 
 ## 8a. Streaming contract
@@ -620,7 +618,7 @@ The `<source_data>` boundary is only as strong as its serialization. The prompt 
 
 ## 8c. `scan_consistency`
 
-Purpose: the post-change sweep over **untouched** material — the operation that makes "contradictions are flagged, never silently left behind" true. Runs server-side after (a) every Change Set apply, (b) every accepted beat candidate, and (c) every direct PATCH to structural plan fields (the "Save field only" path — skipping Review never skips flagging). Model: `classifier` role, temperature 0. Never mutates anything.
+Purpose: the post-change sweep over **untouched** material — the operation that makes "contradictions are flagged, never silently left behind" true. Runs server-side after (a) every Change Set apply, (b) every accepted beat candidate, and (c) every direct PATCH to structural plan fields (the "Save field only" path — skipping Review never skips flagging). Model: `classifier` role, low effort. Never mutates anything.
 
 **Input:** a summary of what just changed (object IDs + new plan text), **plan summaries of untouched scenes** (not scriptText — plans keep the call small), ledger facts passing `isPromptEligibleFact` (§8; relevance context = the whole episode for this op), character list. All inside `<source_data>` blocks.
 

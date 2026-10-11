@@ -22,9 +22,17 @@ from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 from drama_manager import render
-from llm.anthropic_client import DEFAULT_LLM_CALL_TIMEOUT_SECONDS, _create_with_timeout
+from llm.anthropic_client import (
+    _TOOL_CHOICE,
+    DEFAULT_LLM_CALL_TIMEOUT_SECONDS,
+    _ask_for_tool,
+    _create_with_timeout,
+)
 from llm.errors import LlmTimeoutError
 
+# 0.5.0: the 5.5 models reject a forced tool choice and any temperature, so
+# the judge offers its tool with `auto`, asks for the call in the prompt, and
+# leaves room for adaptive thinking (max_tokens 1024 -> 8192) before the call.
 # 0.4.0: run this nuance-heavy judge on the pinned writer model (wired in
 # evals/run.py) without an explicit temperature. Haiku 4.5 remained unstable
 # on full-length beats even after passing targeted calibration; captured review
@@ -43,7 +51,7 @@ from llm.errors import LlmTimeoutError
 # suspicion as a "reveal" though Dan never learns anything. Pairs with the
 # candidate template's dramatic-irony constraint (render.PROMPT_VERSION 0.6.0),
 # which stops generation from telegraphing in the first place.
-GRADER_VERSION = "continuity-grader-0.4.0"
+GRADER_VERSION = "continuity-grader-0.5.0"
 
 # The continuity facts the scene-3 grader checks output against (test plan §3).
 CONTINUITY_FACT_IDS = ["fact-02", "fact-03", "fact-04", "fact-08"]
@@ -125,8 +133,8 @@ def calibrate(judge: Judge, facts: list[dict]) -> bool:
 
 
 class ContinuityJudge:
-    """Anthropic-backed judge. Forces a single ad-hoc grading tool at
-    temperature 0 (a classifier-style judgment). Candidate text and facts pass
+    """Anthropic-backed judge. Asks for a single ad-hoc grading tool call
+    (a classifier-style judgment). Candidate text and facts pass
     through the §8b `source_data` escaping choke point, same as product prompts,
     so adversarial candidate text can't hijack the grader."""
 
@@ -134,15 +142,13 @@ class ContinuityJudge:
         self,
         sdk_client: Any,
         model: str,
-        max_tokens: int = 1024,
+        max_tokens: int = 8192,
         call_timeout_seconds: float = DEFAULT_LLM_CALL_TIMEOUT_SECONDS,
-        temperature: float | None = 0,
     ) -> None:
         self._sdk = sdk_client
         self._model = model
         self._max_tokens = max_tokens
         self._call_timeout_seconds = call_timeout_seconds
-        self._temperature = temperature
 
     def grade(self, *, script_text: str, facts: list[dict]) -> ContinuityVerdict:
         nonce = render.new_nonce()
@@ -199,11 +205,9 @@ class ContinuityJudge:
             "max_tokens": self._max_tokens,
             "system": system,
             "tools": [tool],
-            "tool_choice": {"type": "tool", "name": _GRADER_TOOL_NAME},
-            "messages": [{"role": "user", "content": user}],
+            "tool_choice": _TOOL_CHOICE,
+            "messages": [{"role": "user", "content": _ask_for_tool(user, _GRADER_TOOL_NAME)}],
         }
-        if self._temperature is not None:
-            kwargs["temperature"] = self._temperature
         response = _create_with_timeout(
             self._sdk,
             self._call_timeout_seconds,

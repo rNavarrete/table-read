@@ -67,9 +67,10 @@ class LlmTimeoutError(Exception):
 
 
 class SchemaInvalidLlmError(Exception):
-    """Raised when a tool-forced LLM call fails schema validation twice in a
+    """Raised when an LLM call fails to return valid tool input twice in a
     row (CLAUDE.md hard rule 9: exactly one retry with the error appended,
-    then surface -- never fabricate a fallback response)."""
+    then surface -- never fabricate a fallback response), or once for a
+    refusal or a fail-closed op."""
 
     code = "SCHEMA_INVALID_LLM"
 

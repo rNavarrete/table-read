@@ -350,6 +350,20 @@ def test_schema_invalid_stream_retry_fails_after_exactly_two_calls():
     assert not [d for n, d in events if n == candidates.CANDIDATE_DONE]
 
 
+def test_stream_with_no_tool_call_gets_the_one_retry():
+    """Tool choice is `auto` on the 5.5 models, so the model can answer in prose:
+    no tool input streams at all. That is the rule-9 retryable case, not §8a's
+    unparseable buffer."""
+    good = _cand("Fixed", script="good attempt").model_dump_json(by_alias=True)
+    mock = _ScriptedLlm([[], [good]])
+    events = _one_slot_events(mock)
+
+    assert len(mock.user_messages) == 2
+    assert "no tool call was made" in mock.user_messages[1]
+    done = [d for n, d in events if n == candidates.CANDIDATE_DONE]
+    assert [d["label"] for d in done] == ["Fixed"]
+
+
 def test_unparseable_json_aborts_without_retry():
     # §8a: parser cannot resync → abort the candidate, no rule-9 retry.
     mock = _ScriptedLlm([['{"scriptText":"x" garbage}}']])  # one stream only

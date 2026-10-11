@@ -1,5 +1,5 @@
-"""AnthropicClient: tool-forcing, retry-once-then-surface (CLAUDE.md hard
-rule 9), role-based model/temperature selection, and PROMPT_VERSION/token
+"""AnthropicClient: asking for the one strict tool, retry-once-then-surface
+(CLAUDE.md hard rule 9), role-based model/effort selection, and PROMPT_VERSION/token
 logging. `sdk_client` is always a hand-built fake -- never `anthropic.
 Anthropic()` -- so nothing here can reach the network (hard rule 1); see
 test_llm_factory.py for the explicit socket-level proof.
@@ -13,7 +13,7 @@ from typing import Any
 
 import pytest
 
-from llm.anthropic_client import AnthropicClient
+from llm.anthropic_client import DEFAULT_MAX_TOKENS, AnthropicClient
 from llm.errors import SchemaInvalidLlmError
 from llm.ops import OP_REGISTRY
 
@@ -31,6 +31,12 @@ class FakeToolUseBlock:
     name: str = "generate_beat_candidates"
     id: str = "toolu_1"
     type: str = "tool_use"
+
+
+@dataclass
+class FakeTextBlock:
+    text: str = "Here is my analysis."
+    type: str = "text"
 
 
 @dataclass
@@ -203,8 +209,8 @@ def test_retry_call_satisfies_tool_result_wire_invariant_for_a_single_tool_use()
 
 
 def test_retry_call_satisfies_tool_result_wire_invariant_for_multiple_tool_use_blocks():
-    # Tool-forcing doesn't rule out parallel tool use: the first response can
-    # contain more than one tool_use block for the forced tool. Every id must
+    # A response can still contain more than one tool_use block for the
+    # tool (observed on claude-sonnet-5). Every id must
     # get its own tool_result in the retry turn, not just the one that failed
     # validation.
     first = FakeMessage(
@@ -231,7 +237,7 @@ def test_retry_call_satisfies_tool_result_wire_invariant_for_multiple_tool_use_b
 
 
 def test_missing_tool_use_block_is_treated_as_recoverable_and_retried():
-    # Model ignored the forced tool_choice entirely on the first attempt.
+    # Model answered in prose instead of calling the tool on the first attempt.
     sdk = FakeSdkClient([FakeMessage(content=[], stop_reason="end_turn"), _valid_response()])
     client = AnthropicClient(sdk_client=sdk, models=_MODELS)
 
@@ -248,6 +254,30 @@ def test_missing_tool_use_block_is_treated_as_recoverable_and_retried():
     _assert_tool_result_wire_invariant(retry_messages)  # no tool_use blocks -> vacuously fine
 
 
+def test_a_refusal_is_not_replayed():
+    """A refusal before any output comes back with empty content. Replaying it
+    would send an empty assistant turn (a 400 that aborts the whole import) and
+    the same request would be refused again, so it surfaces at once as
+    SCHEMA_INVALID_LLM, which the import's per-scene tolerance continues past."""
+    sdk = FakeSdkClient([FakeMessage(content=[], stop_reason="refusal")])
+    client = AnthropicClient(sdk_client=sdk, models=_MODELS)
+
+    with pytest.raises(SchemaInvalidLlmError):
+        client.generate_beat_candidates(system="sys", user_message="hi", prompt_version="0.1.0")
+
+    assert len(sdk.messages.calls) == 1
+
+
+def test_an_empty_first_response_is_retried_without_an_empty_assistant_turn():
+    sdk = FakeSdkClient([FakeMessage(content=[], stop_reason="max_tokens"), _valid_response()])
+    client = AnthropicClient(sdk_client=sdk, models=_MODELS)
+
+    client.generate_beat_candidates(system="sys", user_message="hi", prompt_version="0.1.0")
+
+    retry_messages = sdk.messages.calls[1]["messages"]
+    assert [m["role"] for m in retry_messages] == ["user", "user"]
+
+
 def test_valid_first_response_never_retries():
     sdk = FakeSdkClient([_valid_response()])
     client = AnthropicClient(sdk_client=sdk, models=_MODELS)
@@ -258,18 +288,26 @@ def test_valid_first_response_never_retries():
 
 
 # ---------------------------------------------------------------------------
-# Tool-forcing mechanics (prompt spec header: tool_choice + strict: true).
+# Tool mechanics (prompt spec header: one strict tool, asked for in the prompt).
 # ---------------------------------------------------------------------------
 
 
-def test_call_forces_the_named_tool_with_strict_schema():
+def test_call_offers_one_strict_tool_and_asks_for_it():
+    """Opus 5.5 and Sonnet 5.5 reject a forced tool_choice (400), so the call
+    is `auto` with at most one tool use, and the user turn asks for it."""
     sdk = FakeSdkClient([_valid_response()])
     client = AnthropicClient(sdk_client=sdk, models=_MODELS)
 
     client.generate_beat_candidates(system="sys", user_message="hi", prompt_version="0.1.0")
 
     call = sdk.messages.calls[0]
-    assert call["tool_choice"] == {"type": "tool", "name": "generate_beat_candidates"}
+    assert call["tool_choice"] == {"type": "auto", "disable_parallel_tool_use": True}
+    assert call["messages"] == [
+        {
+            "role": "user",
+            "content": "hi\n\nAnswer by calling the generate_beat_candidates tool exactly once.",
+        }
+    ]
     assert len(call["tools"]) == 1
     tool = call["tools"][0]
     assert tool["name"] == "generate_beat_candidates"
@@ -284,8 +322,8 @@ def test_call_forces_the_named_tool_with_strict_schema():
 
 
 # ---------------------------------------------------------------------------
-# Role-based model + temperature selection (prompt spec §8 role assignments;
-# §3/§5/§6/§8c "Temperature 0" on classifier ops).
+# Role-based model + effort selection (prompt spec §8 role assignments). No
+# role sends temperature: every pinned 5.5 model rejects a non-default value.
 # ---------------------------------------------------------------------------
 
 
@@ -320,7 +358,8 @@ def test_narrative_map_uses_writer_model_and_no_temperature():
 
 
 def test_import_analyst_role_op_uses_import_analyst_model_and_no_temperature():
-    """Import story-breakdown ops omit temperature (Opus 5 rejects non-defaults)."""
+    """Import story-breakdown ops set Opus 5.5's effort explicitly (`medium`,
+    which already exceeds Opus 5 at `high`) and never send temperature."""
     from schemas import InferredStoryOverview
 
     valid_overview = FakeMessage(
@@ -341,6 +380,7 @@ def test_import_analyst_role_op_uses_import_analyst_model_and_no_temperature():
     assert isinstance(result, InferredStoryOverview)
     call = sdk.messages.stream_calls[0]
     assert call["model"] == "import-analyst-model-z"
+    assert call["output_config"] == {"effort": "medium"}
     assert "temperature" not in call
 
 
@@ -353,17 +393,19 @@ def test_import_worker_role_op_uses_import_worker_model_and_no_temperature():
             )
         ]
     )
-    sdk = FakeSdkClient([valid_segment])
+    # Streams: thinking plus a long scene's segments needs a ceiling the SDK
+    # refuses on a plain request.
+    sdk = FakeStreamingSdkClient([valid_segment])
     client = AnthropicClient(sdk_client=sdk, models=_MODELS)
 
     client.segment_scene(system="sys", user_message="hi", prompt_version="0.1.0")
 
-    call = sdk.messages.calls[0]
+    call = sdk.messages.stream_calls[0]
     assert call["model"] == "import-worker-model-w"
     assert "temperature" not in call
 
 
-def test_narrative_scene_analysis_forces_a_strict_tool_with_adaptive_thinking():
+def test_narrative_scene_analysis_asks_for_a_strict_tool_with_adaptive_thinking():
     valid_analysis = FakeMessage(
         content=[
             FakeToolUseBlock(
@@ -383,20 +425,14 @@ def test_narrative_scene_analysis_forces_a_strict_tool_with_adaptive_thinking():
 
     call = sdk.messages.calls[0]
     assert call["model"] == "import-analyst-model-z"
-    # Forced + adaptive thinking is a supported pairing: the "auto only"
-    # restriction applies to manual extended thinking (budget_tokens), which
-    # this client never sends. Forcing guarantees the structured response.
-    assert call["tool_choice"] == {
-        "type": "tool",
-        "name": "infer_narrative_scene_analysis",
-    }
+    assert call["tool_choice"] == {"type": "auto", "disable_parallel_tool_use": True}
     assert call["thinking"] == {"type": "adaptive"}
     assert call["output_config"] == {"effort": "medium"}
     assert call["tools"][0]["strict"] is True
     assert "temperature" not in call
 
 
-def test_narrative_map_synthesis_forces_a_strict_tool_with_adaptive_thinking():
+def test_narrative_map_synthesis_asks_for_a_strict_tool_with_adaptive_thinking():
     op_name = "infer_narrative_map_synthesis"
     response = FakeMessage(
         content=[
@@ -419,10 +455,8 @@ def test_narrative_map_synthesis_forces_a_strict_tool_with_adaptive_thinking():
     assert sdk.messages.calls == []
     assert len(sdk.messages.stream_calls) == 1
     call = sdk.messages.stream_calls[0]
-    assert call["tool_choice"] == {"type": "tool", "name": op_name}
-    # Never {"type": "disabled"}: with thinking off, Claude Opus 5 can emit the
-    # tool call as plain text — the turn succeeds, the call never runs, and
-    # this op fails closed (retry_schema_once=False).
+    assert call["tool_choice"] == {"type": "auto", "disable_parallel_tool_use": True}
+    # Opus 5.5 rejects disabled thinking at every effort level.
     assert call["thinking"] == {"type": "adaptive"}
     assert call["output_config"] == {"effort": "medium"}
     assert call["tools"][0]["strict"] is True
@@ -430,10 +464,10 @@ def test_narrative_map_synthesis_forces_a_strict_tool_with_adaptive_thinking():
     assert OP_REGISTRY[op_name].call_timeout_seconds == 600.0
     assert OP_REGISTRY[op_name].retry_schema_once is False
     # Thinking counts toward max_tokens, so the ceiling covers both.
-    assert OP_REGISTRY[op_name].max_tokens == 24_576
+    assert OP_REGISTRY[op_name].max_tokens == 32_768
 
 
-def test_narrative_map_verifier_streams_one_forced_strict_tool_call():
+def test_narrative_map_verifier_streams_one_strict_tool_call():
     op_name = "verify_narrative_map"
     response = FakeMessage(
         content=[
@@ -456,16 +490,13 @@ def test_narrative_map_verifier_streams_one_forced_strict_tool_call():
     assert sdk.messages.calls == []
     assert len(sdk.messages.stream_calls) == 1
     call = sdk.messages.stream_calls[0]
-    assert call["tool_choice"] == {
-        "type": "tool",
-        "name": "verify_narrative_map",
-    }
+    assert call["tool_choice"] == {"type": "auto", "disable_parallel_tool_use": True}
     assert call["thinking"] == {"type": "adaptive"}
     assert call["output_config"] == {"effort": "low"}
     assert call["tools"][0]["strict"] is True
     assert "stream" not in call
     assert OP_REGISTRY[op_name].call_timeout_seconds == 300.0
-    assert OP_REGISTRY[op_name].max_tokens == 8_192
+    assert OP_REGISTRY[op_name].max_tokens == 16_384
     assert OP_REGISTRY[op_name].retry_schema_once is False
 
 
@@ -496,7 +527,34 @@ def test_narrative_map_verifier_does_not_repeat_a_malformed_response():
     assert len(sdk.messages.stream_calls) == 1
 
 
-def test_classifier_role_op_uses_the_classifier_model_and_temperature_zero():
+def test_fail_closed_verifier_still_retries_a_prose_reply():
+    """retry_schema_once=False exists so a malformed verdict is not paid for
+    twice. A prose reply with no tool call is not a verdict, and with tool
+    choice `auto` it is the likeliest failure, so it gets the one retry."""
+    op_name = "verify_narrative_map"
+    sdk = FakeStreamingSdkClient(
+        [
+            FakeMessage(content=[FakeTextBlock()], stop_reason="end_turn"),
+            FakeMessage(
+                content=[FakeToolUseBlock(input=_fixture_valid_input_for(op_name), name=op_name)]
+            ),
+        ]
+    )
+    client = AnthropicClient(sdk_client=sdk, models=_MODELS)
+
+    result = client.verify_narrative_map(
+        system="sys", user_message="verify the saved candidate", prompt_version="0.49.0"
+    )
+
+    assert result.approved is True
+    assert len(sdk.messages.stream_calls) == 2
+    retry = sdk.messages.stream_calls[1]["messages"]
+    assert [m["role"] for m in retry] == ["user", "assistant", "user"]
+
+
+def test_classifier_role_op_uses_the_classifier_model_at_low_effort():
+    """Haiku 5.5 rejects temperature 0 (owner decision 2026-10-11): the strict
+    schema and low effort keep the classifier ops consistent instead."""
     from schemas import BlastRadius
 
     valid_blast_radius = FakeMessage(
@@ -515,7 +573,8 @@ def test_classifier_role_op_uses_the_classifier_model_and_temperature_zero():
     assert isinstance(result, BlastRadius)
     call = sdk.messages.calls[0]
     assert call["model"] == "classifier-model-y"
-    assert call["temperature"] == 0
+    assert call["output_config"] == {"effort": "low"}
+    assert "temperature" not in call
 
 
 # ---------------------------------------------------------------------------
@@ -670,14 +729,14 @@ def test_stream_beat_candidate_forwards_only_input_json_delta_fragments():
     call = sdk.messages.calls[0]
     assert call["model"] == "writer-model-x"
     assert call["stream"] is True
-    assert call["tool_choice"] == {"type": "tool", "name": "generate_beat_candidates"}
+    assert call["tool_choice"] == {"type": "auto", "disable_parallel_tool_use": True}
     # fine-grained tool streaming enabled on the tool
     assert call["tools"][0]["eager_input_streaming"] is True
 
 
 def test_stream_beat_candidate_ignores_second_tool_use_block():
     """claude-sonnet-5 has been observed emitting two tool_use blocks for the
-    same forced tool; concatenating both JSON inputs breaks json.loads
+    same tool; concatenating both JSON inputs breaks json.loads
     (Extra data) and surfaces as SCHEMA_INVALID_LLM in Write mode."""
     events = [
         FakeMessageStart(message=FakeMessage(usage=FakeUsage(input_tokens=10, output_tokens=0))),
@@ -917,8 +976,8 @@ def _fixture_valid_input_for(op_name: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Import classifier ops: large scripts need more than DEFAULT_MAX_TOKENS
-# (4096). Truncation mid-tool-input surfaces as SCHEMA_INVALID_LLM after the
+# Import classifier ops: large scripts need more than the old 4096-token
+# default. Truncation mid-tool-input surfaces as SCHEMA_INVALID_LLM after the
 # rule-9 retry — entities (~100+ speakers) and dense per-scene fact extracts.
 # ---------------------------------------------------------------------------
 
@@ -984,7 +1043,7 @@ def test_default_ops_still_use_default_max_tokens():
 
     client.generate_beat_candidates(system="sys", user_message="hi", prompt_version="0.1.0")
 
-    assert sdk.messages.calls[0]["max_tokens"] == 4096
+    assert sdk.messages.calls[0]["max_tokens"] == DEFAULT_MAX_TOKENS
 
 
 def test_schema_invalid_logs_field_paths_not_values(caplog):
@@ -1090,7 +1149,10 @@ def test_extract_with_cache_prefix_marks_the_last_system_block_for_caching():
     # The per-call payload must stay after the breakpoint, or every call
     # writes its own cache entry and none of them ever reads one.
     assert sdk.messages.calls[0]["messages"] == [
-        {"role": "user", "content": "scene 1"}
+        {
+            "role": "user",
+            "content": "scene 1\n\nAnswer by calling the extract_ledger_facts tool exactly once.",
+        }
     ]
 
 

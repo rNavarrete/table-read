@@ -25,7 +25,10 @@ import secrets
 from typing import Any
 
 # Prompt spec §8 / hard rule 7: every template carries a PROMPT_VERSION (semver);
-# it is logged with each call and bumped on any template change. 0.48.0 has the
+# it is logged with each call and bumped on any template change. 0.49.0 ends
+# every op's user turn with a request to call its tool
+# (`anthropic_client._ask_for_tool`): the 5.5 models reject a forced tool
+# choice, so the prompt asks instead. 0.48.0 has the
 # verifier answer excerptCarriesClaim on each blocking claim, after its reason,
 # and the server reads that instead of list placement. 0.46.0 asked in prose for
 # the same discipline — naming the exact retraction phrases — and the next real
@@ -135,7 +138,7 @@ from typing import Any
 # 0.10.0 typed segment starts; 0.9.0 lock-aware narrative repair. Earlier:
 # 0.8.0 suggest; 0.7.0 scene skeleton; 0.6.0 continuity; 0.5.0 regenerate;
 # 0.4.0 blast; 0.3.0 tune; 0.2.0 candidate + §0 system prompt.
-PROMPT_VERSION = "0.48.0"
+PROMPT_VERSION = "0.49.0"
 
 
 def new_nonce() -> str:

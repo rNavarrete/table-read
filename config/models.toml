@@ -8,37 +8,33 @@
 # llm/ops.py is likewise a versioned model-path change (evals before merge).
 #
 # Role split (product intent):
-#   classifier (Haiku) = grounded extraction / deterministic reads
-#     (ledger facts, blast radius, suggestions, consistency scan) —
-#     anthropic_client sends temperature=0
-#   import_worker (Sonnet 5) = bounded, repeatable import work
+#   classifier (Haiku 5.5) = grounded extraction / deterministic reads
+#     (ledger facts, blast radius, suggestions, consistency scan) at low
+#     effort.
+#   import_worker (Sonnet 5.5) = bounded, repeatable import work
 #     (per-scene segmentation and chunked entity extraction). This keeps
 #     routine high-volume calls fast and cost-efficient.
-#   import_analyst (Opus 5) = story-wide import judgment
-#     (act inference, narrative promises, story overview). Opus rejects
-#     non-default temperature; omit it.
-#   writer (Sonnet) = synthesis / judgment
-#     (beat candidates, tune, regenerate, scene skeleton). Writer tier
-#     must omit temperature (see below).
+#   import_analyst (Opus 5.5) = story-wide import judgment
+#     (act inference, narrative promises, story overview).
+#   writer (Sonnet 5.5) = synthesis / judgment
+#     (beat candidates, tune, regenerate, scene skeleton).
 #
-# Model-id gap (flagged per the T1.2 task brief): the prompt spec gives its
-# pinned id as an illustrative example ("e.g., writer =
-# claude-sonnet-4-5-20250929") rather than a firm assignment, and that
-# example id is itself a retired snapshot. The ids below are best-effort
-# defaults -- confirm the tier/cost tradeoff with the controller before
-# `make evals` or production use.
-#
-# `classifier` intentionally targets a model tier that still accepts an
-# explicit non-default `temperature`: the prompt spec requires
-# "Temperature 0" on every classifier op (§3/§5/§6/§8c), but current-
-# generation Sonnet 5 / Opus 5 reject any non-default `temperature`
-# outright (400 invalid_request_error). Haiku 4.5 still accepts it, so this
-# is a functional requirement here, not just a cost choice. Writer-role and
-# import_worker/import_analyst ops therefore never send `temperature`
-# (anthropic_client).
+# The 5.5 family constrains every request (anthropic_client):
+#   - No sampling parameters. All three reject a non-default `temperature`,
+#     including Haiku 5.5, so the classifier no longer runs at temperature 0
+#     (owner decision 2026-10-11; prompt spec §8). Its consistency comes from
+#     the strict tool schema and low effort.
+#   - No forced tool choice. Opus 5.5 and Sonnet 5.5 reject `tool_choice`
+#     `tool`/`any`, so every op offers its one strict tool with `auto` and the
+#     prompt asks for the call; a prose reply without it gets one retry, a
+#     refusal none (llm/anthropic_client.py).
+#   - No disabled thinking on Opus 5.5 or Sonnet 5.5; effort is the lever.
+#     Opus 5.5 at its `medium` default already exceeds Opus 5 at `high`; the
+#     import_analyst ops set `medium` explicitly (llm/ops.py). Thinking counts
+#     toward max_tokens, so ceilings leave room for it.
 
 [models]
-writer = "claude-sonnet-5"
-classifier = "claude-haiku-4-5"
-import_worker = "claude-sonnet-5"
-import_analyst = "claude-opus-5"
+writer = "claude-sonnet-5-5"
+classifier = "claude-haiku-5-5"
+import_worker = "claude-sonnet-5-5"
+import_analyst = "claude-opus-5-5"

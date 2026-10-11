@@ -195,7 +195,7 @@ describe('NarrativeMapCard', () => {
     await user.click(screen.getByTestId('generate-narrative-map'))
 
     expect(onGenerateNarrativeMap).toHaveBeenCalledOnce()
-    expect(screen.getByText(/bounded Opus 5 scene passes/i)).not.toBeNull()
+    expect(screen.getByText(/bounded Opus scene passes/i)).not.toBeNull()
   })
 
   it('shows scene-by-scene run progress and prevents duplicate starts', () => {
