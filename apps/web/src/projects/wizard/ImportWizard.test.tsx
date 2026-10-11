@@ -10,7 +10,7 @@ import {
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ImportWizard } from './ImportWizard'
-import { loadDraft } from './wizardDraft'
+import { loadDraft, saveDraft } from './wizardDraft'
 import { loadLedgerView } from '../../ledger/viewPreference'
 import { extractPdf } from '../../api/client'
 import { streamSse } from '../../api/sse'
@@ -88,12 +88,9 @@ async function fillSourceAndBasics(
   await user.upload(screen.getByLabelText('Script file'), file)
   await waitFor(() => expect(screen.getByText(/ferry.fountain/)).not.toBeNull())
   await user.click(screen.getByRole('button', { name: 'Continue' }))
-  await user.click(screen.getByRole('button', { name: 'Continue' }))
   const titleInput = screen.getByLabelText('Title') as HTMLInputElement
   await user.clear(titleInput)
   await user.type(titleInput, title)
-  await user.click(screen.getByRole('button', { name: 'Continue' }))
-  await user.click(screen.getByRole('button', { name: 'Continue' }))
 }
 
 describe('ImportWizard', () => {
@@ -108,7 +105,7 @@ describe('ImportWizard', () => {
     ).not.toBeNull()
   })
 
-  it('shows the import cost estimate on Review source', async () => {
+  it('shows the import cost estimate on Check & start', async () => {
     const user = userEvent.setup()
     render(<ImportWizard />)
 
@@ -124,10 +121,8 @@ describe('ImportWizard', () => {
       ].join('\n'),
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
-    await user.click(screen.getByRole('button', { name: 'Continue' }))
     const titleInput = screen.getByLabelText('Title') as HTMLInputElement
     await user.type(titleInput, 'Harbor Draft')
-    await user.click(screen.getByRole('button', { name: 'Continue' }))
 
     expect(screen.getByText(/model calls/)).not.toBeNull()
     expect(screen.getByText(/Est\. \$/)).not.toBeNull()
@@ -145,13 +140,12 @@ describe('ImportWizard', () => {
     )
 
     await user.click(screen.getByRole('button', { name: 'Continue' }))
-    await user.click(screen.getByRole('button', { name: 'Continue' }))
     expect((screen.getByLabelText('Title') as HTMLInputElement).value).toBe(
       'Harbor Lights',
     )
   })
 
-  it('extracts a PDF and fills an editable confirm-source textarea', async () => {
+  it('extracts a PDF and fills the editable script text on Check & start', async () => {
     const user = userEvent.setup()
     mockedExtractPdf.mockResolvedValue({
       text: 'INT. GARAGE - DAY\nMarta studies the map.',
@@ -170,9 +164,8 @@ describe('ImportWizard', () => {
     expect(screen.getByText('Text layer')).not.toBeNull()
     expect(screen.getByText(/Road Draft.pdf/)).not.toBeNull()
     await user.click(screen.getByRole('button', { name: 'Continue' }))
-    const textarea = screen.getByLabelText(
-      'Confirm source',
-    ) as HTMLTextAreaElement
+    await user.click(screen.getByText(/Review the script text/))
+    const textarea = screen.getByLabelText('Script text') as HTMLTextAreaElement
     expect(textarea.value).toBe('INT. GARAGE - DAY\nMarta studies the map.')
     await user.clear(textarea)
     await user.type(textarea, 'INT. GARAGE - NIGHT\nMarta changes the plan.')
@@ -235,12 +228,10 @@ describe('ImportWizard', () => {
     await user.upload(screen.getByLabelText('Script file'), file)
     await waitFor(() => expect(screen.getByText('OCR')).not.toBeNull())
     await user.click(screen.getByRole('button', { name: 'Continue' }))
-    const source = screen.getByLabelText('Confirm source')
+    await user.click(screen.getByText(/Review the script text/))
+    const source = screen.getByLabelText('Script text')
     await user.clear(source)
     await user.type(source, 'INT. GARAGE - NIGHT\nMarta changes the plan.')
-    await user.click(screen.getByRole('button', { name: 'Continue' }))
-    await user.click(screen.getByRole('button', { name: 'Continue' }))
-    await user.click(screen.getByRole('button', { name: 'Continue' }))
     await user.click(
       screen.getByRole('button', { name: 'Create & analyze script' }),
     )
@@ -324,13 +315,14 @@ describe('ImportWizard', () => {
     expect(url).toBe('/api/v1/projects/import')
     expect(body).toEqual({
       title: 'Ferry Crossing',
+      // No act breaks printed, so the format read from the script is actless.
       format: {
-        genre: 'drama',
+        genre: 'dramedy',
         runtimeMinutes: 60,
-        actCount: 5,
-        coldOpen: true,
-        tag: true,
-        serialization: 0.7,
+        actCount: 1,
+        coldOpen: false,
+        tag: false,
+        serialization: 0.8,
       },
       source: {
         format: 'fountain',
@@ -591,7 +583,7 @@ describe('ImportWizard', () => {
     )
   })
 
-  it('"Edit source" returns to the source step without losing the draft', async () => {
+  it('"Edit source" opens the script text in place without losing the draft', async () => {
     const user = userEvent.setup()
     mockedStreamSse.mockImplementation(() =>
       framesFrom([
@@ -615,9 +607,108 @@ describe('ImportWizard', () => {
 
     await user.click(screen.getByRole('button', { name: 'Edit source' }))
 
+    const scriptText = screen.getByLabelText(
+      'Script text',
+    ) as HTMLTextAreaElement
+    expect(scriptText.closest('details')?.open).toBe(true)
+    expect(document.activeElement).toBe(scriptText)
+    expect(scriptText.value).toBe('INT. BAR - NIGHT\nDan pours a drink.')
+  })
+
+  it('pre-selects the format the script prints and sends it', async () => {
+    const user = userEvent.setup()
+    mockedStreamSse.mockImplementation(() => framesFrom([]))
+    render(<ImportWizard />)
+    await user.click(screen.getByRole('tab', { name: 'Paste' }))
+    await user.type(
+      screen.getByLabelText('Paste script text'),
+      [
+        'COLD OPEN',
+        'INT. SCHOOL - DAY',
+        'Lisa reads.',
+        'ACT ONE',
+        'INT. HOUSE - NIGHT',
+        'Homer eats.',
+        'ACT TWO',
+        'EXT. STREET - DAY',
+        'Bart runs.',
+        'ACT THREE',
+        'INT. KITCHEN - NIGHT',
+        'Marge sighs.',
+      ].join('\n'),
+    )
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.type(screen.getByLabelText('Title'), 'Lisa')
+
     expect(
-      screen.getByRole('heading', { name: 'Add the script' }),
+      screen.getByText('Read from the script: cold open, 3 acts.'),
     ).not.toBeNull()
-    expect(screen.getByText(/ferry.fountain/)).not.toBeNull()
+    const asPrinted = screen.getByRole('radio', {
+      name: /As printed in the script/,
+    }) as HTMLInputElement
+    expect(asPrinted.checked).toBe(true)
+
+    await user.click(
+      screen.getByRole('button', { name: 'Create & analyze script' }),
+    )
+    await waitFor(() => expect(mockedStreamSse).toHaveBeenCalledTimes(1))
+    expect(mockedStreamSse.mock.calls[0][1]).toMatchObject({
+      format: {
+        genre: 'comedy',
+        runtimeMinutes: 30,
+        actCount: 3,
+        coldOpen: true,
+        tag: false,
+      },
+    })
+  })
+
+  it('ignores the one-hour-drama default a draft saved before format detection carries', async () => {
+    const user = userEvent.setup()
+    saveDraft(IMPORT_PATH, {
+      idempotencyKey: '00000000-0000-4000-8000-000000000001',
+      activeTab: 'paste',
+      source:
+        'TEASER\nINT. BAR - NIGHT\nx\nACT ONE\nINT. HALL - DAY\ny\nACT FOUR',
+      sourceFormat: 'text',
+      filename: null,
+      pdfExtract: null,
+      title: 'Pilot',
+      presetId: 'one-hour-drama',
+    })
+    render(<ImportWizard />)
+
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    const asPrinted = screen.getByRole('radio', {
+      name: /As printed in the script/,
+    }) as HTMLInputElement
+    expect(asPrinted.checked).toBe(true)
+  })
+
+  it('sends a preset the writer picks instead of the detected format', async () => {
+    const user = userEvent.setup()
+    mockedStreamSse.mockImplementation(() => framesFrom([]))
+    render(<ImportWizard />)
+    await fillSourceAndBasics(user, 'Ferry Crossing')
+
+    await user.click(screen.getByRole('radio', { name: /Half-hour comedy/ }))
+    await user.click(
+      screen.getByRole('button', { name: 'Create & analyze script' }),
+    )
+
+    await waitFor(() => expect(mockedStreamSse).toHaveBeenCalledTimes(1))
+    expect(mockedStreamSse.mock.calls[0][1]).toMatchObject({
+      format: { genre: 'comedy', actCount: 2, coldOpen: true, tag: false },
+    })
+  })
+
+  it('shows the stage list only once the import has started', async () => {
+    const user = userEvent.setup()
+    render(<ImportWizard />)
+    await fillSourceAndBasics(user, 'Ferry Crossing')
+
+    // A list of "Pending" stages before anything runs read as a stuck import.
+    expect(screen.queryByText('Parsing scenes')).toBeNull()
   })
 })

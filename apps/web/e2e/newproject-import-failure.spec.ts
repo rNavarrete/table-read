@@ -25,11 +25,8 @@ test('an import failure creates no project and keeps the source for retry', asyn
   await expect(page.getByText(new RegExp(FILENAME))).toBeVisible()
   await page.getByRole('button', { name: 'Continue' }).click()
 
-  // Step 2 — confirm basics (title prefilled from the filename).
+  // Step 2 — Check & start (title prefilled from the filename).
   await expect(page.getByLabel('Title')).toHaveValue('retry-me')
-  await page.getByRole('button', { name: 'Continue' }).click()
-  // Step 3 — review source.
-  await page.getByRole('button', { name: 'Continue' }).click()
 
   // Inject a terminal `failed` event on the only AI trigger.
   await page.route('**/api/v1/projects/import', (route) =>
@@ -74,8 +71,9 @@ test('an import failure creates no project and keeps the source for retry', asyn
   )
   expect(titles).not.toContain('retry-me')
 
-  // Source remains available for retry: Edit source returns to step 1 with the
-  // uploaded file still in the draft.
+  // Source remains available for retry: Edit source opens the script text in
+  // place, still holding the uploaded source.
   await page.getByRole('button', { name: 'Edit source' }).click()
-  await expect(page.getByText(new RegExp(FILENAME))).toBeVisible()
+  await expect(page.getByLabel('Script text')).toBeFocused()
+  await expect(page.getByLabel('Script text')).toHaveValue(SOURCE)
 })

@@ -24,4 +24,4 @@ unset ANTHROPIC_API_KEY
 
 cd "$API_DIR"
 .venv/bin/python -m storage.seed
-exec .venv/bin/uvicorn --app-dir . main:app --port 8000
+exec .venv/bin/uvicorn --app-dir . main:app --port "${E2E_API_PORT:-8000}"

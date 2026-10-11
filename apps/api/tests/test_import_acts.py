@@ -238,3 +238,20 @@ def test_script_opening_on_act_one_leaves_the_cold_open_empty():
 )
 def test_partial_or_inconsistent_markers_give_no_partition(scenes, fmt):
     assert acts_from_markers(_spans(*scenes), fmt) is None
+
+
+def test_a_cold_open_and_three_printed_acts_are_kept_with_the_scripts_format():
+    """The import wizard reads this structure from the script (detectFormat.ts)
+    and sends it as the format. Three acts match no preset; with the format
+    taken from the script the printed breaks are kept, where the old five-act
+    default discarded them (owner decision 2026-10-11)."""
+    spans = _spans(
+        "COLD OPEN",
+        "INT. SCHOOL - DAY\nLisa reads.\nACT ONE",
+        "INT. HOUSE - NIGHT\nHomer eats.\nEND OF ACT ONE\nACT TWO",
+        "EXT. STREET - DAY\nBart runs.\nACT THREE",
+        "INT. KITCHEN - NIGHT\nMarge sighs.",
+    )
+    from_script = {**FORMAT, "actCount": 3, "coldOpen": True}
+    assert acts_from_markers(spans, from_script) == [0, 0, 1, 2, 3]
+    assert acts_from_markers(spans, {**FORMAT, "actCount": 5, "coldOpen": True}) is None

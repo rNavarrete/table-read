@@ -2,6 +2,7 @@ import { type ChangeEvent, useEffect, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
 import type {
   PdfExtractMethod,
+  ShowFormat,
   ProjectImportCreateRequest,
   ProjectImportProgressEvent,
   ProjectImportStageName,
@@ -13,6 +14,7 @@ import {
   FORMAT_PRESETS,
   type FormatPresetId,
 } from './FormatPresets'
+import { detectFormat } from './detectFormat'
 import { formatImportCostLine } from './importCostEstimate'
 import {
   advanceImportProgress,
@@ -63,7 +65,11 @@ interface ImportDraft {
   filename: string | null
   pdfExtract: PdfExtractMetadata | null
   title: string
-  presetId: FormatPresetId
+  // 'script' follows what the script prints (detectFormat); a preset id is
+  // the writer's explicit choice. Not named `presetId`: drafts saved before
+  // 2026-10-11 stored that field with a one-hour-drama default, which must
+  // not override what the script prints.
+  formatChoice: FormatPresetId | 'script'
 }
 
 interface PdfExtractMetadata {
@@ -104,7 +110,7 @@ function initialDraft(): ImportDraft {
     filename: null,
     pdfExtract: null,
     title: '',
-    presetId: 'one-hour-drama',
+    formatChoice: 'script',
   }
 }
 
@@ -116,9 +122,16 @@ function normalizeDraft(draft: Partial<ImportDraft> | null): ImportDraft {
   }
 }
 
-function presetSummary(presetId: FormatPresetId): string {
-  const preset = FORMAT_PRESETS[presetId]
-  return `${preset.genre}, ${preset.runtimeMinutes} min, ${preset.actCount} acts`
+function formatSummary(format: ShowFormat): string {
+  const acts = `${format.actCount} act${format.actCount === 1 ? '' : 's'}`
+  const extras = [
+    format.coldOpen ? 'cold open' : null,
+    format.tag ? 'tag' : null,
+  ]
+    .filter(Boolean)
+    .map((part) => `, ${part}`)
+    .join('')
+  return `${format.genre}, ${format.runtimeMinutes} min, ${acts}${extras}`
 }
 
 function titleFromFilename(filename: string): string {
@@ -133,10 +146,13 @@ function pdfMethodLabel(method: PdfExtractMethod): string {
   return method === 'ocr' ? 'OCR' : 'Text layer'
 }
 
-function importCreateBody(draft: ImportDraft): ProjectImportCreateRequest {
+function importCreateBody(
+  draft: ImportDraft,
+  format: ShowFormat,
+): ProjectImportCreateRequest {
   return {
     title: draft.title.trim(),
-    format: FORMAT_PRESETS[draft.presetId],
+    format,
     source: { format: draft.sourceFormat, content: draft.source },
   }
 }
@@ -178,10 +194,20 @@ export function ImportWizard() {
   const [titleTouched, setTitleTouched] = useState(false)
   const [session, setSession] = useState<AnalyzeSession>(INITIAL_SESSION)
   const [nowMs, setNowMs] = useState(() => Date.now())
-  const [jumpTo, setJumpTo] = useState<
-    { stepId: string; token: number } | undefined
-  >(undefined)
+  const [textOpen, setTextOpen] = useState(false)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const scriptTextRef = useRef<HTMLTextAreaElement | null>(null)
+  const detected = detectFormat(draft.source)
+  const resolvedFormat =
+    draft.formatChoice === 'script'
+      ? detected.format
+      : FORMAT_PRESETS[draft.formatChoice]
+  // The script's own structure appears as an option only when no preset
+  // matches it; a matching preset is simply pre-selected.
+  const selectedFormat =
+    draft.formatChoice === 'script'
+      ? (detected.presetId ?? 'script')
+      : draft.formatChoice
 
   useEffect(() => {
     if (session.phase !== 'streaming') return
@@ -266,9 +292,15 @@ export function ImportWizard() {
     )
   }
 
-  function validateBasics(): boolean {
+  function validateReview(): boolean {
     setBasicsTouched(true)
-    return Boolean(draft.title.trim())
+    setSourceTouched(true)
+    return Boolean(draft.title.trim()) && Boolean(draft.source.trim())
+  }
+
+  function openScriptText() {
+    flushSync(() => setTextOpen(true))
+    scriptTextRef.current?.focus()
   }
 
   async function handleAnalyze() {
@@ -279,7 +311,7 @@ export function ImportWizard() {
     try {
       const frames = streamSse(
         importCreateUrl(),
-        importCreateBody(draft),
+        importCreateBody(draft, resolvedFormat),
         undefined,
         { 'Idempotency-Key': draft.idempotencyKey },
       )
@@ -370,7 +402,6 @@ export function ImportWizard() {
     <WizardShell
       title="Import a script"
       hasEnteredData={hasEnteredData}
-      jumpTo={jumpTo}
       finalActionLabel={
         session.phase === 'streaming'
           ? 'Analyzing...'
@@ -483,228 +514,12 @@ export function ImportWizard() {
           ),
         },
         {
-          id: 'confirm-source',
-          label: 'Confirm source',
-          title: 'Confirm source',
-          validate: validateSource,
-          body: (
-            <div className="grid gap-3">
-              <div className="flex flex-wrap items-center gap-2 text-13 text-tr-text-secondary">
-                <span>
-                  {draft.filename
-                    ? `${draft.filename} (${draft.sourceFormat})`
-                    : `Pasted text (${draft.sourceFormat})`}
-                </span>
-                {draft.pdfExtract && (
-                  <>
-                    <span className="rounded-chip border border-tr-border bg-tr-surface-sunken px-2 py-1 text-12 text-tr-text-muted">
-                      {pdfMethodLabel(draft.pdfExtract.method)}
-                    </span>
-                    <span>{draft.pdfExtract.pageCount} page(s)</span>
-                  </>
-                )}
-              </div>
-              {draft.pdfExtract?.warnings.length ? (
-                <ul className="grid gap-1 text-13 text-tr-text-secondary">
-                  {draft.pdfExtract.warnings.map((warning) => (
-                    <li key={warning}>{warning}</li>
-                  ))}
-                </ul>
-              ) : null}
-              <label className="text-13 font-medium text-tr-text-primary">
-                Confirm source
-                <textarea
-                  value={draft.source}
-                  aria-invalid={sourceTouched && !draft.source.trim()}
-                  onChange={(event) =>
-                    updateDraft({
-                      ...draft,
-                      source: event.target.value,
-                    })
-                  }
-                  className="mt-1 block min-h-72 w-full rounded-card border border-tr-border bg-tr-surface-page px-3 py-2 text-13 text-tr-text-primary outline-none focus:border-tr-sky"
-                />
-              </label>
-              {sourceTouched && !draft.source.trim() && !sourceError && (
-                <p className="text-tr-danger">
-                  Add a script before continuing.
-                </p>
-              )}
-            </div>
-          ),
-        },
-        {
-          id: 'basics',
-          label: 'Confirm basics',
-          title: 'Confirm basics',
-          validate: validateBasics,
-          body: (
-            <div className="grid gap-4">
-              <label className="text-13 font-medium text-tr-text-primary">
-                Title
-                <input
-                  value={draft.title}
-                  aria-invalid={basicsTouched && !draft.title.trim()}
-                  onChange={(event) => {
-                    setTitleTouched(true)
-                    updateDraft({ ...draft, title: event.target.value })
-                  }}
-                  className="mt-1 block w-full rounded-card border border-tr-border bg-tr-surface-page px-3 py-2 text-13 text-tr-text-primary outline-none focus:border-tr-sky"
-                />
-              </label>
-              <div className="grid gap-3">
-                {Object.keys(FORMAT_PRESETS).map((presetId) => (
-                  <label
-                    key={presetId}
-                    className="rounded-card border border-tr-border bg-tr-surface-page p-3 text-13 text-tr-text-primary"
-                  >
-                    <input
-                      type="radio"
-                      name="import-format-preset"
-                      checked={draft.presetId === presetId}
-                      onChange={() =>
-                        updateDraft({
-                          ...draft,
-                          presetId: presetId as FormatPresetId,
-                        })
-                      }
-                      className="mr-2"
-                    />
-                    {FORMAT_PRESET_LABELS[presetId as FormatPresetId]} ·{' '}
-                    {presetSummary(presetId as FormatPresetId)}
-                  </label>
-                ))}
-              </div>
-            </div>
-          ),
-        },
-        {
           id: 'review',
-          label: 'Review source',
-          title: 'Review source',
+          label: 'Check & start',
+          title: 'Check & start',
+          validate: validateReview,
           body: (
-            <div className="grid gap-3">
-              <p>
-                {draft.filename
-                  ? `${draft.filename} (${draft.sourceFormat})`
-                  : `Pasted text (${draft.sourceFormat})`}
-              </p>
-              <p>
-                {stats.byteCount} bytes · {stats.charCount} characters ·{' '}
-                {stats.lineCount} lines
-              </p>
-              <p>{formatImportCostLine(stats)}</p>
-              <p>
-                Estimate mixes Sonnet (scene/entity work), Opus (story-wide
-                judgment), and Haiku (facts/scan) rates; actual usage may vary.
-                Create &amp; analyze script is the only action that sends this
-                source to the model. Scenes, beats, pending Ledger facts, and
-                consistency flags appear here only after that step. Narrative
-                Map generation is an explicit follow-up, so a slow map can never
-                undo this import.
-              </p>
-            </div>
-          ),
-        },
-        {
-          id: 'analyze',
-          label: 'Analyze',
-          title: 'Analyze',
-          body: (
-            <div className="grid gap-4">
-              {(session.phase === 'idle' || session.phase === 'failed') &&
-                stats.estimatedModelCalls > 0 && (
-                  <p>{formatImportCostLine(stats)}</p>
-                )}
-              <ol aria-label="Import progress" className="grid gap-2">
-                {STAGE_ORDER.map((stage) => {
-                  const progress = session.progress.stages[stage] ?? {
-                    done: 0,
-                    total: 0,
-                  }
-                  const isDone =
-                    session.progress.completedStages.includes(stage)
-                  const isCurrent =
-                    session.progress.currentStage === stage && !isDone
-                  const isIndeterminate = isCurrent && progress.done === 0
-                  const visualPercent = isDone
-                    ? 100
-                    : progress.total > 0
-                      ? Math.min(100, (progress.done / progress.total) * 100)
-                      : 0
-                  const status =
-                    session.phase === 'idle'
-                      ? 'Pending'
-                      : isDone
-                        ? 'Done'
-                        : isCurrent
-                          ? 'In progress'
-                          : 'Pending'
-                  return (
-                    <li
-                      key={stage}
-                      aria-current={isCurrent ? 'step' : undefined}
-                      className="grid gap-2 rounded-card border border-tr-border bg-tr-surface-page px-3 py-2 text-13"
-                    >
-                      <div className="flex items-center justify-between gap-3">
-                        <span>{STAGE_LABELS[stage]}</span>
-                        <span className="text-tr-text-secondary">{status}</span>
-                      </div>
-                      <div className="grid gap-1">
-                        {progress.total > 1 && (
-                          <span className="text-12 text-tr-text-muted">
-                            {progress.done} of {progress.total}
-                          </span>
-                        )}
-                        <div
-                          role="progressbar"
-                          aria-label={`${STAGE_LABELS[stage]} progress`}
-                          aria-valuemin={0}
-                          aria-valuemax={100}
-                          aria-valuenow={
-                            isIndeterminate ? undefined : visualPercent
-                          }
-                          aria-valuetext={
-                            isIndeterminate
-                              ? `${STAGE_LABELS[stage]} in progress`
-                              : progress.total > 1
-                                ? `${progress.done} of ${progress.total}`
-                                : status
-                          }
-                          className="h-1 overflow-hidden rounded-card bg-tr-surface-sunken"
-                        >
-                          {isIndeterminate ? (
-                            <div
-                              className="tr-import-progress-indeterminate h-full bg-tr-coral"
-                              data-testid={`${stage}-indeterminate`}
-                            />
-                          ) : (
-                            <div
-                              className="h-full bg-tr-coral transition-[width]"
-                              style={{ width: `${visualPercent}%` }}
-                            />
-                          )}
-                        </div>
-                      </div>
-                    </li>
-                  )
-                })}
-              </ol>
-              {session.phase === 'streaming' && (
-                <p className="flex flex-wrap gap-2 text-13 text-tr-text-secondary">
-                  <span>Elapsed {formatElapsed(elapsedMs)}</span>
-                  {etaMs !== null ? (
-                    <span>
-                      about {Math.max(1, Math.ceil(etaMs / 60_000))} min left
-                    </span>
-                  ) : isProgressStale ? null : (
-                    <span>estimating…</span>
-                  )}
-                </p>
-              )}
-              <p role="status" aria-live="polite">
-                {session.phase === 'streaming' && session.liveAnnouncement}
-              </p>
+            <div className="grid gap-5">
               {session.phase === 'failed' && session.error && (
                 <div className="grid gap-3 rounded-card border border-tr-danger bg-tr-surface-page p-3">
                   <p className="text-tr-danger">
@@ -728,12 +543,7 @@ export function ImportWizard() {
                     </button>
                     <button
                       type="button"
-                      onClick={() =>
-                        setJumpTo((current) => ({
-                          stepId: 'source',
-                          token: (current?.token ?? 0) + 1,
-                        }))
-                      }
+                      onClick={openScriptText}
                       className="rounded-card border border-tr-border px-3 py-2 text-13 font-medium text-tr-text-secondary"
                     >
                       Edit source
@@ -747,6 +557,221 @@ export function ImportWizard() {
                   </div>
                 </div>
               )}
+              {session.phase === 'streaming' ? (
+                <p className="text-13 text-tr-text-secondary">
+                  {draft.title} · {formatSummary(resolvedFormat)}
+                </p>
+              ) : (
+                <>
+                  <label className="text-13 font-medium text-tr-text-primary">
+                    Title
+                    <input
+                      value={draft.title}
+                      aria-invalid={basicsTouched && !draft.title.trim()}
+                      onChange={(event) => {
+                        setTitleTouched(true)
+                        updateDraft({ ...draft, title: event.target.value })
+                      }}
+                      className="mt-1 block w-full rounded-card border border-tr-border bg-tr-surface-page px-3 py-2 text-13 text-tr-text-primary outline-none focus:border-tr-sky"
+                    />
+                  </label>
+                  <fieldset className="grid gap-2">
+                    <legend className="text-13 font-medium text-tr-text-primary">
+                      Format
+                    </legend>
+                    <p className="text-13 text-tr-text-secondary">
+                      Read from the script: {detected.reason}.
+                    </p>
+                    {detected.presetId === null && (
+                      <label className="rounded-card border border-tr-border bg-tr-surface-page p-3 text-13 text-tr-text-primary">
+                        <input
+                          type="radio"
+                          name="import-format-preset"
+                          checked={selectedFormat === 'script'}
+                          onChange={() =>
+                            updateDraft({ ...draft, formatChoice: 'script' })
+                          }
+                          className="mr-2"
+                        />
+                        As printed in the script ·{' '}
+                        {formatSummary(detected.format)}
+                      </label>
+                    )}
+                    {(Object.keys(FORMAT_PRESETS) as FormatPresetId[]).map(
+                      (presetId) => (
+                        <label
+                          key={presetId}
+                          className="rounded-card border border-tr-border bg-tr-surface-page p-3 text-13 text-tr-text-primary"
+                        >
+                          <input
+                            type="radio"
+                            name="import-format-preset"
+                            checked={selectedFormat === presetId}
+                            onChange={() =>
+                              updateDraft({ ...draft, formatChoice: presetId })
+                            }
+                            className="mr-2"
+                          />
+                          {FORMAT_PRESET_LABELS[presetId]} ·{' '}
+                          {formatSummary(FORMAT_PRESETS[presetId])}
+                        </label>
+                      ),
+                    )}
+                  </fieldset>
+                  <p className="text-13 text-tr-text-secondary">
+                    {draft.filename ?? 'Pasted text'} ·{' '}
+                    {formatImportCostLine(stats)}
+                  </p>
+                  <details
+                    open={textOpen}
+                    onToggle={(event) => setTextOpen(event.currentTarget.open)}
+                    className="rounded-card border border-tr-border bg-tr-surface-page p-3"
+                  >
+                    <summary className="cursor-pointer text-13 font-medium text-tr-text-primary">
+                      Review the script text{' '}
+                      {draft.pdfExtract && (
+                        <span className="ml-2 rounded-chip border border-tr-border bg-tr-surface-sunken px-2 py-1 text-12 text-tr-text-muted">
+                          {pdfMethodLabel(draft.pdfExtract.method)}
+                        </span>
+                      )}
+                    </summary>
+                    <div className="mt-3 grid gap-2">
+                      {draft.pdfExtract && (
+                        <p className="text-13 text-tr-text-secondary">
+                          {draft.pdfExtract.pageCount} page(s) read from the
+                          PDF. Fix any OCR mistakes here before analyzing.
+                        </p>
+                      )}
+                      {draft.pdfExtract?.warnings.length ? (
+                        <ul className="grid gap-1 text-13 text-tr-text-secondary">
+                          {draft.pdfExtract.warnings.map((warning) => (
+                            <li key={warning}>{warning}</li>
+                          ))}
+                        </ul>
+                      ) : null}
+                      <label className="text-13 font-medium text-tr-text-primary">
+                        Script text
+                        <textarea
+                          ref={scriptTextRef}
+                          value={draft.source}
+                          aria-invalid={sourceTouched && !draft.source.trim()}
+                          onChange={(event) =>
+                            updateDraft({
+                              ...draft,
+                              source: event.target.value,
+                            })
+                          }
+                          className="mt-1 block min-h-72 w-full rounded-card border border-tr-border bg-tr-surface-page px-3 py-2 text-13 text-tr-text-primary outline-none focus:border-tr-sky"
+                        />
+                      </label>
+                    </div>
+                  </details>
+                  <p className="text-12 text-tr-text-muted">
+                    Create &amp; analyze script is the only action that sends
+                    this script to the model. The Narrative Map is a separate
+                    step you start afterwards.
+                  </p>
+                </>
+              )}
+              {session.phase !== 'idle' && (
+                <>
+                  <ol aria-label="Import progress" className="grid gap-2">
+                    {STAGE_ORDER.map((stage) => {
+                      const progress = session.progress.stages[stage] ?? {
+                        done: 0,
+                        total: 0,
+                      }
+                      const isDone =
+                        session.progress.completedStages.includes(stage)
+                      const isCurrent =
+                        session.progress.currentStage === stage && !isDone
+                      const isIndeterminate = isCurrent && progress.done === 0
+                      const visualPercent = isDone
+                        ? 100
+                        : progress.total > 0
+                          ? Math.min(
+                              100,
+                              (progress.done / progress.total) * 100,
+                            )
+                          : 0
+                      const status =
+                        session.phase === 'idle'
+                          ? 'Pending'
+                          : isDone
+                            ? 'Done'
+                            : isCurrent
+                              ? 'In progress'
+                              : 'Pending'
+                      return (
+                        <li
+                          key={stage}
+                          aria-current={isCurrent ? 'step' : undefined}
+                          className="grid gap-2 rounded-card border border-tr-border bg-tr-surface-page px-3 py-2 text-13"
+                        >
+                          <div className="flex items-center justify-between gap-3">
+                            <span>{STAGE_LABELS[stage]}</span>
+                            <span className="text-tr-text-secondary">
+                              {status}
+                            </span>
+                          </div>
+                          <div className="grid gap-1">
+                            {progress.total > 1 && (
+                              <span className="text-12 text-tr-text-muted">
+                                {progress.done} of {progress.total}
+                              </span>
+                            )}
+                            <div
+                              role="progressbar"
+                              aria-label={`${STAGE_LABELS[stage]} progress`}
+                              aria-valuemin={0}
+                              aria-valuemax={100}
+                              aria-valuenow={
+                                isIndeterminate ? undefined : visualPercent
+                              }
+                              aria-valuetext={
+                                isIndeterminate
+                                  ? `${STAGE_LABELS[stage]} in progress`
+                                  : progress.total > 1
+                                    ? `${progress.done} of ${progress.total}`
+                                    : status
+                              }
+                              className="h-1 overflow-hidden rounded-card bg-tr-surface-sunken"
+                            >
+                              {isIndeterminate ? (
+                                <div
+                                  className="tr-import-progress-indeterminate h-full bg-tr-coral"
+                                  data-testid={`${stage}-indeterminate`}
+                                />
+                              ) : (
+                                <div
+                                  className="h-full bg-tr-coral transition-[width]"
+                                  style={{ width: `${visualPercent}%` }}
+                                />
+                              )}
+                            </div>
+                          </div>
+                        </li>
+                      )
+                    })}
+                  </ol>
+                  {session.phase === 'streaming' && (
+                    <p className="flex flex-wrap gap-2 text-13 text-tr-text-secondary">
+                      <span>Elapsed {formatElapsed(elapsedMs)}</span>
+                      {etaMs !== null ? (
+                        <span>
+                          about {Math.max(1, Math.ceil(etaMs / 60_000))} min
+                          left
+                        </span>
+                      ) : isProgressStale ? null : (
+                        <span>estimating…</span>
+                      )}
+                    </p>
+                  )}
+                </>
+              )}
+              <p role="status" aria-live="polite">
+                {session.phase === 'streaming' && session.liveAnnouncement}
+              </p>
             </div>
           ),
         },
