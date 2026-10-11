@@ -46,16 +46,15 @@ test('import a script → Plan shows scenes/beats and the Ledger pending queue',
   // Step 4 — the only AI trigger. Real SSE stream runs the create-and-import.
   await page.getByRole('button', { name: 'Create & analyze script' }).click()
 
-  // On success the writer lands in Plan with the imported scene/beat.
-  await page.waitForURL(/\/plan\?project=/, { timeout: 20_000 })
-  await expect(page.getByTestId('scene-card-scene-1')).toBeVisible()
+  // On success the writer lands on the Ledger's Story tab.
+  await page.waitForURL(/\/ledger\?project=/, { timeout: 20_000 })
+  await expect(
+    page.getByRole('button', { name: 'Story', pressed: true }),
+  ).toBeVisible()
 
-  // The imported fact is pending_review → the Ledger badge carries its count.
-  const ledgerTab = page.getByRole('tab', { name: /Ledger/ })
-  await expect(ledgerTab).toContainText(/\d/)
+  // The imported fact is pending_review → the Ledger badge carries its count…
+  await expect(page.getByRole('tab', { name: /Ledger/ })).toContainText(/\d/)
 
-  // …and it is waiting in the Ledger review queue.
-  await ledgerTab.click()
-  await expect(page).toHaveURL(/\/ledger/)
+  // …and it is waiting in the review queue on the Story tab.
   await expect(page.getByTestId('review-queue')).toBeVisible()
 })
