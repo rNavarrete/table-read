@@ -136,19 +136,15 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
 def _build_real_clients():
     """Construct the real product client (via the sanctioned factory) and the
     grader judge (raw SDK client). Only reached under `make evals`."""
-    import anthropic
-
     from evals.graders import ContinuityJudge
     from evals.suite import load_model_roles
-    from llm.factory import build_anthropic_client
+    from llm.factory import build_anthropic_client, build_sdk_client
 
     api_key = os.environ["ANTHROPIC_API_KEY"]  # KeyError → fail fast (no key, no real eval)
     client = build_anthropic_client()
     models = load_model_roles()
-    from llm.anthropic_client import DEFAULT_LLM_CALL_TIMEOUT_SECONDS
-
     judge = ContinuityJudge(
-        anthropic.Anthropic(api_key=api_key, timeout=DEFAULT_LLM_CALL_TIMEOUT_SECONDS),
+        build_sdk_client(api_key),
         models["writer"],
         temperature=None,
     )

@@ -413,6 +413,10 @@ export const NarrativeMap = z.object({
   characterArcs: z.array(NarrativeCharacterArc),
   sceneTurns: z.array(SceneTurn).min(1),
   threadMovements: z.array(ThreadMovement),
+  // Scenes the analysis could not read after one re-roll. They have no
+  // sceneTurn and nothing cites them; the map says nothing about them rather
+  // than publishing server-written prose (owner decision 2, T9.3).
+  unanalyzedSceneIds: z.array(Id).default([]),
   provenance: z.enum(['inferred', 'writer_authored']).default('inferred'),
   locked: z.boolean().default(false),
 })
@@ -464,7 +468,8 @@ export const NarrativeMapRun = z.object({
   // and never in a log. Hard rule 5 is satisfied at the logging boundary:
   // `narrative_map_runs` emits `diagnostic_codes` only. Defaulted so older
   // clients still parse; `reason` defaults for diagnostics recorded before it
-  // existed and for codes like `verifier_missing_scene` that carry no prose.
+  // existed and for codes like `verification_repair_path_unresolved` that
+  // carry no prose.
   rejectionDiagnostics: z
     .array(
       z.object({
@@ -476,9 +481,8 @@ export const NarrativeMapRun = z.object({
     .default([]),
   // The counterpart for a run that succeeded: what the evidence gate pruned
   // from the map before publishing it. A map that passes after local repair
-  // has had claims removed — a theme, a character's arc summary, on one real
-  // run an entire character — and the writer saw fewer things and no word
-  // why. Design doc: "never rewrite silently". `subject` is the removed thing
+  // has had claims removed — a theme, a character's arc summary, a
+  // character's want — and the writer saw fewer things and no word why. Design doc: "never rewrite silently". `subject` is the removed thing
   // in the writer's terms ("C.J.'s arc summary"); `path` is the address;
   // `reason` is the verifier's own words, joined by path. Advisories are not
   // listed, since nothing was done to the map on their account. Defaulted so
@@ -559,7 +563,9 @@ export const SourceSpan = z.object({
   beatId: Id,
   // Offsets within the beat's scriptText. Lines are model-reported (input is
   // line-numbered); char offsets are computed server-side by locating
-  // sourceText verbatim within the line range (disambiguates duplicates).
+  // sourceText within the line range (disambiguates duplicates). Import also
+  // searches the whole beat and ignores whitespace, HTML entities and page
+  // furniture (T9.9); null means the quote was not found on the page.
   startLine: z.number().int().min(0).nullable().default(null),
   endLine: z.number().int().min(0).nullable().default(null),
   charStart: z.number().int().min(0).nullable().default(null),
@@ -1006,6 +1012,9 @@ export type InitialSceneSkeleton = z.infer<typeof InitialSceneSkeleton>
 // existing bible (matching on name/aliases) and mints new ids for anything
 // unresolved — the model never sets/knows ids. Every entity carries at least
 // one evidence citation (scene id + short quote) for the review UI.
+// A character whose name and aliases match more than one existing row is
+// neither attached nor minted; it becomes an open `[merge_proposal]` scene
+// flag pointing at Merge into (T9.8).
 export const EntityEvidence = z.object({
   sceneId: Id,
   quote: z.string(), // verbatim-ish; server-truncated to 200 chars

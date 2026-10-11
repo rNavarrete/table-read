@@ -39,7 +39,6 @@ from drama_manager.narrative_map_analysis import (
     prepare_narrative_map_source,
     repair_candidate_from_verification,
     reusable_scene_packets,
-    source_backed_scene_fallback,
     synthesis_scene_spine,
     validate_scene_analysis_batch,
     validate_verification,
@@ -221,10 +220,10 @@ def _removed_claims(run: NarrativeMapRunRow) -> list[dict]:
 
     The counterpart of `_rejection_diagnostics` for the run that succeeded. A
     map that publishes after local repair has had claims pruned from it — a
-    whole theme, a character's arc summary, on one West Wing run an entire
-    character — and the writer saw a map with fewer things in it and no word
-    about why. The design doc's first trust rule is "never rewrite silently";
-    this is the gate's half of keeping it.
+    whole theme, a character's arc summary, a character's want — and the
+    writer saw a map with less in it and no word about why. The design doc's
+    first trust rule is "never rewrite silently"; this is the gate's half of
+    keeping it.
 
     Each entry names what was removed in the writer's terms and carries the
     verifier's own reason, joined by path from the verdict the repair acted on.
@@ -266,10 +265,12 @@ def _removed_claims(run: NarrativeMapRunRow) -> list[dict]:
 
 
 def _retry_allowed(run: NarrativeMapRunRow) -> bool:
-    if run.status in {"queued", "running", "completed"}:
+    if run.status in {"queued", "running"}:
         return False
     if run.analysis_version != NARRATIVE_MAP_ANALYSIS_VERSION:
         return True
+    if run.status == "completed":
+        return bool((run.checkpoint or {}).get("unanalyzedSceneIds"))
     if run.status == "stale":
         return True
     if _scene_packet_quality_repair_available(run):
@@ -565,6 +566,19 @@ def create_or_resume_run(
             )
             session.commit()
             return existing, True
+        if existing.status == "completed" and _retry_allowed(existing):
+            # Re-read only the unanalysed scenes; the story-wide map is rebuilt
+            # on top of every analysed packet, so its saved synthesis is dropped.
+            _touch(
+                existing,
+                status="queued",
+                phase="readiness",
+                source_snapshot_id=source_snapshot_id,
+                attempt_count=existing.attempt_count + 1,
+                checkpoint={"scenePackets": (existing.checkpoint or {}).get("scenePackets") or []},
+            )
+            session.commit()
+            return existing, True
         if _verification_policy_repair_available(existing):
             checkpoint = dict(existing.checkpoint or {})
             checkpoint.pop("rejectionDiagnostics", None)
@@ -582,22 +596,19 @@ def create_or_resume_run(
             return existing, True
         return existing, False
 
-    prior_packets: list[dict] = []
     prior_runs = (
         session.query(NarrativeMapRunRow)
         .filter_by(project_id=project.id, source_hash=source.source_hash)
         .order_by(NarrativeMapRunRow.updated_at.desc())
         .all()
     )
-    for prior_run in prior_runs:
-        for packet in (prior_run.checkpoint or {}).get("scenePackets", []):
-            if isinstance(packet, dict) and packet.get("sceneId"):
-                prior_packets.append(packet)
     deterministic_packets = deterministic_non_narrative_packets(source.scene_sources)
     narrative_sources = [
         scene for scene in source.scene_sources if scene.get("sourceKind") == "narrative"
     ]
-    reused_packets = reusable_scene_packets(narrative_sources, prior_packets)
+    reused_packets = reusable_scene_packets(
+        narrative_sources, [prior_run.checkpoint or {} for prior_run in prior_runs]
+    )
     seeded_by_scene = {
         packet["sceneId"]: packet for packet in [*deterministic_packets, *reused_packets]
     }
@@ -702,92 +713,94 @@ def execute_run(run_id: str, llm: LlmClient) -> None:
         )
         session.commit()
 
+        unanalyzed_scene_ids = list(checkpoint.get("unanalyzedSceneIds") or [])
         for chunk in chunk_scene_sources(source.scene_sources):
-            pending = [scene for scene in chunk if scene["sceneId"] not in packets_by_scene]
+            pending = [
+                scene
+                for scene in chunk
+                if scene["sceneId"] not in packets_by_scene
+                and scene["sceneId"] not in unanalyzed_scene_ids
+            ]
             if not pending:
                 continue
             scene_id = pending[0]["sceneId"]
-            diagnostics: list[dict] = []
-            used_source_fallback = False
-            _logger.info(
-                "narrative_map_scene_call run_id=%s scene_id=%s attempt=1",
-                run.id,
-                scene_id,
-            )
             system, user = render.build_narrative_scene_analysis_prompt(
                 source_doc,
                 pending,
                 source.known_cast,
                 render.new_nonce(),
             )
-            result = _call_with_run_heartbeat(
-                run.id,
-                lambda: llm.infer_narrative_scene_analysis(
-                    system=system,
-                    user_message=user,
-                    prompt_version=render.PROMPT_VERSION,
-                ),
-            )
-            try:
-                validated_packets = validate_scene_analysis_batch(pending, result)
-            except NarrativeMapAnalysisValidationError as exc:
-                diagnostics = exc.diagnostics
-                diagnostic_codes = ",".join(
-                    sorted(
-                        {
-                            str(item.get("code", "unknown"))
-                            for item in diagnostics
-                            if isinstance(item, dict)
-                        }
-                    )
-                )
-                _logger.warning(
-                    "narrative_map_scene_rejected "
-                    "run_id=%s scene_id=%s attempt=1 diagnostic_codes=%s",
+            validated_packets: list[dict] = []
+            # One same-prompt re-roll; a scene that still fails is listed as
+            # unanalysed, never filled with server-written prose (rule 9).
+            for attempt in (1, 2):
+                _logger.info(
+                    "narrative_map_scene_call run_id=%s scene_id=%s attempt=%d",
                     run.id,
                     scene_id,
-                    diagnostic_codes,
+                    attempt,
                 )
-                fallback = source_backed_scene_fallback(pending[0], result, diagnostics)
-                if fallback is None:
-                    raise
-                validated_packets = [fallback]
-                used_source_fallback = True
-                _logger.warning(
-                    "narrative_map_scene_source_fallback run_id=%s scene_id=%s diagnostic_codes=%s",
+                result = _call_with_run_heartbeat(
                     run.id,
-                    scene_id,
-                    diagnostic_codes,
+                    lambda: llm.infer_narrative_scene_analysis(
+                        system=system,
+                        user_message=user,
+                        prompt_version=render.PROMPT_VERSION,
+                    ),
                 )
-            else:
-                normalized_fields: set[str] = set()
-                analysis = result.scenes[0]
-                packet = validated_packets[0]
-                if analysis.scene_id != packet["sceneId"]:
-                    normalized_fields.add("scene_id")
-                if analysis.turn_beat_id != packet["turnBeatId"]:
-                    normalized_fields.add("turn_beat_id")
-                if any(
-                    moment.beat_id != grounded["beatId"]
-                    for moment, grounded in zip(
-                        analysis.key_moments, packet["keyMoments"], strict=False
+                try:
+                    validated_packets = validate_scene_analysis_batch(pending, result)
+                    break
+                except NarrativeMapAnalysisValidationError as exc:
+                    diagnostic_codes = ",".join(
+                        sorted(
+                            {
+                                str(item.get("code", "unknown"))
+                                for item in exc.diagnostics
+                                if isinstance(item, dict)
+                            }
+                        )
                     )
-                ):
-                    normalized_fields.add("moment_beat_id")
-                if normalized_fields:
-                    _logger.info(
-                        "narrative_map_scene_anchors_normalized run_id=%s scene_id=%s fields=%s",
+                    _logger.warning(
+                        "narrative_map_scene_rejected "
+                        "run_id=%s scene_id=%s attempt=%d diagnostic_codes=%s",
                         run.id,
                         scene_id,
-                        ",".join(sorted(normalized_fields)),
+                        attempt,
+                        diagnostic_codes,
                     )
+            if not validated_packets:
+                unanalyzed_scene_ids.append(scene_id)
+                checkpoint["unanalyzedSceneIds"] = unanalyzed_scene_ids
+                _touch(run, phase="scene_analysis", checkpoint=checkpoint)
+                session.commit()
+                _logger.warning(
+                    "narrative_map_scene_unanalyzed run_id=%s scene_id=%s", run.id, scene_id
+                )
+                continue
+            normalized_fields: set[str] = set()
+            analysis = result.scenes[0]
+            packet = validated_packets[0]
+            if analysis.scene_id != packet["sceneId"]:
+                normalized_fields.add("scene_id")
+            if analysis.turn_beat_id != packet["turnBeatId"]:
+                normalized_fields.add("turn_beat_id")
+            if any(
+                moment.beat_id != grounded["beatId"]
+                for moment, grounded in zip(
+                    analysis.key_moments, packet["keyMoments"], strict=False
+                )
+            ):
+                normalized_fields.add("moment_beat_id")
+            if normalized_fields:
+                _logger.info(
+                    "narrative_map_scene_anchors_normalized run_id=%s scene_id=%s fields=%s",
+                    run.id,
+                    scene_id,
+                    ",".join(sorted(normalized_fields)),
+                )
             for packet in validated_packets:
                 packets_by_scene[packet["sceneId"]] = packet
-            if used_source_fallback:
-                fallback_scene_ids = list(checkpoint.get("fallbackSceneIds") or [])
-                if scene_id not in fallback_scene_ids:
-                    fallback_scene_ids.append(scene_id)
-                checkpoint["fallbackSceneIds"] = fallback_scene_ids
             checkpoint["scenePackets"] = [
                 packets_by_scene[scene["sceneId"]]
                 for scene in source.scene_sources
@@ -808,7 +821,11 @@ def execute_run(run_id: str, llm: LlmClient) -> None:
                 source.scene_count,
             )
 
-        scene_packets = [packets_by_scene[scene["sceneId"]] for scene in source.scene_sources]
+        scene_packets = [
+            packets_by_scene[scene["sceneId"]]
+            for scene in source.scene_sources
+            if scene["sceneId"] in packets_by_scene
+        ]
         mapped_doc = _synthesize_and_verify(
             session, run, source_doc, source, scene_packets, checkpoint, llm
         )
@@ -1002,29 +1019,44 @@ def _synthesize_and_verify(
     scene_packets, focal_character_repaired_ids = normalize_scene_packet_focal_characters(
         scene_packets, source.known_cast
     )
-    scene_packets, quality_repaired_ids = normalize_scene_packet_quality(
+    scene_packets, quality_unanalyzed_ids = normalize_scene_packet_quality(
         scene_packets, source.scene_sources
     )
-    repaired_scene_ids = sorted({*focal_character_repaired_ids, *quality_repaired_ids})
+    repaired_scene_ids = sorted({*focal_character_repaired_ids, *quality_unanalyzed_ids})
     if repaired_scene_ids:
         checkpoint["scenePackets"] = scene_packets
         if focal_character_repaired_ids:
             checkpoint["focalCharacterRepairVersion"] = 1
             checkpoint["focalCharacterRepairSceneIds"] = focal_character_repaired_ids
-        if quality_repaired_ids:
-            checkpoint["scenePacketRepairVersion"] = 1
-            checkpoint["scenePacketRepairSceneIds"] = quality_repaired_ids
-            # A repaired candidate must receive a fresh independent verdict.
+        if quality_unanalyzed_ids:
+            checkpoint["unanalyzedSceneIds"] = [
+                *(checkpoint.get("unanalyzedSceneIds") or []),
+                *quality_unanalyzed_ids,
+            ]
+            # The saved synthesis and verdict were built from those scenes.
+            checkpoint.pop("synthesis", None)
             checkpoint.pop("verification", None)
             checkpoint.pop("verificationAdjudication", None)
         _touch(run, phase="scene_analysis", checkpoint=checkpoint)
         session.commit()
         _logger.info(
-            "narrative_map_scene_packet_normalized run_id=%s focal_repairs=%d quality_repairs=%d",
+            "narrative_map_scene_packet_normalized run_id=%s focal_repairs=%d unanalyzed=%d",
             run.id,
             len(focal_character_repaired_ids),
-            len(quality_repaired_ids),
+            len(quality_unanalyzed_ids),
         )
+    if not scene_packets:
+        # Nothing was analysed, so a synthesis could only be invented.
+        raise NarrativeMapAnalysisValidationError(
+            [
+                {
+                    "code": "no_scene_analyzed",
+                    "path": "sceneTurns",
+                    "reason": "No scene could be analysed, so no map was built.",
+                }
+            ]
+        )
+    unanalyzed_scene_ids = list(checkpoint.get("unanalyzedSceneIds") or [])
 
     cached_synthesis = checkpoint.get("synthesis")
     _touch(run, phase="synthesis", checkpoint=checkpoint)
@@ -1032,12 +1064,33 @@ def _synthesize_and_verify(
     if cached_synthesis:
         synthesis = InferredNarrativeMapSynthesis.model_validate(cached_synthesis)
     else:
+        # Merge rejects any claim on an unanalysed scene, so do not offer its ids.
+        unanalyzed_beat_ids = {
+            beat["beatId"]
+            for scene in source.scene_sources
+            if scene["sceneId"] in unanalyzed_scene_ids
+            for beat in scene["beats"]
+        }
+        story_overview = source.story_overview and {
+            **source.story_overview,
+            "outline": [
+                row
+                for row in source.story_overview.get("outline") or []
+                if row.get("sceneId") not in unanalyzed_scene_ids
+            ],
+            "beatSheet": [
+                row
+                for row in source.story_overview.get("beatSheet") or []
+                if row.get("sceneId") not in unanalyzed_scene_ids
+                and row.get("beatId") not in unanalyzed_beat_ids
+            ],
+        }
         system, user = render.build_narrative_map_synthesis_prompt(
             source_doc,
             synthesis_scene_spine(scene_packets),
             source.known_cast,
             source.threads,
-            source.story_overview,
+            story_overview,
             render.new_nonce(),
             character_footprint=character_footprint(scene_packets),
         )
@@ -1075,7 +1128,12 @@ def _synthesize_and_verify(
         candidate = _apply_local_verification_repair(candidate, verification, checkpoint)
     candidate_doc = copy.deepcopy(source_doc)
     try:
-        merge_narrative_map(candidate_doc, source.episode_id, candidate)
+        merge_narrative_map(
+            candidate_doc,
+            source.episode_id,
+            candidate,
+            unanalyzed_scene_ids=unanalyzed_scene_ids,
+        )
     except NarrativeMapValidationError as exc:
         raise NarrativeMapAnalysisValidationError(exc.diagnostics) from None
 
@@ -1091,7 +1149,9 @@ def _synthesize_and_verify(
 
     candidate_payload = candidate.model_dump(by_alias=True)
     audit_evidence = verification_audit_evidence(
-        source.scene_sources, scene_packets, candidate_payload
+        [scene for scene in source.scene_sources if scene["sceneId"] not in unanalyzed_scene_ids],
+        scene_packets,
+        candidate_payload,
     )
     _logger.info(
         "narrative_map_verification_evidence_prepared run_id=%s cited_beats=%d evidence_chars=%d",
@@ -1145,7 +1205,12 @@ def _synthesize_and_verify(
         candidate = _apply_local_verification_repair(candidate, verification, checkpoint)
         candidate_doc = copy.deepcopy(source_doc)
         try:
-            merge_narrative_map(candidate_doc, source.episode_id, candidate)
+            merge_narrative_map(
+                candidate_doc,
+                source.episode_id,
+                candidate,
+                unanalyzed_scene_ids=unanalyzed_scene_ids,
+            )
         except NarrativeMapValidationError as exc:
             raise NarrativeMapAnalysisValidationError(exc.diagnostics) from None
         _touch(run, phase="verification", checkpoint=checkpoint)

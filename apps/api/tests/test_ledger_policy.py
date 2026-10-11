@@ -260,3 +260,94 @@ def test_genuinely_absent_quote_is_still_unverified():
     script = "SAM\nIt's Potus.\n"
     start, end, verified = ledger_policy.verify_source_text(script, "He resigned on Tuesday.", 1, 2)
     assert (start, end, verified) == (None, None, False)
+
+
+# ── locate_quote: import offsets only, never activation (T9.9) ───────────────
+
+
+def test_locate_quote_finds_offsets():
+    text = "INT. BAR - NIGHT\nDan pours a drink."
+    start, end = ledger_policy.locate_quote(text, "Dan pours", 2, 2)
+    assert text[start:end] == "Dan pours"
+
+
+def test_locate_quote_disambiguates_by_line_window():
+    text = "the money\nnothing here\nthe money"  # duplicate quote
+    start, end = ledger_policy.locate_quote(text, "the money", 3, 3)
+    assert start == text.rindex("the money")
+    assert text[start:end] == "the money"
+
+
+def test_locate_quote_absent_returns_none():
+    assert ledger_policy.locate_quote("Dan pours.", "not present", 1, 1) == (None, None)
+
+
+def test_locate_quote_empty_returns_none():
+    assert ledger_policy.locate_quote("Dan pours.", "", 1, 1) == (None, None)
+
+
+def test_locate_quote_falls_back_to_whole_beat():
+    text = "INT. BAR - NIGHT\nDan pours a drink."
+    start, end = ledger_policy.locate_quote(text, "Dan pours", 1, 1)  # stale window
+    assert text[start:end] == "Dan pours"
+
+
+def test_locate_quote_matches_through_typography_and_whitespace():
+    text = "SAM\nIt’s   the  money,\n    Billy — honest."
+    start, end = ledger_policy.locate_quote(text, "It's the money, Billy - honest.", 2, 3)
+    assert text[start:end] == "It’s   the  money,\n    Billy — honest."
+
+
+def test_locate_quote_unescapes_html_on_both_sides():
+    text = "JOSH\nSam &amp; Toby say 2 < 3."
+    start, end = ledger_policy.locate_quote(text, "Sam & Toby say 2 &lt; 3.", 2, 2)
+    assert text[start:end] == "Sam &amp; Toby say 2 < 3."
+    # A bare ampersand is not a reference: offsets stay per character.
+    assert ledger_policy.locate_quote("Sam runs R&D now.", "D now.", 1, 1) == (11, 17)
+
+
+def test_locate_quote_skips_page_furniture():
+    text = (
+        "SAM\nI was going to say that we\n(MORE)\n\n12.\nCONTINUED: (2)\n"
+        "SAM (CONT’D)\nshould go home.\n\nBILLY\nNo."
+    )
+    start, end = ledger_policy.locate_quote(
+        text, "I was going to say that we should go home.", 2, 8
+    )
+    assert start == text.index("I was")
+    assert end == text.index("home.") + len("home.")
+
+
+def test_locate_quote_keeps_a_cue_line_the_quote_includes():
+    text = "JOSH\nYes.\n\nSAM (CONT'D)\nYes."
+    # Verbatim: the same offsets verify_source_text gives, not Josh's line.
+    assert ledger_policy.locate_quote(text, "SAM (CONT'D)\nYes.", 1, 5) == (11, 28)
+    # Not verbatim (indent, curly apostrophe): still Sam's line.
+    text = "JOSH\nYes.\n\nSAM (CONT’D)\n  Yes."
+    assert ledger_policy.locate_quote(text, "SAM (CONT'D)\nYes.", 1, 5) == (11, 30)
+
+
+def test_locate_quote_prefers_the_verbatim_occurrence():
+    text = "the  money\nthe money"
+    assert ledger_policy.locate_quote(text, "the money", 1, 2) == (11, 20)
+    text = "the  money\nX\nthe money"  # stale window: whole beat, verbatim first
+    assert ledger_policy.locate_quote(text, "the money", 2, 2) == (13, 22)
+
+
+def test_locate_quote_finds_a_number_only_quote():
+    text = "TOBY\nWhat year?\n\nSAM\n1985."
+    assert ledger_policy.locate_quote(text, "1985.", 1, 1) == (21, 26)
+    # A number line closing a non-verbatim quote stays inside the span.
+    text = "SAM\nIt   was\n1985."
+    assert ledger_policy.locate_quote(text, "It was\n1985.", 2, 3) == (4, 18)
+
+
+def test_out_of_window_quote_is_still_demoted_though_locate_quote_finds_it():
+    """locate_quote only sets import offsets; activation stays window-strict."""
+    quote = "Reyes snaps the cuffs on Dan."  # on line 3, reported as line 1
+    assert ledger_policy.locate_quote(BEAT["scriptText"], quote, 1, 1) != (None, None)
+    new_facts, _p, _c = _apply(
+        _extraction([_fact(confidence=0.99, source_text=quote, start=1, end=1)])
+    )
+    assert new_facts[0]["status"] == "pending_review"
+    assert new_facts[0]["sourceSpan"]["charStart"] is None

@@ -39,9 +39,11 @@ from typing import Any
 # West Wing pilot and named in three, and the synthesis wrote him a full arc
 # anyway — twice, inventing the specifics both times ("Annie" for a granddaughter
 # the excerpt leaves unnamed, then a want "to settle the Commandments argument").
-# The gate caught both and dropped the arc, so the writer lost the character
-# rather than read a fabrication. Standing in the world was beating a count the
-# model had to derive across 27 spine rows; now it reads it.
+# The gate caught both and blanked the field, so the arc published with an
+# empty want beside readings nobody had checked as closely. Standing in the
+# world was beating a count the model had to derive across 27 spine rows; now
+# it reads it — and a character focal in one scene gets no arc at all, which is
+# a real loss against what published before, accepted on purpose.
 # 0.46.0 tells
 # the Narrative Map verifier to settle a finding before filing it. Giving the
 # blocking list a reason field in 0.43.0 gave the model somewhere to reason, and

@@ -11,14 +11,20 @@ from __future__ import annotations
 import copy
 import hashlib
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from uuid import uuid4
 
 from sqlalchemy.orm import Session
 
+from drama_manager import render
 from storage.models import ImportRunRow, ImportRunUnitRow, ProjectRow
 
-IMPORT_ANALYSIS_VERSION = "2026-07-24.1"
-_RUN_RECOVERY_AGE = timedelta(minutes=10)
+IMPORT_ANALYSIS_VERSION = "2026-10-04.7"
+# Saved units hold verbatim script text, so an unfinished run is not kept
+# indefinitely for a retry that may never come.
+UNFINISHED_RUN_RETENTION = timedelta(days=7)
+_MODELS_CONFIG = Path(__file__).resolve().parents[3] / "config" / "models.toml"
+RUN_RECOVERY_AGE = timedelta(minutes=10)
 _TIMEOUT_RETRY_GRACE = timedelta(minutes=10)
 
 
@@ -44,6 +50,29 @@ def _clear_units(session: Session, run_id: str) -> None:
     )
 
 
+def analysis_version() -> str:
+    """A prompt or model-pin change invalidates every saved unit."""
+    models_hash = hashlib.sha256(_MODELS_CONFIG.read_bytes()).hexdigest()[:12]
+    return f"{IMPORT_ANALYSIS_VERSION}+{render.PROMPT_VERSION}+{models_hash}"
+
+
+def _purge_expired_runs(session: Session) -> None:
+    expired = [
+        run_id
+        for (run_id,) in session.query(ImportRunRow.id).filter(
+            ImportRunRow.status != "completed",
+            ImportRunRow.updated_at < _utcnow() - UNFINISHED_RUN_RETENTION,
+        )
+    ]
+    session.query(ImportRunUnitRow).filter(ImportRunUnitRow.run_id.in_(expired)).delete(
+        synchronize_session=False
+    )
+    session.query(ImportRunRow).filter(ImportRunRow.id.in_(expired)).delete(
+        synchronize_session=False
+    )
+    session.commit()
+
+
 def create_or_resume_run(
     session: Session,
     *,
@@ -52,6 +81,8 @@ def create_or_resume_run(
     content: str,
 ) -> tuple[ImportRunRow, bool]:
     """Return ``(run, should_execute)`` without ever invoking the model."""
+    _purge_expired_runs(session)
+    version = analysis_version()
     existing = (
         session.query(ImportRunRow)
         .filter_by(idempotency_key=idempotency_key)
@@ -64,7 +95,7 @@ def create_or_resume_run(
             idempotency_key=idempotency_key,
             request_hash=request_hash,
             source_hash=source_hash,
-            analysis_version=IMPORT_ANALYSIS_VERSION,
+            analysis_version=version,
             status="queued",
             phase="preparing",
             attempt_count=1,
@@ -89,7 +120,7 @@ def create_or_resume_run(
             existing,
             request_hash=request_hash,
             source_hash=source_hash,
-            analysis_version=IMPORT_ANALYSIS_VERSION,
+            analysis_version=version,
             status="queued",
             phase="preparing",
             scene_count=0,
@@ -111,7 +142,7 @@ def create_or_resume_run(
             existing,
             request_hash=request_hash,
             source_hash=source_hash,
-            analysis_version=IMPORT_ANALYSIS_VERSION,
+            analysis_version=version,
             status="queued",
             phase="preparing",
             scene_count=0,
@@ -130,11 +161,11 @@ def create_or_resume_run(
             "Idempotency-Key was already used for a different import request"
         )
 
-    if existing.analysis_version != IMPORT_ANALYSIS_VERSION:
+    if existing.analysis_version != version:
         _clear_units(session, existing.id)
         _touch(
             existing,
-            analysis_version=IMPORT_ANALYSIS_VERSION,
+            analysis_version=version,
             status="queued",
             phase="preparing",
             scene_count=0,
@@ -169,7 +200,7 @@ def create_or_resume_run(
 
     if (
         existing.status in {"queued", "running"}
-        and existing.updated_at < _utcnow() - _RUN_RECOVERY_AGE
+        and existing.updated_at < _utcnow() - RUN_RECOVERY_AGE
     ):
         _touch(
             existing,

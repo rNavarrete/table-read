@@ -7,17 +7,25 @@ never be treated as a rule-9 schema-invalid retry target -- the eval loops
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import time
 from dataclasses import dataclass, field
+from types import SimpleNamespace
 from typing import Any
 
 import anthropic
 import httpx
 import pytest
 
-from llm.anthropic_client import DEFAULT_LLM_CALL_TIMEOUT_SECONDS, AnthropicClient
+from llm.anthropic_client import (
+    DEFAULT_LLM_CALL_TIMEOUT_SECONDS,
+    AnthropicClient,
+    _create_with_timeout,
+    _stream_final_with_timeout,
+)
 from llm.errors import LlmTimeoutError, SchemaInvalidLlmError, log_llm_unavailable
+from llm.ops import OP_REGISTRY
 
 _MODELS = {
     "writer": "m",
@@ -185,3 +193,138 @@ def test_grader_calibration_timeout_fails_closed_without_fabricating_verdict():
             raise LlmTimeoutError("continuity_judge")
 
     assert calibrate(_TimeoutJudge(), facts=[]) is False
+
+
+# ---------------------------------------------------------------------------
+# T9.4: the SDK never retries on its own (`max_retries=0`), so a timed-out call
+# is never silently re-sent and billed twice. The helpers retry exactly once,
+# after a backoff, and only on 429/529/5xx: those requests were rejected
+# unbilled. Each attempt carries the op's own timeout to the SDK.
+# ---------------------------------------------------------------------------
+
+_REQUEST = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+_HANG = object()
+
+
+def _status_error(cls: type, status: int) -> Exception:
+    return cls(message="x", response=httpx.Response(status, request=_REQUEST), body=None)
+
+
+class _ScriptedSdk:
+    """Each `create`/`stream` call takes the next outcome: an exception is
+    raised, `_HANG` outlives any test deadline, anything else is the reply."""
+
+    def __init__(self, *outcomes: Any) -> None:
+        self.messages = self
+        self._outcomes = list(outcomes)
+        self.calls: list[dict[str, Any]] = []
+
+    def _next(self, kwargs: dict[str, Any]) -> Any:
+        self.calls.append(kwargs)
+        outcome = self._outcomes.pop(0)
+        if outcome is _HANG:
+            time.sleep(1)
+        if isinstance(outcome, BaseException):
+            raise outcome
+        return outcome
+
+    def create(self, **kwargs: Any) -> Any:
+        return self._next(kwargs)
+
+    def stream(self, **kwargs: Any) -> Any:
+        reply = self._next(kwargs)
+        return contextlib.nullcontext(SimpleNamespace(get_final_message=lambda: reply))
+
+
+_EACH_HELPER = pytest.mark.parametrize(
+    "helper", [_create_with_timeout, _stream_final_with_timeout], ids=["create", "stream"]
+)
+
+
+@pytest.fixture()
+def no_backoff(monkeypatch):
+    monkeypatch.setattr("llm.anthropic_client._OVERLOAD_BACKOFF_SECONDS", 0)
+
+
+@_EACH_HELPER
+@pytest.mark.parametrize(
+    "error",
+    [
+        (anthropic.OverloadedError, 529),
+        (anthropic.RateLimitError, 429),
+        (anthropic.InternalServerError, 500),
+        (anthropic.InternalServerError, 503),
+    ],
+    ids=["529", "429", "500", "503"],
+)
+def test_an_overload_is_retried_once_after_a_backoff(helper, error, monkeypatch):
+    monkeypatch.setattr("llm.anthropic_client._OVERLOAD_BACKOFF_SECONDS", 0.05)
+    sdk = _ScriptedSdk(_status_error(*error), "reply")
+
+    t0 = time.monotonic()
+    assert helper(sdk, 180.0, "segment_scene", model="m") == "reply"
+
+    assert len(sdk.calls) == 2
+    assert time.monotonic() - t0 >= 0.05, "the retry waits out a backoff first"
+
+
+@_EACH_HELPER
+def test_a_second_overload_surfaces_without_a_third_attempt(helper, no_backoff):
+    overloaded = _status_error(anthropic.OverloadedError, 529)
+    sdk = _ScriptedSdk(overloaded, overloaded, "unused")
+
+    with pytest.raises(anthropic.OverloadedError):
+        helper(sdk, 180.0, "segment_scene", model="m")
+    assert len(sdk.calls) == 2
+
+
+@_EACH_HELPER
+@pytest.mark.parametrize(
+    "error",
+    [
+        _status_error(anthropic.BadRequestError, 400),
+        # The SDK's own read timeout: the request may have run, and been billed.
+        anthropic.APITimeoutError(request=_REQUEST),
+        # A gateway timeout is a timeout too (the SDK raises 504 as InternalServerError).
+        _status_error(anthropic.InternalServerError, 504),
+        anthropic.APIConnectionError(request=_REQUEST),
+    ],
+    ids=["400", "sdk-timeout", "504", "connection"],
+)
+def test_other_failures_are_not_retried(helper, error, no_backoff):
+    sdk = _ScriptedSdk(error, "unused")
+
+    with pytest.raises(type(error)):
+        helper(sdk, 180.0, "segment_scene", model="m")
+    assert len(sdk.calls) == 1
+
+
+@_EACH_HELPER
+def test_a_deadline_timeout_is_not_retried(helper, no_backoff):
+    sdk = _ScriptedSdk(_HANG, "unused")
+
+    with pytest.raises(LlmTimeoutError):
+        helper(sdk, 0.05, "segment_scene", model="m")
+    assert len(sdk.calls) == 1
+
+
+@_EACH_HELPER
+def test_each_attempt_carries_the_op_timeout_to_the_sdk(helper, no_backoff):
+    sdk = _ScriptedSdk(_status_error(anthropic.OverloadedError, 529), "reply")
+
+    helper(sdk, 180.0, "infer_story_entities", model="m")
+
+    assert [call["timeout"] for call in sdk.calls] == [180.0, 180.0]
+
+
+def test_the_per_op_budget_replaces_the_sdk_default_read_timeout():
+    """`extract_ledger_facts` has a 300s budget; the SDK client is built with
+    120s, which used to win because the per-op value never reached it."""
+    sdk = _ScriptedSdk(SimpleNamespace(content=[]), SimpleNamespace(content=[]))
+    client = AnthropicClient(sdk, _MODELS)
+
+    with pytest.raises(SchemaInvalidLlmError):
+        client.extract_ledger_facts(system="s", user_message="u", prompt_version="0.0.0-test")
+
+    assert OP_REGISTRY["extract_ledger_facts"].call_timeout_seconds == 300.0
+    assert [call["timeout"] for call in sdk.calls] == [300.0, 300.0]

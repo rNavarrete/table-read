@@ -408,6 +408,8 @@ class NarrativeMap(_Base):
     character_arcs: list[NarrativeCharacterArc]
     scene_turns: list[SceneTurn] = Field(min_length=1)
     thread_movements: list[ThreadMovement]
+    # See the Zod comment: listed scenes have no turn and nothing cites them.
+    unanalyzed_scene_ids: list[Id] = []
     provenance: StoryOverviewProvenance = StoryOverviewProvenance.inferred
     locked: bool = False
 
@@ -508,7 +510,9 @@ class SourceSpan(_Base):
     beat_id: Id
     # Offsets within the beat's scriptText. Lines are model-reported (input is
     # line-numbered); char offsets are computed server-side by locating
-    # sourceText verbatim within the line range (disambiguates duplicates).
+    # sourceText within the line range (disambiguates duplicates). Import also
+    # searches the whole beat and ignores whitespace, HTML entities and page
+    # furniture (T9.9); null means the quote was not found on the page.
     start_line: int | None = Field(default=None, ge=0)
     end_line: int | None = Field(default=None, ge=0)
     char_start: int | None = Field(default=None, ge=0)
@@ -993,6 +997,9 @@ class WorldElementKind(StrEnum):
 # existing bible (matching on name/aliases) and mints new ids for anything
 # unresolved — the model never sets/knows ids. Every entity carries at least
 # one evidence citation (scene id + short quote) for the review UI.
+# A character whose name and aliases match more than one existing row is
+# neither attached nor minted; it becomes an open `[merge_proposal]` scene
+# flag pointing at Merge into (T9.8).
 class EntityEvidence(_Base):
     scene_id: Id
     quote: str  # verbatim-ish; server-truncated to 200 chars

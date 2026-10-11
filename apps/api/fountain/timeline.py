@@ -36,6 +36,10 @@ _RELATIVE_KEYWORDS = (
     "THAT EVENING",
     "MEANWHILE",
 )
+# A bare hyphen needs spaces around it ("SEMI-DETACHED" is one word).
+_TIME_SEPARATOR_RE = re.compile(r"\s+-\s+|\s*(?:--|—|–|~)\s*")
+# Production scene number trailing the heading ("DAY 17", "NIGHT A12").
+_SCENE_NUMBER_SUFFIX_RE = re.compile(r"\s+[A-Za-z]?\d{1,3}[A-Za-z]?\s*$")
 
 
 def slugline_time(location: str) -> str:
@@ -51,9 +55,10 @@ def slugline_time(location: str) -> str:
     as a scene heading throughout the app, and `merge_timeline_anchors` parses
     it directly.
     """
-    if " - " not in location:
+    segments = _TIME_SEPARATOR_RE.split(location)
+    if len(segments) < 2:
         return ""
-    return location.rsplit(" - ", maxsplit=1)[-1].strip()
+    return _SCENE_NUMBER_SUFFIX_RE.sub("", segments[-1]).strip()
 
 
 def _time_segment(location: str) -> str | None:

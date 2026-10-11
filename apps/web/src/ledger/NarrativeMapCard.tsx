@@ -35,6 +35,21 @@ function sceneForBeat(project: Project, beatId: string): string | null {
   return null
 }
 
+function sceneName(project: Project, sceneId: string): string {
+  for (const season of project.seasons) {
+    for (const episode of season.episodes) {
+      const index = episode.scenes.findIndex((scene) => scene.id === sceneId)
+      if (index >= 0) {
+        const location = episode.scenes[index].location
+        return location
+          ? `Scene ${index + 1}: ${location}`
+          : `Scene ${index + 1}`
+      }
+    }
+  }
+  return sceneId
+}
+
 function characterName(
   project: Project,
   characterId: string | null,
@@ -280,6 +295,8 @@ export function NarrativeMapCard({
 }: NarrativeMapCardProps) {
   const mapNeedsReplacement =
     narrativeMap != null && !isUsableNarrativeMap(narrativeMap)
+  // Maps saved before T9.3 arrive unparsed, without the key.
+  const unanalyzedSceneIds = narrativeMap?.unanalyzedSceneIds ?? []
   const runIsActive =
     narrativeMapRun?.status === 'queued' ||
     narrativeMapRun?.status === 'running'
@@ -436,6 +453,55 @@ export function NarrativeMapCard({
                 </li>
               ))}
             </ul>
+          </section>
+        ) : null}
+        {unanalyzedSceneIds.length > 0 ? (
+          <section
+            className="mb-5 rounded-card border border-tr-border bg-tr-surface-clay p-4"
+            data-testid="narrative-map-unanalyzed"
+          >
+            <h3 className="font-script text-11 uppercase tracking-[0.1em] text-tr-text-muted">
+              Not analyzed ({unanalyzedSceneIds.length})
+            </h3>
+            <p className="mt-1 text-12 text-tr-text-secondary">
+              The analysis could not read these scenes, so the map says nothing
+              about them. Nothing was written in their place.
+            </p>
+            <ul className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
+              {unanalyzedSceneIds.map((sceneId) => (
+                <li key={sceneId}>
+                  <button
+                    type="button"
+                    className="text-12 text-tr-sky underline-offset-2 hover:underline"
+                    onClick={() => onJumpToScene(sceneId)}
+                  >
+                    {sceneName(project, sceneId)}
+                  </button>
+                </li>
+              ))}
+            </ul>
+            {onGenerateNarrativeMap && !narrativeMap.locked ? (
+              <>
+                <p className="mt-3 text-12 text-tr-text-muted">
+                  Analyzing them makes new model calls for these scenes, then
+                  rebuilds and re-verifies the story-wide map. Scenes already
+                  analyzed are reused.
+                </p>
+                <button
+                  type="button"
+                  onClick={onGenerateNarrativeMap}
+                  disabled={narrativeMapRun?.retryAllowed === false}
+                  className="mt-2 rounded-card bg-tr-coral px-3 py-2 text-13 font-medium text-tr-surface-raised disabled:cursor-not-allowed disabled:opacity-50"
+                  data-testid="analyze-unanalyzed-scenes"
+                >
+                  Analyze {unanalyzedSceneIds.length} unanalyzed{' '}
+                  {unanalyzedSceneIds.length === 1 ? 'scene' : 'scenes'}
+                </button>
+              </>
+            ) : null}
+            {narrativeMapRun && runIsActive ? (
+              <NarrativeMapProgress run={narrativeMapRun} />
+            ) : null}
           </section>
         ) : null}
         <div className="grid gap-5 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">

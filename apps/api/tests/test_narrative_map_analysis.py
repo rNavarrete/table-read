@@ -16,7 +16,6 @@ from drama_manager.narrative_map_analysis import (
     prepare_narrative_map_source,
     repair_candidate_from_verification,
     reusable_scene_packets,
-    source_backed_scene_fallback,
     synthesis_scene_spine,
     validate_scene_analysis_batch,
     validate_verification,
@@ -414,49 +413,7 @@ def test_scene_packet_rejects_placeholders_even_when_schema_valid():
     assert any(item["code"] == "unusable_analysis_text" for item in error.value.diagnostics)
 
 
-def test_source_backed_fallback_preserves_outline_after_placeholder_response():
-    doc = _doc()
-    doc["seasons"][0]["episodes"][0]["storyOverview"] = {
-        "outline": [
-            {
-                "sceneId": "scene-1",
-                "summary": "Nora discovers an unsent letter hidden in the locked drawer.",
-            }
-        ]
-    }
-    source_scene = prepare_narrative_map_source(doc).scene_sources[0]
-    bad = _scene_packet(
-        scenes=[
-            {
-                **_scene_packet().scenes[0].model_dump(by_alias=True),
-                "summary": "<UNKNOWN>",
-                "dramaticFunction": "<UNKNOWN>",
-                "conflict": "<UNKNOWN>",
-                "stakes": "<UNKNOWN>",
-                "turn": "<UNKNOWN>",
-                "keyMoments": [
-                    {
-                        "beatId": "beat-1-1",
-                        "summary": "<UNKNOWN>",
-                        "dramaticFunction": "<UNKNOWN>",
-                        "consequence": "<UNKNOWN>",
-                    }
-                ],
-            }
-        ]
-    )
-    diagnostics = [{"code": "unusable_analysis_text", "path": "scenes[0].summary"}]
-
-    packet = source_backed_scene_fallback(source_scene, bad, diagnostics)
-
-    assert packet is not None
-    assert packet["analysisStatus"] == "source_fallback"
-    assert packet["summary"].startswith("Nora discovers")
-    assert packet["turnBeatId"] == "beat-1-1"
-    assert packet["keyMoments"][0]["sourceQuote"].startswith("Nora finds")
-
-
-def test_checkpoint_packet_placeholder_is_repaired_from_saved_source_without_a_model_call():
+def test_checkpoint_packet_placeholder_is_set_aside_unanalyzed_not_rewritten():
     doc = _doc()
     doc["seasons"][0]["episodes"][0]["storyOverview"] = {
         "outline": [
@@ -471,13 +428,10 @@ def test_checkpoint_packet_placeholder_is_repaired_from_saved_source_without_a_m
     packet["dramaticFunction"] = "placeholder"
     packet["conflict"] = "placeholder"
 
-    repaired, repaired_scene_ids = normalize_scene_packet_quality([packet], source.scene_sources)
+    kept, unanalyzed_scene_ids = normalize_scene_packet_quality([packet], source.scene_sources)
 
-    assert repaired_scene_ids == ["scene-1"]
-    assert repaired[0]["analysisStatus"] == "source_fallback"
-    assert repaired[0]["dramaticFunction"] != "placeholder"
-    assert repaired[0]["conflict"] != "placeholder"
-    assert repaired[0]["turnBeatId"] == "beat-1-1"
+    assert kept == []
+    assert unanalyzed_scene_ids == ["scene-1"]
 
 
 def test_verification_evidence_is_bounded_to_candidate_citations():
@@ -507,8 +461,41 @@ def test_prior_checkpoint_is_reused_only_after_current_source_validation():
         "summary": "<UNKNOWN>",
     }
 
-    assert reusable_scene_packets(source.scene_sources, [invalid]) == []
-    assert reusable_scene_packets(source.scene_sources, [invalid, valid]) == [valid]
+    assert reusable_scene_packets(source.scene_sources, [{"scenePackets": [invalid]}]) == []
+    assert reusable_scene_packets(
+        source.scene_sources, [{"scenePackets": [invalid]}, {"scenePackets": [valid]}]
+    ) == [valid]
+
+
+def test_prior_checkpoint_never_reuses_a_scene_that_fell_back():
+    source = prepare_narrative_map_source(_doc())
+    packet = validate_scene_analysis_batch(source.scene_sources, _scene_packet())[0]
+    marked = {**packet, "analysisStatus": "source_fallback"}
+
+    assert reusable_scene_packets(source.scene_sources, [{"scenePackets": [packet]}]) == [packet]
+    assert (
+        reusable_scene_packets(
+            source.scene_sources, [{"scenePackets": [packet], "fallbackSceneIds": ["scene-1"]}]
+        )
+        == []
+    )
+    # Newest first: an unmarked copy in a later run is still the older run's fallback.
+    assert (
+        reusable_scene_packets(
+            source.scene_sources, [{"scenePackets": [packet]}, {"scenePackets": [marked]}]
+        )
+        == []
+    )
+
+
+def test_reused_checkpoint_keeps_its_analysis_status():
+    source = prepare_narrative_map_source(_doc())
+    packet = {
+        **validate_scene_analysis_batch(source.scene_sources, _scene_packet())[0],
+        "analysisStatus": "accepted",
+    }
+
+    assert reusable_scene_packets(source.scene_sources, [{"scenePackets": [packet]}]) == [packet]
 
 
 def test_scene_analysis_requests_are_single_scene_for_exact_coverage_and_checkpointing():
@@ -905,6 +892,51 @@ def test_an_approved_verdict_with_a_blocking_claim_still_rejects():
     )
     with pytest.raises(NarrativeMapAnalysisValidationError):
         validate_verification(verdict)
+
+
+def test_a_verdict_whose_every_blocking_claim_was_withdrawn_publishes():
+    """5b6ab04 moved the claim to advisories and left `approved=False`, which
+    rejected with a pathless, reasonless diagnostic and blocked the retry."""
+    verdict = NarrativeMapVerification.model_validate(
+        {
+            "approved": False,
+            "unsupportedClaims": [
+                {"path": "sceneTurns[0].turnBeatId", "reason": "Supported after all.",
+                    "excerptCarriesClaim": True}
+            ],
+            "missingSceneIds": [],
+            "advisories": [],
+        }
+    )
+
+    corrected, _ = partition_self_retracted_claims(verdict)
+
+    validate_verification(corrected)  # does not raise
+
+
+def test_a_disapproval_with_nothing_in_either_blocking_list_publishes():
+    """The outcome comes from the lists; a rejection with nothing to name is
+    one the writer can neither read nor act on."""
+    verdict = NarrativeMapVerification.model_validate(
+        {"approved": False, "unsupportedClaims": [], "missingSceneIds": [], "advisories": []}
+    )
+
+    validate_verification(verdict)  # does not raise
+
+
+def test_a_missing_scene_rejection_names_the_scene_and_says_why():
+    verdict = NarrativeMapVerification.model_validate(
+        {"approved": True, "unsupportedClaims": [], "missingSceneIds": ["scene-3"],
+            "advisories": []}
+    )
+
+    with pytest.raises(NarrativeMapAnalysisValidationError) as excinfo:
+        validate_verification(verdict)
+    [diagnostic] = excinfo.value.diagnostics
+    assert diagnostic["code"] == "verifier_missing_scene"
+    assert diagnostic["sceneId"] == "scene-3"
+    assert diagnostic["path"] == "sceneTurns[scene-3]", "pathless diagnostics are never shown"
+    assert diagnostic["reason"]
 
 
 def test_the_word_escalation_in_a_reason_cannot_repair_a_turn_beat_rejection():

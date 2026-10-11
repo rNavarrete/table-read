@@ -259,7 +259,7 @@ Purpose: import-time cast/relationship/world-element read, run once per import b
 
 **Input:** scene plan summaries (`{id, location, whatHappens}`) plus each scene's early script text, and the ground-truth speaker list already minted from cues (`fountain/characters.cues_from_scenes`) as a floor to extend, never replace — inside `<source_data_{nonce}>` tags per §8b.
 
-**Output schema (`StoryEntities`):** characters (incl. non-speaking), relationships, and world elements (locations/objects) — **names, not ids**: the model never mints or knows character/scene ids, only refers to entities by name string. The server resolves each name against the existing bible (exact/casefold/alias match) and mints a new id for anything unresolved. Every entity carries at least one `EntityEvidence` (`{sceneId, quote}`) citation for the review UI — `min(1)`, enforced by the schema, not a convention.
+**Output schema (`StoryEntities`):** characters (incl. non-speaking), relationships, and world elements (locations/objects) — **names, not ids**: the model never mints or knows character/scene ids, only refers to entities by name string. The server resolves each name against the existing bible (exact/casefold/alias match) and mints a new id for anything unresolved; a character whose name and aliases match several existing rows is neither attached nor minted but filed as an open `[merge_proposal]` flag for the writer's Merge into (T9.8). Every entity carries at least one `EntityEvidence` (`{sceneId, quote}`) citation for the review UI — `min(1)`, enforced by the schema, not a convention.
 
 ```json
 {
@@ -401,11 +401,11 @@ Purpose: Fountain/plain-text import → scenes/beats (MVP: single episode). **Tw
 
 Server rules: for starts `s₁…sₙ`, the server derives each end as `sᵢ₊₁−1` and the final end as `K`, then slices `scriptText` verbatim. Whole segment objects are sorted by `startLine`; missing line 1 gets a synthetic unassigned prefix; out-of-bounds starts are discarded; duplicate starts collapse to one unassigned segment; no usable starts yields one whole-scene unassigned segment. Every selected repair is flagged with a stable reason code, and unassigned runs attach to the nearest beat, so coverage is always exactly `1..K` and semantic start errors never abort import.
 
-**Quality-gated semantic retry:** normalize the first attempt, then retry that scene exactly once when the output is empty, any start is duplicated, any beat metadata is discarded, or `affectedLines / K > 0.05`. Normalize the retry too and select lexicographically by `(discardedBeatMetadata, affectedLines, maxBoundaryDisplacement, repairEventCount)`; the first attempt wins an exact tie. The retry prompt includes only concrete repair codes/counts plus the same inert source block. This is separate from rule 9's schema-invalid retry.
+**Quality-gated semantic retry:** normalize the first attempt, then retry that scene exactly once when the output is empty, any start is duplicated, any beat metadata is discarded, `affectedLines / K > 0.05`, every segment is unassigned on a scene that is not a short establishing scene (`no_beats_returned`), or any scene-level or beat text field contains leaked tool-call markup (`tool_markup`). Normalize the retry too and select lexicographically by `(noSemanticBeat, toolMarkup, discardedBeatMetadata, affectedLines, maxBoundaryDisplacement, repairEventCount)`, where `noSemanticBeat` means no beat has a non-empty `whatHappens`; the first attempt wins an exact tie. The retry prompt includes only concrete repair codes/counts (including `no_beats_returned` / `tool_markup`) plus the same inert source block. A text field still holding markup in the selected attempt is stored as `""` and its beat (the first beat for scene-level fields) gets a `tool_markup` review flag. A short establishing scene, whose non-blank lines after the heading number at most 2 and hold at most 130 characters together, that comes back all unassigned gets no retry and no `no_beats_returned` flag; the character cap matters because native Fountain keeps a whole action paragraph on one line (threshold awaiting owner confirmation, T9.16). This is separate from rule 9's schema-invalid retry.
 
 ### Import act inference
 
-The synchronized `infer_act_breaks` operation uses the `import_analyst` role (Opus 5; no explicit temperature). After all scenes are segmented, its input contains compact scene summaries in source order: zero-based `sceneIndex`, heading/location, and each segmented beat's `whatHappens`, `audienceLearns`, and `audienceFeels`, plus the selected format's `runtimeMinutes`, `actCount`, and `coldOpen`. The renderer places this structured payload inside the nonce-wrapped `<source_data kind="import_scene_summaries">` boundary; imported and model-derived summary text is never interpolated outside `drama_manager/render.py`.
+The synchronized `infer_act_breaks` operation uses the `import_analyst` role (Opus 5; no explicit temperature). It runs only when the script's printed act markers are absent or invalid (data contract §4 import step 2: missing, partial, conflicting, or inconsistent with `format.actCount`/`coldOpen`); a script whose markers state a valid partition gets its acts from the server with no model call. After all scenes are segmented, its input contains compact scene summaries in source order: zero-based `sceneIndex`, heading/location, and each segmented beat's `whatHappens`, `audienceLearns`, and `audienceFeels`, plus the selected format's `runtimeMinutes`, `actCount`, and `coldOpen`. The renderer places this structured payload inside the nonce-wrapped `<source_data kind="import_scene_summaries">` boundary; imported and model-derived summary text is never interpolated outside `drama_manager/render.py`.
 
 Its strict typed output contains only ordered `{act, startSceneIndex}` starts (`InferredActBreaks`), never scene ids, end indices, per-scene assignments, heading text, or a TAG. The first scene index must be 0; act and scene indices must strictly increase and remain within the selected format and parsed scene count. Omitted valid acts represent empty sections. The server validates those semantic constraints and expands accepted starts into exactly one act for every scene.
 
@@ -442,10 +442,10 @@ script is empty. Missing raw text is a hard rejection, before any model call.
 scene exactly once, a source-owned `turnBeatId`, and one or more key moments
 whose `beatId` resolves to a saved beat; the server, not the model, attaches a
 verbatim `sourceQuote` from that beat's screenplay. A semantic evidence failure
-does not trigger another paid request. When the imported outline already holds
-a publishable source-backed summary, the server preserves it as a visibly
-marked low-resolution `source_fallback` packet; otherwise the run stops with
-its accepted checkpoints intact.
+gets exactly one re-roll with the same prompt; a scene that fails again is
+listed in the map's `unanalyzedSceneIds` with no scene turn, and the server
+writes no prose in its place (analysis version `3.6`). Earlier versions
+published a server-written `source_fallback` packet instead.
 Scene analysis uses strict tools with `tool_choice: auto` and adaptive thinking
 at medium effort. Synthesis is intentionally different: Claude Opus 5 counts
 thinking against its total response budget, and thinking is incompatible with a
@@ -455,18 +455,22 @@ call with a bounded number of claims. This prevents a feature-length script
 from truncating a required response field after the paid scene pass completes.
 This corrected request path ships as Narrative Map analysis version `2.6` at
 `PROMPT_VERSION 0.32.0`; a newer version reuses valid scene checkpoints from a
-failed older run before it makes any provider call.
+failed older run before it makes any provider call, except a scene that fell
+back to `source_fallback` in any earlier run, which is analysed again (analysis
+version `3.4`).
 
 **Macro pass and audit:** `infer_narrative_map_synthesis` also uses Opus 5,
 but receives a compact spine from verified scene packets plus resolved cast,
 established threads, and the saved overview. It returns macro structure,
 character arcs, thread movement, and the optional Hero's Journey lens; scene
-turns come from the already-grounded scene pass. Packets marked `source_fallback` preserve
-chronology but cannot independently support themes, arcs, or inferred motives.
+turns come from the already-grounded scene pass. Unanalysed scenes are left out
+of the spine, the saved overview's outline and beat-sheet rows, and the
+verifier's evidence; merge rejects any claim citing one. (The prompt still mentions
+`source_fallback` packets; since `3.6` none are sent.)
 `verify_narrative_map` uses the independent `writer` role (`claude-sonnet-5`)
 to reject unsupported claims, generic filler, placeholders, or missing scenes
-before persistence. The server first rejects placeholder packet fields and
-locally repairs any recoverable checkpoint from its saved source-backed outline.
+before persistence. The server first sets aside any checkpointed packet with
+placeholder fields as unanalysed.
 The independent verifier receives only the map candidate, thread registry, and
 bounded exact excerpts for the candidate's cited beat ids; scene/citation
 coverage remains deterministic server work. The verifier uses a forced strict
@@ -496,7 +500,8 @@ version `3.3` at `PROMPT_VERSION 0.48.0`.
 Those two channels — `unsupportedClaims` and `advisories` — are **mutually
 exclusive**, and both carry `{path, reason}`. Only `unsupportedClaims` (or
 `missingSceneIds`) rejects the map; `approved` is the model's opinion and a
-nonempty blocking list overrides it. `path` names the disputed field alone,
+nonempty blocking list overrides it, as two empty ones do (analysis version
+`3.5`). `path` names the disputed field alone,
 indexing into it where that identifies the item (`characterArcs[C.J.]
 .turningPoints[beat-9-3]`), and every word of explanation belongs in `reason`
 — the server pattern-matches `path` to decide which claim to prune locally, so
@@ -509,7 +514,9 @@ appended to each path; every double-filed advisory became a rejection.
 **Durability and merge:** the run is keyed to its source snapshot/hash and
 checkpoints each accepted scene using a fresh JSON assignment. It allows one
 diagnostic-only scene repair and one diagnostic-only synthesis repair, derives
-all persisted excerpts from authoritative `scriptText`, and writes a snapshot
+all persisted excerpts from authoritative `scriptText` (each is the cited
+beat's first dialogue line of three or more words, else its first line that is
+not a heading or cue, so never empty; analysis version `3.7`), and writes a snapshot
 only when the head has not changed. Timeouts preserve the run and pause retries
 to avoid duplicate provider work; rejected or stale runs never alter the
 imported script. Run progress and evidence-rejection codes are written to the

@@ -7,6 +7,7 @@ transaction, the response shape, and the zero-persistence guarantees.
 
 from __future__ import annotations
 
+import json
 import re
 import threading
 import time
@@ -366,6 +367,63 @@ def test_import_assigns_inferred_acts_and_allows_empty_sections(
     assert [scene["act"] for scene in scenes] == [1, 1, 3, 3, 5, 5]
 
 
+MARKED_SCRIPT = "\n".join(
+    [
+        "INT. BAR - NIGHT\nMarta pours.\nEND OF TEASER\nACT ONE",
+        "INT. KITCHEN - DAY\nDan waits.\nEND OF ACT ONE",
+        "INT. CELLAR - NIGHT\nThe key.\nACT THREE",
+        "INT. OFFICE - DAY\nDan reads.\nEND OF ACT THREE\nACT FOUR",
+        "EXT. STREET - NIGHT\nThey part.",
+    ]
+)
+
+
+def test_import_uses_printed_act_markers_without_asking_the_model(
+    unlocked_project, db_session, mock_llm
+):
+    mock_llm.set_responses("segment_scene", one_beat_per_scene(MARKED_SCRIPT))
+    mock_llm.set_response("extract_ledger_facts", extraction())
+    mock_llm.set_response("scan_consistency", scan())
+
+    from fountain.pipeline import run_import
+
+    project = db_session.get(ProjectRow, PROJECT_ID)
+    assert project.doc["format"]["actCount"] == 4
+    assert project.doc["format"]["coldOpen"] is True
+    result = run_import(
+        db_session, project, MARKED_SCRIPT, mock_llm, instruction="Import test"
+    )
+    scenes = result["project"]["seasons"][0]["episodes"][0]["scenes"]
+    assert [scene["act"] for scene in scenes] == [0, 1, 2, 3, 4]
+    assert mock_llm.invocation_count("infer_act_breaks") == 0
+
+
+def test_import_asks_the_model_when_printed_markers_are_partial(
+    unlocked_project, db_session, mock_llm
+):
+    source = MARKED_SCRIPT.replace("END OF ACT ONE", "")
+    mock_llm.set_responses("segment_scene", one_beat_per_scene(source))
+    mock_llm.set_response(
+        "infer_act_breaks",
+        act_breaks(
+            {"act": 0, "startSceneIndex": 0},
+            {"act": 2, "startSceneIndex": 3},
+        ),
+    )
+    mock_llm.set_response("extract_ledger_facts", extraction())
+    mock_llm.set_response("scan_consistency", scan())
+
+    from fountain.pipeline import run_import
+
+    project = db_session.get(ProjectRow, PROJECT_ID)
+    result = run_import(
+        db_session, project, source, mock_llm, instruction="Import test"
+    )
+    scenes = result["project"]["seasons"][0]["episodes"][0]["scenes"]
+    assert [scene["act"] for scene in scenes] == [0, 0, 0, 2, 2]
+    assert mock_llm.invocation_count("infer_act_breaks") == 1
+
+
 def test_import_retries_semantically_invalid_act_inference_once(
     unlocked_project, db_session, mock_llm
 ):
@@ -439,10 +497,11 @@ def test_infer_act_pipeline_logs_only_safe_metadata(
     ]
     assert len(records) == 1
     assert records[0].msg == (
-        "import_infer_acts scenes=%d boundaries=%d retried=%s prompt_version=%s"
+        "import_infer_acts scenes=%d boundaries=%d retried=%s from_markers=%s "
+        "prompt_version=%s"
     )
-    assert records[0].args[:3] == (2, 2, False)
-    assert isinstance(records[0].args[3], str)
+    assert records[0].args[:4] == (2, 2, False, False)
+    assert isinstance(records[0].args[4], str)
     logged = records[0].getMessage()
     for private_text in (
         "PRIVATE LOCATION",
@@ -628,6 +687,26 @@ def test_all_import_facts_are_pending_review(unlocked_project, mock_llm):
     assert len(ledger) == len(body["newFacts"])
 
 
+def test_import_fact_offsets_located_off_window_and_through_typography(
+    unlocked_project, mock_llm
+):
+    src = "INT. BAR - NIGHT\nDan’s pouring\na drink."
+    mock_llm.set_responses("segment_scene", one_beat_per_scene(src))
+    # Straight apostrophe, one line, window pointing at the slugline.
+    fact = {**one_fact(), "sourceText": "Dan's pouring a drink."}
+    mock_llm.set_response("extract_ledger_facts", extraction([fact]))
+    mock_llm.set_response("scan_consistency", scan())
+
+    body = client.post(
+        f"/api/v1/projects/{PROJECT_ID}/import", json={"format": "fountain", "content": src}
+    ).json()
+    stored = body["newFacts"][0]
+    span = stored["sourceSpan"]
+    beat = body["project"]["seasons"][0]["episodes"][0]["scenes"][0]["beats"][0]
+    assert beat["scriptText"][span["charStart"]:span["charEnd"]] == "Dan’s pouring\na drink."
+    assert stored["status"] == "pending_review"  # offsets only, never activation
+
+
 def test_import_scan_flags_persisted_open(unlocked_project, mock_llm):
     src = "INT. BAR - NIGHT\nDan pours a drink."
     mock_llm.set_responses("segment_scene", one_beat_per_scene(src))
@@ -775,6 +854,52 @@ def test_missing_initial_start_retries_then_persists_selected_repair_flag(
     assert persisted.head_snapshot_id == body["project"]["headSnapshotId"]
 
 
+class _RecordingSegmentLlm(MockLlmClient):
+    def __init__(self):
+        super().__init__()
+        self.segment_messages: list[str] = []
+
+    def segment_scene(self, *, user_message, **kwargs):
+        self.segment_messages.append(user_message)
+        return super().segment_scene(user_message=user_message, **kwargs)
+
+
+def test_retry_with_beats_replaces_an_all_unassigned_first_attempt():
+    span = split_into_scenes("INT. BAR - NIGHT\nDan pours.\nMarta enters.\nReyes waits.")[0]
+    llm = _RecordingSegmentLlm()
+    llm.set_responses("segment_scene", [seg([], unassigned=[(1, 4)]), seg([(1, 4)])])
+
+    beats, _reading = pipeline._segment_one(0, span, {"title": "T", "format": {}}, llm, "n0nce")
+
+    assert len(llm.segment_messages) == 2
+    # The retry is told what went wrong, as data rather than new prompt text.
+    assert '"code": "no_beats_returned"' in llm.segment_messages[1]
+    assert [beat.what_happens for beat in beats] == ["w"]
+    assert not any(issue.code == "no_beats_returned" for issue in beats[0].review_issues)
+
+
+def test_leaked_tool_markup_is_never_stored(unlocked_project, mock_llm):
+    src = "INT. BAR - NIGHT\nDan pours."
+    leaked = "\x3c/antml.parameter>\n\x3cparameter name=\"sceneAudienceFeels\">Calm"
+    marked = seg([(1, 2)]).model_copy(
+        update={"scene_audience_learns": leaked, "scene_audience_feels": "Calm"}
+    )
+    mock_llm.set_responses("segment_scene", [marked, marked])
+    mock_llm.set_response("extract_ledger_facts", extraction())
+    mock_llm.set_response("scan_consistency", scan())
+
+    body = client.post(
+        f"/api/v1/projects/{PROJECT_ID}/import", json={"format": "fountain", "content": src}
+    ).json()
+
+    assert mock_llm.invocation_count("segment_scene") == 2
+    scene = body["project"]["seasons"][0]["episodes"][0]["scenes"][0]
+    assert scene["audienceLearns"] == ""
+    assert scene["audienceFeels"] == "Calm"
+    assert "parameter" not in json.dumps(scene)
+    assert any("[tool_markup]" in f["explanation"] for f in body["consistencyFlags"])
+
+
 def test_empty_content_rejected(seeded_project, mock_llm):
     resp = client.post(
         f"/api/v1/projects/{PROJECT_ID}/import", json={"format": "fountain", "content": ""}
@@ -898,8 +1023,8 @@ def test_llm_timeout_maps_to_llm_unavailable(unlocked_project):
 
 
 def test_schema_invalid_llm_maps(unlocked_project):
-    exc = SchemaInvalidLlmError("segment_scene")
-    app.dependency_overrides[get_llm_client] = lambda: _RaisingLlm(exc)
+    # A whole-script stage: a failing scene unit no longer aborts (T9.11).
+    app.dependency_overrides[get_llm_client] = lambda: _RaisingEntitiesLlm()
     try:
         resp = client.post(
             f"/api/v1/projects/{PROJECT_ID}/import",
@@ -2279,20 +2404,22 @@ def test_scene_with_no_beats_reaches_the_writer_as_a_flag(unlocked_project):
         [
             "INT. ALPHA - DAY",
             "Alpha hides the key.",
+            "Alpha checks the door.",
+            "Alpha leaves.",
             "INT. BETA - DAY",
             "Beta searches the room.",
+            "Beta finds nothing.",
+            "Beta sits.",
         ]
     )
     llm = MockLlmClient()
-    # What the real model has actually been returning: unassigned, no beats.
-    llm.set_responses(
+    # What the real model has actually been returning: unassigned, no beats,
+    # on the first attempt and on the retry.
+    llm.set_response(
         "segment_scene",
-        [
-            SegmentedScene.model_validate(
-                {"segments": [{"kind": "unassigned", "startLine": 1, "reason": "orphan"}]}
-            )
-            for _ in split_into_scenes(src)
-        ],
+        SegmentedScene.model_validate(
+            {"segments": [{"kind": "unassigned", "startLine": 1, "reason": "orphan"}]}
+        ),
     )
     llm.set_response("extract_ledger_facts", extraction())
     llm.set_response("scan_consistency", scan())
@@ -2304,8 +2431,11 @@ def test_scene_with_no_beats_reaches_the_writer_as_a_flag(unlocked_project):
     flagged = [f for f in analysis.raw_flags if "no_beats_returned" in f["explanation"]]
     assert len(flagged) == 2, "every scene that lost its beats should raise a flag"
     assert {f["objectType"] for f in flagged} == {"beat"}
-    # The writer is told which scene and what to do, without the script text.
-    assert "Re-run the breakdown" in flagged[0]["explanation"]
+    assert llm.invocation_count("segment_scene") == 4  # one retry per scene
+    # The writer is told which scene and what they can do, without the script
+    # text; the app has no way to re-run one scene's breakdown.
+    assert "Re-run the breakdown" not in flagged[0]["explanation"]
+    assert "Plan inspector" in flagged[0]["explanation"]
 
 
 def test_import_fills_scene_time_from_the_slugline(unlocked_project):
@@ -2383,3 +2513,76 @@ def test_import_leaves_a_scene_field_blank_when_the_read_omits_it(unlocked_proje
     scene = analysis.new_doc["seasons"][0]["episodes"][0]["scenes"][0]
     assert scene["whatHappens"] == ""
     assert scene["socialSituation"] == ""
+
+
+def test_an_ambiguous_inferred_name_reaches_the_writer_as_a_merge_proposal(
+    unlocked_project,
+):
+    """T9.8: the proposal is an open flag on the scene the model cited, and no
+    third row is minted for a person the cast already holds twice."""
+    src = "\n".join(
+        [
+            "INT. CLASSROOM - DAY",
+            "Kids wait.",
+            "INT. HALL - DAY",
+            "MALLORY",
+            "Hello.",
+            "",
+            "O'BRIEN",
+            "Hi.",
+        ]
+    )
+    llm = MockLlmClient()
+    llm.set_responses("segment_scene", one_beat_per_scene(src))
+    llm.set_response(
+        "infer_story_entities",
+        entities(
+            characters=[
+                {
+                    "name": "Mallory O'Brien",
+                    "aliases": [],
+                    "role": "supporting",
+                    "traits": "",
+                    "evidence": [{"sceneId": "scene-2", "quote": "Hello."}],
+                }
+            ]
+        ),
+    )
+    llm.set_response(
+        "extract_ledger_facts",
+        extraction([{**one_fact(), "knownBy": ["Mallory O'Brien"]}]),
+    )
+    llm.set_response("scan_consistency", scan())
+
+    _events, analysis = _drain_analysis(
+        pipeline.analyze_import(unlocked_project["project"], [], src, llm)
+    )
+
+    names = [c["name"] for c in analysis.new_doc["seriesBible"]["characters"]]
+    assert {"Mallory", "O'Brien"} <= set(names)
+    assert "Mallory O'Brien" not in names
+    proposals = [f for f in analysis.raw_flags if "[merge_proposal]" in f["explanation"]]
+    assert [(f["objectType"], f["objectId"], f["status"]) for f in proposals] == [
+        ("scene", "scene-2", "open")
+    ]
+
+
+def test_extraction_cannot_mint_a_knower_the_script_never_names(unlocked_project):
+    """T9.8: knownBy gets the entity merge's grounding gate, against the
+    imported script."""
+    src = "INT. OFFICE - DAY\nMARTA\nWe close at nine.\n"
+    llm = MockLlmClient()
+    llm.set_responses("segment_scene", one_beat_per_scene(src))
+    llm.set_response(
+        "extract_ledger_facts",
+        extraction([{**one_fact(), "knownBy": ["Zelda Fitzgerald", "Marta"]}]),
+    )
+    llm.set_response("scan_consistency", scan())
+
+    _events, analysis = _drain_analysis(
+        pipeline.analyze_import(unlocked_project["project"], [], src, llm)
+    )
+
+    names = [c["name"] for c in analysis.new_doc["seriesBible"]["characters"]]
+    assert "Zelda Fitzgerald" not in names
+    assert len(analysis.new_facts[0]["knownBy"]) == 1

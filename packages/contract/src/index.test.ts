@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   InferredNarrativeMap,
   InferredActBreaks,
+  NarrativeMap,
   NarrativePromises,
   ProjectImportStageName,
   StoryThread,
@@ -96,6 +97,62 @@ describe('InferredNarrativeMap', () => {
     }
 
     expect(InferredNarrativeMap.parse(payload)).toEqual(payload)
+  })
+})
+
+describe('NarrativeMap.unanalyzedSceneIds', () => {
+  const map = {
+    dramaticQuestion: 'Can Marta make Dan tell the truth?',
+    centralConflict: 'Marta seeks proof while Dan hides it.',
+    controllingIdea: 'Loyalty makes truth costly.',
+    themes: [
+      {
+        label: 'Loyalty',
+        statement: 'Loyalty can hide the truth.',
+        evidence: [{ beatId: 'beat-1', quote: 'Marta waits.' }],
+      },
+    ],
+    acts: [
+      {
+        act: 0,
+        dramaticQuestion: 'Will Marta get an answer?',
+        escalation: '',
+        escalationEvidence: [],
+        turnBeatId: 'beat-1',
+        evidenceQuote: 'Marta waits.',
+      },
+    ],
+    heroJourney: {
+      applies: false,
+      protagonistCharacterId: null,
+      rationale: 'An ensemble fragment.',
+      stages: [],
+    },
+    characterArcs: [],
+    sceneTurns: [
+      {
+        sceneId: 'scene-1',
+        focalCharacterId: null,
+        dramaticFunction: '',
+        conflict: '',
+        stakes: '',
+        turnBeatId: 'beat-1',
+        turn: 'Marta makes the accusation explicit.',
+        evidenceQuote: 'Marta waits.',
+      },
+    ],
+    threadMovements: [],
+  }
+
+  it('defaults to none so maps saved before it still parse', () => {
+    expect(NarrativeMap.parse(map).unanalyzedSceneIds).toEqual([])
+  })
+
+  it('keeps the scenes listed as unanalysed', () => {
+    expect(
+      NarrativeMap.parse({ ...map, unanalyzedSceneIds: ['scene-2'] })
+        .unanalyzedSceneIds,
+    ).toEqual(['scene-2'])
   })
 })
 

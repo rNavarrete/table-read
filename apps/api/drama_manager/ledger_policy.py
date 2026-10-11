@@ -28,7 +28,10 @@ Policy (§5):
 
 from __future__ import annotations
 
+import html
+import re
 import uuid
+from bisect import bisect_left, bisect_right
 
 from schemas import LedgerExtraction
 
@@ -93,6 +96,17 @@ def _fold_typography(text: str) -> str:
     return text.translate(_TYPOGRAPHIC_FOLD)
 
 
+def _line_window(script_text: str, start_line: int, end_line: int) -> tuple[int, int] | None:
+    """Character range of 1-based inclusive lines ``start_line..end_line``
+    (end excludes line ``end_line``'s ``"\n"``), or None when out of range."""
+    lines = script_text.split("\n")
+    lo, hi = start_line - 1, end_line - 1
+    if not 0 <= lo <= hi < len(lines):
+        return None
+    window_start = sum(len(line) + 1 for line in lines[:lo])
+    return window_start, window_start + len("\n".join(lines[lo : hi + 1]))
+
+
 def verify_source_text(
     script_text: str, source_text: str, start_line: int, end_line: int
 ) -> tuple[int | None, int | None, bool]:
@@ -109,16 +123,9 @@ def verify_source_text(
         caller demotes to ``pending_review`` (test plan line 23)."""
     if not source_text:
         return (None, None, True)
-    lines = script_text.split("\n")
-    offsets: list[int] = []
-    acc = 0
-    for line in lines:
-        offsets.append(acc)
-        acc += len(line) + 1  # +1 for the joining "\n"
-    lo, hi = start_line - 1, end_line - 1
-    if 0 <= lo <= hi < len(lines):
-        window_start = offsets[lo]
-        window_end = offsets[hi] + len(lines[hi])  # end of line hi, before its "\n"
+    window = _line_window(script_text, start_line, end_line)
+    if window is not None:
+        window_start, window_end = window
         # Fold both sides so a curly apostrophe on the page still matches a
         # straight one in the quote. The fold is length-preserving, so `idx`
         # and the slice below index the ORIGINAL script_text — the caller
@@ -129,6 +136,87 @@ def verify_source_text(
         if idx != -1:
             return (idx, idx + len(source_text), True)
     return (None, None, False)
+
+
+# html.unescape's own reference pattern, so each reference is unescaped in
+# place and keeps its span in the original text.
+_HTML_REF = re.compile(r"&(#[0-9]+;?|#[xX][0-9a-fA-F]+;?|[^\t\n\f <&#;]{1,32};?)")
+# Whole lines a page break leaves inside dialogue: page numbers, CONTINUED
+# (OCR-mangled variants included), (MORE) and CONT'D cues. Matched against the
+# folded, stripped line.
+_PAGE_FURNITURE = re.compile(
+    r"\d+[A-Z]?\.?|\(MORE\)|[^a-z]*\(CONT'?D\)|.{0,12}\bCONTINUED\b.{0,16}"
+)
+
+
+def _match_view(text: str, skip_furniture: bool) -> tuple[str, list[int], list[int]]:
+    """``text`` as `locate_quote` compares it (HTML references unescaped,
+    typography folded, whitespace runs collapsed to one space, page-furniture
+    lines dropped when ``skip_furniture``), plus each view character's
+    ``[start, end)`` span in ``text``."""
+    view: list[str] = []
+    starts: list[int] = []
+    ends: list[int] = []
+    line_start = 0
+    for line in text.split("\n"):
+        line_end = line_start + len(line)
+        if not (skip_furniture and _PAGE_FURNITURE.fullmatch(_fold_typography(line).strip())):
+            pieces: list[tuple[int, int, str]] = []
+            pos = line_start
+            for ref in _HTML_REF.finditer(text, line_start, line_end):
+                unescaped = html.unescape(ref.group(0))
+                if unescaped != ref.group(0):
+                    pieces += [(i, i + 1, text[i]) for i in range(pos, ref.start())]
+                    pieces.append((ref.start(), ref.end(), unescaped))
+                    pos = ref.end()
+            pieces += [(i, i + 1, text[i]) for i in range(pos, line_end)]
+            pieces.append((line_end, line_end + 1, " "))  # the line break
+            for start, end, chunk in pieces:
+                for char in _fold_typography(chunk):
+                    if char.isspace():
+                        if view[-1:] == [" "]:
+                            continue
+                        char = " "
+                    view.append(char)
+                    starts.append(start)
+                    ends.append(end)
+        line_start = line_end + 1
+    return "".join(view), starts, ends
+
+
+def locate_quote(
+    script_text: str, source_text: str, start_line: int, end_line: int
+) -> tuple[int | None, int | None]:
+    """Import offsets for ``source_text`` within a beat's ``script_text``.
+    Verbatim first (reported line window, then whole beat, typography folded:
+    the offsets `verify_source_text` gives), then through `_match_view`'s
+    normalization, first keeping page furniture and then skipping it, so a cue
+    or number line the quote itself contains is never dropped. Returns
+    ``(char_start, char_end)`` into the original ``script_text``, or
+    ``(None, None)`` when the quote is empty or not on the page. Offsets only:
+    activation is `verify_source_text`'s call alone."""
+    if not source_text:
+        return (None, None)
+    start, end, _ = verify_source_text(script_text, source_text, start_line, end_line)
+    if start is not None:
+        return (start, end)
+    idx = _fold_typography(script_text).find(_fold_typography(source_text))
+    if idx != -1:
+        return (idx, idx + len(source_text))
+    window = _line_window(script_text, start_line, end_line)
+    for skip_furniture in (False, True):
+        quote = _match_view(source_text, skip_furniture)[0].strip()
+        if not quote:
+            continue
+        view, starts, ends = _match_view(script_text, skip_furniture)
+        idx = -1
+        if window is not None:
+            idx = view.find(quote, bisect_left(starts, window[0]), bisect_right(ends, window[1]))
+        if idx == -1:
+            idx = view.find(quote)
+        if idx != -1:
+            return (starts[idx], ends[idx + len(quote) - 1])
+    return (None, None)
 
 
 def apply_extraction_policy(

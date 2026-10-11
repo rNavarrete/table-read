@@ -29,6 +29,8 @@ Logging is IDs + counts only — never script/plan/fact content (hard rule 5).
 from __future__ import annotations
 
 import copy
+import hashlib
+import json
 import logging
 from collections.abc import Callable, Generator
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -38,7 +40,7 @@ from typing import cast
 from pydantic import BaseModel
 
 from drama_manager import locks, render
-from drama_manager.ledger_policy import IdMinter
+from drama_manager.ledger_policy import IdMinter, locate_quote
 from drama_manager.narrative_map import NarrativeMapValidationError, merge_narrative_map
 from drama_manager.overview import merge_story_overview
 from drama_manager.promises import merge_narrative_promises
@@ -59,8 +61,8 @@ from fountain.object_states import detect_object_conflicts, infer_object_states
 from fountain.parse import (
     CoverageError,
     ImportedBeat,
+    SceneSpan,
     SegmentationIssue,
-    locate_source_text,
     normalize_and_slice,
     split_into_scenes,
     strip_screenplay_front_matter,
@@ -204,7 +206,11 @@ def analyze_import(
     yield ImportStageProgress(STAGE_PARSING_SCENES, 1, 1)
 
     yield ImportStageStarted(STAGE_SEGMENTING_BEATS)
-    cached_beats = _load_segment_checkpoints(checkpoint, len(spans))
+    cached_beats = _load_segment_checkpoints(checkpoint, spans)
+    if any(unit is None for unit in cached_beats):
+        # Every later stage was saved from the beats of a run that lacked this
+        # scene's (a failed scene keeps only its text and is not saved, T9.11).
+        checkpoint = {}
     # One whole-script payload for every scene's segmentation call. Boundaries
     # are decided locally, but what a beat MEANS — that it plants something a
     # later scene pays off — is only visible with the rest of the episode in
@@ -212,17 +218,28 @@ def analyze_import(
     split_source = render.build_split_source_block(
         [(span.location, span.lines) for span in spans], run_nonce
     )
+    failed_segments: set[int] = set()
     per_scene_results = yield from _run_ordered_parallel(
         spans,
-        lambda index, span: _segment_one(
-            index, span, project_doc, llm, run_nonce, split_source
+        _continue_past_schema_failure(
+            lambda index, span: _segment_one(
+                index, span, project_doc, llm, run_nonce, split_source
+            ),
+            STAGE_SEGMENTING_BEATS,
+            failed_segments,
+            lambda span: (
+                [ImportedBeat("", "", "", script_text="\n".join(span.lines))],
+                dict(_EMPTY_READING),
+            ),
         ),
         stage=STAGE_SEGMENTING_BEATS,
         existing_results=cached_beats,
         # Every call carries `split_source`; without warming, the first four
         # workers each write it.
         warm_cache_first=True,
-        on_result=lambda index, unit: _write_checkpoint(
+        on_result=lambda index, unit: None
+        if index in failed_segments
+        else _write_checkpoint(
             checkpoint_writer,
             STAGE_SEGMENTING_BEATS,
             {"beats": _dump_imported_beats(unit[0]), "reading": unit[1]},
@@ -235,10 +252,17 @@ def analyze_import(
     yield ImportStageStarted(STAGE_INFERRING_ACTS)
     summaries = acts.scene_summaries(spans, [beats for beats, _r in per_scene_results])
     cached_scene_acts = _load_scene_acts_checkpoint(checkpoint, len(spans))
+    marker_acts = acts.acts_from_markers(spans, project_doc["format"])
     if cached_scene_acts is not None:
         scene_acts = cached_scene_acts
         retried_acts = False
         boundary_count = 0
+        yield ImportStageProgress(STAGE_INFERRING_ACTS, 1, 1)
+    elif marker_acts is not None:
+        # The script prints its act breaks (owner decision 3): no model call.
+        scene_acts = marker_acts
+        retried_acts = False
+        boundary_count = len(set(marker_acts))
         yield ImportStageProgress(STAGE_INFERRING_ACTS, 1, 1)
     else:
         yield ImportStageProgress(STAGE_INFERRING_ACTS, 0, 1)
@@ -288,10 +312,12 @@ def analyze_import(
         )
         yield ImportStageProgress(STAGE_INFERRING_ACTS, 1, 1)
     _logger.info(
-        "import_infer_acts scenes=%d boundaries=%d retried=%s prompt_version=%s",
+        "import_infer_acts scenes=%d boundaries=%d retried=%s from_markers=%s "
+        "prompt_version=%s",
         len(spans),
         boundary_count,
         retried_acts,
+        marker_acts is not None,
         render.PROMPT_VERSION,
     )
 
@@ -361,7 +387,7 @@ def analyze_import(
     # stay one chunk (same as the historical single call). Schema-invalid
     # output after the client's own retry-once (CLAUDE.md rule 9) propagates
     # as SchemaInvalidLlmError for any chunk — same atomic-failure contract
-    # as segmentation/act inference. ──────────────────────────────────────
+    # as act inference. ───────────────────────────────────────────────────
     yield ImportStageStarted(STAGE_INFERRING_ENTITIES)
     scene_summaries = _entity_scene_summaries(scene_docs)
     summary_chunks = chunk_entity_scene_summaries(
@@ -449,7 +475,7 @@ def analyze_import(
     # "placeholder"). Uses the post-front-matter `content`, so a name that
     # only ever appeared on the title page or SETS list doesn't count as
     # grounding either.
-    characters, relationship_states = merge_inferred_entities(
+    characters, relationship_states, merge_proposals = merge_inferred_entities(
         bible, entities, content
     )
     _episode_ref(new_doc, episode_id)["relationshipStates"] = relationship_states
@@ -555,32 +581,42 @@ def analyze_import(
     # pending_review, regardless of confidence. Fresh ledger → no existing
     # facts to contradict. ───────────────────────────────────────────────────
     yield ImportStageStarted(STAGE_EXTRACTING_FACTS)
-    cached_extractions = _load_model_unit_checkpoints(
-        checkpoint,
-        STAGE_EXTRACTING_FACTS,
-        len(scene_docs),
-        LedgerExtraction,
-    )
+    scene_hashes = [_scene_text_hash(scene) for scene in scene_docs]
+    cached_extractions = _load_extract_checkpoints(checkpoint, scene_hashes)
+    if any(unit is None for unit in cached_extractions):
+        # A saved scan never saw this scene's facts.
+        checkpoint = {}
     # One whole-episode payload, built once and reused verbatim by every scene
     # call, so the prompt prefix stays byte-identical and caches (§ measured at
     # ~0.1x input per warm call). Extraction is the op that most needs it: who
     # already knows a fact, and whether a later scene contradicts it, are not
     # answerable from the target scene alone.
     episode_source = render.build_episode_source_block(scene_docs, run_nonce)
+    failed_extractions: set[int] = set()
     extractions = yield from _run_ordered_parallel(
         scene_docs,
-        lambda index, scene: _extract_one(
-            index, scene, new_doc, episode_id, characters, llm, run_nonce,
-            episode_source,
+        _continue_past_schema_failure(
+            lambda index, scene: _extract_one(
+                index, scene, new_doc, episode_id, characters, llm, run_nonce,
+                episode_source,
+            ),
+            STAGE_EXTRACTING_FACTS,
+            failed_extractions,
+            lambda _scene: LedgerExtraction(new_facts=[], contradictions=[]),
         ),
         stage=STAGE_EXTRACTING_FACTS,
         existing_results=cached_extractions,
         # Same race as segmentation — every call carries `episode_source`.
         warm_cache_first=True,
-        on_result=lambda index, extraction: _write_checkpoint(
+        on_result=lambda index, extraction: None
+        if index in failed_extractions
+        else _write_checkpoint(
             checkpoint_writer,
             STAGE_EXTRACTING_FACTS,
-            extraction.model_dump(by_alias=True, mode="json"),
+            {
+                "sceneHash": scene_hashes[index],
+                "extraction": extraction.model_dump(by_alias=True, mode="json"),
+            },
             index,
         ),
     )
@@ -589,12 +625,14 @@ def analyze_import(
     for extraction in extractions:
         for ef in extraction.new_facts:
             fact = _to_ledger_fact(ef, fact_minter.mint(), beat_index)
-            normalized, characters = normalize_known_by(fact["knownBy"], characters)
+            normalized, characters = normalize_known_by(
+                fact["knownBy"], characters, content
+            )
             fact["knownBy"] = normalized
             resolved_events = []
             for event in fact["knowledgeEvents"]:
                 event_character_ids, characters = normalize_known_by(
-                    event["characterNames"], characters
+                    event["characterNames"], characters, content
                 )
                 resolved_events.append(
                     {
@@ -669,6 +707,22 @@ def analyze_import(
                 "sourceChange": "",  # stamped with the snapshot id by the caller's write
             }
         )
+    failed_units = [(i, "segmentation_failed") for i in sorted(failed_segments)] + [
+        (i, "extraction_failed") for i in sorted(failed_extractions)
+    ]
+    for index, code in failed_units:
+        raw_flags.append(
+            {
+                "id": flag_minter.mint(),
+                "objectType": "scene",
+                "objectId": scene_docs[index]["id"],
+                "factId": None,
+                "explanation": _UNIT_FAILED_EXPLANATIONS[code],
+                "severity": "tension",
+                "status": "open",
+                "sourceChange": "",
+            }
+        )
     for beat_id, issue in review_raw:
         raw_flags.append(
             {
@@ -677,6 +731,22 @@ def analyze_import(
                 "objectId": beat_id,
                 "factId": None,
                 "explanation": _segmentation_issue_explanation(issue),
+                "severity": "tension",
+                "status": "open",
+                "sourceChange": "",
+            }
+        )
+    for proposal in merge_proposals:
+        raw_flags.append(
+            {
+                "id": flag_minter.mint(),
+                "objectType": "scene",
+                "objectId": next(
+                    (sid for sid in proposal["sceneIds"] if sid in scene_docs_by_id),
+                    scene_docs[0]["id"],
+                ),
+                "factId": None,
+                "explanation": proposal["explanation"],
                 "severity": "tension",
                 "status": "open",
                 "sourceChange": "",
@@ -839,8 +909,9 @@ _EMPTY_READING = {
 
 
 def _load_segment_checkpoints(
-    checkpoint: dict, scene_count: int
+    checkpoint: dict, spans: list[SceneSpan]
 ) -> list[tuple[list[ImportedBeat], dict[str, str]] | None]:
+    scene_count = len(spans)
     results: list[tuple[list[ImportedBeat], dict[str, str]] | None] = [None] * scene_count
     units = checkpoint.get(STAGE_SEGMENTING_BEATS)
     if not isinstance(units, dict):
@@ -857,12 +928,36 @@ def _load_segment_checkpoints(
         raw_beats = value.get("beats") if isinstance(value, dict) else value
         reading = value.get("reading") if isinstance(value, dict) else None
         beats = _load_imported_beats(raw_beats)
-        if beats is None:
+        # A unit saved under another split belongs to other text.
+        if beats is None or "\n".join(b.script_text for b in beats) != "\n".join(
+            spans[index].lines
+        ):
             continue
         results[index] = (
             beats,
             {**_EMPTY_READING, **(reading if isinstance(reading, dict) else {})},
         )
+    return results
+
+
+def _scene_text_hash(scene: dict) -> str:
+    # Ids and verbatim text only: motivations carry freshly minted character ids.
+    key = [scene["id"], [[beat["id"], beat["scriptText"]] for beat in scene["beats"]]]
+    return hashlib.sha256(json.dumps(key).encode("utf-8")).hexdigest()
+
+
+def _load_extract_checkpoints(
+    checkpoint: dict, scene_hashes: list[str]
+) -> list[LedgerExtraction | None]:
+    units = checkpoint.get(STAGE_EXTRACTING_FACTS)
+    units = units if isinstance(units, dict) else {}
+    results: list[LedgerExtraction | None] = []
+    for index, scene_hash in enumerate(scene_hashes):
+        unit = units.get(str(index))
+        if isinstance(unit, dict) and unit.get("sceneHash") == scene_hash:
+            results.append(_load_model_checkpoint(unit, "extraction", LedgerExtraction))
+        else:
+            results.append(None)
     return results
 
 
@@ -1009,6 +1104,48 @@ def _run_ordered_parallel[T, R](
     return [cast(R, result) for result in results]
 
 
+_UNIT_FAILED_EXPLANATIONS = {
+    "segmentation_failed": (
+        "[segmentation_failed] The model's beat breakdown of this scene failed "
+        "validation twice, so the server kept the scene's text as a single beat with "
+        "no description and wrote nothing for it. You can write the description "
+        "yourself in the Plan inspector."
+    ),
+    "extraction_failed": (
+        "[extraction_failed] Fact extraction for this scene failed validation twice, "
+        "so no continuity facts were recorded from it. The scene's text is intact; "
+        "check it yourself for facts the Ledger should hold."
+    ),
+}
+
+
+def _continue_past_schema_failure[T, R](
+    worker: Callable[[int, T], R],
+    stage: str,
+    failed: set[int],
+    source_only: Callable[[T], R],
+) -> Callable[[int, T], R]:
+    """Owner decision 1 (T9.11): a scene unit that still fails validation after
+    rule 9's retry keeps only its source text and is recorded in `failed` for a
+    flag, instead of aborting the import. Callers do not checkpoint a failed
+    unit, so a resumed run asks the model again. Any other error still aborts."""
+
+    def run(index: int, item: T) -> R:
+        try:
+            return worker(index, item)
+        except SchemaInvalidLlmError:
+            _logger.warning(
+                "import_unit_failed stage=%s scene_index=%d prompt_version=%s",
+                stage,
+                index,
+                render.PROMPT_VERSION,
+            )
+            failed.add(index)
+            return source_only(item)
+
+    return run
+
+
 def _segment_one(
     index: int,
     span,
@@ -1032,9 +1169,6 @@ def _segment_one(
     )
     first = normalize_and_slice(span, segmented)
     selected = first
-    # The scene-level reading belongs to whichever attempt we keep, so it is
-    # carried alongside the sliced beats rather than read off the last response.
-    selected_raw = segmented
     retried = False
     if first.should_retry:
         retried = True
@@ -1050,9 +1184,8 @@ def _segment_one(
             cache_prefix=split_source,
         )
         second = normalize_and_slice(span, retry_segmented)
-        if second.score.ranking_key() < first.score.ranking_key():
+        if second.ranking_key() < first.ranking_key():
             selected = second
-            selected_raw = retry_segmented
     _logger.info(
         "import_segment scene_index=%d scene_lines=%d retried=%s discarded_metadata=%d "
         "affected_lines=%d repair_events=%d prompt_version=%s",
@@ -1064,22 +1197,7 @@ def _segment_one(
         selected.score.event_count,
         render.PROMPT_VERSION,
     )
-    return selected.beats, _scene_reading(selected_raw)
-
-
-def _scene_reading(segmented) -> dict[str, str]:
-    """The scene-level craft fields from a `segment_scene` response.
-
-    Keyed as the scene doc wants them so the caller stays a plain update. A
-    model that omits one leaves "" — the same as before this existed — so a
-    thin scene degrades to the old blank rather than to invented copy.
-    """
-    return {
-        "whatHappens": segmented.scene_what_happens,
-        "audienceLearns": segmented.scene_audience_learns,
-        "audienceFeels": segmented.scene_audience_feels,
-        "socialSituation": segmented.scene_social_situation,
-    }
+    return selected.beats, selected.reading
 
 
 def _extract_one(
@@ -1298,14 +1416,21 @@ def _segmentation_issue_explanation(issue: SegmentationIssue) -> str:
         return (
             "[no_beats_returned] The model returned no beats for this scene; the server "
             f"preserved {line_range} as a single beat with no description. The scene's "
-            "text is intact, but its beat breakdown is missing. Re-run the breakdown for "
-            "this scene."
+            "text is intact, but its beat breakdown is missing. You can write the "
+            "beat's description yourself in the Plan inspector."
         )
     if issue.code == "empty_beat_fields":
         return (
             f"[empty_beat_fields] The beat covering {line_range} came back with no "
             "description; the server kept the boundary but has nothing to show for it. "
-            "Re-run the breakdown for this scene."
+            "You can write the description yourself in the Plan inspector."
+        )
+    if issue.code == "tool_markup":
+        return (
+            "[tool_markup] The model's description of this scene contained tool-call "
+            "markup; the server blanked each affected field rather than store it. The "
+            "scene's text is intact. You can write the missing description yourself "
+            "in the Plan inspector."
         )
     if issue.code == "unordered_segments":
         return (
@@ -1428,7 +1553,7 @@ def _episode_ref(doc: dict, episode_id: str) -> dict:
 def _to_ledger_fact(extracted, fact_id: str, beat_index: dict) -> dict:
     """Convert one model `ExtractedFact` into a persisted `LedgerFact` wire dict:
     server-assigned id, `inferred`/`pending_review` (§4 step 2), and char
-    offsets located verbatim within the referenced beat (§5).
+    offsets located within the referenced beat by `locate_quote` (§5).
 
     `knowledgeEvents` is carried through with names still unresolved
     (`characterNames`, not `characterIds`) — the caller (`analyze_import`)
@@ -1441,7 +1566,7 @@ def _to_ledger_fact(extracted, fact_id: str, beat_index: dict) -> dict:
     beat = beat_index.get(span["beatId"])
     char_start, char_end = (None, None)
     if beat is not None:
-        char_start, char_end = locate_source_text(
+        char_start, char_end = locate_quote(
             beat["scriptText"], dump["sourceText"], span["startLine"], span["endLine"]
         )
     span["charStart"] = char_start

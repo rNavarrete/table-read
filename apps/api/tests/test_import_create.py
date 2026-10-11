@@ -17,6 +17,7 @@ Two test styles, matching test_import.py's own split:
 
 from __future__ import annotations
 
+import copy
 import json
 import logging
 import threading
@@ -30,14 +31,14 @@ import pytest
 from fastapi.testclient import TestClient
 
 import routes
-from drama_manager import narrative_map_runs
+from drama_manager import narrative_map_runs, render
 from drama_manager.narrative_map_analysis import (
     NARRATIVE_MAP_ANALYSIS_VERSION,
     prepare_narrative_map_source,
 )
 from drama_manager.narrative_map_runs import execute_run
-from fountain import create_import, pipeline
-from fountain.parse import split_into_scenes
+from fountain import create_import, import_runs, pipeline
+from fountain.parse import SceneSpan, split_into_scenes
 from llm.dependency import get_llm_client
 from llm.errors import LlmTimeoutError, SchemaInvalidLlmError
 from llm.mock import MockLlmClient
@@ -160,7 +161,8 @@ class _FailingSecondSceneLlm(MockLlmClient):
             self._never_release.wait(0.5)
             return seg([(1, 2)])
         if "Beta waits." in user_message:
-            raise SchemaInvalidLlmError("segment_scene")
+            # Not a schema failure: that degrades one scene instead (T9.11).
+            raise LlmTimeoutError("segment_scene")
         if "Gamma waits." in user_message:
             self._never_release.wait(0.5)
         return seg([(1, 2)])
@@ -792,68 +794,285 @@ def test_provider_call_heartbeats_a_running_narrative_map(db_session, mock_llm, 
     snapshots.purge_project(db_session, project["id"])
 
 
-def test_narrative_map_repairs_one_invalid_scene_then_checkpoints_it(
+def _scene_analysis(
+    scene_id: str, beat_id: str, text: str = "<UNKNOWN>"
+) -> InferredNarrativeSceneAnalysisBatch:
+    """A scene analysis; the default placeholder text is schema-valid but rejected."""
+    return InferredNarrativeSceneAnalysisBatch.model_validate(
+        {
+            "scenes": [
+                {
+                    "sceneId": scene_id,
+                    "summary": text,
+                    "focalCharacterName": None,
+                    "dramaticFunction": text,
+                    "conflict": text,
+                    "stakes": text,
+                    "turnBeatId": beat_id,
+                    "turn": text,
+                    "keyMoments": [
+                        {
+                            "beatId": beat_id,
+                            "summary": text,
+                            "dramaticFunction": text,
+                            "consequence": text,
+                        }
+                    ],
+                }
+            ]
+        }
+    )
+
+
+def _spy(monkeypatch, llm: MockLlmClient, op: str) -> list[str]:
+    """Record the user message of every `op` call while keeping the mock's answer."""
+    seen: list[str] = []
+    original = getattr(llm, op)
+
+    def spy(**kwargs):
+        seen.append(kwargs["system"] + kwargs["user_message"])
+        return original(**kwargs)
+
+    monkeypatch.setattr(llm, op, spy)
+    return seen
+
+
+def _edit_episode(db_session, project_id: str, edit) -> None:
+    def mutator(state: snapshots.MutationState) -> snapshots.MutationState:
+        doc = copy.deepcopy(state.doc)
+        edit(doc["seasons"][0]["episodes"][0])
+        return snapshots.MutationState(doc=doc, ledger=state.ledger, flags=state.flags)
+
+    snapshots.mutate(db_session, project_id, "Test edit", mutator)
+
+
+def _imported_project(mock_llm, monkeypatch, src: str) -> dict:
+    _configure_success(mock_llm, src, fact=True)
+    monkeypatch.setattr(routes, "enqueue_run", lambda *args: None)
+    return _parse_sse(client.post(URL, json=_body(src), headers=_headers()).text)[-1][1]["result"][
+        "project"
+    ]
+
+
+def test_narrative_map_rerolls_a_rejected_scene_once_with_the_same_prompt(
     db_session, mock_llm, monkeypatch, caplog
 ):
     src = "INT. BAR - NIGHT\nDan pours a drink."
-    _configure_success(mock_llm, src, fact=True)
-    monkeypatch.setattr(routes, "enqueue_run", lambda *args: None)
-    project = _parse_sse(client.post(URL, json=_body(src), headers=_headers()).text)[-1][1][
-        "result"
-    ]["project"]
-    project_id = project["id"]
+    project = _imported_project(mock_llm, monkeypatch, src)
     scene = project["seasons"][0]["episodes"][0]["scenes"][0]
-    scene_id = scene["id"]
-    beat_id = scene["beats"][0]["id"]
+    mock_llm.set_responses(
+        "infer_narrative_scene_analysis",
+        [_scene_analysis(scene["id"], scene["beats"][0]["id"])],
+    )
+    prompts = _spy(monkeypatch, mock_llm, "infer_narrative_scene_analysis")
+    run_id = client.post(f"/api/v1/projects/{project['id']}/narrative-map").json()["id"]
+
+    with caplog.at_level(logging.INFO, logger="drama_manager.narrative_map_runs"):
+        execute_run(run_id, mock_llm)
+    db_session.expire_all()
+
+    run = db_session.get(NarrativeMapRunRow, run_id)
+    assert run.status == "completed"
+    assert len(prompts) == 2 and prompts[0] == prompts[1]
+    assert "fallbackSceneIds" not in run.checkpoint
+    assert "analysisStatus" not in run.checkpoint["scenePackets"][0]
+    persisted = db_session.get(ProjectRow, project["id"])
+    narrative_map = persisted.doc["seasons"][0]["episodes"][0]["narrativeMap"]
+    assert [turn["sceneId"] for turn in narrative_map["sceneTurns"]] == [scene["id"]]
+    assert narrative_map["unanalyzedSceneIds"] == []
+    joined = " ".join(record.getMessage() for record in caplog.records)
+    assert "narrative_map_scene_rejected" in joined
+    assert "attempt=2" in joined
+    assert src not in joined
+
+    snapshots.purge_project(db_session, project["id"])
+
+
+def test_narrative_map_never_writes_prose_for_a_scene_that_fails_twice(
+    db_session, mock_llm, monkeypatch, caplog
+):
+    src = "INT. BAR - NIGHT\nDan pours a drink."
+    project = _imported_project(mock_llm, monkeypatch, src)
+    scene = project["seasons"][0]["episodes"][0]["scenes"][0]
+    bad = _scene_analysis(scene["id"], scene["beats"][0]["id"])
+    mock_llm.set_responses("infer_narrative_scene_analysis", [bad, bad])
+    run_id = client.post(f"/api/v1/projects/{project['id']}/narrative-map").json()["id"]
+
+    with caplog.at_level(logging.INFO, logger="drama_manager.narrative_map_runs"):
+        execute_run(run_id, mock_llm)
+    db_session.expire_all()
+
+    run = db_session.get(NarrativeMapRunRow, run_id)
+    persisted = db_session.get(ProjectRow, project["id"])
+    # No scene could be read, so there is nothing to synthesise from.
+    assert (run.status, run.error_code) == ("rejected", "EVIDENCE_REJECTED")
+    assert run.checkpoint["unanalyzedSceneIds"] == [scene["id"]]
+    assert run.checkpoint.get("scenePackets", []) == []
+    assert "fallbackSceneIds" not in run.checkpoint
+    assert mock_llm.invocation_count("infer_narrative_scene_analysis") == 2
+    assert mock_llm.invocation_count("infer_narrative_map_synthesis") == 0
+    assert persisted.doc["seasons"][0]["episodes"][0]["narrativeMap"] is None
+    assert "narrative_map_scene_unanalyzed" in " ".join(r.getMessage() for r in caplog.records)
+
+    snapshots.purge_project(db_session, project["id"])
+
+
+@pytest.mark.parametrize("lock", ["episode", "narrativeMap"])
+def test_locked_map_with_unanalyzed_scenes_is_never_analysed_again(
+    db_session, mock_llm, monkeypatch, lock
+):
+    src = "INT. BAR - NIGHT\nDan pours a drink.\n\nINT. BAR - LATER\nMarta counts the till."
+    project = _imported_project(mock_llm, monkeypatch, src)
+    first, second = project["seasons"][0]["episodes"][0]["scenes"]
+    bad = _scene_analysis(second["id"], second["beats"][0]["id"])
+    good = _scene_analysis(first["id"], first["beats"][0]["id"], "Dan pours a drink for himself.")
+    mock_llm.set_responses("infer_narrative_scene_analysis", [good, bad, bad])
+    url = f"/api/v1/projects/{project['id']}/narrative-map"
+    run_id = client.post(url).json()["id"]
+    execute_run(run_id, mock_llm)
+    db_session.expire_all()
+    assert db_session.get(NarrativeMapRunRow, run_id).status == "completed"
+
+    def lock_it(episode: dict) -> None:
+        (episode if lock == "episode" else episode["narrativeMap"])["locked"] = True
+
+    _edit_episode(db_session, project["id"], lock_it)
+    locked_doc = copy.deepcopy(db_session.get(ProjectRow, project["id"]).doc)
+
+    response = client.post(url)
+
+    assert response.status_code == 409
+    db_session.expire_all()
+    assert db_session.get(NarrativeMapRunRow, run_id).status == "completed"
+    assert mock_llm.invocation_count("infer_narrative_scene_analysis") == 3
+    assert db_session.get(ProjectRow, project["id"]).doc == locked_doc
+
+    snapshots.purge_project(db_session, project["id"])
+
+
+def test_unanalyzed_scene_is_listed_then_analysed_again_on_request(
+    db_session, mock_llm, monkeypatch
+):
+    from llm.mock import _source_data_value
+
+    src = "INT. BAR - NIGHT\nDan pours a drink.\n\nINT. BAR - LATER\nMarta counts the till."
+    project = _imported_project(mock_llm, monkeypatch, src)
+    first, second = project["seasons"][0]["episodes"][0]["scenes"]
+
+    def overview_covers_second(episode: dict) -> None:
+        overview = episode["storyOverview"]
+        overview["outline"].append({"sceneId": second["id"], "summary": "Marta counts."})
+        overview["beatSheet"].append(
+            {"beatId": second["beats"][0]["id"], "label": "Count", "summary": "Marta counts."}
+        )
+
+    _edit_episode(db_session, project["id"], overview_covers_second)
+    bad = _scene_analysis(second["id"], second["beats"][0]["id"])
     mock_llm.set_responses(
         "infer_narrative_scene_analysis",
         [
-            InferredNarrativeSceneAnalysisBatch.model_validate(
-                {
-                    "scenes": [
-                        {
-                            "sceneId": scene_id,
-                            "summary": "<UNKNOWN>",
-                            "focalCharacterName": None,
-                            "dramaticFunction": "<UNKNOWN>",
-                            "conflict": "<UNKNOWN>",
-                            "stakes": "<UNKNOWN>",
-                            "turnBeatId": beat_id,
-                            "turn": "<UNKNOWN>",
-                            "keyMoments": [
-                                {
-                                    "beatId": beat_id,
-                                    "summary": "<UNKNOWN>",
-                                    "dramaticFunction": "<UNKNOWN>",
-                                    "consequence": "<UNKNOWN>",
-                                }
-                            ],
-                        }
-                    ]
-                }
-            )
+            _scene_analysis(first["id"], first["beats"][0]["id"], "Dan pours a drink for himself."),
+            bad,
+            bad,
         ],
     )
-    response = client.post(
-        f"/api/v1/projects/{project_id}/narrative-map",
-        headers={"If-Match": project["headSnapshotId"]},
-    )
+    synthesis_prompts = _spy(monkeypatch, mock_llm, "infer_narrative_map_synthesis")
+    verify_prompts = _spy(monkeypatch, mock_llm, "verify_narrative_map")
+    url = f"/api/v1/projects/{project['id']}/narrative-map"
+    run_id = client.post(url).json()["id"]
 
-    with caplog.at_level(logging.INFO, logger="drama_manager.narrative_map_runs"):
-        execute_run(response.json()["id"], mock_llm)
+    execute_run(run_id, mock_llm)
     db_session.expire_all()
 
-    run = db_session.get(NarrativeMapRunRow, response.json()["id"])
+    run = db_session.get(NarrativeMapRunRow, run_id)
     assert run.status == "completed"
-    assert run.completed_scene_count == 1
-    assert len(run.checkpoint["scenePackets"]) == 1
-    assert run.checkpoint["fallbackSceneIds"] == [scene_id]
-    assert mock_llm.invocation_count("infer_narrative_scene_analysis") == 1
-    joined = " ".join(record.getMessage() for record in caplog.records)
-    assert "narrative_map_scene_rejected" in joined
-    assert "narrative_map_scene_source_fallback" in joined
-    assert "narrative_map_scene_checkpointed" in joined
-    assert src not in joined
+    assert run.checkpoint["unanalyzedSceneIds"] == [second["id"]]
+    narrative_map = db_session.get(ProjectRow, project["id"]).doc["seasons"][0]["episodes"][0][
+        "narrativeMap"
+    ]
+    assert narrative_map["unanalyzedSceneIds"] == [second["id"]]
+    assert [turn["sceneId"] for turn in narrative_map["sceneTurns"]] == [first["id"]]
+    spine = _source_data_value(synthesis_prompts[0], "narrative_scene_macro_spine")
+    assert [row["sceneId"] for row in spine] == [first["id"]]
+    overview = _source_data_value(synthesis_prompts[0], "story_overview")
+    assert [row["sceneId"] for row in overview["outline"]] == [first["id"]]
+    assert second["beats"][0]["id"] not in {row["beatId"] for row in overview["beatSheet"]}
+    audit = _source_data_value(verify_prompts[0], "narrative_map_audit_evidence")
+    assert audit["serverCheckedSceneIds"] == [first["id"]]
+    assert all(second["id"] not in row["sceneIds"] for row in audit["actScenes"])
+
+    latest = client.get(f"{url}/runs/latest").json()
+    assert latest["retryAllowed"] is True
+    resumed = client.post(url).json()
+    assert (resumed["id"], resumed["status"]) == (run_id, "queued")
+
+    execute_run(run_id, mock_llm)
+    db_session.expire_all()
+
+    run = db_session.get(NarrativeMapRunRow, run_id)
+    assert run.status == "completed"
+    assert run.checkpoint.get("unanalyzedSceneIds", []) == []
+    # Only the unanalysed scene is read again; the analysed packet is reused.
+    assert mock_llm.invocation_count("infer_narrative_scene_analysis") == 4
+    assert mock_llm.invocation_count("infer_narrative_map_synthesis") == 2
+    narrative_map = db_session.get(ProjectRow, project["id"]).doc["seasons"][0]["episodes"][0][
+        "narrativeMap"
+    ]
+    assert narrative_map["unanalyzedSceneIds"] == []
+    assert [turn["sceneId"] for turn in narrative_map["sceneTurns"]] == [
+        first["id"],
+        second["id"],
+    ]
+    assert client.get(f"{url}/runs/latest").json()["retryAllowed"] is False
+
+    snapshots.purge_project(db_session, project["id"])
+
+
+def test_narrative_map_never_reuses_a_fallback_scene_packet(db_session, mock_llm, monkeypatch):
+    """Fallback run -> a run that reused its packet unmarked (as 2.6 did) -> third run."""
+    src = "INT. BAR - NIGHT\nDan pours a drink."
+    project = _imported_project(mock_llm, monkeypatch, src)
+    project_id = project["id"]
+    scene = project["seasons"][0]["episodes"][0]["scenes"][0]
+    url = f"/api/v1/projects/{project_id}/narrative-map"
+    fallback_run_id = client.post(url).json()["id"]
+    execute_run(fallback_run_id, mock_llm)
+    db_session.expire_all()
+    # Runs no longer fall back; stamp this one the way analysis 2.5 recorded it.
+    fallback_run = db_session.get(NarrativeMapRunRow, fallback_run_id)
+    packet = fallback_run.checkpoint["scenePackets"][0]
+    fallback_run.checkpoint = {
+        **fallback_run.checkpoint,
+        "fallbackSceneIds": [scene["id"]],
+        "scenePackets": [{**packet, "analysisStatus": "source_fallback"}],
+    }
+    db_session.commit()
+
+    db_session.add(
+        NarrativeMapRunRow(
+            id="nmap-reused-fallback",
+            project_id=project_id,
+            run_key=f"{project_id}:reusing:{fallback_run.source_hash}",
+            source_snapshot_id=fallback_run.source_snapshot_id,
+            source_hash=fallback_run.source_hash,
+            analysis_version="reusing",
+            status="completed",
+            phase="completed",
+            scene_count=1,
+            completed_scene_count=1,
+            attempt_count=1,
+            checkpoint={"scenePackets": [packet]},
+            updated_at=fallback_run.updated_at + timedelta(seconds=1),
+        )
+    )
+    db_session.commit()
+
+    monkeypatch.setattr(narrative_map_runs, "NARRATIVE_MAP_ANALYSIS_VERSION", "third")
+    third = client.post(url).json()
+
+    assert third["completedSceneCount"] == 0
+    execute_run(third["id"], mock_llm)
+    assert mock_llm.invocation_count("infer_narrative_scene_analysis") == 2
 
     snapshots.purge_project(db_session, project_id)
 
@@ -943,6 +1162,48 @@ def test_narrative_map_verifier_rejection_never_writes_a_snapshot(
     assert mock_llm.invocation_count("verify_narrative_map") == 1
     assert persisted.doc["seasons"][0]["episodes"][0]["narrativeMap"] is None
     assert db_session.query(SnapshotRow).filter_by(project_id=project_id).count() == 1
+
+    snapshots.purge_project(db_session, project_id)
+
+
+def test_narrative_map_publishes_when_the_verifier_withdrew_every_blocking_claim(
+    db_session, mock_llm, monkeypatch
+):
+    src = "INT. BAR - NIGHT\nDan pours a drink."
+    _configure_success(mock_llm, src, fact=True)
+    monkeypatch.setattr(routes, "enqueue_run", lambda *args: None)
+    mock_llm.set_response(
+        "verify_narrative_map",
+        NarrativeMapVerification(
+            approved=False,
+            # A path local repair cannot prune: only the withdrawal lets it pass.
+            unsupportedClaims=[{"path": "sceneTurns[0].turnBeatId", "reason": "Supported.",
+                "excerptCarriesClaim": True}],
+            missingSceneIds=[],
+            advisories=[],
+        ),
+    )
+    project = _parse_sse(client.post(URL, json=_body(src), headers=_headers()).text)[-1][1][
+        "result"
+    ]["project"]
+    project_id = project["id"]
+
+    response = client.post(
+        f"/api/v1/projects/{project_id}/narrative-map",
+        headers={"If-Match": project["headSnapshotId"]},
+    )
+    execute_run(response.json()["id"], mock_llm)
+    db_session.expire_all()
+
+    run = db_session.get(NarrativeMapRunRow, response.json()["id"])
+    persisted = db_session.get(ProjectRow, project_id)
+    assert (run.status, run.error_code) == ("completed", None)
+    assert [c["path"] for c in run.checkpoint["selfRetractedClaims"]] == [
+        "sceneTurns[0].turnBeatId"
+    ]
+    assert mock_llm.invocation_count("verify_narrative_map") == 1
+    assert persisted.doc["seasons"][0]["episodes"][0]["narrativeMap"] is not None
+    assert persisted.head_snapshot_id != project["headSnapshotId"]
 
     snapshots.purge_project(db_session, project_id)
 
@@ -1280,9 +1541,10 @@ def test_empty_content_fails_zero_rows(db_session, mock_llm):
 
 
 def test_schema_invalid_llm_maps_to_failed_zero_rows(db_session, mock_llm):
+    # A whole-script stage: a failing scene unit no longer aborts (T9.11).
     class _Raising(MockLlmClient):
-        def segment_scene(self, **kwargs):
-            raise SchemaInvalidLlmError("segment_scene")
+        def infer_act_breaks(self, **kwargs):
+            raise SchemaInvalidLlmError("infer_act_breaks")
 
     app.dependency_overrides[get_llm_client] = lambda: _Raising()
     try:
@@ -1302,7 +1564,7 @@ def test_schema_invalid_llm_maps_to_failed_zero_rows(db_session, mock_llm):
             "type": "failed",
             "error": {
                 "code": "SCHEMA_INVALID_LLM",
-                "message": "segment_scene: LLM output failed schema validation twice",
+                "message": "infer_act_breaks: LLM output failed schema validation twice",
             },
         },
     )
@@ -1336,7 +1598,7 @@ def test_failing_scene_worker_fails_fast_with_zero_rows(db_session, monkeypatch)
 
     events = _parse_sse(resp.text)
     assert events[-1][0] == "failed"
-    assert events[-1][1]["error"]["code"] == "SCHEMA_INVALID_LLM"
+    assert events[-1][1]["error"]["code"] == "LLM_UNAVAILABLE"
     segment_progress = [
         data
         for name, data in events
@@ -1482,6 +1744,259 @@ def test_retry_resumes_saved_scene_and_act_checkpoints_without_rebilling(
     assert run.status == "completed"
     assert run.checkpoint == {}
     assert db_session.query(ImportRunUnitRow).filter_by(run_id=run.id).count() == 0
+
+
+# ── T9.5: saved units must match the scene text, prompt and models ──────────
+
+_TWO_SCENES = "\n".join(
+    ["INT. BAR - NIGHT", "Dan pours a drink.", "INT. OFFICE - DAY", "Marta opens the file."]
+)
+
+
+def _failing(monkeypatch, llm: MockLlmClient, op: str):
+    """Make `op` fail validation; call the returned function to restore it."""
+    original = getattr(llm, op)
+
+    def fail(**kwargs):
+        del kwargs
+        raise SchemaInvalidLlmError(op)
+
+    monkeypatch.setattr(llm, op, fail)
+    return lambda: monkeypatch.setattr(llm, op, original)
+
+
+def _whole_source_as_one_scene(source: str) -> list[SceneSpan]:
+    """Another parser's split of the same source, as a re-split would give."""
+    return [SceneSpan(location="", lines=source.split("\n"), start_line=0)]
+
+
+def _post_import(key: str, src: str = _TWO_SCENES) -> list[tuple[str, dict]]:
+    return _parse_sse(client.post(URL, json=_body(src), headers=_headers(key)).text)
+
+
+def _run_for(db_session, key: str) -> ImportRunRow | None:
+    db_session.expire_all()
+    return db_session.query(ImportRunRow).filter_by(idempotency_key=key).one_or_none()
+
+
+def _unit_count(db_session, run_id: str) -> int:
+    return db_session.query(ImportRunUnitRow).filter_by(run_id=run_id).count()
+
+
+def test_resume_resegments_a_scene_whose_saved_beats_are_other_text(
+    db_session, mock_llm, monkeypatch
+):
+    _configure_success(mock_llm, _TWO_SCENES)
+    monkeypatch.setattr(pipeline, "split_into_scenes", _whole_source_as_one_scene)
+    restore = _failing(monkeypatch, mock_llm, "infer_story_entities")
+    failed = _post_import("t95-resplit-segment")
+    assert failed[-1][1]["error"]["code"] == "SCHEMA_INVALID_LLM"
+    assert mock_llm.invocation_count("segment_scene") == 1
+
+    monkeypatch.setattr(pipeline, "split_into_scenes", split_into_scenes)
+    restore()
+    resumed = _post_import("t95-resplit-segment")
+
+    assert resumed[-1][0] == "complete"
+    assert mock_llm.invocation_count("segment_scene") == 3
+    scenes = resumed[-1][1]["result"]["project"]["seasons"][0]["episodes"][0]["scenes"]
+    assert ["\n".join(b["scriptText"] for b in s["beats"]) for s in scenes] == [
+        "\n".join(span.lines) for span in split_into_scenes(_TWO_SCENES)
+    ]
+
+
+def test_resume_reextracts_a_scene_whose_saved_facts_came_from_other_text(
+    db_session, mock_llm, monkeypatch
+):
+    _configure_success(mock_llm, _TWO_SCENES)
+    monkeypatch.setattr(pipeline, "split_into_scenes", _whole_source_as_one_scene)
+    restore = _failing(monkeypatch, mock_llm, "scan_consistency")
+    failed = _post_import("t95-resplit-extract")
+    assert failed[-1][1]["error"]["code"] == "SCHEMA_INVALID_LLM"
+    assert mock_llm.invocation_count("extract_ledger_facts") == 1
+
+    monkeypatch.setattr(pipeline, "split_into_scenes", split_into_scenes)
+    restore()
+    resumed = _post_import("t95-resplit-extract")
+
+    assert resumed[-1][0] == "complete"
+    assert mock_llm.invocation_count("extract_ledger_facts") == 3
+
+
+def test_resume_reuses_saved_extractions_for_unchanged_scenes(
+    db_session, mock_llm, monkeypatch
+):
+    _configure_success(mock_llm, _TWO_SCENES)
+    restore = _failing(monkeypatch, mock_llm, "scan_consistency")
+    assert _post_import("t95-unchanged")[-1][0] == "failed"
+    assert mock_llm.invocation_count("extract_ledger_facts") == 2
+
+    restore()
+    resumed = _post_import("t95-unchanged")
+
+    assert resumed[-1][0] == "complete"
+    assert mock_llm.invocation_count("segment_scene") == 2
+    assert mock_llm.invocation_count("extract_ledger_facts") == 2
+
+
+@pytest.mark.parametrize("change", ["prompt", "models"])
+def test_resume_reuses_no_unit_after_a_prompt_or_model_change(
+    db_session, mock_llm, monkeypatch, tmp_path, change
+):
+    key = f"t95-version-{change}"
+    _configure_success(mock_llm, _TWO_SCENES)
+    restore = _failing(monkeypatch, mock_llm, "infer_story_entities")
+    assert _post_import(key)[-1][0] == "failed"
+    assert mock_llm.invocation_count("segment_scene") == 2
+
+    if change == "prompt":
+        monkeypatch.setattr(render, "PROMPT_VERSION", f"{render.PROMPT_VERSION}-next")
+    else:
+        models = tmp_path / "models.toml"
+        models.write_text(import_runs._MODELS_CONFIG.read_text() + "\n# repinned\n")
+        monkeypatch.setattr(import_runs, "_MODELS_CONFIG", models)
+    restore()
+    resumed = _post_import(key)
+
+    assert resumed[-1][0] == "complete"
+    assert mock_llm.invocation_count("segment_scene") == 4
+    assert mock_llm.invocation_count("infer_act_breaks") == 2
+
+
+def test_resume_reuses_no_unit_saved_before_numbered_headings_split(
+    db_session, mock_llm, monkeypatch
+):
+    """Entity, promise and overview units carry scene ids from the split that
+    made them and are not content-checked, so T9.6's re-split must not reuse
+    any unit a pre-T9.6 run saved."""
+    src = "\n".join(
+        ["INT. BAR - NIGHT", "Dan pours a drink.", "17 INT. OFFICE - DAY 17", "Marta waits."]
+    )
+    _configure_success(mock_llm, src)
+    current_version = import_runs.IMPORT_ANALYSIS_VERSION
+    monkeypatch.setattr(import_runs, "IMPORT_ANALYSIS_VERSION", "2026-10-04.1")  # pre-T9.6
+    monkeypatch.setattr(pipeline, "split_into_scenes", _whole_source_as_one_scene)
+    restore = _failing(monkeypatch, mock_llm, "infer_narrative_promises")
+    assert _post_import("t96-resplit", src)[-1][0] == "failed"
+    assert mock_llm.invocation_count("infer_story_entities") == 1
+
+    monkeypatch.setattr(import_runs, "IMPORT_ANALYSIS_VERSION", current_version)
+    monkeypatch.setattr(pipeline, "split_into_scenes", split_into_scenes)
+    restore()
+    resumed = _post_import("t96-resplit", src)
+
+    assert resumed[-1][0] == "complete"
+    assert len(resumed[-1][1]["result"]["project"]["seasons"][0]["episodes"][0]["scenes"]) == 2
+    assert mock_llm.invocation_count("infer_story_entities") == 2
+    assert mock_llm.invocation_count("infer_act_breaks") == 2
+
+
+def test_resume_reuses_no_act_guess_saved_before_printed_markers_counted(
+    db_session, mock_llm, monkeypatch
+):
+    src = "\n".join(
+        [
+            "ACT ONE",
+            "INT. BAR - NIGHT",
+            "Dan pours a drink.",
+            "ACT TWO",
+            "INT. OFFICE - DAY",
+            "Marta waits.",
+            "ACT THREE",
+            "INT. DOCK - NIGHT",
+            "They leave.",
+        ]
+    )
+    _configure_success(mock_llm, src)
+    current_version = import_runs.IMPORT_ANALYSIS_VERSION
+    monkeypatch.setattr(import_runs, "IMPORT_ANALYSIS_VERSION", "2026-10-04.2")  # pre-T9.7
+    from_markers = pipeline.acts.acts_from_markers
+    monkeypatch.setattr(pipeline.acts, "acts_from_markers", lambda *args: None)
+    restore = _failing(monkeypatch, mock_llm, "infer_story_entities")
+    assert _post_import("t97-markers", src)[-1][0] == "failed"
+    assert mock_llm.invocation_count("infer_act_breaks") == 1
+
+    monkeypatch.setattr(import_runs, "IMPORT_ANALYSIS_VERSION", current_version)
+    monkeypatch.setattr(pipeline.acts, "acts_from_markers", from_markers)
+    restore()
+    resumed = _post_import("t97-markers", src)
+
+    assert resumed[-1][0] == "complete"
+    scenes = resumed[-1][1]["result"]["project"]["seasons"][0]["episodes"][0]["scenes"]
+    assert [scene["act"] for scene in scenes] == [0, 0, 1, 2]
+    assert mock_llm.invocation_count("infer_act_breaks") == 1
+
+
+def test_unfinished_runs_past_retention_are_purged_with_their_units(
+    db_session, mock_llm, monkeypatch
+):
+    _configure_success(mock_llm, _TWO_SCENES)
+    restore = _failing(monkeypatch, mock_llm, "infer_story_entities")
+    assert _post_import("t95-expired")[-1][0] == "failed"
+    assert _post_import("t95-retained")[-1][0] == "failed"
+    expired = _run_for(db_session, "t95-expired")
+    retained = _run_for(db_session, "t95-retained")
+    expired_id = expired.id
+    expired.updated_at -= import_runs.UNFINISHED_RUN_RETENTION + timedelta(hours=1)
+    retained.updated_at -= import_runs.UNFINISHED_RUN_RETENTION - timedelta(hours=1)
+    db_session.commit()
+    assert _unit_count(db_session, expired_id) == 2
+
+    restore()
+    resumed = _post_import("t95-expired")
+
+    assert resumed[-1][0] == "complete"
+    assert mock_llm.invocation_count("segment_scene") == 6
+    assert _unit_count(db_session, expired_id) == 0
+    assert _run_for(db_session, "t95-expired").id != expired_id
+    assert _unit_count(db_session, _run_for(db_session, "t95-retained").id) == 2
+
+
+def test_deleting_an_imported_project_purges_runs_that_hold_its_script(
+    db_session, mock_llm, monkeypatch
+):
+    other_src = "INT. DOCK - DAY\nSal ties a rope."
+    _configure_success(mock_llm, _TWO_SCENES)
+    restore = _failing(monkeypatch, mock_llm, "infer_story_entities")
+    assert _post_import("t95-delete-failed")[-1][0] == "failed"
+    assert _post_import("t95-delete-other", other_src)[-1][0] == "failed"
+    failed_id = _run_for(db_session, "t95-delete-failed").id
+    other_id = _run_for(db_session, "t95-delete-other").id
+
+    restore()
+    done = _post_import("t95-delete-done")
+    pid = done[-1][1]["result"]["project"]["id"]
+    assert client.delete(f"/api/v1/projects/{pid}").status_code == 204
+
+    assert _run_for(db_session, "t95-delete-failed") is None
+    assert _run_for(db_session, "t95-delete-done") is None
+    assert _unit_count(db_session, failed_id) == 0
+    assert _run_for(db_session, "t95-delete-other") is not None
+    assert _unit_count(db_session, other_id) > 0
+
+
+def test_deleting_a_project_spares_a_live_import_of_the_same_script(
+    db_session, mock_llm, monkeypatch
+):
+    _configure_success(mock_llm, _TWO_SCENES)
+    restore = _failing(monkeypatch, mock_llm, "infer_story_entities")
+    assert _post_import("t95-live")[-1][0] == "failed"
+    assert _post_import("t95-stalled")[-1][0] == "failed"
+    live = _run_for(db_session, "t95-live")
+    stalled = _run_for(db_session, "t95-stalled")
+    live_id, stalled_id = live.id, stalled.id
+    live.status = stalled.status = "running"
+    stalled.updated_at -= import_runs.RUN_RECOVERY_AGE + timedelta(minutes=1)
+    db_session.commit()
+
+    restore()
+    pid = _post_import("t95-live-done")[-1][1]["result"]["project"]["id"]
+    assert client.delete(f"/api/v1/projects/{pid}").status_code == 204
+
+    assert _run_for(db_session, "t95-live") is not None
+    assert _unit_count(db_session, live_id) == 2
+    assert _run_for(db_session, "t95-stalled") is None
+    assert _unit_count(db_session, stalled_id) == 0
 
 
 # ── idempotency (T4 semantics, over SSE) ─────────────────────────────────────
@@ -1816,4 +2331,169 @@ def test_fault_saving_zero_rows(db_session, monkeypatch):
     )
     with pytest.raises(RuntimeError, match="injected"):
         _drain(gen)
+    _assert_no_new_rows(db_session, baseline)
+
+
+# ── T9.11: a scene that fails after its rule-9 retry does not block the import ─
+
+_THREE_SCENES = "\n".join(
+    [
+        "INT. ALPHA - DAY",
+        "Alpha waits.",
+        "INT. BETA - DAY",
+        "Beta waits.",
+        "INT. GAMMA - DAY",
+        "Gamma waits.",
+    ]
+)
+
+
+class _SceneFailsValidation(MockLlmClient):
+    """The client raises SchemaInvalidLlmError only after its own rule-9 retry,
+    so one raise here is a scene unit that failed twice."""
+
+    def __init__(self, *, segment: str = "", extract: str = "") -> None:
+        super().__init__()
+        self.segment_fails_on = segment
+        self.extract_fails_on = extract
+        self.set_response("segment_scene", seg([(1, 2)]))
+        self.set_response("scan_consistency", scan())
+
+    def segment_scene(self, *, user_message: str, **kwargs):
+        if self.segment_fails_on and self.segment_fails_on in user_message:
+            raise SchemaInvalidLlmError("segment_scene")
+        return super().segment_scene(user_message=user_message, **kwargs)
+
+    def extract_ledger_facts(self, *, user_message: str, **kwargs):
+        if self.extract_fails_on and self.extract_fails_on in user_message:
+            raise SchemaInvalidLlmError("extract_ledger_facts")
+        super().extract_ledger_facts(user_message=user_message, **kwargs)
+        return extraction([one_fact()] if "Alpha waits." in user_message else None)
+
+
+def _post_with(llm: MockLlmClient, key: str) -> list[tuple[str, dict]]:
+    app.dependency_overrides[get_llm_client] = lambda: llm
+    try:
+        return _post_import(key, _THREE_SCENES)
+    finally:
+        app.dependency_overrides.pop(get_llm_client, None)
+
+
+def _failure_flags(result: dict) -> set[tuple[str, str, str, str]]:
+    return {
+        (f["objectType"], f["objectId"], f["explanation"].split("]")[0] + "]", f["status"])
+        for f in result["consistencyFlags"]
+    }
+
+
+def test_a_scene_that_fails_twice_keeps_only_its_text_and_the_import_completes(
+    db_session,
+):
+    llm = _SceneFailsValidation(segment="Beta waits.", extract="Gamma waits.")
+
+    events = _post_with(llm, "t911-continue")
+
+    assert events[-1][0] == "complete", events[-1]
+    result = events[-1][1]["result"]
+    alpha, beta, gamma = result["project"]["seasons"][0]["episodes"][0]["scenes"]
+    assert [b["scriptText"] for b in beta["beats"]] == ["INT. BETA - DAY\nBeta waits."]
+    # Rule 9: nothing is written for the scene the model could not break down.
+    assert {
+        beat[field]
+        for beat in beta["beats"]
+        for field in ("whatHappens", "audienceLearns", "audienceFeels")
+    } | {
+        beta[field]
+        for field in ("whatHappens", "audienceLearns", "audienceFeels", "socialSituation")
+    } == {""}
+    assert [b["whatHappens"] for s in (alpha, gamma) for b in s["beats"]] == ["w", "w"]
+    assert [f["sourceSpan"]["sceneId"] for f in result["newFacts"]] == ["scene-1"]
+    assert _failure_flags(result) == {
+        ("scene", "scene-2", "[segmentation_failed]", "open"),
+        ("scene", "scene-3", "[extraction_failed]", "open"),
+    }
+
+
+def test_a_failed_scene_is_not_saved_so_a_resume_tries_it_again(
+    db_session, monkeypatch
+):
+    llm = _SceneFailsValidation(segment="Beta waits.", extract="Gamma waits.")
+    restore = _failing(monkeypatch, llm, "scan_consistency")
+
+    assert _post_with(llm, "t911-resume")[-1][1]["error"]["code"] == "SCHEMA_INVALID_LLM"
+    run = _run_for(db_session, "t911-resume")
+    saved = {
+        stage: {
+            unit.unit_index
+            for unit in db_session.query(ImportRunUnitRow).filter_by(
+                run_id=run.id, stage=stage
+            )
+        }
+        for stage in ("segmenting_beats", "extracting_facts")
+    }
+    assert saved == {"segmenting_beats": {0, 2}, "extracting_facts": {0, 1}}
+
+    restore()
+    llm.segment_fails_on = llm.extract_fails_on = ""
+    resumed = _post_with(llm, "t911-resume")
+
+    assert resumed[-1][0] == "complete", resumed[-1]
+    assert _failure_flags(resumed[-1][1]["result"]) == set()
+    assert llm.invocation_count("segment_scene") == 3
+    # Everything after segmentation was saved from a run where Beta had no
+    # breakdown, so none of it may be reused once Beta has one.
+    for op in (
+        "infer_act_breaks",
+        "infer_story_entities",
+        "infer_narrative_promises",
+        "infer_story_overview",
+    ):
+        assert llm.invocation_count(op) == 2, op
+    assert llm.invocation_count("extract_ledger_facts") == 2 + 3
+
+
+def test_a_resume_rescans_after_a_scene_whose_extraction_failed(
+    db_session, monkeypatch
+):
+    llm = _SceneFailsValidation(extract="Gamma waits.")
+    rewrite_flags = snapshots._rewrite_flags
+
+    def fail_once(*args, **kwargs):
+        monkeypatch.setattr(snapshots, "_rewrite_flags", rewrite_flags)
+        raise RuntimeError("injected saving failure")
+
+    monkeypatch.setattr(snapshots, "_rewrite_flags", fail_once)
+    with pytest.raises(RuntimeError, match="injected"):
+        _post_with(llm, "t911-rescan")
+
+    llm.extract_fails_on = ""
+    resumed = _post_with(llm, "t911-rescan")
+
+    assert resumed[-1][0] == "complete", resumed[-1]
+    assert _failure_flags(resumed[-1][1]["result"]) == set()
+    assert llm.invocation_count("extract_ledger_facts") == 2 + 1
+    # The first scan never saw Gamma's facts.
+    assert llm.invocation_count("scan_consistency") == 2
+    assert llm.invocation_count("infer_story_overview") == 1
+
+
+def test_an_acts_failure_still_aborts_with_zero_rows_after_a_scene_fails(
+    db_session, monkeypatch
+):
+    baseline = _table_counts(db_session)
+    llm = _SceneFailsValidation(segment="Beta waits.")
+    _failing(monkeypatch, llm, "infer_act_breaks")
+
+    events = _post_with(llm, "t911-acts")
+
+    assert events[-1] == (
+        "failed",
+        {
+            "type": "failed",
+            "error": {
+                "code": "SCHEMA_INVALID_LLM",
+                "message": "infer_act_breaks: LLM output failed schema validation twice",
+            },
+        },
+    )
     _assert_no_new_rows(db_session, baseline)
