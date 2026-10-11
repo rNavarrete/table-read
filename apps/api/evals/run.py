@@ -143,11 +143,7 @@ def _build_real_clients():
     api_key = os.environ["ANTHROPIC_API_KEY"]  # KeyError → fail fast (no key, no real eval)
     client = build_anthropic_client()
     models = load_model_roles()
-    judge = ContinuityJudge(
-        build_sdk_client(api_key),
-        models["writer"],
-        temperature=None,
-    )
+    judge = ContinuityJudge(build_sdk_client(api_key), models["writer"])
     return client, judge
 
 

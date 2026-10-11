@@ -599,8 +599,9 @@ def _stream_attempt(stream_fn: StreamFn, system: str, user: str) -> Iterator[Eve
 
     Returns (via generator return) a `(status, payload)` pair:
       - `("ok", BeatCandidate)` — complete tool input parsed and validated
-      - `("invalid_schema", error_text)` — valid JSON, failed BeatCandidate
-        validation (the rule-9 retryable case)
+      - `("invalid_schema", error_text)` — valid JSON that failed BeatCandidate
+        validation, or no tool input at all (the model answered in prose;
+        tool choice is `auto` on the 5.5 models): the rule-9 retryable case
       - `("bad_json", None)` — buffer never parses (§8a: parser cannot resync)
       - `("unavailable", None)` — SDK transport/availability failure
 
@@ -619,6 +620,8 @@ def _stream_attempt(stream_fn: StreamFn, system: str, user: str) -> Iterator[Eve
     except (anthropic.APIError, LlmTimeoutError):
         return ("unavailable", None)
 
+    if not buffer:
+        return ("invalid_schema", "no tool call was made")
     try:
         return ("ok", _finalize(buffer))
     except json.JSONDecodeError:

@@ -22,6 +22,13 @@ from schemas import (
     NarrativeMapVerificationNote,
 )
 
+# 3.9: scene analysis, synthesis and verification move to the 5.5 models
+# (config/models.toml) and ask for their tool instead of forcing it
+# (PROMPT_VERSION 0.49.0). As with every bump, valid scene packets from earlier
+# versions on the same source are revalidated and reused rather than paid for
+# again, so a map built after this change can pair Opus 5 scene turns with
+# Opus 5.5 synthesis; only scenes without a reusable packet run on Opus 5.5.
+#
 # 3.8: verifier paths are cut to their address before resolving (a trailing
 # "(beat-10-1)" or sentence no longer fails a prunable claim closed), a claim
 # also filed as an advisory is advisory, and a rejected theme citation removes
@@ -71,7 +78,7 @@ from schemas import (
 # block keys on this constant — a prompt fix that changes what the analysis
 # produces has to be a new analysis version or the rejected run can never be
 # retried at all.
-NARRATIVE_MAP_ANALYSIS_VERSION = "3.8"
+NARRATIVE_MAP_ANALYSIS_VERSION = "3.9"
 NARRATIVE_MAP_SCENE_CHUNK_CHAR_BUDGET = 24_000
 NARRATIVE_MAP_SCENES_PER_CHUNK = 1
 NARRATIVE_MAP_VERIFICATION_EXCERPT_CHARS = 520

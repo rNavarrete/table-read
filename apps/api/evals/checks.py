@@ -19,8 +19,8 @@ takes an injected `LlmClient` (+ judge / DB session where needed) and returns an
      against facts 02/03/04/08. Gate ≥ 0.95 (hard).
   4. `segmentation_determinism_eval` — `segment_scene` ×N on one fixture scene;
      modal typed-start agreement. Soft gate 0.70, still flagged for threshold
-     ratification (DESIGN-GAP(T6.1)); the temperature-0 escalation (segment_scene
-     moved to the classifier tier, ops.py) is now applied.
+     ratification (DESIGN-GAP(T6.1)); measured at model defaults (the 5.5
+     models accept no temperature).
   5. `act_boundary_validity_eval` — two labeled scripts ×N through the product
      semantic normalizer. Every partition must be valid (gate 1.0, hard).
   6. `act_boundary_quality_eval` — same cases, scoring actual act transitions
@@ -39,7 +39,7 @@ from datetime import UTC, datetime
 
 from drama_manager import candidates, change_sets, locks, render
 from evals import probes
-from evals.graders import CONTINUITY_FACT_IDS, GRADER_VERSION, Judge, calibrate
+from evals.graders import CONTINUITY_FACT_IDS, GRADER_VERSION, GraderError, Judge, calibrate
 from evals.harness import EvalResult
 from evals.probes import FixtureCtx
 from evals.progress import ProgressFn, emit_attempt
@@ -60,9 +60,9 @@ CONTINUITY_GATE = 0.95
 # dominant segmentation in a clear majority of runs — is a usable "import is
 # stable-ish" signal without demanding the unmeetable. Soft (never blocks); the
 # THRESHOLD itself is still flagged for controller/PM ratification
-# (DESIGN-GAP(T6.1)). The determinism escalation the eval documented — move
-# segment_scene to the classifier tier, which accepts temperature=0 — has been
-# applied (llm/ops.py); this eval verifies it lands.
+# (DESIGN-GAP(T6.1)). The old temperature-0 escalation is gone: segment_scene
+# runs on the import_worker tier, and no pinned 5.5 model accepts a
+# temperature, so this eval measures agreement at the model's defaults.
 SEGMENTATION_DETERMINISM_GATE = 0.70
 ACT_BOUNDARY_VALIDITY_GATE = 1.0
 ACT_BOUNDARY_QUALITY_GATE = 0.80
@@ -443,10 +443,11 @@ def continuity_eval(
             continue
         try:
             verdict = judge.grade(script_text=candidate.script_text, facts=facts)
-        except LlmTimeoutError:
-            # A hung judge call never fabricates a verdict (rule 9's "no
-            # fabricated fallback" applies here too) -- counts this run as
-            # unscored, same bucket as a client-side schema failure.
+        except (LlmTimeoutError, GraderError):
+            # A hung judge call, or one that answered without its tool (tool
+            # choice is `auto` on the 5.5 models), never fabricates a verdict
+            # (rule 9's "no fabricated fallback" applies here too) -- counts
+            # this run as unscored, same bucket as a client-side schema failure.
             schema_failures += 1
             emit_attempt(
                 on_progress,
@@ -558,8 +559,8 @@ def segmentation_determinism_eval(
         notes=[
             "SOFT gate — threshold 0.70 is chosen, not spec-pinned; flagged for "
             "controller/PM ratification (DESIGN-GAP(T6.1))",
-            "temperature-0 escalation applied: segment_scene moved to the "
-            "classifier tier (temperature 0 per prompt spec §7)",
+            "segment_scene runs on the import_worker tier at model defaults "
+            "(the 5.5 models accept no temperature; prompt spec §8)",
         ],
     )
 

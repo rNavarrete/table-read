@@ -1,10 +1,9 @@
 """`AnthropicClient` -- the real, Anthropic-backed `LlmClient` implementation.
 
 Strict tool JSON per docs/tableread-prompt-spec.md header + §8: every op call
-sends exactly one `strict: true` tool. Scene analysis uses auto tool selection
-with adaptive thinking; Narrative Map synthesis and verification disable
-thinking and force their strict tools so a required structured response is not
-consumed by hidden reasoning.
+offers exactly one `strict: true` tool with `tool_choice: auto` and asks for
+the call in the prompt (`_ask_for_tool`) -- Opus 5.5 and Sonnet 5.5 reject a
+forced tool choice.
 On a schema-invalid (or missing) tool_use response, retries **exactly once**
 with the validation error appended as an `is_error` tool_result, then raises
 `SchemaInvalidLlmError` -- never a fabricated fallback (CLAUDE.md hard rule
@@ -62,7 +61,7 @@ from schemas import (
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _TOOL_SCHEMAS_DIR = _REPO_ROOT / "config" / "tool_schemas"
 
-DEFAULT_MAX_TOKENS = 4096
+DEFAULT_MAX_TOKENS = 16_384
 
 # Wall-clock ceiling on a single `messages.create` call (task 3). Guards
 # against a hung request stalling an eval run indefinitely; deliberately
@@ -211,8 +210,8 @@ def _response_with_timeout(
 
 
 class _RecoverableLlmError(Exception):
-    """Internal: a tool-forced call came back without a valid tool_use.input
-    for the forced op -- either no matching tool_use block at all, or one
+    """Internal: a call came back without a valid tool_use.input for the
+    requested op -- either no matching tool_use block at all, or one
     whose input fails Pydantic validation. Both are "schema-invalid output"
     for CLAUDE.md hard rule 9's retry-once-then-surface purposes."""
 
@@ -233,6 +232,17 @@ def _build_tool(op: LlmOp) -> dict[str, Any]:
         "input_schema": _load_tool_input_schema(op.name),
         "strict": True,
     }
+
+
+# Opus 5.5 and Sonnet 5.5 reject a forced `tool_choice` (`tool`/`any`), so
+# every op offers its one strict tool with `auto`, allows at most one call,
+# and asks for it in the prompt. A prose reply without the call gets one
+# retry, even on fail-closed ops; a refusal gets none (`_call`).
+_TOOL_CHOICE: dict[str, Any] = {"type": "auto", "disable_parallel_tool_use": True}
+
+
+def _ask_for_tool(user_message: str, op_name: str) -> str:
+    return f"{user_message}\n\nAnswer by calling the {op_name} tool exactly once."
 
 
 def _find_tool_use(response: Any, op_name: str) -> Any:
@@ -353,11 +363,10 @@ class AnthropicClient:
 
         **A prefix below the model's minimum cacheable size silently does not
         cache** — no error, just `cache_creation_input_tokens: 0` forever. The
-        minimum is model-specific and NOT monotonic across generations: it is
-        4096 tokens on Haiku 4.5 (which serves every classifier-role op here,
-        including `extract_ledger_facts`) but only 512 on Opus 5. A short
-        episode can therefore pay full input rate for its prefix on every call
-        while a longer one caches. That is not harmful — the context is still
+        minimum is model-specific and NOT monotonic across generations (Haiku
+        4.5 needed 4096 tokens; Opus 5 needed 512). A short episode can
+        therefore pay full input rate for its prefix on every call while a
+        longer one caches. That is not harmful — the context is still
         delivered — but it explains a `cache_read=0` run, and it is the reason
         the log line carries both counters."""
         if not cache_prefix:
@@ -384,31 +393,21 @@ class AnthropicClient:
         model = self._models[op.role]
         tool = self._tool_for(op)
         input_hash = self._input_hash(user_message)
-        messages: list[dict[str, Any]] = [{"role": "user", "content": user_message}]
+        messages: list[dict[str, Any]] = [
+            {"role": "user", "content": _ask_for_tool(user_message, op.name)}
+        ]
         kwargs: dict[str, Any] = {
             "model": model,
             "max_tokens": op.max_tokens if op.max_tokens is not None else self._max_tokens,
             "system": self._system_param(system, cache_prefix),
             "tools": [tool],
-            "tool_choice": (
-                {"type": "tool", "name": op.name}
-                if op.tool_choice_mode == "forced"
-                else {"type": "auto"}
-            ),
+            "tool_choice": _TOOL_CHOICE,
             "messages": messages,
         }
         if op.adaptive_thinking:
             kwargs["thinking"] = {"type": "adaptive"}
-        elif op.thinking_disabled:
-            kwargs["thinking"] = {"type": "disabled"}
         if op.effort is not None:
             kwargs["output_config"] = {"effort": op.effort}
-        # Prompt spec §3/§5/§6/§8c: classifier-role ops run at temperature 0.
-        # Writer, import_worker, and import_analyst ops omit `temperature` —
-        # Sonnet 5 / Opus 5 reject non-default sampling. Classifier stays on
-        # Haiku, which accepts temperature=0.
-        if op.role == "classifier":
-            kwargs["temperature"] = 0
 
         timeout = (
             op.call_timeout_seconds
@@ -419,7 +418,13 @@ class AnthropicClient:
         try:
             result = _validate_tool_response(response, op)
         except _RecoverableLlmError as first_error:
-            if not op.retry_schema_once:
+            stop_reason = getattr(response, "stop_reason", None)
+            # A prose answer is not a duplicate verdict, so fail-closed ops
+            # retry it too. A refusal is never replayed: the same request
+            # would be refused again, and one that came back before any
+            # output has no content to replay.
+            prose_only = first_error.tool_use_id is None and stop_reason == "end_turn"
+            if stop_reason == "refusal" or not (op.retry_schema_once or prose_only):
                 self._log(
                     op,
                     prompt_version,
@@ -448,10 +453,10 @@ class AnthropicClient:
         model: str,
         input_hash: str,
     ) -> BaseModel:
-        retry_messages = [
-            *kwargs["messages"],
-            {"role": "assistant", "content": first_response.content},
-        ]
+        retry_messages = [*kwargs["messages"]]
+        if first_response.content:
+            # An assistant turn with empty content is a 400.
+            retry_messages.append({"role": "assistant", "content": first_response.content})
         tool_use_ids = [
             block.id
             for block in getattr(first_response, "content", []) or []
@@ -462,8 +467,8 @@ class AnthropicClient:
             # must be followed by a user turn whose content STARTS with one
             # tool_result per tool_use id, or the API 400s ("tool_use ids
             # were found without tool_result blocks immediately after").
-            # Tool-forcing normally yields exactly one tool_use, but parallel
-            # tool use isn't disabled here, so every id replayed in the
+            # `disable_parallel_tool_use` normally yields at most one
+            # tool_use, but every id replayed in the
             # assistant turn needs its own matching reply -- the one that
             # failed validation carries the rule-9 error text, any other
             # (duplicate/parallel) tool_use is answered as an ignored extra.
@@ -486,7 +491,7 @@ class AnthropicClient:
                 }
             )
         else:
-            # No tool_use block at all (forced tool_choice makes this rare) --
+            # No tool_use block at all (the model answered in prose) --
             # there is no tool_use_id to reply to, so fall back to a plain
             # user-turn restatement of the requirement.
             retry_messages.append(
@@ -547,7 +552,7 @@ class AnthropicClient:
     def _stream_tool(
         self, op_name: str, *, system: str, user_message: str, prompt_version: str
     ) -> Iterator[str]:
-        """Stream a tool-forced op's input as raw JSON fragments (prompt spec
+        """Stream an op's tool input as raw JSON fragments (prompt spec
         §8a; shared by the two streaming ops, `generate_beat_candidates` and
         `tune_beat`). Fine-grained tool streaming is enabled with
         `eager_input_streaming` on the tool (the successor to the
@@ -572,13 +577,13 @@ class AnthropicClient:
             "max_tokens": op.max_tokens if op.max_tokens is not None else self._max_tokens,
             "system": system,
             "tools": [tool],
-            "tool_choice": {"type": "tool", "name": op.name},
-            "messages": [{"role": "user", "content": user_message}],
+            "tool_choice": _TOOL_CHOICE,
+            "messages": [{"role": "user", "content": _ask_for_tool(user_message, op.name)}],
             "stream": True,
         }
         usage: Any = None
         # Writer-tier models (observed with claude-sonnet-5) sometimes emit a
-        # *second* tool_use block for the same forced tool in one message.
+        # *second* tool_use block for the same tool in one message.
         # Concatenating every input_json_delta then makes json.loads fail with
         # "Extra data", which the orchestrator surfaces as SCHEMA_INVALID_LLM.
         # Keep only the first matching tool_use block's deltas (index pinned

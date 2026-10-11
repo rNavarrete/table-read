@@ -1,17 +1,17 @@
 {
-  "asOf": "2026-07",
+  "asOf": "2026-10",
   "classifier": {
-    "modelIdNote": "claude-haiku-4-5 via config/models.toml classifier role",
-    "inputUsdPerMTok": 1.0,
-    "outputUsdPerMTok": 5.0
+    "modelIdNote": "claude-haiku-5-5 via config/models.toml classifier role; rates for prompts up to 100K tokens",
+    "inputUsdPerMTok": 0.1,
+    "outputUsdPerMTok": 0.5
   },
   "importAnalyst": {
-    "modelIdNote": "claude-opus-5 via config/models.toml import_analyst role",
-    "inputUsdPerMTok": 5.0,
-    "outputUsdPerMTok": 25.0
+    "modelIdNote": "claude-opus-5-5 via config/models.toml import_analyst role",
+    "inputUsdPerMTok": 4.0,
+    "outputUsdPerMTok": 20.0
   },
   "importWorker": {
-    "modelIdNote": "claude-sonnet-5 via config/models.toml import_worker role; promotional pricing through 2026-08-31",
+    "modelIdNote": "claude-sonnet-5-5 via config/models.toml import_worker role",
     "inputUsdPerMTok": 2.0,
     "outputUsdPerMTok": 10.0
   },

@@ -20,7 +20,7 @@ from evals.checks import (
     schema_validity_eval,
     segmentation_determinism_eval,
 )
-from evals.graders import MockJudge
+from evals.graders import CALIBRATION_CASES, GraderError, MockJudge
 from evals.harness import SuiteReport, assert_rule5_clean
 from evals.probes import load_fixture_ctx
 from evals.suite import resolve_run_map, run_suite, selected_eval_keys
@@ -227,6 +227,27 @@ def test_continuity_errors_when_grader_fails_calibration():
     assert result.errored
     assert result.detail["calibrated"] is False
     assert result.blocks  # inconclusive hard gate does not silently pass
+
+
+class _ProseAfterCalibration(MockJudge):
+    """Passes calibration, then answers every candidate without its tool (tool
+    choice is `auto` on the 5.5 models, so this can happen)."""
+
+    def grade(self, *, script_text, facts):
+        verdict = super().grade(script_text=script_text, facts=facts)
+        if self.calls > len(CALIBRATION_CASES):
+            raise GraderError("grader returned no tool_use block")
+        return verdict
+
+
+def test_continuity_counts_a_grader_reply_without_its_tool_as_unscored():
+    """One prose verdict must not abort the paid `make evals` run."""
+    result = continuity_eval(
+        MockLlmClient(), load_fixture_ctx(), _ProseAfterCalibration(), runs=2
+    )
+    assert result.detail["calibrated"] is True
+    assert result.detail["schemaFailures"] == 2
+    assert result.score == 0.0 and result.blocks
 
 
 # ── segmentation determinism (soft gate) ────────────────────────────────────────
