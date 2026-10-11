@@ -22,7 +22,7 @@ Table Read is a structural co-writing tool for episodic TV writers. Read `docs/n
 
 - `make dev` — run web (5173) + api (8000)
 - `make test` — all PR-path tests (mock LLM)
-- `make lint` — ruff + eslint + prettier check
+- `make lint` — ruff + eslint + prettier check + web typecheck (`tsc -b`)
 - `make check-contract` — Zod↔Pydantic diff, fixture validation, OpenAPI snapshot, tool-schema diff
 - `make seed` — load fixture into dev DB
 - `make evals` — real-API evals. **Never run without being asked; costs money.**

@@ -84,6 +84,10 @@ function episode(scenes: Scene[]): Episode {
     timelineAnchors: [],
     relationshipStates: [],
     objectStates: [],
+    threads: [],
+    secrets: [],
+    storyOverview: null,
+    narrativeMap: null,
   }
 }
 
@@ -127,6 +131,7 @@ function project(): Project {
       },
     ],
     headSnapshotId: 'snap-root',
+    defaultCraftLevel: 'standard',
   }
 }
 

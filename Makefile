@@ -56,7 +56,7 @@ test-api: $(VENV_BIN)/activate
 test-js: $(NODE_MARKER)
 	env npm test --workspaces --if-present
 
-lint: lint-api lint-js check-gaps
+lint: lint-api lint-js typecheck check-gaps
 
 lint-api: $(VENV_BIN)/activate
 	cd $(API_DIR) && $(VENV_BIN)/ruff check .
@@ -71,6 +71,12 @@ check-gaps:
 lint-js: $(NODE_MARKER)
 	env npm run lint --workspaces --if-present
 	env npm run format:check --workspaces --if-present
+
+# `npm run build` runs `tsc -b` before `vite build`; vitest strips types without
+# checking them, so this is the only PR-path gate that catches type errors.
+.PHONY: typecheck
+typecheck: $(NODE_MARKER)
+	cd $(WEB_DIR) && npx tsc -b
 
 check-contract: $(VENV_BIN)/activate $(NODE_MARKER)
 	$(VENV_BIN)/python scripts/check_contract.py

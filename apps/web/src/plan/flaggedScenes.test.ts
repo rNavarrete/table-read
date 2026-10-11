@@ -76,11 +76,16 @@ function project(scenes: Scene[]): Project {
             timelineAnchors: [],
             relationshipStates: [],
             objectStates: [],
+            threads: [],
+            secrets: [],
+            storyOverview: null,
+            narrativeMap: null,
           },
         ],
       },
     ],
     headSnapshotId: 'snap-root',
+    defaultCraftLevel: 'standard',
   }
 }
 

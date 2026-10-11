@@ -37,9 +37,11 @@ describe('pickTopIntersectingSceneId', () => {
     byTarget.set(b.target, b)
 
     // Only scene-4 leaves in this callback — classic IO pitfall without a map.
-    const leave = entry('scene-4', { intersecting: false, top: -80 })
     // Same target element as `a`
-    leave.target = a.target
+    const leave = {
+      ...entry('scene-4', { intersecting: false, top: -80 }),
+      target: a.target,
+    }
     byTarget.set(leave.target, leave)
 
     expect(pickTopIntersectingSceneId(byTarget.values())).toBe('scene-5')

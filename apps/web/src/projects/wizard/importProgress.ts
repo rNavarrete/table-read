@@ -161,7 +161,7 @@ export function isImportProgressStale(
 }
 
 function addCompletedStage(
-  completedStages: readonly ProjectImportStageName[],
+  completedStages: ProjectImportStageName[],
   stage: ProjectImportStageName | null,
 ): ProjectImportStageName[] {
   if (stage === null || completedStages.includes(stage)) return completedStages

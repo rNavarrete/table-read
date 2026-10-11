@@ -101,7 +101,7 @@ export function ReviewScreen() {
     if (!projectId) return
     let cancelled = false
 
-    async function loadDraftList() {
+    async function loadDraftList(projectId: string) {
       try {
         // Open picker: draft + previewing (preview flips status away from
         // draft; writers must still re-enter to Apply — UI spec §5).
@@ -158,7 +158,7 @@ export function ReviewScreen() {
     if (changeSetId) {
       void loadOne(changeSetId)
     } else {
-      void loadDraftList()
+      void loadDraftList(projectId)
     }
     return () => {
       cancelled = true

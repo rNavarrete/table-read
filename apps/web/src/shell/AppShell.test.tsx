@@ -106,7 +106,7 @@ describe('demo-mode banner', () => {
   it('warns the writer when AI results are fixture data', async () => {
     getLlmModeMock.mockResolvedValueOnce({ status: 'ok', llmMode: 'mock' })
     render(
-      <AppShell projectTitle="The Long Pour" activeMode="write" ledgerCount={0}>
+      <AppShell projectTitle="The Long Pour" activeMode="Write" ledgerCount={0}>
         <div />
       </AppShell>,
     )
@@ -116,7 +116,7 @@ describe('demo-mode banner', () => {
 
   it('stays out of the way when the real client is configured', async () => {
     render(
-      <AppShell projectTitle="The Long Pour" activeMode="write" ledgerCount={0}>
+      <AppShell projectTitle="The Long Pour" activeMode="Write" ledgerCount={0}>
         <div />
       </AppShell>,
     )
@@ -127,7 +127,7 @@ describe('demo-mode banner', () => {
   it('says nothing when the health check cannot be reached', async () => {
     getLlmModeMock.mockRejectedValueOnce(new Error('offline'))
     render(
-      <AppShell projectTitle="The Long Pour" activeMode="write" ledgerCount={0}>
+      <AppShell projectTitle="The Long Pour" activeMode="Write" ledgerCount={0}>
         <div />
       </AppShell>,
     )
