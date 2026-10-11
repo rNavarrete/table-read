@@ -213,7 +213,7 @@ Section legends: 11px uppercase muted mono tracking. Selected / hover surfaces u
 
 Unchanged mutation semantics; presentation polish only.
 
-- Amber-soft raised section with a left amber edge when pending non-empty; display title "N facts awaiting review".
+- **Collapsed by default** (owner decision 2026-10-11: imports accept confident facts automatically, so what remains is optional): a quiet raised card with one line, "N unconfirmed facts — Not used for continuity or writing until you confirm them", and a **Review** / **Hide** toggle (`aria-expanded`). Opened, it becomes the amber-soft raised section with a left amber edge. The header's **N to review** chip opens it and scrolls to it.
 - **Accept all high-confidence (n)** (sage, facts ≥0.8 in one batch snapshot).
 - Per-scene grouping with **Accept scene** / **Reject scene**; scene labels prefer resolvable location from the project, not raw `scene-38`.
 - Queue cards use the same detail actions as expanded Atlas rows (see §7f).
