@@ -27,6 +27,7 @@ function changeSet(overrides: Partial<ChangeSet> = {}): ChangeSet {
   return {
     id: 'cs-1',
     projectId: 'proj-longpour',
+    kind: 'edit',
     instruction: 'Dan hides the money at the marina instead of the bar',
     targetObjectId: 'scene-2',
     impacted: [

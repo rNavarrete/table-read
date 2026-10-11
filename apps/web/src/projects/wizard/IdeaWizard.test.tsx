@@ -63,6 +63,7 @@ describe('IdeaWizard', () => {
       },
       seasons: [],
       headSnapshotId: 'snap-created',
+      defaultCraftLevel: 'standard',
     })
 
     render(<IdeaWizard />)
@@ -159,6 +160,7 @@ describe('IdeaWizard', () => {
       },
       seasons: [],
       headSnapshotId: 'snap-saved',
+      defaultCraftLevel: 'standard',
     })
     const { original } = stubLocationAssign()
 

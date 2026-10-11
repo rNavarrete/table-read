@@ -73,7 +73,7 @@ describe('createProject', () => {
 
 describe('extractPdf', () => {
   it('posts the PDF as multipart form data', async () => {
-    const fetchSpy = vi.fn(
+    const fetchSpy = vi.fn<typeof fetch>(
       async () =>
         new Response(
           JSON.stringify({

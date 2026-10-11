@@ -47,6 +47,7 @@ function project(seasons: Project['seasons']): Project {
     },
     seasons,
     headSnapshotId: 'snap-root',
+    defaultCraftLevel: 'standard',
   }
 }
 
@@ -71,6 +72,10 @@ function episodeWith(scenes: Scene[]): Project['seasons'] {
           timelineAnchors: [],
           relationshipStates: [],
           objectStates: [],
+          threads: [],
+          secrets: [],
+          storyOverview: null,
+          narrativeMap: null,
         },
       ],
     },

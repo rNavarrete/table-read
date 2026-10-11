@@ -123,6 +123,8 @@ function interruptedNarrativeMapRun(): NarrativeMapRun {
     errorCode: 'WORKER_INTERRUPTED',
     errorMessage:
       'The analysis worker restarted. Saved scene checkpoints are safe; resume to continue from the last completed scene.',
+    rejectionDiagnostics: [],
+    removedClaims: [],
     createdAt: '2026-07-24T00:00:00Z',
     updatedAt: '2026-07-24T00:05:00Z',
   }

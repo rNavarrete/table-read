@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import type { FormEvent } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SuggestionChips } from './SuggestionChips'
 
@@ -10,7 +11,7 @@ describe('SuggestionChips', () => {
   it('inserts on click without submitting a form', async () => {
     const user = userEvent.setup()
     const onPick = vi.fn()
-    const onSubmit = vi.fn((e: Event) => e.preventDefault())
+    const onSubmit = vi.fn((e: FormEvent) => e.preventDefault())
     render(
       <form onSubmit={onSubmit}>
         <SuggestionChips

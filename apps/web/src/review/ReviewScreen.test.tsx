@@ -39,6 +39,7 @@ function changeSet(id: string, instruction: string): ChangeSet {
   return {
     id,
     projectId: 'proj-longpour',
+    kind: 'edit',
     instruction,
     targetObjectId: 'scene-2',
     impacted: [],

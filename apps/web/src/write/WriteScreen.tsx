@@ -321,7 +321,7 @@ export function WriteScreen() {
         projectTitle="Table Read"
         activeMode="Write"
         ledgerCount={0}
-        projectId={projectId}
+        projectId={projectId ?? undefined}
       >
         <p className="p-8 text-15 text-tr-danger">
           Couldn&apos;t load this project: {loadError}

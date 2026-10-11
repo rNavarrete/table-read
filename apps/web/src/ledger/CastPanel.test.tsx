@@ -38,6 +38,8 @@ function character(
     hiding: '',
     traits: '',
     seriesArc: '',
+    summary: '',
+    bio: '',
     ...extra,
   }
 }

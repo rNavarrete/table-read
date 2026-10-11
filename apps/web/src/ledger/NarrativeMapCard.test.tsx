@@ -55,6 +55,7 @@ function narrativeMap(): NarrativeMap {
         act: 0,
         dramaticQuestion: 'What did Nora find?',
         escalation: 'The letter opens the mystery.',
+        escalationEvidence: [],
         turnBeatId: 'beat-1-1',
         evidenceQuote: 'Nora finds the letter.',
       },
@@ -62,6 +63,7 @@ function narrativeMap(): NarrativeMap {
         act: 1,
         dramaticQuestion: 'Will Cass let Nora learn the truth?',
         escalation: 'Cass burns the evidence.',
+        escalationEvidence: [],
         turnBeatId: 'beat-2-1',
         evidenceQuote: 'Cass burns the letter.',
       },
@@ -221,6 +223,8 @@ describe('NarrativeMapCard', () => {
           resultSnapshotId: null,
           errorCode: null,
           errorMessage: null,
+          rejectionDiagnostics: [],
+          removedClaims: [],
           createdAt: '2026-07-24T00:00:00Z',
           updatedAt: '2026-07-24T00:00:01Z',
         }}
@@ -262,6 +266,8 @@ describe('NarrativeMapCard', () => {
           resultSnapshotId: null,
           errorCode: null,
           errorMessage: null,
+          rejectionDiagnostics: [],
+          removedClaims: [],
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         }}
@@ -300,6 +306,8 @@ describe('NarrativeMapCard', () => {
           resultSnapshotId: null,
           errorCode: 'LLM_TIMEOUT',
           errorMessage: 'Analysis did not finish in time.',
+          rejectionDiagnostics: [],
+          removedClaims: [],
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         }}
@@ -340,6 +348,8 @@ describe('NarrativeMapCard', () => {
           errorCode: 'SCHEMA_INVALID_LLM',
           errorMessage:
             'A corrected strict verifier is available. Only one verification call remains.',
+          rejectionDiagnostics: [],
+          removedClaims: [],
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         }}
@@ -447,6 +457,8 @@ describe('NarrativeMapCard', () => {
           errorCode: 'EVIDENCE_REJECTED',
           errorMessage:
             'A no-cost local evidence repair is available. No model call will run.',
+          rejectionDiagnostics: [],
+          removedClaims: [],
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         }}
@@ -486,6 +498,8 @@ describe('NarrativeMapCard', () => {
           errorCode: 'EVIDENCE_REJECTED',
           errorMessage:
             'A saved scene-packet repair is available. Only one compact verification call remains.',
+          rejectionDiagnostics: [],
+          removedClaims: [],
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         }}
@@ -523,6 +537,8 @@ describe('NarrativeMapCard', () => {
           errorCode: 'EVIDENCE_REJECTED',
           errorMessage:
             'The evidence gate rejected this analysis. No Narrative Map was saved.',
+          rejectionDiagnostics: [],
+          removedClaims: [],
           createdAt: '2026-07-24T00:00:00Z',
           updatedAt: '2026-07-24T00:00:01Z',
         }}
@@ -630,6 +646,7 @@ describe('NarrativeMapCard', () => {
               reason: '',
             },
           ],
+          removedClaims: [],
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         }}

@@ -18,6 +18,8 @@ function character(id: string, name: string): Character {
     hiding: '',
     traits: '',
     seriesArc: '',
+    summary: '',
+    bio: '',
   }
 }
 
@@ -53,6 +55,8 @@ function thread(overrides: Partial<StoryThread> = {}): StoryThread {
     payoffSceneId: null,
     setupQuote: 'Marty drops the almanac on the counter.',
     payoffQuote: '',
+    setupBeatId: null,
+    payoffBeatId: null,
     locked: false,
     ...overrides,
   }

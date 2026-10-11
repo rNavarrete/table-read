@@ -26,7 +26,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
-      - name: Lint (ruff + eslint + prettier + DESIGN-GAP grep)
+      - name: Lint (ruff + eslint + prettier + tsc + DESIGN-GAP grep)
         run: make lint
       - name: Tests (mock LLM)
         run: make test
