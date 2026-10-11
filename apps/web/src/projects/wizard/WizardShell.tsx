@@ -14,6 +14,8 @@ export interface WizardStep {
   title: string
   body: ReactNode
   validate?: () => boolean
+  // The step is still working (e.g. extracting a PDF); Continue waits for it.
+  isContinueDisabled?: boolean
 }
 
 interface WizardShellProps {
@@ -158,8 +160,11 @@ export function WizardShell({
           <button
             type="button"
             onClick={handleContinue}
-            disabled={isLastStep && isFinalActionDisabled}
-            className="ml-auto rounded-card bg-tr-coral px-4 py-2 text-13 font-medium text-tr-surface-raised transition hover:bg-tr-coral-hover"
+            disabled={
+              currentStep.isContinueDisabled ||
+              (isLastStep && isFinalActionDisabled)
+            }
+            className="ml-auto rounded-card bg-tr-coral px-4 py-2 text-13 font-medium text-tr-surface-raised transition hover:bg-tr-coral-hover disabled:cursor-not-allowed disabled:opacity-50"
           >
             {isLastStep ? finalActionLabel : 'Continue'}
           </button>

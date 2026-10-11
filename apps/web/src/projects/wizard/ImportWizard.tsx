@@ -380,6 +380,7 @@ export function ImportWizard() {
           label: 'Add script',
           title: 'Add the script',
           validate: validateSource,
+          isContinueDisabled: isExtractingPdf,
           body: (
             <div className="grid gap-4">
               <div
@@ -466,11 +467,14 @@ export function ImportWizard() {
                 </label>
               )}
               {sourceError && <p className="text-tr-danger">{sourceError}</p>}
-              {sourceTouched && !draft.source.trim() && !sourceError && (
-                <p className="text-tr-danger">
-                  Add a script before continuing.
-                </p>
-              )}
+              {sourceTouched &&
+                !draft.source.trim() &&
+                !sourceError &&
+                !isExtractingPdf && (
+                  <p className="text-tr-danger">
+                    Add a script before continuing.
+                  </p>
+                )}
             </div>
           ),
         },
