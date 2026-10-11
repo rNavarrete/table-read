@@ -16,10 +16,14 @@ test('fact-06 pending_review is in the queue; edit → writer_authored + active'
   page,
 }) => {
   await page.goto('/ledger?project=proj-longpour')
+  // The Ledger opens on Atlas; the review queue lives on the Story tab.
+  await page.getByRole('button', { name: 'Story', exact: true }).click()
 
   const queue = page.getByTestId('review-queue')
   await expect(queue).toBeVisible()
-  await expect(queue).toContainText('awaiting review')
+  await expect(queue).toContainText('unconfirmed')
+  // Collapsed by default (owner decision 2026-10-11); open it to review.
+  await page.getByTestId('review-queue-toggle').click()
 
   const card = queue.getByTestId('fact-card-fact-06')
   await expect(card).toBeVisible()
@@ -35,15 +39,21 @@ test('fact-06 pending_review is in the queue; edit → writer_authored + active'
   await textarea.fill('Reyes may be bluffing about the warrant.')
   await page.getByRole('button', { name: 'Save' }).click()
 
-  // Leaves the review queue; card in the grid shows writer-authored + active.
+  // Leaves the review queue; its card in the Atlas grid shows writer-authored
+  // + active (the grid is on the Atlas tab, the queue on Story).
   await expect(page.getByTestId('review-queue')).toHaveCount(0)
-  const updated = page.getByTestId('fact-card-fact-06')
+  await page.getByRole('button', { name: 'Atlas', exact: true }).click()
+  const updated = page.getByTestId('atlas-row-fact-06')
   await expect(updated).toBeVisible()
-  await expect(updated).toContainText('writer-authored')
-  await expect(updated).toContainText('active')
   await expect(updated).toContainText(
     'Reyes may be bluffing about the warrant.',
   )
+  const ledger = (await (
+    await page.request.get('/api/v1/projects/proj-longpour/ledger')
+  ).json()) as Array<{ id: string; provenance: string; status: string }>
+  const saved = ledger.find((fact) => fact.id === 'fact-06')
+  expect(saved?.provenance).toBe('writer_authored')
+  expect(saved?.status).toBe('active')
 
   // Badge clears when the queue is empty (no amber count).
   await expect(page.getByRole('tab', { name: 'Ledger' })).toHaveText('Ledger')

@@ -341,7 +341,8 @@ def test_success_streams_named_stages_then_complete(db_session, mock_llm):
     assert scenes[0]["location"] == "INT. BAR - NIGHT"
     assert result["newFacts"]
     for fact in result["newFacts"]:
-        assert fact["status"] == "pending_review"
+        # Confident, with no quote to verify: accepted, as while writing.
+        assert fact["status"] == "active"
         assert fact["provenance"] == "inferred"
         assert fact["id"].startswith("fact-")
 
@@ -1630,7 +1631,7 @@ def test_success_creates_exactly_one_project_and_one_root_snapshot(db_session, m
     assert project.head_snapshot_id == snaps[0].id
     facts = db_session.query(LedgerFactRow).filter_by(project_id=pid).all()
     assert len(facts) == len(snaps[0].ledger)
-    assert all(f.status == "pending_review" for f in facts)
+    assert all(f.status == "active" for f in facts)
     # Globally unique minting (not ordinal fact-01) so imports coexist with
     # the seeded fixture's ledger rows.
     assert all(f.id.startswith("fact-") and not f.id.removeprefix("fact-").isdigit() for f in facts)

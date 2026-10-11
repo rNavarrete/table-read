@@ -185,6 +185,7 @@ describe('LedgerScreen batch concurrency', () => {
     render(<LedgerScreen />)
 
     await user.click(await screen.findByRole('button', { name: 'Story' }))
+    await user.click(await screen.findByTestId('review-queue-toggle'))
 
     await waitFor(() => {
       expect(screen.getByTestId('scene-accept-scene-3')).not.toBeNull()
@@ -288,6 +289,31 @@ describe('LedgerScreen dual views', () => {
     await waitFor(() => {
       expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' })
     })
+    expect(
+      screen.getByTestId('review-queue-toggle').getAttribute('aria-expanded'),
+    ).toBe('true')
+  })
+
+  it('keeps unconfirmed facts collapsed behind one line on the Story tab', async () => {
+    // Owner decision 2026-10-11: imports accept confident facts, so nobody
+    // should face hundreds of review cards after an import.
+    const user = userEvent.setup()
+    vi.mocked(getProject).mockResolvedValue(project('snap-1'))
+    vi.mocked(getLedger).mockResolvedValue([
+      pendingFact('fact-a', 'scene-3', 'beat-3-1'),
+    ])
+
+    window.history.pushState({}, '', '/ledger?project=proj-1')
+    render(<LedgerScreen />)
+    await user.click(await screen.findByRole('button', { name: 'Story' }))
+
+    const toggle = await screen.findByTestId('review-queue-toggle')
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+    expect(toggle.textContent).toContain('1 unconfirmed fact')
+    expect(screen.queryByTestId('scene-accept-scene-3')).toBeNull()
+
+    await user.click(toggle)
+    expect(screen.getByTestId('scene-accept-scene-3')).not.toBeNull()
   })
 })
 
