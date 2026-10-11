@@ -5,8 +5,10 @@ import { defineConfig, devices } from '@playwright/test'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const WEB_DIR = path.resolve(__dirname, '..')
 
-const API_PORT = 8000
-const WEB_PORT = 5173
+// Overridable for machines where these ports are taken (for example by a
+// running `make dev`): E2E_API_PORT=8100 E2E_WEB_PORT=5180 npm run e2e.
+const API_PORT = Number(process.env.E2E_API_PORT ?? 8000)
+const WEB_PORT = Number(process.env.E2E_WEB_PORT ?? 5173)
 
 /**
  * Playwright e2e (data contract's own harness for T2.3's acceptance
@@ -42,6 +44,7 @@ export default defineConfig({
     {
       command: 'bash e2e/start-api.sh',
       cwd: WEB_DIR,
+      env: { E2E_API_PORT: String(API_PORT) },
       url: `http://localhost:${API_PORT}/health`,
       reuseExistingServer: false,
       timeout: 30_000,
@@ -49,8 +52,9 @@ export default defineConfig({
       stderr: 'pipe',
     },
     {
-      command: 'npm run dev',
+      command: `npm run dev -- --port ${WEB_PORT} --strictPort`,
       cwd: WEB_DIR,
+      env: { TABLEREAD_API_URL: `http://localhost:${API_PORT}` },
       url: `http://localhost:${WEB_PORT}`,
       reuseExistingServer: false,
       timeout: 30_000,
