@@ -25,6 +25,7 @@ import {
 import { analyzeSource } from './importSourceStats'
 import { WizardShell } from './WizardShell'
 import { clearDraft, loadDraft, saveDraft } from './wizardDraft'
+import { saveLedgerView } from '../../ledger/viewPreference'
 
 const IMPORT_PATH = '/projects/new/import'
 
@@ -324,8 +325,11 @@ export function ImportWizard() {
           })
           const result = data.result
           clearDraft(IMPORT_PATH)
+          // Land on the Ledger's Story tab: the overview and the facts to
+          // review come first after an import (owner decision 2026-10-11).
+          saveLedgerView(result.project.id, 'story')
           window.location.assign(
-            `/plan?project=${encodeURIComponent(result.project.id)}`,
+            `/ledger?project=${encodeURIComponent(result.project.id)}`,
           )
           return
         } else if (data.type === 'failed') {

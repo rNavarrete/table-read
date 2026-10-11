@@ -11,6 +11,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ImportWizard } from './ImportWizard'
 import { loadDraft } from './wizardDraft'
+import { loadLedgerView } from '../../ledger/viewPreference'
 import { extractPdf } from '../../api/client'
 import { streamSse } from '../../api/sse'
 
@@ -276,7 +277,7 @@ describe('ImportWizard', () => {
     expect(mockedStreamSse).not.toHaveBeenCalled()
   })
 
-  it('streams named stages, sends the Idempotency-Key, and opens Plan on success', async () => {
+  it('streams named stages, sends the Idempotency-Key, and opens the Ledger Story tab on success', async () => {
     const user = userEvent.setup()
     const { assignSpy, restore } = stubLocationAssign()
     mockedStreamSse.mockImplementation(() =>
@@ -310,9 +311,12 @@ describe('ImportWizard', () => {
       screen.getByRole('button', { name: 'Create & analyze script' }),
     )
 
+    // The writer lands on the Ledger's Story tab: the overview, then the facts
+    // waiting for review.
     await waitFor(() =>
-      expect(assignSpy).toHaveBeenCalledWith('/plan?project=proj-imported'),
+      expect(assignSpy).toHaveBeenCalledWith('/ledger?project=proj-imported'),
     )
+    expect(loadLedgerView('proj-imported')).toBe('story')
     expect(screen.getByText('Inferring act structure')).not.toBeNull()
 
     expect(mockedStreamSse).toHaveBeenCalledTimes(1)
