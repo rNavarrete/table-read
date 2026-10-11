@@ -20,9 +20,10 @@ export default defineConfig({
     // `/api/v1/...` paths with no CORS setup needed on the api side (which
     // has none) — the same trick apps/web/e2e/playwright.config.ts relies on
     // when it runs the real api behind this dev server. Streams SSE
-    // responses through untouched (no buffering).
+    // responses through untouched (no buffering). TABLEREAD_API_URL points it
+    // elsewhere when port 8000 is taken.
     proxy: {
-      '/api': 'http://localhost:8000',
+      '/api': process.env.TABLEREAD_API_URL ?? 'http://localhost:8000',
     },
     fs: { allow: [rootDir] },
   },

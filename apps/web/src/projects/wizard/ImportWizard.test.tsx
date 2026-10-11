@@ -178,6 +178,38 @@ describe('ImportWizard', () => {
     expect(textarea.value).toBe('INT. GARAGE - NIGHT\nMarta changes the plan.')
   })
 
+  it('keeps Continue disabled until the PDF has been extracted', async () => {
+    const user = userEvent.setup()
+    let finish!: (value: Awaited<ReturnType<typeof extractPdf>>) => void
+    mockedExtractPdf.mockReturnValue(
+      new Promise((resolve) => {
+        finish = resolve
+      }),
+    )
+    render(<ImportWizard />)
+    const file = new File(['%PDF-1.4'], 'Road Draft.pdf', {
+      type: 'application/pdf',
+    })
+
+    await user.upload(screen.getByLabelText('Script file'), file)
+    await waitFor(() =>
+      expect(screen.getByText('Extracting PDF source...')).not.toBeNull(),
+    )
+    const continueButton = screen.getByRole('button', { name: 'Continue' })
+    expect((continueButton as HTMLButtonElement).disabled).toBe(true)
+    expect(screen.queryByText('Add a script before continuing.')).toBeNull()
+
+    await act(async () =>
+      finish({
+        text: 'INT. GARAGE - DAY\nMarta studies the map.',
+        method: 'text_layer',
+        pageCount: 12,
+        warnings: [],
+      }),
+    )
+    expect((continueButton as HTMLButtonElement).disabled).toBe(false)
+  })
+
   it('sends edited PDF source as text when analyzing', async () => {
     const user = userEvent.setup()
     mockedExtractPdf.mockResolvedValue({
