@@ -22,7 +22,9 @@ takes an injected `LlmClient` (+ judge / DB session where needed) and returns an
      ratification (DESIGN-GAP(T6.1)); measured at model defaults (the 5.5
      models accept no temperature).
   5. `act_boundary_validity_eval` — two labeled scripts ×N through the product
-     semantic normalizer. Every partition must be valid (gate 1.0, hard).
+     semantic normalizer, each with its format given and with none (the model
+     then returns a format that keeps any printed act count and cold open).
+     Every partition must be valid (gate 1.0, hard).
   6. `act_boundary_quality_eval` — same cases, scoring actual act transitions
      within ±2 scenes of labels. Mandatory scene-zero anchors are excluded.
      Soft gate 0.80.
@@ -47,7 +49,7 @@ from fountain import acts
 from llm.errors import LlmTimeoutError, SchemaInvalidLlmError
 from llm.ops import OP_REGISTRY
 from llm.protocol import LlmClient
-from schemas import BeatCandidate, ChangeSet
+from schemas import BeatCandidate, ChangeSet, InferredActBreaks
 from storage.models import ChangeSetRow, ProjectRow
 from storage.seed import load_fixture, seed_envelope
 
@@ -103,7 +105,7 @@ def schema_validity_eval(
             )
             t0 = time.monotonic()
             try:
-                getattr(client, op_name)(
+                getattr(client, op_name.partition(":")[0])(
                     system=system, user_message=user, prompt_version=render.PROMPT_VERSION
                 )
                 valid += 1
@@ -123,7 +125,9 @@ def schema_validity_eval(
 
     rates = [v["rate"] for v in per_op.values()]
     worst = min(rates) if rates else 0.0
-    uncovered = sorted(set(OP_REGISTRY) - set(probes.SCHEMA_PROBES))
+    uncovered = sorted(
+        set(OP_REGISTRY) - {probe.partition(":")[0] for probe in probes.SCHEMA_PROBES}
+    )
     notes = [f"covered ops: {len(per_op)}/{len(OP_REGISTRY)}"]
     if uncovered:
         notes.append(
@@ -568,6 +572,40 @@ def segmentation_determinism_eval(
 # ── act boundary validity (hard) + quality (soft) ───────────────────────────────
 
 
+def _infer_act_case(client: LlmClient, case: dict) -> InferredActBreaks:
+    """One labeled case run the way the import's act stage runs it. Raises
+    `acts.ActInferenceError` for starts the import could not expand.
+
+    With no format given, the answer must carry one (the client has already
+    validated it against ShowFormat) that keeps any printed act count and cold
+    open, and the starts must expand against it."""
+    fmt = case["project"]["format"]
+    kwargs = (
+        {}
+        if fmt is not None
+        else {"printed": case["printed"], "source_chars": case["sourceChars"]}
+    )
+    system, user = render.build_act_inference_prompt(
+        case["project"], case["summaries"], render.new_nonce(), **kwargs
+    )
+    inferred = client.infer_act_breaks(
+        system=system,
+        user_message=user,
+        prompt_version=render.PROMPT_VERSION,
+    )
+    if fmt is None:
+        if inferred.format is None:
+            raise acts.ActInferenceError([{"code": "format_missing"}])
+        fmt = inferred.format.model_dump(by_alias=True)
+        printed = case["printed"]
+        if printed is not None and (fmt["actCount"], fmt["coldOpen"]) != printed:
+            raise acts.ActInferenceError([{"code": "printed_structure_ignored"}])
+    acts.expand_act_starts(
+        inferred, scene_count=len(case["summaries"]), format_dict=fmt
+    )
+    return inferred
+
+
 def _act_transition_starts(case: dict) -> list[dict]:
     return [
         start for start in case["expectedStarts"] if start["startSceneIndex"] > 0
@@ -597,20 +635,8 @@ def act_boundary_validity_eval(
                 probe=case["caseId"],
             )
             t0 = time.monotonic()
-            system, user = render.build_act_inference_prompt(
-                case["project"], case["summaries"], render.new_nonce()
-            )
             try:
-                inferred = client.infer_act_breaks(
-                    system=system,
-                    user_message=user,
-                    prompt_version=render.PROMPT_VERSION,
-                )
-                acts.expand_act_starts(
-                    inferred,
-                    scene_count=len(case["summaries"]),
-                    format_dict=case["project"]["format"],
-                )
+                _infer_act_case(client, case)
             except (SchemaInvalidLlmError, LlmTimeoutError, acts.ActInferenceError):
                 invalid += 1
             else:
@@ -667,20 +693,8 @@ def act_boundary_quality_eval(
                 probe=case["caseId"],
             )
             t0 = time.monotonic()
-            system, user = render.build_act_inference_prompt(
-                case["project"], case["summaries"], render.new_nonce()
-            )
             try:
-                inferred = client.infer_act_breaks(
-                    system=system,
-                    user_message=user,
-                    prompt_version=render.PROMPT_VERSION,
-                )
-                acts.expand_act_starts(
-                    inferred,
-                    scene_count=len(case["summaries"]),
-                    format_dict=case["project"]["format"],
-                )
+                inferred = _infer_act_case(client, case)
             except (SchemaInvalidLlmError, LlmTimeoutError, acts.ActInferenceError):
                 invalid += 1
                 expected_total += len(_act_transition_starts(case))

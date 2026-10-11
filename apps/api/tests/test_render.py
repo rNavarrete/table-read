@@ -221,6 +221,20 @@ def test_act_inference_retry_prompt_contains_inert_diagnostics():
     assert '"code": "first_start_not_zero"' in user
 
 
+def test_format_missing_retry_asks_for_the_format_and_the_starts():
+    _system, user = render.build_act_inference_retry_prompt(
+        {"title": "T", "format": None},
+        [{"sceneIndex": 0, "location": "INT. BAR", "beats": []}],
+        [{"code": "format_missing"}],
+        _NONCE,
+        source_chars=1200,
+    )
+    assert user.endswith(
+        "Your previous answer left format null. Return the format and the act starts."
+    )
+    assert "previous act starts failed" not in user
+
+
 @pytest.mark.parametrize("builder_args", [("imported_script", "x"), ("script", {"a": 1})])
 def test_source_data_is_balanced_for_any_payload(builder_args):
     kind, value = builder_args

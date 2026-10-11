@@ -4,9 +4,15 @@ from fountain.acts import (
     ActInferenceError,
     acts_from_markers,
     expand_act_starts,
+    printed_structure,
     scene_summaries,
 )
-from fountain.parse import ImportedBeat, SceneSpan, split_into_scenes
+from fountain.parse import (
+    ImportedBeat,
+    SceneSpan,
+    split_into_scenes,
+    strip_screenplay_front_matter,
+)
 from schemas import InferredActBreaks
 
 FORMAT = {
@@ -241,9 +247,9 @@ def test_partial_or_inconsistent_markers_give_no_partition(scenes, fmt):
 
 
 def test_a_cold_open_and_three_printed_acts_are_kept_with_the_scripts_format():
-    """The import wizard reads this structure from the script (detectFormat.ts)
-    and sends it as the format. Three acts match no preset; with the format
-    taken from the script the printed breaks are kept, where the old five-act
+    """An import with no format reads this structure from the script
+    (`printed_structure`). Three acts match no preset; with the format taken
+    from the script the printed breaks are kept, where the old five-act
     default discarded them (owner decision 2026-10-11)."""
     spans = _spans(
         "COLD OPEN",
@@ -255,3 +261,55 @@ def test_a_cold_open_and_three_printed_acts_are_kept_with_the_scripts_format():
     from_script = {**FORMAT, "actCount": 3, "coldOpen": True}
     assert acts_from_markers(spans, from_script) == [0, 0, 1, 2, 3]
     assert acts_from_markers(spans, {**FORMAT, "actCount": 5, "coldOpen": True}) is None
+
+
+# ── printed_structure: an import given no format (owner decision 2026-10-11) ──
+
+
+def _read_whole_script(*parts: str):
+    """`printed_structure` as the import calls it: the stripped front matter,
+    then the scenes."""
+    source = "\n".join(parts)
+    stripped = strip_screenplay_front_matter(source)
+    front_matter = source.split("\n")[: stripped.removed_line_count]
+    return printed_structure(front_matter, split_into_scenes(stripped.content))
+
+
+_SCENE = "INT. BAR - NIGHT\nMarta pours."
+
+
+def test_printed_structure_reads_the_act_one_stripped_with_fade_in():
+    # Each act opens on its own FADE IN, so ACT ONE goes with the front
+    # matter; the count and cold open still come from the whole script.
+    assert _read_whole_script(
+        "ACT ONE", "FADE IN:", _SCENE, _SCENE, "END OF ACT ONE",
+        "ACT TWO", "FADE IN:", _SCENE, "END OF ACT TWO",
+        "ACT THREE", "FADE IN:", _SCENE, "END OF ACT THREE",
+        "ACT FOUR", "FADE IN:", _SCENE, "END OF ACT FOUR",
+    ) == (4, False, None)
+
+
+def test_printed_structure_keeps_the_count_past_a_damaged_heading():
+    # OCR left one heading mixed case: no full partition, but four acts and
+    # the stripped TEASER still stand.
+    assert _read_whole_script(
+        "TEASER", "FADE IN:", _SCENE, _SCENE, "ACT ONE", _SCENE, "AcT Two",
+        _SCENE, "ACT THREE", _SCENE, "ACT FOUR", _SCENE, "END OF ACT FOUR",
+    ) == (4, True, None)
+
+
+def test_printed_structure_counts_end_of_act_lines():
+    assert _read_whole_script(
+        _SCENE, "END OF ACT ONE", _SCENE, "END OF ACT TWO", _SCENE, "END OF ACT THREE"
+    ) == (3, False, None)
+
+
+def test_printed_structure_gives_the_partition_when_markers_state_one():
+    # Scenes before ACT ONE are a cold open even with no TEASER printed.
+    assert _read_whole_script(
+        _SCENE, "ACT ONE", _SCENE, "ACT TWO", _SCENE
+    ) == (2, True, [0, 1, 2])
+
+
+def test_printed_structure_is_none_when_no_act_is_printed():
+    assert _read_whole_script(_SCENE, "MARTA\nAct two.", _SCENE) is None

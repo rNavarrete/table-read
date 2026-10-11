@@ -308,22 +308,13 @@ describe('ImportWizard', () => {
       expect(assignSpy).toHaveBeenCalledWith('/ledger?project=proj-imported'),
     )
     expect(loadLedgerView('proj-imported')).toBe('story')
-    expect(screen.getByText('Inferring act structure')).not.toBeNull()
+    expect(screen.getByText('Working out format & acts')).not.toBeNull()
 
     expect(mockedStreamSse).toHaveBeenCalledTimes(1)
     const [url, body, , headers] = mockedStreamSse.mock.calls[0]
     expect(url).toBe('/api/v1/projects/import')
     expect(body).toEqual({
       title: 'Ferry Crossing',
-      // No act breaks printed, so the format read from the script is actless.
-      format: {
-        genre: 'dramedy',
-        runtimeMinutes: 60,
-        actCount: 1,
-        coldOpen: false,
-        tag: false,
-        serialization: 0.8,
-      },
       source: {
         format: 'fountain',
         content: 'INT. BAR - NIGHT\nDan pours a drink.',
@@ -615,93 +606,64 @@ describe('ImportWizard', () => {
     expect(scriptText.value).toBe('INT. BAR - NIGHT\nDan pours a drink.')
   })
 
-  it('pre-selects the format the script prints and sends it', async () => {
-    const user = userEvent.setup()
-    mockedStreamSse.mockImplementation(() => framesFrom([]))
-    render(<ImportWizard />)
-    await user.click(screen.getByRole('tab', { name: 'Paste' }))
-    await user.type(
-      screen.getByLabelText('Paste script text'),
-      [
-        'COLD OPEN',
-        'INT. SCHOOL - DAY',
-        'Lisa reads.',
-        'ACT ONE',
-        'INT. HOUSE - NIGHT',
-        'Homer eats.',
-        'ACT TWO',
-        'EXT. STREET - DAY',
-        'Bart runs.',
-        'ACT THREE',
-        'INT. KITCHEN - NIGHT',
-        'Marge sighs.',
-      ].join('\n'),
-    )
-    await user.click(screen.getByRole('button', { name: 'Continue' }))
-    await user.type(screen.getByLabelText('Title'), 'Lisa')
-
-    expect(
-      screen.getByText('Read from the script: cold open, 3 acts.'),
-    ).not.toBeNull()
-    const asPrinted = screen.getByRole('radio', {
-      name: /As printed in the script/,
-    }) as HTMLInputElement
-    expect(asPrinted.checked).toBe(true)
-
-    await user.click(
-      screen.getByRole('button', { name: 'Create & analyze script' }),
-    )
-    await waitFor(() => expect(mockedStreamSse).toHaveBeenCalledTimes(1))
-    expect(mockedStreamSse.mock.calls[0][1]).toMatchObject({
-      format: {
-        genre: 'comedy',
-        runtimeMinutes: 30,
-        actCount: 3,
-        coldOpen: true,
-        tag: false,
-      },
-    })
-  })
-
-  it('ignores the one-hour-drama default a draft saved before format detection carries', async () => {
-    const user = userEvent.setup()
-    saveDraft(IMPORT_PATH, {
-      idempotencyKey: '00000000-0000-4000-8000-000000000001',
-      activeTab: 'paste',
-      source:
-        'TEASER\nINT. BAR - NIGHT\nx\nACT ONE\nINT. HALL - DAY\ny\nACT FOUR',
-      sourceFormat: 'text',
-      filename: null,
-      pdfExtract: null,
-      title: 'Pilot',
-      presetId: 'one-hour-drama',
-    })
-    render(<ImportWizard />)
-
-    await user.click(screen.getByRole('button', { name: 'Continue' }))
-
-    const asPrinted = screen.getByRole('radio', {
-      name: /As printed in the script/,
-    }) as HTMLInputElement
-    expect(asPrinted.checked).toBe(true)
-  })
-
-  it('sends a preset the writer picks instead of the detected format', async () => {
+  it('never asks for a format and sends none', async () => {
     const user = userEvent.setup()
     mockedStreamSse.mockImplementation(() => framesFrom([]))
     render(<ImportWizard />)
     await fillSourceAndBasics(user, 'Ferry Crossing')
 
-    await user.click(screen.getByRole('radio', { name: /Half-hour comedy/ }))
+    // The import works the format out from the script (owner decision
+    // 2026-10-11).
+    expect(screen.queryByText('Format')).toBeNull()
+    expect(screen.queryByRole('radio')).toBeNull()
     await user.click(
       screen.getByRole('button', { name: 'Create & analyze script' }),
     )
-
     await waitFor(() => expect(mockedStreamSse).toHaveBeenCalledTimes(1))
-    expect(mockedStreamSse.mock.calls[0][1]).toMatchObject({
-      format: { genre: 'comedy', actCount: 2, coldOpen: true, tag: false },
-    })
+    expect(mockedStreamSse.mock.calls[0][1]).not.toHaveProperty('format')
   })
+
+  it.each(['formatChoice', 'presetId'])(
+    're-keys a draft that carries %s from when the wizard sent a format',
+    async (formatKey) => {
+      const user = userEvent.setup()
+      mockedStreamSse.mockImplementation(() => framesFrom([]))
+      const oldKey = '00000000-0000-4000-8000-000000000001'
+      saveDraft(IMPORT_PATH, {
+        idempotencyKey: oldKey,
+        activeTab: 'paste',
+        source: 'INT. BAR - NIGHT\nDan pours a drink.',
+        sourceFormat: 'text',
+        filename: null,
+        pdfExtract: null,
+        title: 'Pilot',
+        [formatKey]: 'one-hour-drama',
+      })
+      render(<ImportWizard />)
+
+      await user.click(screen.getByRole('button', { name: 'Continue' }))
+      await user.click(
+        screen.getByRole('button', { name: 'Create & analyze script' }),
+      )
+
+      await waitFor(() => expect(mockedStreamSse).toHaveBeenCalledTimes(1))
+      const [, body, , headers] = mockedStreamSse.mock.calls[0]
+      // The old key was sent with a format; this body has none (409
+      // IDEMPOTENCY_CONFLICT on the server).
+      const newKey = (headers as Record<string, string>)['Idempotency-Key']
+      expect(newKey).not.toBe(oldKey)
+      expect(body).toEqual({
+        title: 'Pilot',
+        source: {
+          format: 'text',
+          content: 'INT. BAR - NIGHT\nDan pours a drink.',
+        },
+      })
+      // Saved at once, so a reload mid-import sends the same new key.
+      expect(loadDraft(IMPORT_PATH)).toMatchObject({ idempotencyKey: newKey })
+      expect(loadDraft(IMPORT_PATH)).not.toHaveProperty(formatKey)
+    },
+  )
 
   it('shows the stage list only once the import has started', async () => {
     const user = userEvent.setup()

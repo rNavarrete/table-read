@@ -20,10 +20,56 @@
         ],
         "additionalProperties": false
       }
+    },
+    "format": {
+      "default": null,
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "genre": {
+              "type": "string",
+              "enum": [
+                "drama",
+                "comedy",
+                "dramedy"
+              ]
+            },
+            "runtimeMinutes": {
+              "type": "integer"
+            },
+            "actCount": {
+              "type": "integer"
+            },
+            "coldOpen": {
+              "type": "boolean"
+            },
+            "tag": {
+              "type": "boolean"
+            },
+            "serialization": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "genre",
+            "runtimeMinutes",
+            "actCount",
+            "coldOpen",
+            "tag",
+            "serialization"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "null"
+        }
+      ]
     }
   },
   "required": [
-    "starts"
+    "starts",
+    "format"
   ],
   "additionalProperties": false
 }

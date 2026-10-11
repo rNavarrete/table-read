@@ -9,7 +9,7 @@ import { estimateImportCost } from './importCostEstimate'
 
 // Mixed case is spelled out as Title case: the (?i:) group the API uses is
 // not supported in every browser yet.
-export const SLUGLINE_RE =
+const SLUGLINE_RE =
   /^\s*(?:(?:[A-Za-z]?\d+[A-Za-z]?\s+)?(?:(?:INT\.\/EXT|INT\/EXT|EXT\.\/INT|EXT\/INT|I\/E|INT|EXT|EST|int\.\/ext|int\/ext|ext\.\/int|ext\/int|i\/e|int|ext|est)[\s.]|(?:Int\.\/Ext|Int\/Ext|Ext\.\/Int|Ext\/Int|Int|Ext|Est)[\s.](?!\s*[a-z]))|\.[^.\s])/
 
 export interface ImportSourceStats {

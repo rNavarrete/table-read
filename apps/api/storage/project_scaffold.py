@@ -32,11 +32,13 @@ def minimal_series_bible() -> dict:
     }
 
 
-def initial_project_doc(title: str, format_dict: dict, premise: str) -> dict:
+def initial_project_doc(title: str, format_dict: dict | None, premise: str) -> dict:
     """The pre-creation `Project` doc: no `id`/`headSnapshotId` yet (the
     creating transaction stamps both), an empty bible, and no seasons. The
     import create-and-import path (§9.3) never supplies a `foundation` —
-    the import wizard has no story-foundation step."""
+    the import wizard has no story-foundation step. A create-and-import
+    without a format leaves it None until the import's act stage reads it
+    from the script."""
     return {
         "id": None,
         "title": title,

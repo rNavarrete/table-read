@@ -37,12 +37,10 @@ test('import a script → the Ledger Story tab shows the pending queue', async (
   await expect(page.getByText(new RegExp(FILENAME))).toBeVisible()
   await page.getByRole('button', { name: 'Continue' }).click()
 
-  // Step 2 — Check & start: title prefilled from the filename, format read
-  // from the script (no act breaks printed, so actless).
+  // Step 2 — Check & start: title prefilled from the filename. No format
+  // question; the import works the format out from the script.
   await expect(page.getByLabel('Title')).toHaveValue('the-long-pour')
-  await expect(
-    page.getByText('Read from the script: no act breaks printed.'),
-  ).toBeVisible()
+  await expect(page.getByRole('radio')).toHaveCount(0)
 
   // The only AI trigger. Real SSE stream runs the create-and-import.
   await page.getByRole('button', { name: 'Create & analyze script' }).click()

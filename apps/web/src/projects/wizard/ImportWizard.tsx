@@ -2,19 +2,12 @@ import { type ChangeEvent, useEffect, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
 import type {
   PdfExtractMethod,
-  ShowFormat,
   ProjectImportCreateRequest,
   ProjectImportProgressEvent,
   ProjectImportStageName,
 } from 'contract'
 import { extractPdf, importCreateUrl } from '../../api/client'
 import { streamSse } from '../../api/sse'
-import {
-  FORMAT_PRESET_LABELS,
-  FORMAT_PRESETS,
-  type FormatPresetId,
-} from './FormatPresets'
-import { detectFormat } from './detectFormat'
 import { formatImportCostLine } from './importCostEstimate'
 import {
   advanceImportProgress,
@@ -48,7 +41,7 @@ const STAGE_ORDER: ProjectImportStageName[] = [
 const STAGE_LABELS: Record<ProjectImportStageName, string> = {
   parsing_scenes: 'Parsing scenes',
   segmenting_beats: 'Segmenting beats',
-  inferring_acts: 'Inferring act structure',
+  inferring_acts: 'Working out format & acts',
   inferring_entities: 'Identifying characters & world',
   inferring_promises: 'Finding story threads & world rules',
   inferring_overview: 'Writing story overview',
@@ -65,11 +58,6 @@ interface ImportDraft {
   filename: string | null
   pdfExtract: PdfExtractMetadata | null
   title: string
-  // 'script' follows what the script prints (detectFormat); a preset id is
-  // the writer's explicit choice. Not named `presetId`: drafts saved before
-  // 2026-10-11 stored that field with a one-hour-drama default, which must
-  // not override what the script prints.
-  formatChoice: FormatPresetId | 'script'
 }
 
 interface PdfExtractMetadata {
@@ -110,28 +98,27 @@ function initialDraft(): ImportDraft {
     filename: null,
     pdfExtract: null,
     title: '',
-    formatChoice: 'script',
   }
 }
 
-function normalizeDraft(draft: Partial<ImportDraft> | null): ImportDraft {
+// A draft saved while the wizard still sent a format carries `formatChoice`
+// (or the older `presetId`). The request no longer has that format, so its
+// Idempotency-Key would hash a different body and the server would answer
+// 409 IDEMPOTENCY_CONFLICT for an import it already finished: keep the
+// source and title, but mint a fresh key.
+type StoredDraft = Partial<ImportDraft> & {
+  formatChoice?: unknown
+  presetId?: unknown
+}
+
+function normalizeDraft(stored: StoredDraft | null): ImportDraft {
+  const { formatChoice, presetId, ...draft } = stored ?? {}
+  const stale = formatChoice !== undefined || presetId !== undefined
   return {
     ...initialDraft(),
     ...draft,
-    idempotencyKey: draft?.idempotencyKey || newIdempotencyKey(),
+    idempotencyKey: (!stale && draft.idempotencyKey) || newIdempotencyKey(),
   }
-}
-
-function formatSummary(format: ShowFormat): string {
-  const acts = `${format.actCount} act${format.actCount === 1 ? '' : 's'}`
-  const extras = [
-    format.coldOpen ? 'cold open' : null,
-    format.tag ? 'tag' : null,
-  ]
-    .filter(Boolean)
-    .map((part) => `, ${part}`)
-    .join('')
-  return `${format.genre}, ${format.runtimeMinutes} min, ${acts}${extras}`
 }
 
 function titleFromFilename(filename: string): string {
@@ -146,13 +133,11 @@ function pdfMethodLabel(method: PdfExtractMethod): string {
   return method === 'ocr' ? 'OCR' : 'Text layer'
 }
 
-function importCreateBody(
-  draft: ImportDraft,
-  format: ShowFormat,
-): ProjectImportCreateRequest {
+// No format: the import works it out from the script (owner decision
+// 2026-10-11), so the writer is never asked.
+function importCreateBody(draft: ImportDraft): ProjectImportCreateRequest {
   return {
     title: draft.title.trim(),
-    format,
     source: { format: draft.sourceFormat, content: draft.source },
   }
 }
@@ -184,9 +169,15 @@ function liveAnnouncementFor(
 }
 
 export function ImportWizard() {
-  const [draft, setDraft] = useState<ImportDraft>(() =>
-    normalizeDraft(loadDraft<Partial<ImportDraft>>(IMPORT_PATH)),
-  )
+  const [draft, setDraft] = useState<ImportDraft>(() => {
+    const stored = loadDraft<StoredDraft>(IMPORT_PATH)
+    const restored = normalizeDraft(stored)
+    // Save a re-keyed draft at once, so a reload mid-import reuses its key.
+    if (stored && restored.idempotencyKey !== stored.idempotencyKey) {
+      saveDraft(IMPORT_PATH, restored)
+    }
+    return restored
+  })
   const [sourceTouched, setSourceTouched] = useState(false)
   const [sourceError, setSourceError] = useState<string | null>(null)
   const [isExtractingPdf, setIsExtractingPdf] = useState(false)
@@ -197,17 +188,6 @@ export function ImportWizard() {
   const [textOpen, setTextOpen] = useState(false)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const scriptTextRef = useRef<HTMLTextAreaElement | null>(null)
-  const detected = detectFormat(draft.source)
-  const resolvedFormat =
-    draft.formatChoice === 'script'
-      ? detected.format
-      : FORMAT_PRESETS[draft.formatChoice]
-  // The script's own structure appears as an option only when no preset
-  // matches it; a matching preset is simply pre-selected.
-  const selectedFormat =
-    draft.formatChoice === 'script'
-      ? (detected.presetId ?? 'script')
-      : draft.formatChoice
 
   useEffect(() => {
     if (session.phase !== 'streaming') return
@@ -311,7 +291,7 @@ export function ImportWizard() {
     try {
       const frames = streamSse(
         importCreateUrl(),
-        importCreateBody(draft, resolvedFormat),
+        importCreateBody(draft),
         undefined,
         { 'Idempotency-Key': draft.idempotencyKey },
       )
@@ -558,9 +538,7 @@ export function ImportWizard() {
                 </div>
               )}
               {session.phase === 'streaming' ? (
-                <p className="text-13 text-tr-text-secondary">
-                  {draft.title} · {formatSummary(resolvedFormat)}
-                </p>
+                <p className="text-13 text-tr-text-secondary">{draft.title}</p>
               ) : (
                 <>
                   <label className="text-13 font-medium text-tr-text-primary">
@@ -575,49 +553,6 @@ export function ImportWizard() {
                       className="mt-1 block w-full rounded-card border border-tr-border bg-tr-surface-page px-3 py-2 text-13 text-tr-text-primary outline-none focus:border-tr-sky"
                     />
                   </label>
-                  <fieldset className="grid gap-2">
-                    <legend className="text-13 font-medium text-tr-text-primary">
-                      Format
-                    </legend>
-                    <p className="text-13 text-tr-text-secondary">
-                      Read from the script: {detected.reason}.
-                    </p>
-                    {detected.presetId === null && (
-                      <label className="rounded-card border border-tr-border bg-tr-surface-page p-3 text-13 text-tr-text-primary">
-                        <input
-                          type="radio"
-                          name="import-format-preset"
-                          checked={selectedFormat === 'script'}
-                          onChange={() =>
-                            updateDraft({ ...draft, formatChoice: 'script' })
-                          }
-                          className="mr-2"
-                        />
-                        As printed in the script ·{' '}
-                        {formatSummary(detected.format)}
-                      </label>
-                    )}
-                    {(Object.keys(FORMAT_PRESETS) as FormatPresetId[]).map(
-                      (presetId) => (
-                        <label
-                          key={presetId}
-                          className="rounded-card border border-tr-border bg-tr-surface-page p-3 text-13 text-tr-text-primary"
-                        >
-                          <input
-                            type="radio"
-                            name="import-format-preset"
-                            checked={selectedFormat === presetId}
-                            onChange={() =>
-                              updateDraft({ ...draft, formatChoice: presetId })
-                            }
-                            className="mr-2"
-                          />
-                          {FORMAT_PRESET_LABELS[presetId]} ·{' '}
-                          {formatSummary(FORMAT_PRESETS[presetId])}
-                        </label>
-                      ),
-                    )}
-                  </fieldset>
                   <p className="text-13 text-tr-text-secondary">
                     {draft.filename ?? 'Pasted text'} ·{' '}
                     {formatImportCostLine(stats)}

@@ -286,7 +286,7 @@ def create_and_import_project(
     events = create_import.create_and_import_events(
         session,
         title=body.title,
-        format_dict=body.format.model_dump(by_alias=True),
+        format_dict=body.format.model_dump(by_alias=True) if body.format else None,
         premise=body.premise or "",
         source_format=body.source.format,
         content=body.source.content,

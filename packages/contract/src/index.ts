@@ -701,7 +701,10 @@ export type ProjectCreateRequest = z.input<typeof ProjectCreateRequest>
 // source. `premise` is optional (the import wizard has no premise step).
 export const ProjectImportCreateRequest = z.object({
   title: z.string(),
-  format: ShowFormat,
+  // null: the import works the format out from the script itself (printed
+  // act breaks, then infer_act_breaks) instead of asking the writer (owner
+  // decision 2026-10-11).
+  format: ShowFormat.nullable().default(null),
   premise: z.string().nullable().default(null),
   source: z.object({
     format: z.enum(['fountain', 'text']),
@@ -1493,6 +1496,9 @@ const InferredActStart = z.object({
 
 export const InferredActBreaks = z.object({
   starts: z.array(InferredActStart).min(1),
+  // The format the model reads from the script, when the import was not
+  // given one; null when it was (data contract §2a, prompt spec act section).
+  format: ShowFormat.nullable().default(null),
 })
 export type InferredActBreaks = z.infer<typeof InferredActBreaks>
 

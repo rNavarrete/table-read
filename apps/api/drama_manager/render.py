@@ -25,7 +25,13 @@ import secrets
 from typing import Any
 
 # Prompt spec §8 / hard rule 7: every template carries a PROMPT_VERSION (semver);
-# it is logged with each call and bumped on any template change. 0.49.0 ends
+# it is logged with each call and bumped on any template change. 0.50.0 lets
+# an import with no format ask infer_act_breaks for one (genre, runtime,
+# acts, cold open, tag, serialization) before its act starts, keeping any
+# printed structure, and asks a given-format call to return format null;
+# the shared system prompt says the format is not yet known until then. Its
+# format_missing retry closes with its own line asking for the format and
+# the act starts. 0.49.0 ends
 # every op's user turn with a request to call its tool
 # (`anthropic_client._ask_for_tool`): the 5.5 models reject a forced tool
 # choice, so the prompt asks instead. 0.48.0 has the
@@ -138,7 +144,7 @@ from typing import Any
 # 0.10.0 typed segment starts; 0.9.0 lock-aware narrative repair. Earlier:
 # 0.8.0 suggest; 0.7.0 scene skeleton; 0.6.0 continuity; 0.5.0 regenerate;
 # 0.4.0 blast; 0.3.0 tune; 0.2.0 candidate + §0 system prompt.
-PROMPT_VERSION = "0.49.0"
+PROMPT_VERSION = "0.50.0"
 
 
 def new_nonce() -> str:
@@ -178,7 +184,17 @@ def build_system_prompt(project: dict, nonce: str) -> str:
     """The §0 shared system prompt, assembled per project. The HARD RULES block
     (including the injection boundary) and the single valid nonce are the
     security contract §8b depends on."""
-    fmt = project.get("format", {})
+    fmt = project.get("format")
+    # An import that works its format out from the script has none until its
+    # act stage decides it (owner decision 2026-10-11).
+    show_format = (
+        f"- Genre: {fmt.get('genre', '')}; runtime {fmt.get('runtimeMinutes', '')} min; "
+        f"{fmt.get('actCount', '')} acts\n"
+        f"- Cold open: {fmt.get('coldOpen', '')}; tag: {fmt.get('tag', '')}\n"
+        f"- Serialization: {fmt.get('serialization', '')} (0=procedural, 1=heavily serialized)\n\n"
+        if fmt
+        else "- Format: not yet known; it is read from the script during import\n\n"
+    )
     return (
         "You are an expert TV dramaturg and co-writer collaborating with a "
         "professional writer. The writer's authorship is paramount: you propose, "
@@ -187,11 +203,8 @@ def build_system_prompt(project: dict, nonce: str) -> str:
         "craft material.\n\n"
         "SHOW FORMAT\n"
         f"- Title: {project.get('title', '')}\n"
-        f"- Genre: {fmt.get('genre', '')}; runtime {fmt.get('runtimeMinutes', '')} min; "
-        f"{fmt.get('actCount', '')} acts\n"
-        f"- Cold open: {fmt.get('coldOpen', '')}; tag: {fmt.get('tag', '')}\n"
-        f"- Serialization: {fmt.get('serialization', '')} (0=procedural, 1=heavily serialized)\n\n"
-        "TELEPLAY CONVENTIONS (Fountain)\n"
+        + show_format
+        + "TELEPLAY CONVENTIONS (Fountain)\n"
         "- Sluglines: INT./EXT. LOCATION - TIME\n"
         "- Action lines: present tense, max ~4 lines per block\n"
         "- Character cues in caps; parentheticals sparing; no camera direction unless asked\n\n"
@@ -280,8 +293,22 @@ def build_segment_retry_prompt(
     )
 
 
-def build_act_inference_prompt(project: dict, summaries: list[dict], nonce: str) -> tuple[str, str]:
-    fmt = project["format"]
+def build_act_inference_prompt(
+    project: dict,
+    summaries: list[dict],
+    nonce: str,
+    *,
+    printed: tuple[int, bool] | None = None,
+    source_chars: int | None = None,
+) -> tuple[str, str]:
+    """`infer_act_breaks`: act starts for a known format, or, for an import
+    that works its format out from the script (`format` is None), the format
+    and then the act starts for it (owner decision 2026-10-11). `printed` is
+    the `(act_count, cold_open)` the script's own markers state, which the
+    model must keep."""
+    fmt = project.get("format")
+    if fmt is None:
+        return _build_format_inference_prompt(summaries, nonce, printed, source_chars)
     max_act = fmt["actCount"] if fmt["coldOpen"] else fmt["actCount"] - 1
     payload = {
         "format": {
@@ -298,9 +325,53 @@ def build_act_inference_prompt(project: dict, summaries: list[dict], nonce: str)
         "The first startSceneIndex must be 0. Both act and startSceneIndex must "
         "strictly increase. You may omit empty sections. Return starts only; "
         "do not return scene ids, end indices, or per-scene assignments. "
-        "Do not infer a TAG; tag assignment is outside this operation."
+        "Do not infer a TAG; tag assignment is outside this operation. "
+        "Set format to null: the format is already set."
     )
     return build_system_prompt({"format": fmt}, nonce), user
+
+
+def _build_format_inference_prompt(
+    summaries: list[dict],
+    nonce: str,
+    printed: tuple[int, bool] | None,
+    source_chars: int | None,
+) -> tuple[str, str]:
+    payload = {
+        "sceneCount": len(summaries),
+        "sourceCharacters": source_chars,
+        "printedStructure": (
+            {"actCount": printed[0], "coldOpen": printed[1]} if printed else None
+        ),
+        "scenes": summaries,
+    }
+    structure = (
+        f"The script prints its act breaks: use actCount {printed[0]} and "
+        f"coldOpen {str(printed[1]).lower()} exactly. "
+        if printed
+        else "The script prints no act breaks, so decide the structure its story "
+        "implies; a feature film usually has three acts and no cold open. "
+    )
+    user = (
+        source_data("import_scene_summaries", payload, nonce)
+        + "\nWork out this script's format, then its act structure. Fill format "
+        "with: genre (drama, comedy or dramedy); runtimeMinutes, the screen time "
+        "the script plays at (a screenplay page holds about 1,500 to 2,000 "
+        "characters and plays for about a minute; a network half-hour runs about "
+        "22 to 30 minutes, an hour about 42 to 60, a feature film usually 90 to "
+        "150); actCount, from 1 to 6; coldOpen, true when a cold open or teaser "
+        "comes before act one; tag, true when a short tag follows the last act; "
+        "and serialization, from 0 for a self-contained story to 1 for a heavily "
+        "serialized one (a standalone feature film is 0). "
+        + structure
+        + "Then return ordered act starts for that structure, using act values 0 "
+        "through actCount when coldOpen is true, or 0 through actCount minus 1 "
+        "when it is false. The first startSceneIndex must be 0. Both act and "
+        "startSceneIndex must strictly increase. You may omit empty sections. "
+        "Return starts only; do not return scene ids, end indices, or per-scene "
+        "assignments."
+    )
+    return build_system_prompt({"format": None}, nonce), user
 
 
 def build_act_inference_retry_prompt(
@@ -308,8 +379,19 @@ def build_act_inference_retry_prompt(
     summaries: list[dict],
     diagnostics: list[dict],
     nonce: str,
+    *,
+    printed: tuple[int, bool] | None = None,
+    source_chars: int | None = None,
 ) -> tuple[str, str]:
-    system, user = build_act_inference_prompt(project, summaries, nonce)
+    system, user = build_act_inference_prompt(
+        project, summaries, nonce, printed=printed, source_chars=source_chars
+    )
+    if diagnostics == [{"code": "format_missing"}]:
+        return (
+            system,
+            user + "\nYour previous answer left format null. Return the format "
+            "and the act starts.",
+        )
     return (
         system,
         user

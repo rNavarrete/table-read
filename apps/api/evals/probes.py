@@ -166,12 +166,18 @@ def act_boundary_cases(ctx: FixtureCtx) -> list[dict]:
         }
         for index, (location, event) in enumerate(half_hour_events)
     ]
+    half_hour_expected = [
+        {"act": 0, "startSceneIndex": 0},
+        {"act": 1, "startSceneIndex": 2},
+        {"act": 2, "startSceneIndex": 5},
+    ]
     one_hour_expected = []
     previous_act = None
     for index, (_episode, scene) in enumerate(_iter_scenes(ctx.doc)):
         if scene["act"] != previous_act:
             one_hour_expected.append({"act": scene["act"], "startSceneIndex": index})
             previous_act = scene["act"]
+    one_hour_format = ctx.doc["format"]
     return [
         {
             "caseId": "half-hour-cover-up",
@@ -187,16 +193,33 @@ def act_boundary_cases(ctx: FixtureCtx) -> list[dict]:
                 },
             },
             "summaries": half_hour_summaries,
-            "expectedStarts": [
-                {"act": 0, "startSceneIndex": 0},
-                {"act": 1, "startSceneIndex": 2},
-                {"act": 2, "startSceneIndex": 5},
-            ],
+            "expectedStarts": half_hour_expected,
         },
         {
             "caseId": "one-hour-long-pour",
             "project": ctx.doc,
             "summaries": act_summaries_from_doc(ctx.doc),
+            "expectedStarts": one_hour_expected,
+        },
+        # An import given no format (owner decision 2026-10-11): the model
+        # returns the format with the starts. One script prints no act breaks;
+        # the other prints its acts, which the format must keep. Act values are
+        # section ordinals, so the same labels hold whichever structure the
+        # model picks for the first.
+        {
+            "caseId": "half-hour-cover-up-no-format",
+            "project": {"title": "Half Hour Probe", "format": None},
+            "summaries": half_hour_summaries,
+            "printed": None,
+            "sourceChars": 44_000,  # about 25 pages
+            "expectedStarts": half_hour_expected,
+        },
+        {
+            "caseId": "one-hour-long-pour-no-format",
+            "project": {**ctx.doc, "format": None},
+            "summaries": act_summaries_from_doc(ctx.doc),
+            "printed": (one_hour_format["actCount"], one_hour_format["coldOpen"]),
+            "sourceChars": 96_000,  # about 55 pages
             "expectedStarts": one_hour_expected,
         },
     ]
@@ -274,6 +297,15 @@ def _extract_prompt(ctx: FixtureCtx) -> tuple[str, str]:
 def _segment_prompt(ctx: FixtureCtx) -> tuple[str, str]:
     lines = scene_source_lines(ctx.scene(_SEGMENT_SCENE))
     return render.build_segment_prompt(ctx.doc, lines, render.new_nonce())
+
+
+def _segment_prompt_format_unknown(ctx: FixtureCtx) -> tuple[str, str]:
+    # An import given no format segments its scenes before its act stage
+    # works the format out (owner decision 2026-10-11).
+    lines = scene_source_lines(ctx.scene(_SEGMENT_SCENE))
+    return render.build_segment_prompt(
+        {**ctx.doc, "format": None}, lines, render.new_nonce()
+    )
 
 
 def _act_break_prompt(ctx: FixtureCtx) -> tuple[str, str]:
@@ -453,7 +485,7 @@ def _narrative_map_verification_prompt(ctx: FixtureCtx) -> tuple[str, str]:
 
 
 # op name -> prompt builder. Every op here has a real render builder + call site
-# in the product code.
+# in the product code. An `op:variant` key probes the op under a second input.
 SCHEMA_PROBES: dict[str, PromptBuilder] = {
     "generate_beat_candidates": _candidate_prompt,
     "tune_beat": _tune_prompt,
@@ -462,6 +494,7 @@ SCHEMA_PROBES: dict[str, PromptBuilder] = {
     "extract_ledger_facts": _extract_prompt,
     "infer_act_breaks": _act_break_prompt,
     "segment_scene": _segment_prompt,
+    "segment_scene:format-unknown": _segment_prompt_format_unknown,
     "scan_consistency": _scan_prompt,
     "suggest_instructions": _suggest_prompt,
     "infer_story_overview": _overview_prompt,

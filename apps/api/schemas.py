@@ -644,7 +644,8 @@ class ProjectImportSource(_Base):
 
 class ProjectImportCreateRequest(_Base):
     title: str
-    format: ShowFormat
+    # None: worked out from the script during import (owner decision 2026-10-11).
+    format: ShowFormat | None = None
     premise: str | None = None
     source: ProjectImportSource
 
@@ -1363,6 +1364,7 @@ class InferredActStart(_Base):
 
 class InferredActBreaks(_Base):
     starts: list[InferredActStart] = Field(min_length=1)
+    format: ShowFormat | None = None
 
 
 class SegmentedSceneBeat(_Base):

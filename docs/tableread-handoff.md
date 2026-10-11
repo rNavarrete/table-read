@@ -54,6 +54,7 @@ Table Read is a structural co-writing tool for episodic TV writers, built on the
 | 2026-10-11: the import wizard has two steps, Add script and Check & start (title, format, scene count and cost, the script text behind a disclosure, then Create & analyze); Confirm source, Confirm basics and Review source are folded into Check & start | Five steps were too many for one decision; Review source only repeated the cost line |
 | 2026-10-11: the import format is read from the script's printed markers (TEASER/COLD OPEN, ACT n, TAG) with no model call, pre-selected and editable; no act markers reads as actless | Free, instant, explainable, and it happens before any AI step, as the wizard's trust note promises |
 | 2026-10-11: when the printed structure matches no preset (cold open + 3 acts), the format is the script's own structure. Settles the West Wing check's open question: printed act breaks win over a preset act count | A mismatched preset made import discard the printed acts and have the model guess them |
+| 2026-10-11 (supersedes the two rows above on reading and pre-selecting the format): the import wizard never asks for a format. The import works it out in its act stage: printed act breaks decide the act count and cold open, and `infer_act_breaks` reads genre, runtime, tag and serialization (and the acts, when none are printed) | The writer should not have to classify their own script; a feature like Field of Dreams fit no TV preset at all |
 
 ## 5. Environment bootstrap (T0.1 companion)
 
