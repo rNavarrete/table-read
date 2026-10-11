@@ -405,12 +405,6 @@ def analyze_import(
         len(summary_chunks),
         StoryEntities,
     )
-    completed_entity_chunks = sum(part is not None for part in entity_parts)
-    yield ImportStageProgress(
-        STAGE_INFERRING_ENTITIES,
-        completed_entity_chunks,
-        len(summary_chunks),
-    )
     # WARNING (not INFO): uvicorn's default app log level often hides INFO,
     # and these lines are the only signal that chunking ran on a large import.
     _logger.warning(
@@ -424,9 +418,8 @@ def analyze_import(
         render.PROMPT_VERSION,
     )
     scene_docs_by_id = {scene["id"]: scene for scene in scene_docs}
-    for chunk_index, chunk in enumerate(summary_chunks):
-        if entity_parts[chunk_index] is not None:
-            continue
+
+    def _infer_entity_chunk(chunk_index: int, chunk: list[dict]) -> StoryEntities:
         chunk_scene_docs = [
             scene_docs_by_id[summary["id"]]
             for summary in chunk
@@ -446,7 +439,7 @@ def analyze_import(
             len(user),
             len(system),
         )
-        entity_part = llm.infer_story_entities(
+        return llm.infer_story_entities(
             system=system,
             user_message=user,
             prompt_version=render.PROMPT_VERSION,
@@ -456,19 +449,25 @@ def analyze_import(
             # now see the whole cast when deciding names and aliases.
             cache_prefix=split_source,
         )
-        entity_parts[chunk_index] = entity_part
-        _write_checkpoint(
+
+    # Chunks are independent (each reads its own scenes plus the whole script)
+    # and merge afterwards, so they run concurrently. Run one after another,
+    # they were the slowest stage of a real 15-scene import: 4m20s of 10m30s.
+    entity_parts = yield from _run_ordered_parallel(
+        summary_chunks,
+        _infer_entity_chunk,
+        stage=STAGE_INFERRING_ENTITIES,
+        existing_results=entity_parts,
+        # Every chunk carries `split_source` under the entity prompt's own
+        # tools and system text: warm it once so the other chunks read it.
+        warm_cache_first=True,
+        on_result=lambda index, part: _write_checkpoint(
             checkpoint_writer,
             STAGE_INFERRING_ENTITIES,
-            entity_part.model_dump(by_alias=True, mode="json"),
-            chunk_index,
-        )
-        completed_entity_chunks += 1
-        yield ImportStageProgress(
-            STAGE_INFERRING_ENTITIES,
-            completed_entity_chunks,
-            len(summary_chunks),
-        )
+            part.model_dump(by_alias=True, mode="json"),
+            index,
+        ),
+    )
     entities = combine_story_entities([cast(StoryEntities, part) for part in entity_parts])
     # Pass the imported script so an inferred character the script never names
     # is dropped rather than minted (a real import produced one called

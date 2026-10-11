@@ -255,7 +255,7 @@ Server-side policy (not the model's job): `confidence < 0.8` → review queue, e
 
 ## 5a. `infer_story_entities`
 
-Purpose: import-time cast/relationship/world-element read, run once per import between act inference and fact extraction (data contract §2a/§9.3 `inferring_entities` stage; T7.15). Model: `import_worker` role (`claude-sonnet-5-5`) — bounded import extraction in chunks.
+Purpose: import-time cast/relationship/world-element read, run once per import between act inference and fact extraction (data contract §2a/§9.3 `inferring_entities` stage; T7.15). Model: `import_worker` role (`claude-sonnet-5-5`, `medium` effort) — bounded import extraction in chunks that run concurrently after the first (which warms the shared cached source) and merge afterwards.
 
 **Input:** scene plan summaries (`{id, location, whatHappens}`) plus each scene's early script text, and the ground-truth speaker list already minted from cues (`fountain/characters.cues_from_scenes`) as a floor to extend, never replace — inside `<source_data_{nonce}>` tags per §8b.
 

@@ -184,8 +184,15 @@ _OPS: tuple[LlmOp, ...] = (
         "world elements (locations/objects) implied by the imported script, "
         "each with source evidence. betweenNames must be exactly two name "
         "strings; every entity needs at least one evidence item.",
-        max_tokens=16_384,
+        # A real 77-speaker chunk spent all 16_384 on thinking plus a partial
+        # reply (stop_reason=max_tokens) and paid a full retry. `medium` is
+        # enough for a bounded listing job (Sonnet 5.5 defaults to `high`),
+        # and the ceiling streams because the SDK refuses one this large on a
+        # plain request.
+        max_tokens=32_768,
         call_timeout_seconds=180.0,
+        stream_response=True,
+        effort="medium",
     ),
     # T7.19 narrative-promises P2. Runs after infer_story_entities and before
     # extract_ledger_facts (so motivations see the resolved cast) on
