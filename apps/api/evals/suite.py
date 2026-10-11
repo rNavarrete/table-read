@@ -117,13 +117,14 @@ def nominal_call_estimate(runs: dict[str, int]) -> dict:
     """Nominal (retry-free) real-API call counts per eval family — cost
     visibility for the report header and the Makefile target.
 
-    Per family: schema = one call per probe per run (13 × schema runs). lock =
+    Per family: schema = one call per probe per run (14 × schema runs). lock =
     up to 3 product calls per regenerate attempt (preview's regenerate + apply's
     extract + scan; guard rejections stop after 1) plus 1 per candidate attempt
     → ≤ 4 × lock runs. continuity = 3 grader calibration calls + (1 generate +
     1 grade) × continuity runs.     Segmentation and each adoption soft eval = 1 ×
-    that family's runs. Act-boundary validity and quality each have two labeled
-    probes, so each is 2 × that family's runs. `entityInference` and
+    that family's runs. Act-boundary validity and quality each have four labeled
+    probes (two scripts, each with its format given and with none), so each is
+    4 × that family's runs. `entityInference` and
     `aliasResolution` each call `infer_story_entities` once per run, same as
     the other single-probe soft families; `narrativePromises` and
     `narrativePromisesMerge` (T7.22) each call `infer_narrative_promises`
@@ -131,17 +132,17 @@ def nominal_call_estimate(runs: dict[str, int]) -> dict:
     (T7.30) each call `infer_story_overview` once per run. Rule-9 retries can
     add up to one extra call per product call (observed-worst budget ≈1.5×
     total). Core defaults
-    (schema/act-validity/lock/continuity, N=5): ≈108 nominal; `--full` adds
-    soft families (≈50); `--runs 1` core ≈24."""
+    (schema/act-validity/lock/continuity, N=5): ≈123 nominal; `--full` adds
+    soft families (≈75); `--runs 1` core ≈27."""
     schema = len(probes.SCHEMA_PROBES) * runs["schemaValidity"]
-    act_validity = 2 * runs["actBoundaryValidity"]
+    act_validity = 4 * runs["actBoundaryValidity"]
     lock = 4 * runs["lockViolation"]
     continuity = 3 + 2 * runs["continuityAdherence"]
     segmentation = runs["segmentationDeterminism"]
     lock_repair = runs["lockRepairQuality"]
     import_inference = runs["importInference"]
     subtext = runs["subtextFidelity"]
-    act_boundaries = 2 * runs["actBoundaryQuality"]
+    act_boundaries = 4 * runs["actBoundaryQuality"]
     entity_inference = runs["entityInference"]
     alias_resolution = runs["aliasResolution"]
     narrative_promises = runs["narrativePromises"]
@@ -192,7 +193,7 @@ def selected_eval_keys(*, full: bool = False, only: str | None = None) -> tuple[
 
     `only` accepts a comma-separated list so a prompt change can be signed off
     against the families that actually exercise the op it touched. The full
-    suite is ~173 calls and the core gates ~108, most of it breadth that says
+    suite is ~198 calls and the core gates ~123, most of it breadth that says
     nothing about a change to one op — running the lock and act-boundary
     families to clear a `infer_narrative_promises` edit costs money to prove
     something unrelated.

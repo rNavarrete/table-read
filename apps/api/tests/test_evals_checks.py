@@ -24,6 +24,7 @@ from evals.graders import CALIBRATION_CASES, GraderError, MockJudge
 from evals.harness import SuiteReport, assert_rule5_clean
 from evals.probes import load_fixture_ctx
 from evals.suite import resolve_run_map, run_suite, selected_eval_keys
+from fountain.acts import ActInferenceError
 from llm.errors import LlmTimeoutError, SchemaInvalidLlmError
 from llm.mock import MockLlmClient
 from schemas import BeatCandidate, InferredActBreaks, RegeneratedElements
@@ -275,6 +276,16 @@ def test_segmentation_deterministic_mock_full_agreement():
 # ── act-boundary validity (hard) + quality (soft) ───────────────────────────────
 
 
+_LONG_POUR_FORMAT = {
+    "genre": "drama",
+    "runtimeMinutes": 60,
+    "actCount": 4,
+    "coldOpen": True,
+    "tag": False,
+    "serialization": 0.8,
+}
+
+
 def _assert_act_detail_is_privacy_safe(detail: dict) -> None:
     rendered = repr(detail)
     assert "Nia hides a disastrous birthday cake" not in rendered
@@ -286,9 +297,9 @@ def test_act_boundary_validity_accepts_semantically_valid_partitions():
     assert result.score == 1.0
     assert result.detail == {
         "runs": 1,
-        "cases": 2,
-        "valid": 2,
-        "attempts": 2,
+        "cases": 4,
+        "valid": 4,
+        "attempts": 4,
         "invalid": 0,
     }
     assert result.hard is True
@@ -298,13 +309,13 @@ def test_act_boundary_validity_accepts_semantically_valid_partitions():
 def test_act_boundary_validity_semantic_invalid_blocks_without_text_leak():
     invalid = InferredActBreaks(starts=[{"act": 0, "startSceneIndex": 1}])
     client = MockLlmClient()
-    client.set_responses("infer_act_breaks", [invalid, invalid])
+    client.set_response("infer_act_breaks", invalid)
 
     result = checks.act_boundary_validity_eval(client, load_fixture_ctx(), runs=1)
 
     assert result.score == 0.0
     assert result.detail["valid"] == 0
-    assert result.detail["invalid"] == 2
+    assert result.detail["invalid"] == 4
     assert result.blocks
     _assert_act_detail_is_privacy_safe(result.detail)
 
@@ -319,34 +330,33 @@ def test_act_boundary_validity_schema_or_timeout_failure_blocks_without_text_lea
 
     assert result.score == 0.0
     assert result.detail["valid"] == 0
-    assert result.detail["invalid"] == 2
+    assert result.detail["invalid"] == 4
     assert result.blocks
     _assert_act_detail_is_privacy_safe(result.detail)
 
 
 def test_act_boundary_quality_scores_within_two_scenes():
-    client = MockLlmClient()
-    client.set_responses(
-        "infer_act_breaks",
-        [
-            InferredActBreaks(
-                starts=[
-                    {"act": 0, "startSceneIndex": 0},
-                    {"act": 1, "startSceneIndex": 2},
-                    {"act": 2, "startSceneIndex": 5},
-                ]
-            ),
-            InferredActBreaks(
-                starts=[
-                    {"act": 0, "startSceneIndex": 0},
-                    {"act": 1, "startSceneIndex": 1},
-                    {"act": 2, "startSceneIndex": 3},
-                    {"act": 3, "startSceneIndex": 4},
-                    {"act": 4, "startSceneIndex": 5},
-                ]
-            ),
+    half_hour = InferredActBreaks(
+        starts=[
+            {"act": 0, "startSceneIndex": 0},
+            {"act": 1, "startSceneIndex": 2},
+            {"act": 2, "startSceneIndex": 5},
         ],
+        format={**_LONG_POUR_FORMAT, "actCount": 2},
     )
+    one_hour = InferredActBreaks(
+        starts=[
+            {"act": 0, "startSceneIndex": 0},
+            {"act": 1, "startSceneIndex": 1},
+            {"act": 2, "startSceneIndex": 3},
+            {"act": 3, "startSceneIndex": 4},
+            {"act": 4, "startSceneIndex": 5},
+        ],
+        format=_LONG_POUR_FORMAT,
+    )
+    client = MockLlmClient()
+    # Case order: each script with its format given, then with none.
+    client.set_responses("infer_act_breaks", [half_hour, one_hour, half_hour, one_hour])
     result = checks.act_boundary_quality_eval(client, load_fixture_ctx(), runs=1)
     assert result.score >= 0.8
     assert not result.blocks
@@ -355,12 +365,12 @@ def test_act_boundary_quality_scores_within_two_scenes():
 def test_act_boundary_quality_semantic_invalid_scores_zero_without_text_leak():
     invalid = InferredActBreaks(starts=[{"act": 0, "startSceneIndex": 1}])
     client = MockLlmClient()
-    client.set_responses("infer_act_breaks", [invalid, invalid])
+    client.set_response("infer_act_breaks", invalid)
 
     result = checks.act_boundary_quality_eval(client, load_fixture_ctx(), runs=1)
 
     assert result.score == 0.0
-    assert result.detail["invalid"] == 2
+    assert result.detail["invalid"] == 4
     assert result.detail["expected"] == sum(
         sum(start["startSceneIndex"] > 0 for start in case["expectedStarts"])
         for case in probes.act_boundary_cases(load_fixture_ctx())
@@ -373,7 +383,7 @@ def test_act_boundary_quality_excludes_scene_zero_anchors():
     result = checks.act_boundary_quality_eval(MockLlmClient(), load_fixture_ctx(), runs=1)
     assert result.score == 0.0
     assert result.detail["matched"] == 0
-    assert result.detail["expected"] == 6
+    assert result.detail["expected"] == 12
     assert result.metric == "labeled act transitions within ±2 scenes"
 
 
@@ -387,10 +397,86 @@ def test_act_boundary_quality_schema_or_timeout_failure_scores_zero_without_text
 
     assert result.score == 0.0
     assert result.detail["matched"] == 0
-    assert result.detail["invalid"] == 2
-    assert result.detail["expected"] == 6
+    assert result.detail["invalid"] == 4
+    assert result.detail["expected"] == 12
     assert not result.blocks
     _assert_act_detail_is_privacy_safe(result.detail)
+
+
+# An import given no format (owner decision 2026-10-11).
+
+
+def _act_case(case_id: str) -> dict:
+    return next(
+        case
+        for case in probes.act_boundary_cases(load_fixture_ctx())
+        if case["caseId"] == case_id
+    )
+
+
+def test_act_cases_without_a_format_render_the_format_prompt():
+    prompts: list[str] = []
+
+    class Recording(MockLlmClient):
+        def infer_act_breaks(self, **kwargs):
+            prompts.append(kwargs["system"] + kwargs["user_message"])
+            return super().infer_act_breaks(**kwargs)
+
+    checks.act_boundary_validity_eval(Recording(), load_fixture_ctx(), runs=1)
+
+    no_printed, printed = prompts[2], prompts[3]
+    assert "Format: not yet known" in no_printed
+    assert "Work out this script's format" in no_printed
+    assert "The script prints no act breaks" in no_printed
+    assert "use actCount 4 and coldOpen true exactly" in printed
+    assert "Work out this script's format" not in prompts[0] + prompts[1]
+
+
+@pytest.mark.parametrize(
+    ("case_id", "answer", "code"),
+    [
+        (
+            "half-hour-cover-up-no-format",
+            InferredActBreaks(starts=[{"act": 0, "startSceneIndex": 0}]),
+            "format_missing",
+        ),
+        (
+            "one-hour-long-pour-no-format",
+            InferredActBreaks(
+                starts=[{"act": 0, "startSceneIndex": 0}],
+                format={**_LONG_POUR_FORMAT, "actCount": 3},
+            ),
+            "printed_structure_ignored",
+        ),
+        (
+            # Starts are checked against the format the model returned.
+            "half-hour-cover-up-no-format",
+            InferredActBreaks(
+                starts=[
+                    {"act": 0, "startSceneIndex": 0},
+                    {"act": 1, "startSceneIndex": 2},
+                ],
+                format={**_LONG_POUR_FORMAT, "actCount": 1, "coldOpen": False},
+            ),
+            "act_out_of_range",
+        ),
+    ],
+)
+def test_an_act_case_without_a_format_grades_the_returned_format(case_id, answer, code):
+    client = MockLlmClient()
+    client.set_response("infer_act_breaks", answer)
+
+    with pytest.raises(ActInferenceError) as error:
+        checks._infer_act_case(client, _act_case(case_id))
+
+    assert error.value.diagnostics[0]["code"] == code
+
+
+def test_segment_probe_without_a_format_says_it_is_not_yet_known():
+    system, _user = probes.SCHEMA_PROBES["segment_scene:format-unknown"](load_fixture_ctx())
+    assert "Format: not yet known" in system
+    result = schema_validity_eval(MockLlmClient(), load_fixture_ctx(), runs=1)
+    assert result.detail["perOp"]["segment_scene:format-unknown"]["rate"] == 1.0
 
 
 # ── end-to-end dry run + rule-5 audit ──────────────────────────────────────────
@@ -487,11 +573,11 @@ def test_nominal_call_estimate_core_defaults():
     )
 
     core = filter_call_estimate(nominal_call_estimate(default_run_map()), CORE_EVAL_KEYS)
-    assert core["schemaValidity"] == 65  # 13 probes × 5
-    assert core["actBoundaryValidity"] == 10
+    assert core["schemaValidity"] == 70  # 14 probes × 5
+    assert core["actBoundaryValidity"] == 20  # 4 cases × 5
     assert core["lockViolation"] == 20
     assert core["continuityAdherence"] == 13
-    assert core["totalNominal"] == 108
+    assert core["totalNominal"] == 123
     assert "subtextFidelity" not in core
     assert "actBoundaryQuality" not in core
 
@@ -505,7 +591,7 @@ def test_nominal_call_estimate_uniform_one():
     )
 
     core = filter_call_estimate(nominal_call_estimate(resolve_run_map(1)), CORE_EVAL_KEYS)
-    assert core["totalNominal"] == 24
+    assert core["totalNominal"] == 27
 
 
 def test_run_suite_report_carries_call_estimate(session_factory):
@@ -587,7 +673,7 @@ def test_run_suite_only_runs_single_eval(session_factory):
     assert set(report.estimated_calls) == {"continuityAdherence", "totalNominal"}
 
 
-def test_run_suite_only_act_boundaries_uses_two_calls(session_factory):
+def test_run_suite_only_act_boundaries_uses_four_calls(session_factory):
     report = run_suite(
         MockLlmClient(),
         MockJudge(),
@@ -598,12 +684,12 @@ def test_run_suite_only_act_boundaries_uses_two_calls(session_factory):
     )
     assert [r.name for r in report.results] == ["act-boundary-quality"]
     assert report.estimated_calls == {
-        "actBoundaryQuality": 2,
-        "totalNominal": 2,
+        "actBoundaryQuality": 4,
+        "totalNominal": 4,
     }
 
 
-def test_run_suite_only_act_validity_uses_two_calls(session_factory):
+def test_run_suite_only_act_validity_uses_four_calls(session_factory):
     report = run_suite(
         MockLlmClient(),
         MockJudge(),
@@ -614,8 +700,8 @@ def test_run_suite_only_act_validity_uses_two_calls(session_factory):
     )
     assert [r.name for r in report.results] == ["act-boundary-validity"]
     assert report.estimated_calls == {
-        "actBoundaryValidity": 2,
-        "totalNominal": 2,
+        "actBoundaryValidity": 4,
+        "totalNominal": 4,
     }
 
 
@@ -673,7 +759,7 @@ def test_capture_dir_is_gitignored():
 
 def test_only_accepts_a_scoped_family_list():
     """A prompt change should be signable against the families that exercise
-    the op it touched — the full suite is ~173 calls, most of which say
+    the op it touched — the full suite is ~198 calls, most of which say
     nothing about a change to one op."""
     keys = selected_eval_keys(only="narrative-promises,promise-citations")
     assert keys == ("narrative-promises", "promise-citations")

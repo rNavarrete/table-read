@@ -119,7 +119,8 @@ def create_and_import_events(
     session: Session,
     *,
     title: str,
-    format_dict: dict,
+    # None: the import works the format out from the script.
+    format_dict: dict | None,
     premise: str,
     source_format: str,
     content: str,

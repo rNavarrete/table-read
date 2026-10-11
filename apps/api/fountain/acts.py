@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import NamedTuple
+
 from fountain.characters import _ACT_MARKER_RE
 from schemas import InferredActBreaks
 
@@ -80,9 +82,9 @@ def expand_act_starts(
     return acts
 
 
-def _printed_act_start(line: str, act_count: int) -> int | None:
-    """The printed act number (0 = teaser / cold open) whose start this line
-    marks, or None. `END OF ACT n` marks where act n+1 starts."""
+def _printed_marker(line: str) -> tuple[int, bool] | None:
+    """`(act it names, is END OF)` for a printed act marker (0 = teaser /
+    cold open), or None."""
     text = " ".join(line.split())
     # Markers are printed in caps; dialogue such as "Act two." is not one.
     if text != text.upper():
@@ -91,14 +93,21 @@ def _printed_act_start(line: str, act_count: int) -> int | None:
     is_end = text.startswith("END OF ")
     body = text.removeprefix("END OF ")
     if body in ("TEASER", "COLD OPEN"):
-        number = 0
-    elif _ACT_MARKER_RE.match(text):
-        token = body.split()[-1]
-        number = int(token) if token.isdigit() else _ACT_NUMBERS.get(token)
-        if number is None:
-            return None
-    else:
+        return 0, is_end
+    if not _ACT_MARKER_RE.match(text):
         return None
+    token = body.split()[-1]
+    number = int(token) if token.isdigit() else _ACT_NUMBERS.get(token)
+    return None if number is None else (number, is_end)
+
+
+def _printed_act_start(line: str, act_count: int) -> int | None:
+    """The printed act number (0 = teaser / cold open) whose start this line
+    marks, or None. `END OF ACT n` marks where act n+1 starts."""
+    marker = _printed_marker(line)
+    if marker is None:
+        return None
+    number, is_end = marker
     if not is_end:
         return number
     return None if number == act_count else number + 1
@@ -136,6 +145,57 @@ def acts_from_markers(spans, format_dict: dict) -> list[int] | None:
         return expand_act_starts(breaks, scene_count=len(spans), format_dict=format_dict)
     except ActInferenceError:
         return None
+
+
+# ShowFormat.actCount's ceiling (packages/contract).
+_MAX_PRINTED_ACTS = 6
+
+
+class PrintedStructure(NamedTuple):
+    act_count: int
+    cold_open: bool
+    # The acts the markers state for every scene, or None when they don't
+    # state a full partition (a heading stripped with the front matter, an
+    # OCR-damaged one, or only END OF ACT lines).
+    scene_acts: list[int] | None
+
+
+def printed_structure(front_matter: list[str], spans) -> PrintedStructure | None:
+    """The act structure the script prints, read without being told a format,
+    or None when it prints no act. Used when an import works its format out
+    from the script (owner decision 2026-10-11): the printed structure decides
+    act count and cold open, and the model decides the rest.
+
+    Reads the whole script: `front_matter` is the lines stripped before
+    `spans`, where a leading TEASER or ACT ONE usually sits. The act count is
+    the highest act printed (END OF ACT n names act n). There is a cold open
+    when a TEASER / COLD OPEN is printed, or when a scene comes before the
+    first ACT ONE."""
+    # Every line, paired with whether a scene heading precedes it (a span's
+    # heading is its first line, so its markers follow it).
+    script = [(False, line) for line in front_matter]
+    scene_seen = False
+    for span in spans:
+        scene_seen = scene_seen or bool(span.location)
+        script += [(scene_seen, line) for line in span.lines]
+    highest = 0
+    cold_open = False
+    act_one_seen = False
+    for after_a_scene, line in script:
+        marker = _printed_marker(line)
+        if marker is None:
+            continue
+        number, is_end = marker
+        highest = max(highest, number)
+        if number == 0:
+            cold_open = True
+        elif number == 1 and not is_end and not act_one_seen:
+            act_one_seen = True
+            cold_open = cold_open or after_a_scene
+    if not 1 <= highest <= _MAX_PRINTED_ACTS:
+        return None
+    scene_acts = acts_from_markers(spans, {"actCount": highest, "coldOpen": cold_open})
+    return PrintedStructure(highest, cold_open, scene_acts)
 
 
 def scene_summaries(spans, per_scene_beats) -> list[dict]:

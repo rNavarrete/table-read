@@ -38,13 +38,14 @@ from drama_manager.narrative_map_analysis import (
 )
 from drama_manager.narrative_map_runs import execute_run
 from fountain import create_import, import_runs, pipeline
-from fountain.parse import SceneSpan, split_into_scenes
+from fountain.parse import SceneSpan, split_into_scenes, strip_screenplay_front_matter
 from llm.dependency import get_llm_client
 from llm.errors import LlmTimeoutError, SchemaInvalidLlmError
 from llm.mock import MockLlmClient
 from main import app
 from schemas import (
     ConsistencyScan,
+    InferredActBreaks,
     InferredNarrativeSceneAnalysisBatch,
     LedgerExtraction,
     NarrativeMapVerification,
@@ -2645,3 +2646,178 @@ def test_an_acts_failure_still_aborts_with_zero_rows_after_a_scene_fails(
         },
     )
     _assert_no_new_rows(db_session, baseline)
+
+
+# ── format worked out from the script (owner decision 2026-10-11) ─────────────
+
+_FEATURE = {
+    "genre": "drama",
+    "runtimeMinutes": 107,
+    "actCount": 3,
+    "coldOpen": False,
+    "tag": False,
+    "serialization": 0.0,
+}
+
+
+def _imported_doc(events: list[tuple[str, dict]]) -> dict:
+    complete = [d for n, d in events if n == "complete"]
+    assert complete, events
+    return complete[0]["result"]["project"]
+
+
+def _scene_acts(project: dict) -> list[int]:
+    return [s["act"] for s in project["seasons"][0]["episodes"][0]["scenes"]]
+
+
+def test_an_import_without_a_format_uses_the_format_the_model_reads(db_session, mock_llm):
+    """A feature that prints no act breaks: the model decides the whole format
+    and the act starts for it (Field of Dreams: 107 minutes, three acts)."""
+    src = (
+        "INT. KITCHEN - DAY\nRay listens.\n\nEXT. CORN FIELD - DAY\nA voice."
+        "\n\nEXT. BALLFIELD - NIGHT\nThey play."
+    )
+    _configure_success(mock_llm, src)
+    mock_llm.set_response(
+        "infer_act_breaks",
+        InferredActBreaks(
+            starts=[
+                {"act": 0, "startSceneIndex": 0},
+                {"act": 1, "startSceneIndex": 1},
+                {"act": 2, "startSceneIndex": 2},
+            ],
+            format=_FEATURE,
+        ),
+    )
+
+    events = _parse_sse(
+        client.post(
+            URL,
+            json=_body(src, format=None),
+            headers=_headers("00000000-0000-4000-8000-000000000201"),
+        ).text
+    )
+
+    project = _imported_doc(events)
+    assert project["format"] == _FEATURE
+    assert _scene_acts(project) == [0, 1, 2]
+
+
+def test_printed_act_breaks_set_the_structure_and_the_model_the_rest(db_session, mock_llm):
+    """The model's act count and cold open give way to what the script prints;
+    its genre, runtime and serialization are kept."""
+    src = (
+        "INT. SCHOOL - DAY\nLisa reads.\nACT ONE\n\nINT. HOUSE - NIGHT\nHomer eats.\nACT TWO"
+        "\n\nEXT. STREET - DAY\nBart runs.\nACT THREE\n\nINT. KITCHEN - NIGHT\nMarge sighs."
+    )
+    _configure_success(mock_llm, src)
+    mock_llm.set_response(
+        "infer_act_breaks",
+        InferredActBreaks(
+            starts=[{"act": 0, "startSceneIndex": 0}],
+            format={**_FEATURE, "genre": "comedy", "runtimeMinutes": 22, "actCount": 5},
+        ),
+    )
+
+    events = _parse_sse(
+        client.post(
+            URL,
+            json=_body(src, format=None),
+            headers=_headers("00000000-0000-4000-8000-000000000202"),
+        ).text
+    )
+
+    project = _imported_doc(events)
+    assert project["format"] == {
+        **_FEATURE,
+        "genre": "comedy",
+        "runtimeMinutes": 22,
+        "actCount": 3,
+        "coldOpen": True,
+    }
+    assert _scene_acts(project) == [0, 1, 2, 3]
+
+
+def test_acts_printed_above_fade_in_still_set_the_structure(
+    db_session, mock_llm, monkeypatch
+):
+    """Each act opens on its own FADE IN, so ACT ONE is stripped with the front
+    matter and the markers state no full partition. The printed count and cold
+    open still reach the prompt and override the model's; the model's starts
+    are expanded against them."""
+    src = "\n".join(
+        [
+            "ACT ONE", "FADE IN:",
+            "INT. BAR - NIGHT", "Marta pours.",
+            "INT. HALL - NIGHT", "She leaves.", "END OF ACT ONE",
+            "ACT TWO", "FADE IN:",
+            "INT. KITCHEN - DAY", "Dan waits.", "END OF ACT TWO",
+            "ACT THREE", "FADE IN:",
+            "INT. CELLAR - NIGHT", "The key.", "END OF ACT THREE",
+            "ACT FOUR", "FADE IN:",
+            "EXT. STREET - NIGHT", "They part.", "END OF ACT FOUR",
+        ]
+    )
+    _configure_success(mock_llm, strip_screenplay_front_matter(src).content)
+    mock_llm.set_response(
+        "infer_act_breaks",
+        InferredActBreaks(
+            starts=[
+                {"act": 0, "startSceneIndex": 0},
+                {"act": 1, "startSceneIndex": 2},
+                {"act": 2, "startSceneIndex": 3},
+                {"act": 3, "startSceneIndex": 4},
+            ],
+            format={**_FEATURE, "actCount": 3, "coldOpen": True},
+        ),
+    )
+    prompts = _spy(monkeypatch, mock_llm, "infer_act_breaks")
+
+    events = _parse_sse(
+        client.post(
+            URL,
+            json=_body(src, format=None),
+            headers=_headers("00000000-0000-4000-8000-000000000205"),
+        ).text
+    )
+
+    assert "use actCount 4 and coldOpen false exactly" in prompts[0]
+    project = _imported_doc(events)
+    assert project["format"] == {**_FEATURE, "actCount": 4, "coldOpen": False}
+    assert _scene_acts(project) == [0, 0, 1, 2, 3]
+
+
+def test_a_missing_format_gets_one_retry_then_fails_the_import(db_session, mock_llm):
+    src = "INT. KITCHEN - DAY\nRay listens."
+    _configure_success(mock_llm, src)
+    no_format = InferredActBreaks(starts=[{"act": 0, "startSceneIndex": 0}])
+    mock_llm.set_responses("infer_act_breaks", [no_format, no_format])
+
+    events = _parse_sse(
+        client.post(
+            URL,
+            json=_body(src, format=None),
+            headers=_headers("00000000-0000-4000-8000-000000000203"),
+        ).text
+    )
+
+    assert mock_llm._invocations["infer_act_breaks"] == 2  # exactly one retry (rule 9)
+    failed = [d for n, d in events if n == "failed"]
+    assert failed and failed[0]["error"]["code"] == "SCHEMA_INVALID_LLM"
+
+
+def test_a_given_format_is_kept_whatever_the_model_returns(db_session, mock_llm):
+    src = "INT. KITCHEN - DAY\nRay listens."
+    _configure_success(mock_llm, src)
+    mock_llm.set_response(
+        "infer_act_breaks",
+        InferredActBreaks(starts=[{"act": 0, "startSceneIndex": 0}], format=_FEATURE),
+    )
+
+    events = _parse_sse(
+        client.post(
+            URL, json=_body(src), headers=_headers("00000000-0000-4000-8000-000000000204")
+        ).text
+    )
+
+    assert _imported_doc(events)["format"] == BASICS["format"]

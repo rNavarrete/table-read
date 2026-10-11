@@ -56,8 +56,21 @@ TOOL_SCHEMAS_DIR = REPO_ROOT / "config" / "tool_schemas"
 # Pydantic (apps/api/schemas.py) still enforces them on the returned
 # `tool_use.input` (prompt spec §8: "schema conformance alone never implies
 # acceptance").
+# Strict tools support no numerical constraints at all, exclusive bounds
+# included: `ShowFormat.runtimeMinutes` (`positive()`) emits
+# `exclusiveMinimum`, the first such bound to reach a tool schema.
 _ALWAYS_STRIP_KEYS = frozenset(
-    {"minLength", "maxLength", "minimum", "maximum", "maxItems", "$schema"}
+    {
+        "minLength",
+        "maxLength",
+        "minimum",
+        "maximum",
+        "exclusiveMinimum",
+        "exclusiveMaximum",
+        "multipleOf",
+        "maxItems",
+        "$schema",
+    }
 )
 
 

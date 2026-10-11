@@ -180,7 +180,21 @@ def _default_responses() -> dict[str, BaseModel]:
                 "Cut the scene short with an interruption from Reyes.",
             ]
         ),
-        "infer_act_breaks": InferredActBreaks(starts=[{"act": 0, "startSceneIndex": 0}]),
+        # The format is used only when an import works its format out from
+        # the script. It is the fixture's, so the format-less act eval's
+        # printed structure holds in a dry run; the single default start is
+        # valid under it.
+        "infer_act_breaks": InferredActBreaks(
+            starts=[{"act": 0, "startSceneIndex": 0}],
+            format={
+                "genre": "drama",
+                "runtimeMinutes": 60,
+                "actCount": 4,
+                "coldOpen": True,
+                "tag": False,
+                "serialization": 0.8,
+            },
+        ),
         # §5a infer_story_entities placeholder (T-continuity Task 1; Task 2
         # wires the real prompt call). Fixture-consistent: "Marta" resolves
         # against the existing char-marta, "Sal" is a non-speaking minor

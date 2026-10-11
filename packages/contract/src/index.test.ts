@@ -32,6 +32,8 @@ describe('contract scaffold', () => {
         { act: 0, startSceneIndex: 0 },
         { act: 1, startSceneIndex: 3 },
       ],
+      // Omitted: the import was given a format, so the model returns none.
+      format: null,
     })
   })
 

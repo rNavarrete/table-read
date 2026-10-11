@@ -140,3 +140,22 @@ def test_committed_schemas_all_lead_with_their_discriminators():
     assert generate_tool_schemas.discriminator_order_failures(
         generate_tool_schemas.build_tool_schemas()
     ) == []
+
+
+def test_committed_schemas_carry_no_numeric_constraints():
+    """Strict tools reject numerical constraints (`minimum`, `maximum`,
+    `exclusiveMinimum`, `multipleOf`). The first schema to embed ShowFormat
+    carried `exclusiveMinimum` from `runtimeMinutes: positive()`."""
+    banned = {"minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "multipleOf"}
+
+    def keys(node):
+        if isinstance(node, dict):
+            yield from node
+            for value in node.values():
+                yield from keys(value)
+        elif isinstance(node, list):
+            for value in node:
+                yield from keys(value)
+
+    for name, schema in generate_tool_schemas.build_tool_schemas().items():
+        assert not banned & set(keys(schema)), name

@@ -37,7 +37,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass
 from typing import cast
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from drama_manager import locks, render
 from drama_manager.ledger_policy import IdMinter, locate_quote
@@ -75,6 +75,7 @@ from schemas import (
     InferredStoryOverview,
     LedgerExtraction,
     NarrativePromises,
+    ShowFormat,
     StoryEntities,
 )
 from storage import snapshots
@@ -194,6 +195,9 @@ def analyze_import(
             stripped.removed_line_count,
             stripped.removed_char_count,
         )
+    # The act stage reads printed act markers from the whole script: a
+    # leading TEASER or ACT ONE sits above FADE IN, in what was just stripped.
+    front_matter = content.split("\n")[: stripped.removed_line_count]
     content = stripped.content
     if not content.strip():
         raise CoverageError("import contains only screenplay front matter")
@@ -251,73 +255,129 @@ def analyze_import(
     # summaries, but before scene assembly and every later LLM stage. ─────────
     yield ImportStageStarted(STAGE_INFERRING_ACTS)
     summaries = acts.scene_summaries(spans, [beats for beats, _r in per_scene_results])
-    cached_scene_acts = _load_scene_acts_checkpoint(checkpoint, len(spans))
-    marker_acts = acts.acts_from_markers(spans, project_doc["format"])
-    if cached_scene_acts is not None:
+    # No format given: the script's printed act breaks decide the act count and
+    # cold open, and the model decides the rest (owner decision 2026-10-11).
+    infer_format = project_doc["format"] is None
+    cached_scene_acts, cached_format = _load_scene_acts_checkpoint(checkpoint, len(spans))
+    printed = acts.printed_structure(front_matter, spans) if infer_format else None
+    marker_acts = (
+        None if infer_format else acts.acts_from_markers(spans, project_doc["format"])
+    )
+    retried_acts = False
+    if cached_scene_acts is not None and (cached_format is not None or not infer_format):
         scene_acts = cached_scene_acts
-        retried_acts = False
+        if infer_format:
+            project_doc = {**project_doc, "format": cached_format}
         boundary_count = 0
         yield ImportStageProgress(STAGE_INFERRING_ACTS, 1, 1)
     elif marker_acts is not None:
         # The script prints its act breaks (owner decision 3): no model call.
         scene_acts = marker_acts
-        retried_acts = False
         boundary_count = len(set(marker_acts))
         yield ImportStageProgress(STAGE_INFERRING_ACTS, 1, 1)
     else:
         yield ImportStageProgress(STAGE_INFERRING_ACTS, 0, 1)
+        prompt_kwargs: dict = (
+            {
+                "printed": (printed.act_count, printed.cold_open) if printed else None,
+                "source_chars": len(content),
+            }
+            if infer_format
+            else {}
+        )
         system, user = render.build_act_inference_prompt(
-            project_doc, summaries, run_nonce
+            project_doc, summaries, run_nonce, **prompt_kwargs
         )
         inferred = llm.infer_act_breaks(
             system=system,
             user_message=user,
             prompt_version=render.PROMPT_VERSION,
         )
-        selected_inference = inferred
-        retried_acts = False
-        try:
-            scene_acts = acts.expand_act_starts(
-                inferred,
-                scene_count=len(spans),
-                format_dict=project_doc["format"],
-            )
-        except acts.ActInferenceError as first_error:
-            retried_acts = True
-            retry_system, retry_user = render.build_act_inference_retry_prompt(
-                project_doc,
-                summaries,
-                first_error.diagnostics,
-                run_nonce,
-            )
-            repaired = llm.infer_act_breaks(
-                system=retry_system,
-                user_message=retry_user,
-                prompt_version=render.PROMPT_VERSION,
-            )
-            selected_inference = repaired
+        if infer_format:
+            if inferred.format is None:
+                # Rule 9's one retry, naming what was missing.
+                retried_acts = True
+                retry_system, retry_user = render.build_act_inference_retry_prompt(
+                    project_doc,
+                    summaries,
+                    [{"code": "format_missing"}],
+                    run_nonce,
+                    **prompt_kwargs,
+                )
+                inferred = llm.infer_act_breaks(
+                    system=retry_system,
+                    user_message=retry_user,
+                    prompt_version=render.PROMPT_VERSION,
+                )
+                if inferred.format is None:
+                    raise SchemaInvalidLlmError("infer_act_breaks")
+            inferred_format = inferred.format.model_dump(by_alias=True, mode="json")
+            if printed is not None:
+                inferred_format = {
+                    **inferred_format,
+                    "actCount": printed.act_count,
+                    "coldOpen": printed.cold_open,
+                }
+            project_doc = {**project_doc, "format": inferred_format}
+        if printed is not None and printed.scene_acts is not None:
+            scene_acts = printed.scene_acts
+            boundary_count = len(set(scene_acts))
+        else:
+            selected_inference = inferred
             try:
                 scene_acts = acts.expand_act_starts(
-                    repaired,
+                    inferred,
                     scene_count=len(spans),
                     format_dict=project_doc["format"],
                 )
-            except acts.ActInferenceError as second_error:
-                raise SchemaInvalidLlmError("infer_act_breaks") from second_error
-        boundary_count = len(selected_inference.starts)
+            except acts.ActInferenceError as first_error:
+                if retried_acts:
+                    # The format retry was this op's one retry (rule 9).
+                    raise SchemaInvalidLlmError("infer_act_breaks") from first_error
+                retried_acts = True
+                retry_system, retry_user = render.build_act_inference_retry_prompt(
+                    project_doc,
+                    summaries,
+                    first_error.diagnostics,
+                    run_nonce,
+                )
+                repaired = llm.infer_act_breaks(
+                    system=retry_system,
+                    user_message=retry_user,
+                    prompt_version=render.PROMPT_VERSION,
+                )
+                selected_inference = repaired
+                try:
+                    scene_acts = acts.expand_act_starts(
+                        repaired,
+                        scene_count=len(spans),
+                        format_dict=project_doc["format"],
+                    )
+                except acts.ActInferenceError as second_error:
+                    raise SchemaInvalidLlmError("infer_act_breaks") from second_error
+            boundary_count = len(selected_inference.starts)
         _write_checkpoint(
             checkpoint_writer,
             STAGE_INFERRING_ACTS,
-            {"sceneActs": scene_acts},
+            {"sceneActs": scene_acts, "format": project_doc["format"]}
+            if infer_format
+            else {"sceneActs": scene_acts},
         )
         yield ImportStageProgress(STAGE_INFERRING_ACTS, 1, 1)
+    fmt = project_doc["format"]
     _logger.info(
         "import_infer_acts scenes=%d boundaries=%d retried=%s from_markers=%s "
+        "format_inferred=%s act_count=%s cold_open=%s genre=%s runtime=%s "
         "prompt_version=%s",
         len(spans),
         boundary_count,
         retried_acts,
-        marker_acts is not None,
+        marker_acts is not None or (printed is not None and printed.scene_acts is not None),
+        infer_format,
+        fmt["actCount"],
+        fmt["coldOpen"],
+        fmt["genre"],
+        fmt["runtimeMinutes"],
         render.PROMPT_VERSION,
     )
 
@@ -962,18 +1022,26 @@ def _load_extract_checkpoints(
 
 def _load_scene_acts_checkpoint(
     checkpoint: dict, scene_count: int
-) -> list[int] | None:
+) -> tuple[list[int] | None, dict | None]:
+    """The saved act partition, and the format an import worked out with it
+    (None when the import was given its format, or the save predates that)."""
     value = checkpoint.get(STAGE_INFERRING_ACTS)
     if not isinstance(value, dict):
-        return None
+        return None, None
     scene_acts = value.get("sceneActs")
     if (
         not isinstance(scene_acts, list)
         or len(scene_acts) != scene_count
         or any(not isinstance(act, int) for act in scene_acts)
     ):
-        return None
-    return list(scene_acts)
+        return None, None
+    try:
+        saved_format = ShowFormat.model_validate(value["format"]).model_dump(
+            by_alias=True, mode="json"
+        )
+    except (KeyError, ValidationError):
+        saved_format = None
+    return list(scene_acts), saved_format
 
 
 def _load_model_checkpoint[T: BaseModel](

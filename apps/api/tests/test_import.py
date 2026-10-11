@@ -498,10 +498,13 @@ def test_infer_act_pipeline_logs_only_safe_metadata(
     assert len(records) == 1
     assert records[0].msg == (
         "import_infer_acts scenes=%d boundaries=%d retried=%s from_markers=%s "
+        "format_inferred=%s act_count=%s cold_open=%s genre=%s runtime=%s "
         "prompt_version=%s"
     )
-    assert records[0].args[:4] == (2, 2, False, False)
-    assert isinstance(records[0].args[4], str)
+    # The format fields are structure metadata (counts, flags, an enum), never
+    # writer text (rule 5).
+    assert records[0].args[:5] == (2, 2, False, False, False)
+    assert isinstance(records[0].args[-1], str)
     logged = records[0].getMessage()
     for private_text in (
         "PRIVATE LOCATION",
