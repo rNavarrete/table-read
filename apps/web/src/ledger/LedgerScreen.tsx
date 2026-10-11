@@ -110,6 +110,9 @@ export function LedgerScreen() {
   const [project, setProject] = useState<Project | null>(null)
   const [ledger, setLedger] = useState<LedgerFact[]>([])
   const [filters, setFilters] = useState<LedgerFilters>(DEFAULT_FILTERS)
+  // Collapsed by default: imports accept confident facts automatically, so
+  // what is left here is optional (owner decision 2026-10-11).
+  const [queueOpen, setQueueOpen] = useState(false)
   const [view, setView] = useState<LedgerViewId>(() =>
     focusFactId ? 'atlas' : projectId ? loadLedgerView(projectId) : 'atlas',
   )
@@ -574,6 +577,7 @@ export function LedgerScreen() {
   function scrollToReviewQueue() {
     setView('story')
     saveLedgerView(activeProjectId, 'story')
+    setQueueOpen(true)
     window.requestAnimationFrame(() => {
       document
         .querySelector('[data-testid="review-queue"]')
@@ -693,85 +697,108 @@ export function LedgerScreen() {
                 />
                 {queue.length > 0 && (
                   <section
-                    className="rounded-card border border-tr-border border-l-2 border-l-tr-amber bg-tr-amber-soft p-5 shadow-raised"
+                    className={
+                      queueOpen
+                        ? 'rounded-card border border-tr-border border-l-2 border-l-tr-amber bg-tr-amber-soft p-5 shadow-raised'
+                        : 'rounded-card border border-tr-border bg-tr-surface-raised p-4'
+                    }
                     aria-label="Review queue"
                     data-testid="review-queue"
                   >
-                    <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-                      <h2 className="font-display text-17 text-tr-text-primary">
-                        {queue.length} fact{queue.length === 1 ? '' : 's'}{' '}
-                        awaiting review
-                      </h2>
-                      {highConf.length > 0 && (
-                        <button
-                          type="button"
-                          disabled={busyId !== null}
-                          onClick={handleBatchAcceptHigh}
-                          className="rounded-card bg-tr-sage-soft px-3 py-1.5 text-13 text-tr-text-primary transition-colors duration-standard ease-standard hover:shadow-lift focus-visible:outline focus-visible:outline-selected focus-visible:outline-offset-2 focus-visible:outline-tr-coral disabled:opacity-50 motion-reduce:transition-none"
-                          data-testid="batch-accept-high"
-                        >
-                          Accept all high-confidence ({highConf.length})
-                        </button>
-                      )}
-                    </div>
-                    <div className="flex flex-col gap-4">
-                      {sceneGroups.map((group) => (
-                        <div
-                          key={group.sceneId}
-                          data-testid={`review-queue-scene-${group.sceneId}`}
-                          className="flex flex-col gap-2"
-                        >
-                          <div className="flex flex-wrap items-center justify-between gap-2">
-                            <h3 className="text-13 font-medium text-tr-text-primary">
-                              {sceneLabel(project, group.sceneId)}
-                              <span className="ml-2 font-normal text-tr-text-muted">
-                                ({group.facts.length})
-                              </span>
-                            </h3>
-                            <div className="flex gap-2">
-                              <button
-                                type="button"
-                                disabled={busyId !== null}
-                                onClick={() =>
-                                  handleSceneBatch(group.sceneId, 'accept')
-                                }
-                                className="rounded-card bg-tr-sage-soft px-2.5 py-1 text-12 text-tr-text-primary transition-colors duration-standard ease-standard focus-visible:outline focus-visible:outline-selected focus-visible:outline-offset-2 focus-visible:outline-tr-coral disabled:opacity-50 motion-reduce:transition-none"
-                                data-testid={`scene-accept-${group.sceneId}`}
-                              >
-                                Accept scene
-                              </button>
-                              <button
-                                type="button"
-                                disabled={busyId !== null}
-                                onClick={() =>
-                                  handleSceneBatch(group.sceneId, 'reject')
-                                }
-                                className="rounded-card px-2.5 py-1 text-12 text-tr-text-muted transition-colors duration-standard ease-standard hover:bg-tr-surface-raised focus-visible:outline focus-visible:outline-selected focus-visible:outline-offset-2 focus-visible:outline-tr-coral disabled:opacity-50 motion-reduce:transition-none"
-                                data-testid={`scene-reject-${group.sceneId}`}
-                              >
-                                Reject scene
-                              </button>
-                            </div>
-                          </div>
-                          <div className="grid gap-3 md:grid-cols-2">
-                            {group.facts.map((fact) => (
-                              <FactCard
-                                key={`queue-${fact.id}`}
-                                fact={fact}
-                                allFacts={ledger}
-                                project={project}
-                                queueActions
-                                busy={busyId !== null}
-                                onAccept={handleAccept}
-                                onReject={handleReject}
-                                onEdit={handleEdit}
-                                onSourceSpanClick={handleSourceSpanClick}
-                              />
-                            ))}
-                          </div>
+                    <button
+                      type="button"
+                      aria-expanded={queueOpen}
+                      onClick={() => setQueueOpen((open) => !open)}
+                      className="flex w-full flex-wrap items-baseline justify-between gap-2 text-left focus-visible:outline focus-visible:outline-selected focus-visible:outline-offset-2 focus-visible:outline-tr-coral"
+                      data-testid="review-queue-toggle"
+                    >
+                      <span className="text-15 text-tr-text-primary">
+                        {queue.length} unconfirmed fact
+                        {queue.length === 1 ? '' : 's'}
+                        <span className="ml-2 text-13 text-tr-text-secondary">
+                          Not used for continuity or writing until you confirm
+                          {queue.length === 1 ? ' it' : ' them'}.
+                        </span>
+                      </span>
+                      <span className="text-13 text-tr-text-secondary">
+                        {queueOpen ? 'Hide' : 'Review'}
+                      </span>
+                    </button>
+                    {queueOpen && (
+                      <>
+                        <div className="mb-4 mt-4 flex flex-wrap items-center justify-end gap-2">
+                          {highConf.length > 0 && (
+                            <button
+                              type="button"
+                              disabled={busyId !== null}
+                              onClick={handleBatchAcceptHigh}
+                              className="rounded-card bg-tr-sage-soft px-3 py-1.5 text-13 text-tr-text-primary transition-colors duration-standard ease-standard hover:shadow-lift focus-visible:outline focus-visible:outline-selected focus-visible:outline-offset-2 focus-visible:outline-tr-coral disabled:opacity-50 motion-reduce:transition-none"
+                              data-testid="batch-accept-high"
+                            >
+                              Accept all high-confidence ({highConf.length})
+                            </button>
+                          )}
                         </div>
-                      ))}
-                    </div>
+                        <div className="flex flex-col gap-4">
+                          {sceneGroups.map((group) => (
+                            <div
+                              key={group.sceneId}
+                              data-testid={`review-queue-scene-${group.sceneId}`}
+                              className="flex flex-col gap-2"
+                            >
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <h3 className="text-13 font-medium text-tr-text-primary">
+                                  {sceneLabel(project, group.sceneId)}
+                                  <span className="ml-2 font-normal text-tr-text-muted">
+                                    ({group.facts.length})
+                                  </span>
+                                </h3>
+                                <div className="flex gap-2">
+                                  <button
+                                    type="button"
+                                    disabled={busyId !== null}
+                                    onClick={() =>
+                                      handleSceneBatch(group.sceneId, 'accept')
+                                    }
+                                    className="rounded-card bg-tr-sage-soft px-2.5 py-1 text-12 text-tr-text-primary transition-colors duration-standard ease-standard focus-visible:outline focus-visible:outline-selected focus-visible:outline-offset-2 focus-visible:outline-tr-coral disabled:opacity-50 motion-reduce:transition-none"
+                                    data-testid={`scene-accept-${group.sceneId}`}
+                                  >
+                                    Accept scene
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={busyId !== null}
+                                    onClick={() =>
+                                      handleSceneBatch(group.sceneId, 'reject')
+                                    }
+                                    className="rounded-card px-2.5 py-1 text-12 text-tr-text-muted transition-colors duration-standard ease-standard hover:bg-tr-surface-raised focus-visible:outline focus-visible:outline-selected focus-visible:outline-offset-2 focus-visible:outline-tr-coral disabled:opacity-50 motion-reduce:transition-none"
+                                    data-testid={`scene-reject-${group.sceneId}`}
+                                  >
+                                    Reject scene
+                                  </button>
+                                </div>
+                              </div>
+                              <div className="grid gap-3 md:grid-cols-2">
+                                {group.facts.map((fact) => (
+                                  <FactCard
+                                    key={`queue-${fact.id}`}
+                                    fact={fact}
+                                    allFacts={ledger}
+                                    project={project}
+                                    queueActions
+                                    busy={busyId !== null}
+                                    onAccept={handleAccept}
+                                    onReject={handleReject}
+                                    onEdit={handleEdit}
+                                    onSourceSpanClick={handleSourceSpanClick}
+                                  />
+                                ))}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </>
+                    )}
                   </section>
                 )}
               </>

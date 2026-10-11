@@ -668,26 +668,40 @@ def test_import_replaces_target_episode_scenes(unlocked_project, mock_llm):
 # ── all import-derived facts pending_review (§4 step 2) ───────────────────────
 
 
-def test_all_import_facts_are_pending_review(unlocked_project, mock_llm):
+def test_import_facts_get_the_status_facts_found_while_writing_get(unlocked_project, mock_llm):
+    """Owner decision 2026-10-11: nobody reviews hundreds of imported facts,
+    and only active facts are ever used, so an import applies ledger_policy's
+    rule instead of holding every fact for review."""
     src = "INT. BAR - NIGHT\nDan pours a drink."
     mock_llm.set_responses("segment_scene", one_beat_per_scene(src))
-    # high confidence (0.95) must STILL land pending_review on import
-    mock_llm.set_response("extract_ledger_facts", extraction([one_fact(confidence=0.95)]))
+    mock_llm.set_response(
+        "extract_ledger_facts",
+        extraction(
+            [
+                {**one_fact(confidence=0.95), "sourceText": "Dan pours a drink."},
+                one_fact(confidence=0.95),  # no quote: nothing to verify
+                {**one_fact(confidence=0.5), "sourceText": "Dan pours a drink."},
+                {**one_fact(confidence=0.95), "sourceText": "Marta smashes the till."},
+            ]
+        ),
+    )
     mock_llm.set_response("scan_consistency", scan())
 
     body = client.post(
         f"/api/v1/projects/{PROJECT_ID}/import", json={"format": "fountain", "content": src}
     ).json()
-    assert body["newFacts"], "expected at least one extracted fact"
-    for fact in body["newFacts"]:
-        assert fact["status"] == "pending_review"
-        assert fact["provenance"] == "inferred"
 
-    # and the persisted ledger agrees
+    assert [fact["status"] for fact in body["newFacts"]] == [
+        "active",
+        "active",
+        "pending_review",  # below the confidence floor
+        "pending_review",  # its quote is not on the page
+    ]
+    assert all(fact["provenance"] == "inferred" for fact in body["newFacts"])
     ledger = client.get(
         f"/api/v1/projects/{PROJECT_ID}/ledger", params={"status": "pending_review"}
     ).json()
-    assert len(ledger) == len(body["newFacts"])
+    assert len(ledger) == 2
 
 
 def test_import_fact_offsets_located_off_window_and_through_typography(
@@ -707,7 +721,8 @@ def test_import_fact_offsets_located_off_window_and_through_typography(
     span = stored["sourceSpan"]
     beat = body["project"]["seasons"][0]["episodes"][0]["scenes"][0]["beats"][0]
     assert beat["scriptText"][span["charStart"]:span["charEnd"]] == "Dan’s pouring\na drink."
-    assert stored["status"] == "pending_review"  # offsets only, never activation
+    # Found on the page through typography and line wrapping, so accepted.
+    assert stored["status"] == "active"
 
 
 def test_import_scan_flags_persisted_open(unlocked_project, mock_llm):

@@ -2,8 +2,9 @@
 and §9.3's atomic create-and-import — `fountain/create_import.py`).
 
 Two-stage parse (prompt spec §7) → ledger extraction over imported scenes
-(all facts `pending_review`, §4 step 2) → initial consistency scan (§4 step
-3) → **one** write committing doc + ledger + flags (§4 step 4). Everything
+(facts `active` or `pending_review` by ledger_policy's rule, §4 step 2) →
+initial consistency scan (§4 step 3) → **one** write committing doc +
+ledger + flags (§4 step 4). Everything
 that can fail — chiefly LLM calls and later analysis — runs
 inside `analyze_import`, entirely *before* either caller's single project write
 (`run_import`'s `mutate()` below, or `create_import.py`'s
@@ -40,7 +41,7 @@ from typing import cast
 from pydantic import BaseModel, ValidationError
 
 from drama_manager import locks, render
-from drama_manager.ledger_policy import IdMinter, locate_quote
+from drama_manager.ledger_policy import CONFIDENCE_FLOOR, IdMinter, locate_quote
 from drama_manager.narrative_map import NarrativeMapValidationError, merge_narrative_map
 from drama_manager.overview import merge_story_overview
 from drama_manager.promises import merge_narrative_promises
@@ -118,7 +119,7 @@ ImportCheckpointWriter = Callable[[str, dict | list, int | None], None]
 @dataclass
 class ImportAnalysis:
     """Everything `analyze_import` produces: a new project doc with the
-    imported episode installed, the extracted (all `pending_review`) ledger
+    imported episode installed, the extracted ledger
     facts, and the raw consistency flags — `sourceChange` left unstamped
     (`""`), exactly like `run_import`'s old inline `raw_flags`, because the
     snapshot id it belongs to isn't minted until the caller's write."""
@@ -636,9 +637,9 @@ def analyze_import(
         render.PROMPT_VERSION,
     )
 
-    # ── Ledger extraction (§4 step 2): every import-derived fact is
-    # pending_review, regardless of confidence. Fresh ledger → no existing
-    # facts to contradict. ───────────────────────────────────────────────────
+    # ── Ledger extraction (§4 step 2): each import-derived fact gets the
+    # status facts found while writing get (`_to_ledger_fact`). Fresh ledger
+    # → no existing facts to contradict. ─────────────────────────────────────
     yield ImportStageStarted(STAGE_EXTRACTING_FACTS)
     scene_hashes = [_scene_text_hash(scene) for scene in scene_docs]
     cached_extractions = _load_extract_checkpoints(checkpoint, scene_hashes)
@@ -1619,8 +1620,11 @@ def _episode_ref(doc: dict, episode_id: str) -> dict:
 
 def _to_ledger_fact(extracted, fact_id: str, beat_index: dict) -> dict:
     """Convert one model `ExtractedFact` into a persisted `LedgerFact` wire dict:
-    server-assigned id, `inferred`/`pending_review` (§4 step 2), and char
-    offsets located within the referenced beat by `locate_quote` (§5).
+    server-assigned id, `inferred`, char offsets located within the referenced
+    beat by `locate_quote` (§5), and the status facts found while writing get
+    (`ledger_policy`): `active` when confident (CONFIDENCE_FLOOR) and its quote
+    is on the page, else `pending_review` (owner decision 2026-10-11: nobody
+    reviews hundreds of imported facts, and only active facts are ever used).
 
     `knowledgeEvents` is carried through with names still unresolved
     (`characterNames`, not `characterIds`) — the caller (`analyze_import`)
@@ -1638,6 +1642,9 @@ def _to_ledger_fact(extracted, fact_id: str, beat_index: dict) -> dict:
         )
     span["charStart"] = char_start
     span["charEnd"] = char_end
+    # As in ledger_policy: a fact with no quote has nothing to verify.
+    on_page = not dump["sourceText"] or char_start is not None
+    active = dump["confidence"] >= CONFIDENCE_FLOOR and on_page
     return {
         "id": fact_id,
         "fact": dump["fact"],
@@ -1649,7 +1656,7 @@ def _to_ledger_fact(extracted, fact_id: str, beat_index: dict) -> dict:
         "audienceKnows": dump["audienceKnows"],
         "provenance": "inferred",
         "confidence": dump["confidence"],
-        "status": "pending_review",
+        "status": "active" if active else "pending_review",
         "supersedes": None,
         "supersededBy": None,
     }
