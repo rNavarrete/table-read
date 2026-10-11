@@ -317,7 +317,13 @@ export function NarrativeMapCard({
   const correctedVerifierIsAvailable =
     narrativeMapRun?.status === 'failed' &&
     narrativeMapRun.errorCode === 'SCHEMA_INVALID_LLM' &&
-    narrativeMapRun.retryAllowed
+    narrativeMapRun.retryAllowed &&
+    narrativeMapRun.errorMessage
+      ?.toLowerCase()
+      .includes('corrected strict verifier')
+  const runIsPausedForTimeout =
+    narrativeMapRun?.errorCode === 'LLM_TIMEOUT' ||
+    narrativeMapRun?.errorCode === 'WORKER_INTERRUPTED'
 
   if (!narrativeMap || mapNeedsReplacement) {
     return (
@@ -392,7 +398,9 @@ export function NarrativeMapCard({
                     : correctedAnalysisIsAvailable
                       ? 'Run corrected analysis'
                       : runCannotRetryYet
-                        ? 'Retry is temporarily paused'
+                        ? runIsPausedForTimeout
+                          ? 'Retry is temporarily paused'
+                          : 'Retry unavailable'
                         : narrativeMapRun?.status === 'failed'
                           ? 'Resume saved map run'
                           : 'Generate narrative map'}

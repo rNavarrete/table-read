@@ -16,6 +16,7 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 
+import anthropic
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -64,6 +65,10 @@ _ACTIVE_RUN_LOCK = threading.Lock()
 _RUN_HEARTBEAT_SECONDS = 15.0
 _RUN_RECOVERY_AGE = timedelta(minutes=1)
 _TIMEOUT_RETRY_GRACE = timedelta(minutes=10)
+_TIMEOUT_MESSAGE = (
+    "Analysis did not finish in time. Saved checkpoints are retained; retry is "
+    "delayed to prevent duplicate provider work."
+)
 
 
 def _utc_z(value: datetime) -> str:
@@ -98,6 +103,11 @@ def serialize_run(run: NarrativeMapRunRow) -> dict:
         error_message = (
             "A no-cost local evidence repair is available. Only verifier-rejected claims "
             "will be removed; all completed analysis is reused and no model call will run."
+        )
+    elif _synthesis_resume_available(run):
+        error_message = (
+            "The story-wide synthesis came back in an invalid shape. Every analysed scene "
+            "is saved, so resuming re-runs only the synthesis, then verification."
         )
     return {
         "id": run.id,
@@ -194,6 +204,9 @@ def _removed_claim_subject(repair: dict) -> str | None:
     if action == "remove_theme":
         label = str(repair.get("label") or "").strip()
         return f'Theme "{label}"' if label else "A theme"
+    if action == "remove_theme_evidence":
+        label = str(repair.get("label") or "").strip()
+        return f'Theme "{label}" evidence at {repair.get("beatId")}'
     if action == "remove_character_arc":
         return f"{name}'s character arc" if name else "A character arc"
     if action == "clear_character_arc_claim":
@@ -282,6 +295,23 @@ def _retry_allowed(run: NarrativeMapRunRow) -> bool:
     if _verifier_transport_repair_available(run):
         return True
     if _verification_policy_repair_available(run):
+        return True
+    return _resume_available(run)
+
+
+def _synthesis_resume_available(run: NarrativeMapRunRow) -> bool:
+    return (
+        run.status == "failed"
+        and run.error_code == "SCHEMA_INVALID_LLM"
+        and (run.checkpoint or {}).get("failedPhase") == "synthesis"
+    )
+
+
+def _resume_available(run: NarrativeMapRunRow) -> bool:
+    """A failed run that continues from its own checkpoints as they stand."""
+    if run.status != "failed":
+        return False
+    if run.error_code == "LLM_UNAVAILABLE" or _synthesis_resume_available(run):
         return True
     return (
         run.error_code in {"LLM_TIMEOUT", "WORKER_INTERRUPTED"}
@@ -490,11 +520,7 @@ def create_or_resume_run(
             )
             session.commit()
             return existing, True
-        if (
-            existing.status == "failed"
-            and existing.error_code in {"LLM_TIMEOUT", "WORKER_INTERRUPTED"}
-            and existing.updated_at < _utcnow() - _TIMEOUT_RETRY_GRACE
-        ):
+        if _resume_available(existing):
             _touch(
                 existing,
                 status="queued",
@@ -896,16 +922,8 @@ def execute_run(run_id: str, llm: LlmClient) -> None:
             ),
             diagnostics,
         )
-    except LlmTimeoutError:
-        _fail_run(
-            session,
-            run_id,
-            "LLM_TIMEOUT",
-            (
-                "Analysis did not finish in time. Saved checkpoints are retained; retry is "
-                "delayed to prevent duplicate provider work."
-            ),
-        )
+    except (LlmTimeoutError, anthropic.APITimeoutError):
+        _fail_run(session, run_id, "LLM_TIMEOUT", _TIMEOUT_MESSAGE)
     except SchemaInvalidLlmError:
         _fail_run(
             session,
@@ -913,13 +931,43 @@ def execute_run(run_id: str, llm: LlmClient) -> None:
             "SCHEMA_INVALID_LLM",
             "The model returned an invalid analysis shape. No Narrative Map was saved.",
         )
+    except (anthropic.APIStatusError, anthropic.APIConnectionError) as exc:
+        status = getattr(exc, "status_code", None)
+        if status == 504:
+            # A gateway timeout may have run and been billed, like any timeout.
+            _fail_run(session, run_id, "LLM_TIMEOUT", _TIMEOUT_MESSAGE)
+        elif status is None or status == 429 or status >= 500:
+            _fail_run(
+                session,
+                run_id,
+                "LLM_UNAVAILABLE",
+                (
+                    "The model provider was unavailable (rate limit, overload, or a server "
+                    "or connection error). Saved checkpoints are retained; resume when ready."
+                ),
+            )
+        else:
+            _fail_run(
+                session,
+                run_id,
+                "LLM_REQUEST_REFUSED",
+                (
+                    f"The model provider refused the request (HTTP {status}). This is not a "
+                    "temporary outage (for example, the account's credit balance may be "
+                    "exhausted or its API key rejected), so no resume is offered. Saved "
+                    "checkpoints are retained."
+                ),
+            )
     except Exception:
         _logger.exception("narrative_map_run_failed run_id=%s", run_id)
         _fail_run(
             session,
             run_id,
-            "LLM_UNAVAILABLE",
-            "Narrative Map analysis could not complete. Saved checkpoints are retained.",
+            "INTERNAL_ERROR",
+            (
+                "Narrative Map analysis stopped on an internal error. No Narrative Map was "
+                "saved, and no retry is offered because it would most likely fail the same way."
+            ),
         )
     finally:
         session.close()
@@ -1282,6 +1330,15 @@ def _fail_run(session: Session, run_id: str, code: str, message: str) -> None:
     run = session.get(NarrativeMapRunRow, run_id)
     if run is None:
         return
-    _touch(run, status="failed", phase="failed", error_code=code, error_message=message)
+    # `phase` becomes "failed"; which call failed decides what a resume may reuse.
+    checkpoint = {**(run.checkpoint or {}), "failedPhase": run.phase}
+    _touch(
+        run,
+        status="failed",
+        phase="failed",
+        error_code=code,
+        error_message=message,
+        checkpoint=checkpoint,
+    )
     session.commit()
     _logger.warning("narrative_map_run_failed run_id=%s code=%s", run_id, code)

@@ -1365,3 +1365,107 @@ def test_a_reason_that_argues_supported_still_blocks_when_answered_false():
 
     assert [c.path for c in corrected.unsupported_claims] == ["themes[0].evidence"]
     assert moved == []
+
+
+# ── T9.13: verifier paths are addresses; a theme loses only the bad citation ──
+
+
+def _verdict(*paths: str, advisories: tuple[str, ...] = ()) -> NarrativeMapVerification:
+    return NarrativeMapVerification.model_validate(
+        {
+            "approved": False,
+            "unsupportedClaims": [
+                {"path": path, "reason": "Unsupported.", "excerptCarriesClaim": False}
+                for path in paths
+            ],
+            "missingSceneIds": [],
+            "advisories": [{"path": path, "reason": "Inferential."} for path in advisories],
+        }
+    )
+
+
+def _map_with_theme_evidence(*beat_ids: str) -> InferredNarrativeMap:
+    payload = _candidate_map().model_dump(by_alias=True)
+    payload["themes"][0]["evidence"] = [{"beatId": beat_id} for beat_id in beat_ids]
+    return InferredNarrativeMap.model_validate(payload)
+
+
+@pytest.mark.parametrize(
+    "path",
+    ["acts[0].escalation (cold open)", "threadMovements[0] (beat-1-1)"],
+)
+def test_a_trailing_parenthetical_does_not_stop_a_path_resolving(path):
+    """`themes[0].evidence[0] (beat-10-1)` is a real verifier path; the note in
+    brackets is the verifier's, not part of the address."""
+    verdict = _verdict(path)
+
+    assert verification_supports_local_repair(verdict) is True
+    _repaired, repairs = repair_candidate_from_verification(_candidate_map(), verdict)
+    assert [repair["path"] for repair in repairs] == [path], "records keep the verifier's path"
+
+
+def test_prose_after_a_structural_path_still_fails_closed():
+    """Stripping prose must not let a word inside it pick the repair: this is the
+    West Wing turn-beat rejection that once matched "escalation" mid-sentence."""
+    verdict = _verdict("acts[0].turnBeatId beat-1-1 escalation claim is not evidenced")
+
+    assert verification_supports_local_repair(verdict) is False
+
+
+def test_a_claim_filed_in_both_lists_is_advisory():
+    verdict = _verdict(
+        "themes[0].statement",
+        "characterArcs[C.J.].arcSummary",
+        advisories=("themes[0].statement (inferential)",),
+    )
+
+    corrected, moved = partition_self_retracted_claims(verdict)
+
+    assert [c.path for c in corrected.unsupported_claims] == ["characterArcs[C.J.].arcSummary"]
+    assert [a.path for a in corrected.advisories] == [
+        "themes[0].statement (inferential)"
+    ], "already listed as advice, so not listed twice"
+    assert [record["path"] for record in moved] == ["themes[0].statement"]
+
+
+def test_a_rejected_theme_citation_removes_only_that_citation():
+    candidate = _map_with_theme_evidence("beat-1-1", "beat-1-2")
+
+    repaired, repairs = repair_candidate_from_verification(
+        candidate, _verdict("themes[0].evidence[1] (beat-1-2)")
+    )
+
+    assert [theme.label for theme in repaired.themes] == [
+        "Protection can become concealment",
+        "Evidence changes obligation",
+    ], "the theme survives"
+    assert [e.beat_id for e in repaired.themes[0].evidence] == ["beat-1-1"]
+    assert repairs == [
+        {
+            "action": "remove_theme_evidence",
+            "path": "themes[0].evidence[1] (beat-1-2)",
+            "label": "Protection can become concealment",
+            "beatId": "beat-1-2",
+        }
+    ]
+
+
+def test_a_theme_citation_can_be_named_by_beat_id():
+    candidate = _map_with_theme_evidence("beat-1-1", "beat-1-2")
+
+    repaired, _repairs = repair_candidate_from_verification(
+        candidate, _verdict("themes[Protection can become concealment].evidence[beat-1-1]")
+    )
+
+    assert [e.beat_id for e in repaired.themes[0].evidence] == ["beat-1-2"]
+
+
+def test_a_theme_is_dropped_only_when_its_evidence_empties():
+    candidate = _map_with_theme_evidence("beat-1-1", "beat-1-2")
+
+    repaired, repairs = repair_candidate_from_verification(
+        candidate, _verdict("themes[0].evidence[0]", "themes[0].evidence[1]")
+    )
+
+    assert [theme.label for theme in repaired.themes] == ["Evidence changes obligation"]
+    assert [repair["action"] for repair in repairs] == ["remove_theme_evidence", "remove_theme"]

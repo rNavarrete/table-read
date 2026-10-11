@@ -1121,6 +1121,158 @@ def test_narrative_map_timeout_preserves_the_completed_import(db_session, mock_l
     snapshots.purge_project(db_session, project_id)
 
 
+_PROVIDER_REQUEST = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+
+
+def _status_error(cls: type, status: int) -> anthropic.APIStatusError:
+    response = httpx.Response(status, request=_PROVIDER_REQUEST)
+    return cls(message="provider error", response=response, body=None)
+
+
+def _fail_first_call(monkeypatch, llm: MockLlmClient, op: str, exc: Exception) -> None:
+    original = getattr(llm, op)
+    calls: list[int] = []
+
+    def flaky(**kwargs):
+        calls.append(1)
+        if len(calls) == 1:
+            raise exc
+        return original(**kwargs)
+
+    monkeypatch.setattr(llm, op, flaky)
+
+
+def _failed_map_run(db_session, mock_llm, monkeypatch, op: str, exc: Exception):
+    """Import, fail the first `op` call of a map run, return (url, run_id, latest run)."""
+    project = _imported_project(mock_llm, monkeypatch, "INT. BAR - NIGHT\nDan pours a drink.")
+    url = f"/api/v1/projects/{project['id']}/narrative-map"
+    _fail_first_call(monkeypatch, mock_llm, op, exc)
+    run_id = client.post(url).json()["id"]
+    execute_run(run_id, mock_llm)
+    db_session.expire_all()
+    return project["id"], url, run_id, client.get(f"{url}/runs/latest").json()
+
+
+@pytest.mark.parametrize(
+    "exc",
+    [
+        _status_error(anthropic.RateLimitError, 429),
+        _status_error(anthropic.OverloadedError, 529),
+        _status_error(anthropic.InternalServerError, 500),
+        anthropic.APIConnectionError(request=_PROVIDER_REQUEST),
+    ],
+    ids=["429", "529", "500", "connection"],
+)
+def test_a_provider_outage_resumes_from_checkpoints_on_the_writers_click(
+    db_session, mock_llm, monkeypatch, exc
+):
+    project_id, url, run_id, latest = _failed_map_run(
+        db_session, mock_llm, monkeypatch, "infer_narrative_map_synthesis", exc
+    )
+
+    assert (latest["status"], latest["errorCode"]) == ("failed", "LLM_UNAVAILABLE")
+    assert latest["retryAllowed"] is True, "the provider refused the call; nothing ran to wait out"
+    resumed = client.post(url).json()
+    assert (resumed["id"], resumed["status"]) == (run_id, "queued")
+    execute_run(run_id, mock_llm)
+    db_session.expire_all()
+    assert db_session.get(NarrativeMapRunRow, run_id).status == "completed"
+    assert mock_llm.invocation_count("infer_narrative_scene_analysis") == 1, "checkpoint reused"
+
+    snapshots.purge_project(db_session, project_id)
+
+
+@pytest.mark.parametrize(
+    "exc",
+    [
+        anthropic.APITimeoutError(request=_PROVIDER_REQUEST),
+        # A gateway timeout may have run and been billed, like any other timeout.
+        _status_error(anthropic.InternalServerError, 504),
+    ],
+    ids=["sdk-timeout", "504"],
+)
+def test_a_provider_timeout_keeps_the_retry_grace_period(db_session, mock_llm, monkeypatch, exc):
+    project_id, url, run_id, latest = _failed_map_run(
+        db_session, mock_llm, monkeypatch, "infer_narrative_map_synthesis", exc
+    )
+
+    assert (latest["errorCode"], latest["retryAllowed"]) == ("LLM_TIMEOUT", False)
+    assert client.post(url).json()["status"] == "failed", "not requeued inside the grace period"
+    run = db_session.get(NarrativeMapRunRow, run_id)
+    run.updated_at -= timedelta(minutes=11)
+    db_session.commit()
+    assert client.get(f"{url}/runs/latest").json()["retryAllowed"] is True
+
+    snapshots.purge_project(db_session, project_id)
+
+
+@pytest.mark.parametrize(
+    ("exc", "code", "said"),
+    [
+        (_status_error(anthropic.BadRequestError, 400), "LLM_REQUEST_REFUSED", "HTTP 400"),
+        (_status_error(anthropic.AuthenticationError, 401), "LLM_REQUEST_REFUSED", "HTTP 401"),
+        (RuntimeError("a bug"), "INTERNAL_ERROR", "internal error"),
+    ],
+    ids=["400", "401", "bug"],
+)
+def test_a_refused_request_or_a_bug_is_terminal_with_a_clear_message(
+    db_session, mock_llm, monkeypatch, exc, code, said
+):
+    """A credit-exhausted 400 would refuse a resume the same way, so none is offered."""
+    project_id, url, run_id, latest = _failed_map_run(
+        db_session, mock_llm, monkeypatch, "infer_narrative_map_synthesis", exc
+    )
+
+    assert (latest["errorCode"], latest["retryAllowed"]) == (code, False)
+    assert said in latest["errorMessage"]
+    repeated = client.post(url).json()
+    assert (repeated["status"], repeated["attemptCount"]) == ("failed", latest["attemptCount"])
+
+    snapshots.purge_project(db_session, project_id)
+
+
+def test_a_synthesis_schema_failure_resumes_by_re_running_only_synthesis(
+    db_session, mock_llm, monkeypatch
+):
+    monkeypatch.setattr(render, "new_nonce", lambda: "fixed-nonce")
+    project = _imported_project(mock_llm, monkeypatch, "INT. BAR - NIGHT\nDan pours a drink.")
+    url = f"/api/v1/projects/{project['id']}/narrative-map"
+    op = "infer_narrative_map_synthesis"
+    _fail_first_call(monkeypatch, mock_llm, op, SchemaInvalidLlmError(op))
+    prompts = _spy(monkeypatch, mock_llm, op)
+    run_id = client.post(url).json()["id"]
+    execute_run(run_id, mock_llm)
+
+    latest = client.get(f"{url}/runs/latest").json()
+    assert (latest["errorCode"], latest["retryAllowed"]) == ("SCHEMA_INVALID_LLM", True)
+    assert "re-runs only the synthesis" in latest["errorMessage"]
+    resumed = client.post(url).json()
+    assert (resumed["id"], resumed["status"]) == (run_id, "queued")
+    execute_run(run_id, mock_llm)
+    db_session.expire_all()
+
+    assert db_session.get(NarrativeMapRunRow, run_id).status == "completed"
+    assert mock_llm.invocation_count("infer_narrative_scene_analysis") == 1
+    assert len(prompts) == 2 and prompts[0] == prompts[1], "same prompt, re-rolled"
+    assert mock_llm.invocation_count("verify_narrative_map") == 1
+
+    snapshots.purge_project(db_session, project["id"])
+
+
+def test_a_scene_phase_schema_failure_is_not_offered_the_synthesis_resume(
+    db_session, mock_llm, monkeypatch
+):
+    op = "infer_narrative_scene_analysis"
+    project_id, url, _run_id, latest = _failed_map_run(
+        db_session, mock_llm, monkeypatch, op, SchemaInvalidLlmError(op)
+    )
+
+    assert (latest["errorCode"], latest["retryAllowed"]) == ("SCHEMA_INVALID_LLM", False)
+    assert client.post(url).json()["status"] == "failed"
+
+    snapshots.purge_project(db_session, project_id)
+
+
 def test_narrative_map_verifier_rejection_never_writes_a_snapshot(
     db_session, mock_llm, monkeypatch
 ):
@@ -1134,12 +1286,8 @@ def test_narrative_map_verifier_rejection_never_writes_a_snapshot(
             unsupportedClaims=[{"path": 'themes[0].statement', "reason": "",
                 "excerptCarriesClaim": False}],
             missingSceneIds=[],
-            advisories=[
-                {
-                    "path": "themes[0].statement",
-                    "reason": "The theme is not supported by the supplied screenplay.",
-                }
-            ],
+            # Not also filed as an advisory: since T9.13 that makes it advisory.
+            advisories=[],
         ),
     )
     project = _parse_sse(client.post(URL, json=_body(src), headers=_headers()).text)[-1][1][

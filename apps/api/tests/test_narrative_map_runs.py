@@ -217,3 +217,27 @@ def test_completed_run_is_retryable_only_for_what_it_could_not_analyse():
     older = _completed_run({})
     older.analysis_version = "2.6"
     assert narrative_map_runs.serialize_run(older)["retryAllowed"] is True
+
+
+def test_a_removed_theme_citation_is_named_for_the_writer():
+    run = _completed_run(
+        {
+            "verificationRepairs": [
+                {
+                    "action": "remove_theme_evidence",
+                    "path": "themes[0].evidence[1] (beat-10-1)",
+                    "label": "Tactlessness as the price of conviction",
+                    "beatId": "beat-10-1",
+                }
+            ]
+        }
+    )
+
+    assert narrative_map_runs.serialize_run(run)["removedClaims"] == [
+        {
+            "action": "remove_theme_evidence",
+            "path": "themes[0].evidence[1] (beat-10-1)",
+            "subject": 'Theme "Tactlessness as the price of conviction" evidence at beat-10-1',
+            "reason": "",
+        }
+    ]

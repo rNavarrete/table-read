@@ -353,6 +353,76 @@ describe('NarrativeMapCard', () => {
     expect(button.hasAttribute('disabled')).toBe(false)
   })
 
+  function failedRun(
+    errorCode: string,
+    errorMessage: string,
+    retryAllowed: boolean,
+  ): NarrativeMapRun {
+    return {
+      id: 'nmap-1',
+      projectId: 'proj-1',
+      sourceSnapshotId: 'snap-1',
+      sourceHash: 'source-hash',
+      analysisVersion: '3.8',
+      status: 'failed',
+      phase: 'failed',
+      sceneCount: 29,
+      completedSceneCount: 29,
+      attemptCount: 1,
+      retryAllowed,
+      estimatedCostUsd: null,
+      actualInputTokens: null,
+      actualOutputTokens: null,
+      resultSnapshotId: null,
+      errorCode,
+      errorMessage,
+      rejectionDiagnostics: [],
+      removedClaims: [],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }
+  }
+
+  it('offers a synthesis schema failure as a resume, not a verifier call', () => {
+    render(
+      <NarrativeMapCard
+        project={project()}
+        narrativeMap={null}
+        narrativeMapRun={failedRun(
+          'SCHEMA_INVALID_LLM',
+          'The story-wide synthesis came back in an invalid shape. Every analysed scene is saved, so resuming re-runs only the synthesis, then verification.',
+          true,
+        )}
+        onJumpToScene={vi.fn()}
+        onGenerateNarrativeMap={vi.fn()}
+      />,
+    )
+
+    const button = screen.getByTestId('generate-narrative-map')
+    expect(button.textContent).toContain('Resume saved map run')
+    expect(button.hasAttribute('disabled')).toBe(false)
+  })
+
+  it('does not call a refused request a temporary pause', () => {
+    render(
+      <NarrativeMapCard
+        project={project()}
+        narrativeMap={null}
+        narrativeMapRun={failedRun(
+          'LLM_REQUEST_REFUSED',
+          'The model provider refused the request (HTTP 400).',
+          false,
+        )}
+        onJumpToScene={vi.fn()}
+        onGenerateNarrativeMap={vi.fn()}
+      />,
+    )
+
+    const button = screen.getByTestId('generate-narrative-map')
+    expect(button.textContent).toContain('Retry unavailable')
+    expect(button.hasAttribute('disabled')).toBe(true)
+  })
+
   it('labels cached evidence pruning as a no-cost local finish', () => {
     render(
       <NarrativeMapCard
