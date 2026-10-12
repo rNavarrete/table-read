@@ -44,6 +44,57 @@ def test_numbered_scene_headings_are_not_cues():
     assert extract_character_cues(lines) == ["Marta"]
 
 
+def test_numbered_shots_in_a_shooting_script_are_not_cues():
+    """Field of Dreams: "RAY 18" is a numbered shot of Ray, not a speaker. As
+    a cast row it absorbed the real RAY by prefix and split him six ways. A
+    numbered speaker who talks more than once still counts."""
+    lines = [
+        "17 EXT. CORNFIELD - NIGHT 17",
+        "RAY",
+        "Hello?",
+        "RAY 18",
+        "Wheels are turning in his head.",
+        "INT. HOUSE - NIGHT 22",
+        "CLOSE ON RAY 16",
+        "His mouth opens.",
+        "97 CONTINUED 97",
+        "Ray walks on.",
+        "30 EXT. FIELD - DAY 30",
+        "CONTINUED . 64",
+        "Still walking.",
+        "MANN . 140",
+        "He looks up.",
+        "NUMBER 6",
+        "Where am I?",
+        "31 EXT. FIELD - DUSK 31",
+        "NUMBER 6",
+        "I am not a number.",
+        "32 INT. KITCHEN - DAY 32",
+        "C.J.",
+        "Hi.",
+    ]
+    assert extract_character_cues(lines) == ["Ray", "Number 6", "C.J."]
+
+
+def test_numbered_names_still_speak_when_the_script_numbers_no_scenes():
+    """Outside a shooting script a number is part of the name, even when a
+    short script's headings carry a room number or a story day."""
+    lines = [
+        "INT. ROOM 101",
+        "NUMBER 6",
+        "I am not a number.",
+        "50 CENT (V.O.)",
+        "Yeah.",
+        "INT. HOUSE - DAY 2",
+        "BOB 1",
+        "Hi.",
+        "EXT. PIER 39",
+        "BOB 2",
+        "Hello.",
+    ]
+    assert extract_character_cues(lines) == ["Number 6", "50 Cent", "Bob 1", "Bob 2"]
+
+
 def test_merge_skips_existing_and_respects_locked_name():
     bible = {
         "characters": [

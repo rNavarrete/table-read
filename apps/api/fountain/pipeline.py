@@ -479,6 +479,7 @@ def analyze_import(
         render.PROMPT_VERSION,
     )
     scene_docs_by_id = {scene["id"]: scene for scene in scene_docs}
+    speaker_keys = {name.casefold() for name in speaker_names}
 
     def _infer_entity_chunk(chunk_index: int, chunk: list[dict]) -> StoryEntities:
         chunk_scene_docs = [
@@ -486,7 +487,14 @@ def analyze_import(
             for summary in chunk
             if summary["id"] in scene_docs_by_id
         ]
-        chunk_speakers = cues_from_scenes(chunk_scene_docs)
+        # The whole script decides what is a shot ("RAY 18"): a chunk's own
+        # few headings and cue counts cannot, so skip its check and keep only
+        # names the whole-script pass kept.
+        chunk_speakers = [
+            name
+            for name in cues_from_scenes(chunk_scene_docs, shooting_script=False)
+            if name.casefold() in speaker_keys
+        ]
         system, user = render.build_entity_prompt(
             new_doc, chunk, chunk_speakers, run_nonce
         )

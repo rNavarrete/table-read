@@ -21,10 +21,12 @@ from __future__ import annotations
 import logging
 import re
 import uuid
+from collections import Counter
 from collections.abc import Iterable
 from typing import TYPE_CHECKING
 
 from fountain.parse import is_slugline
+from fountain.timeline import _SCENE_NUMBER_SUFFIX_RE
 
 if TYPE_CHECKING:
     from schemas import StoryEntities
@@ -40,6 +42,9 @@ _CUE_RE = re.compile(
     r"^\s*([A-Z0-9][A-Z0-9 \.'.\-]*?[A-Z0-9.]|[A-Z0-9])"
     r"(?:\s*\([^)]*\))?\s*$"
 )
+# The left-margin twin of timeline's trailing production scene number
+# ("17 INT. OFFICE 17").
+_SCENE_NUMBER_PREFIX_RE = re.compile(r"^[A-Za-z]?\d{1,3}[A-Za-z]?\s")
 
 _TRANSITION_EXACT = frozenset(
     {
@@ -217,16 +222,48 @@ _AUDIENCE_TOKENS = frozenset({"audience", "the audience", "viewer", "viewers"})
 # script is trusted to format cues that way (see extract_character_cues).
 _DIALOGUE_FOLLOWS_MAJORITY = 0.5
 
+# A script is read as a shooting script when at least this many scene headings,
+# and more than this share of them, carry a production number. Field of Dreams
+# numbers 20 of 50 (OCR loses the rest), the West Wing pilot 19 of 29; a
+# teleplay numbers none, and the floor keeps a short one with "INT. ROOM 101"
+# or "- DAY 2" headings from tripping it.
+# ponytail: count + share; parse real number sequences if scripts straddle it.
+_NUMBERED_SCENES_MIN = 5
+_NUMBERED_SCENES_SHARE = 0.25
 
-def extract_character_cues(lines: Iterable[str]) -> list[str]:
+
+def _is_numbered(text: str) -> bool:
+    return bool(_SCENE_NUMBER_SUFFIX_RE.search(text) or _SCENE_NUMBER_PREFIX_RE.match(text))
+
+
+def is_shooting_script(lines: Iterable[str]) -> bool:
+    """Does the script number its scenes ("17 INT. OFFICE 17")?"""
+    headings = [line.strip() for line in lines if is_slugline(line)]
+    numbered = sum(_is_numbered(heading) for heading in headings)
+    return numbered >= _NUMBERED_SCENES_MIN and numbered > len(headings) * _NUMBERED_SCENES_SHARE
+
+
+def extract_character_cues(
+    lines: Iterable[str], *, shooting_script: bool | None = None
+) -> list[str]:
     """Return ordered unique display names from Fountain-style character cues.
 
     A cue counts only when dialogue (or a parenthetical) is on the next line:
     a caps shot heading such as "WIDE ANGLE ON GARAGE" has the cue shape but
     a blank line under it. Enforced only when most cue lines pass, because
     some PDF extraction puts a blank line under every cue.
+
+    A shooting script numbers every shot at the page edge ("RAY 18",
+    "97 CONTINUED 97"); as a cast row "Ray 18" absorbed the real RAY by prefix.
+    Shot numbers are unique, so there a numbered cue seen once is a shot,
+    while a numbered speaker ("NUMBER 6") talks more than once and stays.
+    Outside a shooting script every numbered name stays ("50 CENT").
+    ``shooting_script`` overrides detection, for a slice of a script whose
+    own few headings cannot decide it.
     """
     lines = list(lines)
+    if shooting_script is None:
+        shooting_script = is_shooting_script(lines)
     cues: list[tuple[str, bool]] = []
     for index, line in enumerate(lines):
         name = _cue_display_name(line)
@@ -238,12 +275,15 @@ def extract_character_cues(lines: Iterable[str]) -> list[str]:
         )
         cues.append((name, bool(spoken)))
     enforce = sum(spoken for _, spoken in cues) > len(cues) * _DIALOGUE_FOLLOWS_MAJORITY
+    uses = Counter(name.casefold() for name, _ in cues)
     seen: set[str] = set()
     out: list[str] = []
     for name, spoken in cues:
         if enforce and not spoken:
             continue
         key = name.casefold()
+        if shooting_script and uses[key] == 1 and _is_numbered(name):
+            continue
         if key in seen:
             continue
         seen.add(key)
@@ -251,14 +291,16 @@ def extract_character_cues(lines: Iterable[str]) -> list[str]:
     return out
 
 
-def cues_from_scenes(scenes: Iterable[dict]) -> list[str]:
+def cues_from_scenes(
+    scenes: Iterable[dict], *, shooting_script: bool | None = None
+) -> list[str]:
     """Collect cues from beat ``scriptText`` across imported scene docs."""
     lines: list[str] = []
     for scene in scenes:
         for beat in scene.get("beats") or []:
             text = beat.get("scriptText") or ""
             lines.extend(text.split("\n"))
-    return extract_character_cues(lines)
+    return extract_character_cues(lines, shooting_script=shooting_script)
 
 
 def empty_character(name: str, *, character_id: str | None = None) -> dict:

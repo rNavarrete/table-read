@@ -1945,6 +1945,56 @@ def test_import_entity_inference_chunks_and_merges(db_session, mock_llm, monkeyp
     assert mentor["reallyLike"] == "father figure"
 
 
+def test_entity_chunks_only_get_speakers_the_whole_script_kept(
+    db_session, mock_llm, monkeypatch
+):
+    """Only the early chunks carry numbered headings, so the last chunk alone
+    cannot tell the shooting script's shot "RAY 18" from a speaker. Its floor
+    must still leave it out, or the model hands "Ray 18" back and it renames
+    Ray."""
+    import fountain.entity_inference as entity_inference
+    import fountain.pipeline as pipeline_mod
+
+    monkeypatch.setattr(entity_inference, "ENTITY_INFER_USER_CHAR_BUDGET", 800)
+    monkeypatch.setattr(pipeline_mod, "ENTITY_INFER_USER_CHAR_BUDGET", 800)
+    floors: list[list[str]] = []
+    build = pipeline_mod.render.build_entity_prompt
+
+    def recording(project, summaries, speakers, nonce):
+        floors.append(list(speakers))
+        return build(project, summaries, speakers, nonce)
+
+    monkeypatch.setattr(pipeline_mod.render, "build_entity_prompt", recording)
+
+    created = client.post(
+        "/api/v1/projects",
+        json=NEW_PROJECT_BODY,
+        headers={"Idempotency-Key": "00000000-0000-4000-8000-000000000093"},
+    ).json()
+    pad = "\n".join(f"LINE {i} padding for entity chunk budget." for i in range(40))
+    numbered = "".join(
+        f"{n} INT. LAB - NIGHT {n}\n\nRAY\nHello?\n\n" for n in range(17, 22)
+    )
+    src = (
+        numbered
+        + pad
+        + "\n\nINT. STREET - DAY\n\nRAY 18\nWheels are turning.\n\nRAY\nStill here.\n"
+        + pad
+    )
+    mock_llm.set_responses("segment_scene", one_beat_per_scene(src))
+    mock_llm.set_responses("infer_story_entities", [entities() for _ in range(8)])
+    mock_llm.set_response("extract_ledger_facts", extraction())
+    mock_llm.set_response("scan_consistency", scan())
+
+    client.post(
+        f"/api/v1/projects/{created['id']}/import",
+        json={"format": "fountain", "content": src},
+    )
+
+    assert len(floors) >= 2
+    assert all(floor == ["Ray"] for floor in floors)
+
+
 class _ConcurrentEntitiesLlm(MockLlmClient):
     """The first cast chunk runs alone to warm the shared cached prefix; every
     later chunk must be in flight together, or the barrier times out and the
