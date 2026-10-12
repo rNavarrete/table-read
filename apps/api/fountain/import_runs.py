@@ -21,8 +21,9 @@ from storage.models import ImportRunRow, ImportRunUnitRow, ProjectRow
 
 # Saved units are reused only under the same version, PROMPT_VERSION and
 # model pins. Bump it when an op's output changes without either, as when
-# 2026-10-11.1 moved the cast step to `medium` effort and a larger ceiling.
-IMPORT_ANALYSIS_VERSION = "2026-10-11.1"
+# 2026-10-11.1 moved the cast step to `medium` effort and a larger ceiling;
+# 2026-10-11.2 stopped numbered shooting-script shots ("RAY 18") minting cast.
+IMPORT_ANALYSIS_VERSION = "2026-10-11.2"
 # Saved units hold verbatim script text, so an unfinished run is not kept
 # indefinitely for a retry that may never come.
 UNFINISHED_RUN_RETENTION = timedelta(days=7)
