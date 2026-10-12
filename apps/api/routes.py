@@ -45,6 +45,8 @@ from drama_manager.narrative_map_runs import (
     mark_interrupted_run,
     serialize_run,
 )
+from drama_manager.structure_checks import StructureCheckNotReady, run_structure_check
+from drama_manager.structure_stages import STRUCTURE_STAGES
 from errors import ApiError
 from fountain import create_import, import_runs, pdf_extract
 from fountain.export import to_fountain
@@ -593,6 +595,42 @@ def generate_narrative_map(
     if should_enqueue:
         enqueue_run(run.id, llm)
     return serialize_run(run)
+
+
+@router.post("/{pid}/structure-checks/{lens}", response_model=Project)
+def check_structure(
+    pid: str,
+    lens: str,
+    session: Session = Depends(get_session),
+    llm: LlmClient = Depends(get_llm_client),
+    if_match: str | None = Header(default=None, alias="If-Match"),
+) -> dict:
+    """Run one writer-triggered structure check and save it (spec 2026-10-11)."""
+    if lens not in STRUCTURE_STAGES:
+        raise ApiError(400, "VALIDATION", f"unknown structure {lens!r}")
+    project = _get_project_or_404(session, pid)
+    expected_head = _expected_head(if_match) or project.head_snapshot_id
+    if expected_head != project.head_snapshot_id:
+        raise ApiError(
+            409,
+            "CONFLICT_STALE_HEAD",
+            f"expected headSnapshotId {expected_head!r} but project head is "
+            f"{project.head_snapshot_id!r}",
+        )
+    try:
+        return run_structure_check(
+            session, project, lens, llm, expected_head_snapshot_id=expected_head
+        )
+    except StructureCheckNotReady as exc:
+        raise ApiError(
+            409, "STRUCTURE_CHECK_NOT_READY", "The script has no beats to check yet."
+        ) from exc
+    except snapshots.StaleHead as exc:
+        raise ApiError(409, "CONFLICT_STALE_HEAD", str(exc)) from exc
+    except SchemaInvalidLlmError as exc:
+        raise ApiError(502, "SCHEMA_INVALID_LLM", str(exc)) from exc
+    except (anthropic.APIError, LlmTimeoutError) as exc:
+        raise ApiError(503, "LLM_UNAVAILABLE", "the language model is unavailable") from exc
 
 
 @router.get(
