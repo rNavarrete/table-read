@@ -22,6 +22,7 @@ from schemas import (
     InferredNarrativeMapSynthesis,
     InferredNarrativeSceneAnalysisBatch,
     InferredStoryOverview,
+    InferredStructureCheck,
     InitialSceneSkeleton,
     InstructionSuggestions,
     LedgerExtraction,
@@ -30,6 +31,7 @@ from schemas import (
     RegeneratedElements,
     SegmentedScene,
     StoryEntities,
+    StructureCheckVerification,
 )
 
 
@@ -129,6 +131,14 @@ class LlmClient(Protocol):
     def verify_narrative_map(
         self, *, system: str, user_message: str, prompt_version: str
     ) -> NarrativeMapVerification: ...
+
+    def check_structure(
+        self, *, system: str, user_message: str, prompt_version: str
+    ) -> InferredStructureCheck: ...
+
+    def verify_structure_check(
+        self, *, system: str, user_message: str, prompt_version: str
+    ) -> StructureCheckVerification: ...
 
     def segment_scene(
         self,

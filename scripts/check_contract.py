@@ -75,6 +75,8 @@ SCHEMA_NAMES = [
     "ThreadMovement",
     "NarrativeMap",
     "NarrativeMapRun",
+    "StructureStage",
+    "StructureCheck",
     "WorldRule",
     "Episode",
     "Season",
@@ -124,6 +126,8 @@ SCHEMA_NAMES = [
     "InferredNarrativeSceneAnalysisBatch",
     "InferredNarrativeMapSynthesis",
     "NarrativeMapVerification",
+    "InferredStructureCheck",
+    "StructureCheckVerification",
 ]
 
 # JSON Schema keys that are cosmetic/library-specific noise, not part of the

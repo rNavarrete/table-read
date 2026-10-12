@@ -33,6 +33,7 @@ from schemas import (
     InferredNarrativeMapSynthesis,
     InferredNarrativeSceneAnalysisBatch,
     InferredStoryOverview,
+    InferredStructureCheck,
     InitialSceneSkeleton,
     InstructionSuggestions,
     LedgerExtraction,
@@ -41,6 +42,7 @@ from schemas import (
     RegeneratedElements,
     SegmentedScene,
     StoryEntities,
+    StructureCheckVerification,
 )
 
 
@@ -523,6 +525,8 @@ def _default_responses() -> dict[str, BaseModel]:
             missingSceneIds=[],
             advisories=[],
         ),
+        "check_structure": InferredStructureCheck(applies=True, rationale="Mock.", stages=[]),
+        "verify_structure_check": StructureCheckVerification(stages=[]),
     }
 
 
@@ -535,6 +539,47 @@ def _source_data_value(user_message: str, kind: str):
     if match is None:
         return None
     return json.loads(html.unescape(match.group(1)))
+
+
+def _mock_structure_check(user_message: str) -> InferredStructureCheck:
+    """Deterministic, prompt-derived answer so e2e (no set_response hook) renders
+    every status: stage i is hit / thin / missing by i % 3, citing beats in order."""
+    stages = _source_data_value(user_message, "required_stages")
+    scenes = _source_data_value(user_message, "scene_spine")
+    if not stages or scenes is None:
+        raise ValueError("structure blocks missing")
+    beats = [beat["beatId"] for scene in scenes for beat in scene.get("beats") or []]
+    out = []
+    for index, item in enumerate(stages):
+        status = ("hit", "thin", "missing")[index % 3]
+        beat_id = beats[index % len(beats)] if beats and status != "missing" else None
+        if beat_id is None:
+            status = "missing"
+        out.append(
+            {
+                "stage": item["stage"],
+                "status": status,
+                "beatId": beat_id,
+                "reason": f"Mock {status} for {item['label']}.",
+            }
+        )
+    return InferredStructureCheck.model_validate(
+        {"applies": True, "rationale": "Mock structure check.", "stages": out}
+    )
+
+
+def _mock_structure_verification(user_message: str) -> StructureCheckVerification:
+    claims = _source_data_value(user_message, "claims")
+    if claims is None:
+        raise ValueError("claims block missing")
+    return StructureCheckVerification.model_validate(
+        {
+            "stages": [
+                {"stage": claim["stage"], "reason": "Mock supported.", "supported": True}
+                for claim in claims
+            ]
+        }
+    )
 
 
 def _mock_narrative_map(user_message: str) -> InferredNarrativeMap:
@@ -1019,6 +1064,40 @@ class MockLlmClient:
             missingSceneIds=[],
             advisories=[],
         )
+
+    def check_structure(
+        self, *, system: str, user_message: str, prompt_version: str
+    ) -> InferredStructureCheck:
+        del system, prompt_version
+        with self._lock:
+            self._invocations["check_structure"] += 1
+            queue = self._queues.get("check_structure")
+            if queue:
+                return queue.pop(0)  # type: ignore[return-value]
+            if "check_structure" in self._explicit_responses:
+                return self._responses["check_structure"]  # type: ignore[return-value]
+        try:
+            return _mock_structure_check(user_message)
+        except ValueError:
+            # Generic protocol tests send no structure blocks.
+            return _default_responses()["check_structure"]  # type: ignore[return-value]
+
+    def verify_structure_check(
+        self, *, system: str, user_message: str, prompt_version: str
+    ) -> StructureCheckVerification:
+        del system, prompt_version
+        with self._lock:
+            self._invocations["verify_structure_check"] += 1
+            queue = self._queues.get("verify_structure_check")
+            if queue:
+                return queue.pop(0)  # type: ignore[return-value]
+            if "verify_structure_check" in self._explicit_responses:
+                return self._responses["verify_structure_check"]  # type: ignore[return-value]
+        try:
+            return _mock_structure_verification(user_message)
+        except ValueError:
+            # Generic protocol tests send no structure blocks.
+            return _default_responses()["verify_structure_check"]  # type: ignore[return-value]
 
     def segment_scene(
         self,

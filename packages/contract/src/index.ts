@@ -502,6 +502,72 @@ export const NarrativeMapRun = z.object({
 })
 export type NarrativeMapRun = z.infer<typeof NarrativeMapRun>
 
+// Structure checklist (spec 2026-10-11). TV act structure is derived in the
+// web and never stored, so it is not a lens here.
+export const StructureLens = z.enum([
+  'heros_journey',
+  'story_circle',
+  'save_the_cat',
+])
+export type StructureLens = z.infer<typeof StructureLens>
+
+export const StructureStageName = z.enum([
+  ...HeroJourneyStageName.options,
+  'circle_you',
+  'circle_need',
+  'circle_go',
+  'circle_search',
+  'circle_find',
+  'circle_take',
+  'circle_return',
+  'circle_change',
+  'opening_image',
+  'theme_stated',
+  'set_up',
+  'catalyst',
+  'debate',
+  'break_into_two',
+  'b_story',
+  'fun_and_games',
+  'midpoint',
+  'bad_guys_close_in',
+  'all_is_lost',
+  'dark_night_of_the_soul',
+  'break_into_three',
+  'finale',
+  'final_image',
+])
+export type StructureStageName = z.infer<typeof StructureStageName>
+
+export const StructureStageStatus = z.enum([
+  'hit',
+  'thin',
+  'missing',
+  'unverified',
+])
+export type StructureStageStatus = z.infer<typeof StructureStageStatus>
+
+export const StructureStage = z.object({
+  stage: StructureStageName,
+  status: StructureStageStatus,
+  beatId: Id.nullable(),
+  sceneId: Id.nullable(),
+  reason: z.string(),
+  evidenceQuote: z.string().min(1).max(200).nullable(),
+})
+export type StructureStage = z.infer<typeof StructureStage>
+
+export const StructureCheck = z.object({
+  lens: StructureLens,
+  applies: z.boolean(),
+  rationale: z.string(),
+  stages: z.array(StructureStage),
+  sourceHash: z.string().min(1),
+  checkedAt: z.string(),
+  promptVersion: z.string(),
+})
+export type StructureCheck = z.infer<typeof StructureCheck>
+
 export const Episode = z.object({
   id: Id,
   index: z.number().int().min(0),
@@ -538,6 +604,8 @@ export const Episode = z.object({
   // Import-time macro/micro analysis. The map is evidence-grounded to imported
   // beats and remains nullable for existing projects.
   narrativeMap: NarrativeMap.nullable().default(null),
+  // At most one per lens; a new check replaces that lens's entry.
+  structureChecks: z.array(StructureCheck).default([]),
 })
 export type Episode = z.infer<typeof Episode>
 
@@ -1415,6 +1483,37 @@ export const NarrativeMapVerification = z.object({
   ),
 })
 export type NarrativeMapVerification = z.infer<typeof NarrativeMapVerification>
+
+// Structure checklist ops (spec 2026-10-11). The model never writes quotes or
+// sceneId, and never says `unverified`: the server fills and sets those.
+const InferredStructureStage = z.object({
+  stage: StructureStageName,
+  status: z.enum(['hit', 'thin', 'missing']),
+  beatId: Id.nullable(),
+  reason: z.string(),
+})
+
+export const InferredStructureCheck = z.object({
+  applies: z.boolean(),
+  rationale: z.string(),
+  stages: z.array(InferredStructureStage),
+})
+export type InferredStructureCheck = z.infer<typeof InferredStructureCheck>
+
+// `supported` is declared LAST so the model reasons before it answers (same
+// decoding-order argument as NarrativeMapVerification.excerptCarriesClaim).
+export const StructureCheckVerification = z.object({
+  stages: z.array(
+    z.object({
+      stage: StructureStageName,
+      reason: z.string(),
+      supported: z.boolean(),
+    }),
+  ),
+})
+export type StructureCheckVerification = z.infer<
+  typeof StructureCheckVerification
+>
 
 // T7.23 extract-time counterpart to `KnowledgeEvent`: the model names
 // characters, never ids (same convention as `knownBy`/`InferredCharacter`);

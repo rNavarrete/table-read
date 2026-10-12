@@ -969,6 +969,10 @@ def _fixture_valid_input_for(op_name: str) -> dict:
             "missingSceneIds": [],
             "advisories": [],
         },
+        "check_structure": {"applies": False, "rationale": "Ensemble.", "stages": []},
+        "verify_structure_check": {
+            "stages": [{"stage": "circle_you", "reason": "Shown.", "supported": True}]
+        },
         "segment_scene": {"segments": []},
         "scan_consistency": {"flags": []},
         "generate_scene_skeleton": {"label": "x", "scenes": []},

@@ -48,6 +48,7 @@ from schemas import (
     InferredNarrativeMapSynthesis,
     InferredNarrativeSceneAnalysisBatch,
     InferredStoryOverview,
+    InferredStructureCheck,
     InitialSceneSkeleton,
     InstructionSuggestions,
     LedgerExtraction,
@@ -56,6 +57,7 @@ from schemas import (
     RegeneratedElements,
     SegmentedScene,
     StoryEntities,
+    StructureCheckVerification,
 )
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -796,6 +798,26 @@ class AnthropicClient:
     ) -> NarrativeMapVerification:
         return self._call(
             "verify_narrative_map",
+            system=system,
+            user_message=user_message,
+            prompt_version=prompt_version,
+        )
+
+    def check_structure(
+        self, *, system: str, user_message: str, prompt_version: str
+    ) -> InferredStructureCheck:
+        return self._call(
+            "check_structure",
+            system=system,
+            user_message=user_message,
+            prompt_version=prompt_version,
+        )
+
+    def verify_structure_check(
+        self, *, system: str, user_message: str, prompt_version: str
+    ) -> StructureCheckVerification:
+        return self._call(
+            "verify_structure_check",
             system=system,
             user_message=user_message,
             prompt_version=prompt_version,
