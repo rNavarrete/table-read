@@ -1,6 +1,6 @@
 # Structure checklist — design
 
-**Date:** 2026-10-11 · **Status:** draft for owner review · **Replaces:** the Narrative Map (Story Map) card, in a later step
+**Date:** 2026-10-11 · **Status:** approved by owner 2026-10-11 · **Replaces:** the Narrative Map (Story Map) card, in a later step
 
 ## Why
 
@@ -162,8 +162,8 @@ StructureCheck = { lens, applies: boolean, rationale: string, stages: StructureS
 - Structures beyond these four.
 - Redesigning the evals. That's a separate task, and it has to be done before `make evals` is run again.
 
-## Open questions for the owner
+## Owner answers (2026-10-11)
 
-1. **Locked episodes.** Should a check run on a locked episode? A check never changes the script, only `episode.structureChecks`. The Story Map refuses on a locked episode. **Proposed:** allow it.
-2. **Save the Cat on a TV episode.** Run the 15 beats as written, and let the model say it doesn't fit, or scale the beats to the act count? **Proposed:** as written.
-3. **Thin vs. missing.** "Thin" is the model's judgment (the stage is there but weak or partial, with a reason). **Proposed:** ship it, and drop "thin" if writers find it noisy.
+1. **Locked episodes:** checks are allowed, because a check never changes the script, only `episode.structureChecks`.
+2. **Save the Cat on a TV episode:** the 15 beats run as written, and the model can say they don't fit.
+3. **Thin:** it ships. Drop it if writers find it noisy.
