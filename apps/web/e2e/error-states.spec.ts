@@ -12,15 +12,17 @@ test('a dropped connection before any candidate arrives shows the dock-level err
   page,
 }) => {
   await page.goto('/?project=proj-longpour&scene=scene-2')
-  await expect(page.getByTestId('beat-beat-2-1')).toBeVisible() // scene loaded before snapshotting count
-  const beatCountBefore = await page.locator('[data-testid^="beat-"]').count()
+  await expect(page.getByTestId('beat-row-beat-2-1')).toBeVisible() // scene loaded before snapshotting count
+  const beatCountBefore = await page
+    .locator('[data-testid^="beat-row-"]')
+    .count()
 
   await page.route('**/scenes/scene-2/candidates', (route) => route.abort())
   await page.getByRole('button', { name: 'Next Beat' }).click()
 
   await expect(page.getByText(/Connection lost/)).toBeVisible()
   await expect(page.getByRole('button', { name: 'Retry' })).toBeVisible()
-  await expect(page.locator('[data-testid^="beat-"]')).toHaveCount(
+  await expect(page.locator('[data-testid^="beat-row-"]')).toHaveCount(
     beatCountBefore,
   )
 })
@@ -103,8 +105,10 @@ test('a 503 on accept rolls back: the card shows the error, the script canvas en
   page,
 }) => {
   await page.goto('/?project=proj-longpour&scene=scene-4')
-  await expect(page.getByTestId('beat-beat-4-1')).toBeVisible() // scene loaded before snapshotting count
-  const beatCountBefore = await page.locator('[data-testid^="beat-"]').count()
+  await expect(page.getByTestId('beat-row-beat-4-1')).toBeVisible() // scene loaded before snapshotting count
+  const beatCountBefore = await page
+    .locator('[data-testid^="beat-row-"]')
+    .count()
 
   await page.getByRole('button', { name: 'Next Beat' }).click()
   const card = page.getByTestId('candidate-card-0')
@@ -132,7 +136,7 @@ test('a 503 on accept rolls back: the card shows the error, the script canvas en
     'The language model is unavailable — try again in a moment',
   )
   // The optimistic insert was rolled back — beat count matches pre-accept.
-  await expect(page.locator('[data-testid^="beat-"]')).toHaveCount(
+  await expect(page.locator('[data-testid^="beat-row-"]')).toHaveCount(
     beatCountBefore,
   )
 })
@@ -152,8 +156,10 @@ test('mid-stream SSE disconnect: card-0 Accept stays; Retry for the failed in-fl
   // replaces the whole body with a partial stream (no terminal `done`), so
   // the two tests stay independent as long as they don't share a worker.
   await page.goto('/?project=proj-longpour&scene=scene-5')
-  await expect(page.getByTestId('beat-beat-5-1')).toBeVisible()
-  const beatCountBefore = await page.locator('[data-testid^="beat-"]').count()
+  await expect(page.getByTestId('beat-row-beat-5-1')).toBeVisible()
+  const beatCountBefore = await page
+    .locator('[data-testid^="beat-row-"]')
+    .count()
 
   await page.route('**/scenes/scene-5/candidates', (route) =>
     route.fulfill({
@@ -190,7 +196,7 @@ test('mid-stream SSE disconnect: card-0 Accept stays; Retry for the failed in-fl
   await expect(
     page.getByTestId('candidate-card-1').getByRole('button', { name: 'Retry' }),
   ).toBeVisible()
-  await expect(page.locator('[data-testid^="beat-"]')).toHaveCount(
+  await expect(page.locator('[data-testid^="beat-row-"]')).toHaveCount(
     beatCountBefore,
   )
 })
