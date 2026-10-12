@@ -9,6 +9,7 @@ from fountain.characters import (
     extract_character_cues,
     is_filler_prose,
     is_generic_role,
+    is_shooting_script,
     merge_characters_into_bible,
     merge_inferred_entities,
     normalize_known_by,
@@ -93,6 +94,33 @@ def test_numbered_names_still_speak_when_the_script_numbers_no_scenes():
         "Hello.",
     ]
     assert extract_character_cues(lines) == ["Number 6", "50 Cent", "Bob 1", "Bob 2"]
+
+
+def test_a_numbered_speaker_with_stacked_extensions_still_counts_as_recurring():
+    """Final Draft writes "(V.O.) (CONT'D)"; the cue pattern takes one
+    extension, but those lines still prove NUMBER 6 speaks more than once."""
+    headings = [f"{n} INT. ROOM - DAY {n}" for n in range(1, 7)]
+    lines = [
+        *headings,
+        "NUMBER 6",
+        "Where am I?",
+        "NUMBER 6 (V.O.) (CONT'D)",
+        "Who are you?",
+        "NUMBER 6 (O.S.) (CONT'D",
+        "I am not a number.",
+    ]
+    assert extract_character_cues(lines) == ["Number 6"]
+
+
+def test_a_few_numbered_rooms_in_a_long_teleplay_do_not_make_a_shooting_script():
+    lines = []
+    for n in range(101, 106):
+        lines += [f"INT. ROOM {n}", "MARTA", "Hi."]
+    for _ in range(35):
+        lines += ["INT. HOUSE - DAY", "MARTA", "Hi."]
+    lines += ["50 CENT (V.O.)", "Yeah."]
+    assert not is_shooting_script(lines)
+    assert extract_character_cues(lines) == ["Marta", "50 Cent"]
 
 
 def test_merge_skips_existing_and_respects_locked_name():

@@ -1995,6 +1995,45 @@ def test_entity_chunks_only_get_speakers_the_whole_script_kept(
     assert all(floor == ["Ray"] for floor in floors)
 
 
+def test_a_chunk_never_rejudges_numbered_speakers_on_its_own_headings(
+    db_session, mock_llm, monkeypatch
+):
+    """Chunk 1 alone is a numbered script where NUMBER 6 speaks once, which
+    reads as a shot; the whole script hears him twice, so he stays a speaker."""
+    import fountain.pipeline as pipeline_mod
+
+    monkeypatch.setattr(pipeline_mod, "ENTITY_INFER_MAX_SCENES_PER_CHUNK", 6)
+    floors: list[list[str]] = []
+    build = pipeline_mod.render.build_entity_prompt
+
+    def recording(project, summaries, speakers, nonce):
+        floors.append(list(speakers))
+        return build(project, summaries, speakers, nonce)
+
+    monkeypatch.setattr(pipeline_mod.render, "build_entity_prompt", recording)
+
+    created = client.post(
+        "/api/v1/projects",
+        json=NEW_PROJECT_BODY,
+        headers={"Idempotency-Key": "00000000-0000-4000-8000-000000000094"},
+    ).json()
+    src = "1 INT. VILLAGE - DAY 1\n\nNUMBER 6\nWhere am I?\n\n"
+    src += "".join(f"{n} INT. VILLAGE - DAY {n}\n\nRAY\nHello.\n\n" for n in range(2, 7))
+    src += "7 EXT. BEACH - DAY 7\n\nNUMBER 6\nI am not a number.\n"
+    mock_llm.set_responses("segment_scene", one_beat_per_scene(src))
+    mock_llm.set_responses("infer_story_entities", [entities(), entities()])
+    mock_llm.set_response("extract_ledger_facts", extraction())
+    mock_llm.set_response("scan_consistency", scan())
+
+    client.post(
+        f"/api/v1/projects/{created['id']}/import",
+        json={"format": "fountain", "content": src},
+    )
+
+    assert len(floors) == 2
+    assert all("Number 6" in floor for floor in floors)
+
+
 class _ConcurrentEntitiesLlm(MockLlmClient):
     """The first cast chunk runs alone to warm the shared cached prefix; every
     later chunk must be in flight together, or the barrier times out and the
