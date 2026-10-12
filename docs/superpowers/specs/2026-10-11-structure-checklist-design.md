@@ -75,7 +75,7 @@ One click runs one structure: one model call, then one verification call.
    - **Server-side validation:**
      - every stage of the structure appears exactly once; the server puts them in canonical order
      - every stage belongs to the requested structure
-     - hit and thin stages cite a beat id that exists; missing stages cite none.
+     - hit and thin stages cite a beat id that exists; a beat cited on a missing stage is dropped, not retried.
    - **Retries:** a shape failure is retried once inside the LLM client, as for every op. A validation failure above gets one retry with the problems listed, then `SCHEMA_INVALID_LLM` (rule 9).
    - **Doesn't fit:** when `applies` is false, the stages are dropped and verification is skipped. Only the rationale is stored.
    - **Evidence:** the server attaches the evidence quote from the cited beat's own text. The model never writes quotes.
@@ -115,7 +115,7 @@ StructureCheck = { lens, applies: boolean, rationale: string, stages: StructureS
 
 **Server-filled fields:** `sceneId` comes from the beat, and the quote from the beat text.
 
-**Source hash:** a plain fingerprint the server and the browser compute the same way. Walk the episode's scenes in order, and each scene's beats in order. For each beat, add `sceneId + "\x1f" + beatId + "\x1f" + scriptText + "\x1e"` (empty `scriptText` when absent). Take the SHA-256 of the UTF-8 string as lowercase hex. The web recomputes it from the project it already has (`crypto.subtle`), and shows the stale line when it differs from the stored `sourceHash`. This is narrower than the Story Map's hash on purpose: it changes only when the script text or scene and beat ids change.
+**Source hash:** a plain fingerprint the server and the browser compute the same way. Walk the episode's scenes by (act, index), and each scene's beats by index (Plan's drag-reorder rewrites those and leaves the stored arrays alone, so a reorder marks the check stale). For each beat, add `sceneId + "\x1f" + beatId + "\x1f" + scriptText + "\x1e"` (empty `scriptText` when absent). Take the SHA-256 of the UTF-8 string as lowercase hex. The web recomputes it from the project it already has (`crypto.subtle`), and shows the stale line when it differs from the stored `sourceHash`. This is narrower than the Story Map's hash on purpose: it changes only when the script text or scene and beat ids change.
 
 **API:**
 

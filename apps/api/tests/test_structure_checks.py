@@ -10,8 +10,10 @@ import logging
 import pytest
 from fastapi.testclient import TestClient
 
+from drama_manager import render
 from drama_manager.structure_checks import (
     StructureCheckInvalid,
+    build_spine,
     structure_source_hash,
     validate_check,
 )
@@ -117,7 +119,10 @@ def test_saves_quotes_scenes_hash_and_version(seeded_project, db_session, mock_l
         _inferred({"circle_you": ("hit", "beat-1-1"), "circle_need": ("thin", "beat-2-1")}),
     )
     mock_llm.set_response("verify_structure_check", _verdicts(circle_you=True, circle_need=True))
-    (check,) = _checks(_post("story_circle"))
+    head = _doc(db_session)["headSnapshotId"]
+    res = _post("story_circle")
+    assert res.json()["headSnapshotId"] != head  # one new snapshot (rule 4)
+    (check,) = _checks(res)
     assert [s["stage"] for s in check["stages"]] == CIRCLE
     you = check["stages"][0]
     assert (you["status"], you["sceneId"]) == ("hit", "scene-1") and you["evidenceQuote"]
@@ -268,3 +273,38 @@ def test_logs_carry_no_writer_text(seeded_project, mock_llm, caplog):
     assert "0.51.0" in caplog.text and "lens=story_circle" in caplog.text
     for writer_text in ("circle_you reason", "circle_you verdict", "Fits."):
         assert writer_text not in caplog.text
+
+
+def test_hash_and_spine_follow_act_and_index_not_stored_order():
+    """Plan's drag-reorder rewrites index/act and leaves the arrays alone."""
+    episode = {"scenes": [
+        {"id": "scene-a", "act": 1, "index": 1, "beats": [
+            {"id": "beat-a-2", "index": 1, "scriptText": "two"},
+            {"id": "beat-a-1", "index": 0, "scriptText": "one"}]},
+        {"id": "scene-b", "act": 1, "index": 0, "beats": [
+            {"id": "beat-b-1", "index": 0, "scriptText": "b"}]},
+        {"id": "scene-c", "act": 0, "index": 5, "beats": [
+            {"id": "beat-c-1", "index": 0, "scriptText": "c"}]},
+    ]}
+    assert structure_source_hash(episode) == (
+        "a609cf03fd17c719082283cd94f032e7cf5fef723207e1f1666b9b9aea702ce6"
+    )
+    spine = build_spine(episode)["scenes"]
+    assert [s["sceneId"] for s in spine] == ["scene-c", "scene-b", "scene-a"]
+    assert [b["beatId"] for b in spine[2]["beats"]] == ["beat-a-1", "beat-a-2"]
+
+
+def test_a_plan_only_beat_is_verified_against_its_plan(seeded_project, mock_llm, monkeypatch):
+    """beat-5-1 has no script yet; the verifier must see its whatHappens, not ""."""
+    seen: dict = {}
+    real = render.build_structure_verification_prompt
+
+    def spy(project, lens, claims, nonce):
+        seen["claims"] = claims
+        return real(project, lens, claims, nonce)
+
+    monkeypatch.setattr(render, "build_structure_verification_prompt", spy)
+    mock_llm.set_response("check_structure", _inferred({"circle_you": ("hit", "beat-5-1")}))
+    mock_llm.set_response("verify_structure_check", _verdicts(circle_you=True))
+    assert _post("story_circle").status_code == 200
+    assert seen["claims"][0]["excerpt"].startswith("The cover stories collapse")

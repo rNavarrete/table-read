@@ -42,13 +42,31 @@ def _episode(doc: dict) -> dict | None:
     )
 
 
+def _ordered_scenes(episode: dict) -> list[dict]:
+    """Scenes by (act, index), beats by index: the order the writer sees. Plan's
+    drag-reorder rewrites `index`/`act` and leaves the stored array alone."""
+    scenes = sorted(
+        episode.get("scenes") or [], key=lambda s: (s.get("act") or 0, s.get("index") or 0)
+    )
+    return [
+        {**s, "beats": sorted(s.get("beats") or [], key=lambda b: b.get("index") or 0)}
+        for s in scenes
+    ]
+
+
 def structure_source_hash(episode: dict) -> str:
     text = "".join(
         f"{scene['id']}\x1f{beat['id']}\x1f{beat.get('scriptText') or ''}\x1e"
-        for scene in episode.get("scenes") or []
-        for beat in scene.get("beats") or []
+        for scene in _ordered_scenes(episode)
+        for beat in scene["beats"]
     )
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _excerpt(beat: dict) -> str:
+    """What the verifier reads: the beat's script, or its plan when no script exists
+    yet (the check reads `whatHappens`, so a plan-only beat is a fair citation)."""
+    return (beat.get("scriptText") or beat.get("whatHappens") or "")[:_EXCERPT_CAP]
 
 
 def build_spine(episode: dict) -> dict:
@@ -87,10 +105,10 @@ def build_spine(episode: dict) -> dict:
                 "audienceLearns": (s.get("audienceLearns") or "")[:_TEXT_CAP],
                 "beats": [
                     {"beatId": b["id"], "whatHappens": (b.get("whatHappens") or "")[:_TEXT_CAP]}
-                    for b in s.get("beats") or []
+                    for b in s["beats"]
                 ],
             }
-            for s in episode.get("scenes") or []
+            for s in _ordered_scenes(episode)
         ],
     }
 
@@ -181,7 +199,7 @@ def run_structure_check(
             "status": s["status"],
             "claim": s["reason"],
             "beatId": s["beatId"],
-            "excerpt": (beats[s["beatId"]][1].get("scriptText") or "")[:_EXCERPT_CAP],
+            "excerpt": _excerpt(beats[s["beatId"]][1]),
         }
         for s in stages
         if s["status"] in ("hit", "thin")

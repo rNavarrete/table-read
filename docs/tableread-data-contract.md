@@ -292,7 +292,7 @@ export const StructureCheck = z.object({
   applies: z.boolean(), // false: `rationale` is the "doesn't fit" note and `stages` is []
   rationale: z.string(),
   stages: z.array(StructureStage), // canonical order for the lens
-  // SHA-256 (lowercase hex) of, over scenes then beats in order,
+  // SHA-256 (lowercase hex) of, over scenes by (act, index) then beats by index,
   // sceneId + "\x1f" + beatId + "\x1f" + (scriptText ?? "") + "\x1e".
   // The web recomputes it to show the stale line.
   sourceHash: z.string().min(1),
@@ -1141,8 +1141,8 @@ export const ConsistencyScan = z.object({
 // each stage of one structure against the import's breakdown. The model never
 // writes quotes or sceneId and never says `unverified`. The server checks every
 // stage of the lens appears exactly once, belongs to the lens, and that hit/thin
-// cite an existing beatId while missing cites none; one retry, then
-// SCHEMA_INVALID_LLM.
+// cite an existing beatId (a beat cited on a missing stage is dropped); one
+// retry, then SCHEMA_INVALID_LLM.
 export const InferredStructureCheck = z.object({
   applies: z.boolean(),
   rationale: z.string(),

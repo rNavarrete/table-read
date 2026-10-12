@@ -22,4 +22,20 @@ describe('structureSourceHash', () => {
       'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
     )
   })
+
+  it('walks scenes by act and index, beats by index (Python vector)', async () => {
+    const at = (id: string, act: number, index: number, beats: object[]) =>
+      ({ id, act, index, beats }) as unknown as Scene
+    const scenes = [
+      at('scene-a', 1, 1, [
+        { id: 'beat-a-2', index: 1, scriptText: 'two' },
+        { id: 'beat-a-1', index: 0, scriptText: 'one' },
+      ]),
+      at('scene-b', 1, 0, [{ id: 'beat-b-1', index: 0, scriptText: 'b' }]),
+      at('scene-c', 0, 5, [{ id: 'beat-c-1', index: 0, scriptText: 'c' }]),
+    ]
+    expect(await structureSourceHash(scenes)).toBe(
+      'a609cf03fd17c719082283cd94f032e7cf5fef723207e1f1666b9b9aea702ce6',
+    )
+  })
 })

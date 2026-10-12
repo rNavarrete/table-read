@@ -554,8 +554,10 @@ model may say it doesn't fit. The import's ban on Save the Cat labels in the
 beat sheet (§5c) is unchanged.
 
 **Validation and retry:** the server checks every stage of the lens appears
-exactly once and belongs to that lens, and that hit/thin cite an existing beat
-while missing cites none; it then puts the stages in canonical order. A shape
+exactly once and belongs to that lens, and that hit/thin cite an existing beat;
+a beat cited on a missing stage is dropped, not retried. It then puts the stages
+in canonical order. The scene spine follows the writer's order: scenes by
+(act, index), beats by index. A shape
 failure is retried once inside the LLM client, as for every op. A failure of
 these checks gets one retry with the diagnostics in `structure_check_repairs`,
 then `SCHEMA_INVALID_LLM` (rule 9). The server, not the model, fills `sceneId`
@@ -565,8 +567,10 @@ from the cited beat and `evidenceQuote` from that beat's own `scriptText`
 **Verify:** `verify_structure_check` uses the independent `writer` role
 (`claude-sonnet-5-5`), adaptive thinking at low effort. It receives one
 `claims` block, `[{stage, label, status, claim, beatId, excerpt}]`, for the hit
-and thin stages only, each `excerpt` capped at 520 characters like the Narrative
-Map verifier's. It returns `StructureCheckVerification`: per stage
+and thin stages only. Each `excerpt` is the cited beat's `scriptText`, or its
+`whatHappens` when the beat has no script yet (the check reads `whatHappens`,
+so a plan-only beat is a fair citation), capped at 520 characters like the
+Narrative Map verifier's. It returns `StructureCheckVerification`: per stage
 `{stage, reason, supported}`, with `supported` last so the model reasons first.
 A stage judged unsupported becomes `unverified` ("Couldn't verify") and keeps
 the verifier's reason; a claimed stage with no verdict becomes `unverified` with
