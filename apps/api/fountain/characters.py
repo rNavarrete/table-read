@@ -42,6 +42,8 @@ _CUE_RE = re.compile(
     r"^\s*([A-Z0-9][A-Z0-9 \.'.\-]*?[A-Z0-9.]|[A-Z0-9])"
     r"(?:\s*\([^)]*\))?\s*$"
 )
+# Every trailing extension group, closed or not: "(V.O.) (CONT'D)", "(CONT'D".
+_EXTENSIONS_RE = re.compile(r"(?:\s*\([^)]*\)?)+\s*$")
 # The left-margin twin of timeline's trailing production scene number
 # ("17 INT. OFFICE 17").
 _SCENE_NUMBER_PREFIX_RE = re.compile(r"^[A-Za-z]?\d{1,3}[A-Za-z]?\s")
@@ -275,7 +277,14 @@ def extract_character_cues(
         )
         cues.append((name, bool(spoken)))
     enforce = sum(spoken for _, spoken in cues) > len(cues) * _DIALOGUE_FOLLOWS_MAJORITY
-    uses = Counter(name.casefold() for name, _ in cues)
+    # Count every line naming a speaker, including repeats whose extensions
+    # the cue pattern cannot parse ("NUMBER 6 (V.O.) (CONT'D)"), or a talking
+    # numbered character looks like a once-seen shot.
+    uses = Counter(
+        name.casefold()
+        for line in lines
+        if (name := _cue_display_name(_EXTENSIONS_RE.sub("", line))) is not None
+    )
     seen: set[str] = set()
     out: list[str] = []
     for name, spoken in cues:
