@@ -23,7 +23,10 @@ from storage import snapshots
 
 _logger = logging.getLogger("drama_manager.structure_checks")
 _TEXT_CAP = 300
-_EXCERPT_CAP = 520
+# The whole beat, in practice: the hand check (2026-10-11) found 520 characters cut
+# off the moment a stage cites ("the excerpt cuts off before Josh agrees") on
+# beats up to 1,400 characters, turning real hits into Couldn't verify.
+_EXCERPT_CAP = 2_000
 
 
 class StructureCheckNotReady(Exception):

@@ -569,8 +569,9 @@ from the cited beat and `evidenceQuote` from that beat's own `scriptText`
 `claims` block, `[{stage, label, status, claim, beatId, excerpt}]`, for the hit
 and thin stages only. Each `excerpt` is the cited beat's `scriptText`, or its
 `whatHappens` when the beat has no script yet (the check reads `whatHappens`,
-so a plan-only beat is a fair citation), capped at 520 characters like the
-Narrative Map verifier's. It returns `StructureCheckVerification`: per stage
+so a plan-only beat is a fair citation), capped at 2,000 characters so the
+verifier sees the whole beat (520, the Narrative Map verifier's cap, cut off
+the cited moment on long beats). It returns `StructureCheckVerification`: per stage
 `{stage, reason, supported}`, with `supported` last so the model reasons first.
 A stage judged unsupported becomes `unverified` ("Couldn't verify") and keeps
 the verifier's reason; a claimed stage with no verdict becomes `unverified` with

@@ -80,7 +80,7 @@ One click runs one structure: one model call, then one verification call.
    - **Doesn't fit:** when `applies` is false, the stages are dropped and verification is skipped. Only the rationale is stored.
    - **Evidence:** the server attaches the evidence quote from the cited beat's own text. The model never writes quotes.
 2. **Verify (`verify_structure_check`, Sonnet 5.5 via `writer`, effort low).**
-   - **Input:** each hit or thin stage's claim plus a bounded excerpt of its cited beat (same 520-char cap as the map verifier).
+   - **Input:** each hit or thin stage's claim plus its cited beat's text, capped at 2,000 characters (the map verifier's 520 cut off cited moments on long beats in the hand check).
    - **Output:** for each stage, `supported` true/false plus a reason.
    - **Unsupported stages** become **Couldn't verify** and keep the verifier's reason. They are never deleted, and they never sink the other stages.
    - **Missing stages** are not verified, because absence can't be cited.
