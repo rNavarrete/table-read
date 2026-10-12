@@ -1,6 +1,12 @@
-export type LedgerViewId = 'story' | 'atlas' | 'web' | 'threads'
+export type LedgerViewId = 'story' | 'atlas' | 'web' | 'threads' | 'structure'
 
-const VIEWS: readonly LedgerViewId[] = ['story', 'atlas', 'web', 'threads']
+const VIEWS: readonly LedgerViewId[] = [
+  'story',
+  'atlas',
+  'web',
+  'threads',
+  'structure',
+]
 const sessionViews = new Map<string, LedgerViewId>()
 
 function storageKey(projectId: string): string {

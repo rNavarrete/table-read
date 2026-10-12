@@ -4,9 +4,11 @@ import type {
   NarrativeMapRun,
   Project,
   StoryThread,
+  StructureLens,
 } from 'contract'
 import {
   batchLedgerReview,
+  checkStructure,
   confirmLedgerFact,
   editLedgerFact,
   generateNarrativeMap,
@@ -20,7 +22,10 @@ import { ApiError } from '../api/errors'
 import { requireProjectId } from '../projects/projectRouting'
 import { loadResume, saveResume } from '../projects/resumeContext'
 import { AppShell } from '../shell/AppShell'
-import { navigateToWriteScene } from '../shell/modeNavigation'
+import {
+  navigateToWriteBeat,
+  navigateToWriteScene,
+} from '../shell/modeNavigation'
 import { CastPanel } from './CastPanel'
 import { CharacterProfile } from './CharacterProfile.tsx'
 import { FactCard } from './FactCard'
@@ -31,6 +36,8 @@ import { LedgerViewSwitcher } from './LedgerViewSwitcher'
 import { NarrativeMapCard } from './NarrativeMapCard'
 import { StoryAtlas } from './StoryAtlas'
 import { StoryOverviewCard } from './StoryOverviewCard'
+import { StructurePanel } from './structure/StructurePanel'
+import { structureErrorMessage } from './structure/structureErrors'
 import { ThreadsPanel } from './ThreadsPanel'
 import {
   DEFAULT_FILTERS,
@@ -128,6 +135,8 @@ export function LedgerScreen() {
   const narrativeMapRunStatus = narrativeMapRun?.status
   const narrativeMapRunErrorCode = narrativeMapRun?.errorCode
   const narrativeMapRunRetryAllowed = narrativeMapRun?.retryAllowed
+  const [structureBusy, setStructureBusy] = useState(false)
+  const [structureError, setStructureError] = useState<string | null>(null)
   const [castPanelOpen, setCastPanelOpen] = useState(false)
   // Session-only (design spec §UI): no persistence, resets on reload.
   const [asOfScene, setAsOfScene] = useState<string | null>(null)
@@ -450,6 +459,25 @@ export function LedgerScreen() {
             ? err.message
             : 'could not generate the narrative map',
       )
+    }
+  }
+
+  async function handleCheckStructure(lens: StructureLens) {
+    if (!project || structureBusy) return
+    setStructureBusy(true)
+    setStructureError(null)
+    try {
+      // The route returns the updated project (saved check + new head), so
+      // the next If-Match is current without a refetch.
+      setProject(
+        await checkStructure(project.id, lens, {
+          expectedHeadSnapshotId: project.headSnapshotId,
+        }),
+      )
+    } catch (err) {
+      setStructureError(structureErrorMessage(err))
+    } finally {
+      setStructureBusy(false)
     }
   }
 
@@ -861,6 +889,14 @@ export function LedgerScreen() {
                   threads={threads}
                   onJumpToScene={handleJumpToScene}
                   onClose={handleBrowseInAtlas}
+                />
+              ) : view === 'structure' ? (
+                <StructurePanel
+                  project={project}
+                  busy={structureBusy}
+                  error={structureError}
+                  onCheck={handleCheckStructure}
+                  onOpenBeat={navigateToWriteBeat}
                 />
               ) : null}
             </section>
