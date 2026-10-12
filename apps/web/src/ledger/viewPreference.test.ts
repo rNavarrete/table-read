@@ -14,10 +14,12 @@ describe('ledger view preference', () => {
   it('round-trips atlas and web per project', () => {
     saveLedgerView('proj-1', 'web')
     saveLedgerView('proj-2', 'atlas')
+    saveLedgerView('proj-3', 'structure')
 
     expect(localStorage.getItem('tr.ledger.view.proj-1')).toBe('web')
     expect(loadLedgerView('proj-1')).toBe('web')
     expect(loadLedgerView('proj-2')).toBe('atlas')
+    expect(loadLedgerView('proj-3')).toBe('structure')
   })
 
   it('falls back to atlas for invalid stored values', () => {
