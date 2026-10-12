@@ -1,11 +1,28 @@
 import { describe, expect, it } from 'vitest'
+import type { ProjectImportStageName } from 'contract'
 import {
   advanceImportProgress,
   estimateRemainingMs,
+  etaRange,
   formatElapsed,
+  type ImportProgressState,
   initialImportProgressState,
   isImportProgressStale,
+  isIndeterminate,
+  stageStatus,
 } from './importProgress'
+import { usualRange } from './importTimings'
+
+function startStages(
+  names: ProjectImportStageName[],
+  state: ImportProgressState = initialImportProgressState,
+): ImportProgressState {
+  return names.reduce(
+    (current, name, k) =>
+      advanceImportProgress(current, { type: 'stage', name }, k * 1_000),
+    state,
+  )
+}
 
 describe('import progress model', () => {
   it('starts a stage without completing it and completes the prior stage on next start', () => {
@@ -156,5 +173,130 @@ describe('import progress model', () => {
   it('formats elapsed time as minutes and seconds', () => {
     expect(formatElapsed(0)).toBe('0:00')
     expect(formatElapsed(65_000)).toBe('1:05')
+  })
+
+  it('keeps single-call steps indeterminate and ignores their server fractions', () => {
+    let state = startStages(['inferring_promises'])
+    state = advanceImportProgress(
+      state,
+      { type: 'progress', stage: 'inferring_promises', done: 1, total: 2 },
+      1_000,
+    )
+
+    expect(isIndeterminate('inferring_promises')).toBe(true)
+    expect(state.stages.inferring_promises).toBeUndefined()
+    expect(stageStatus(state, 'inferring_promises')).toBe('now')
+
+    const singletons: ProjectImportStageName[] = [
+      'inferring_acts',
+      'inferring_promises',
+      'inferring_overview',
+      'checking_consistency',
+      'saving',
+    ]
+    for (const stage of singletons) expect(isIndeterminate(stage)).toBe(true)
+    const counted: ProjectImportStageName[] = [
+      'parsing_scenes',
+      'segmenting_beats',
+      'inferring_entities',
+      'extracting_facts',
+    ]
+    for (const stage of counted) expect(isIndeterminate(stage)).toBe(false)
+  })
+
+  it('records when each stage started for the step clock', () => {
+    let state = startStages(['parsing_scenes', 'segmenting_beats'])
+    state = advanceImportProgress(
+      state,
+      { type: 'stage', name: 'segmenting_beats' },
+      5_000,
+    )
+
+    expect(state.stageStartedAtMs).toEqual({
+      parsing_scenes: 0,
+      segmenting_beats: 1_000,
+    })
+  })
+
+  it('stops the current stage on a failed frame', () => {
+    const state = advanceImportProgress(
+      startStages(['parsing_scenes', 'segmenting_beats', 'inferring_acts']),
+      { type: 'failed' },
+      3_000,
+    )
+
+    expect(state.stoppedStage).toBe('inferring_acts')
+    expect(stageStatus(state, 'inferring_acts')).toBe('stopped')
+    expect(stageStatus(state, 'segmenting_beats')).toBe('done')
+    expect(stageStatus(state, 'inferring_entities')).toBe('waiting')
+
+    const resumed = advanceImportProgress(
+      state,
+      { type: 'stage', name: 'inferring_entities' },
+      9_000,
+    )
+    expect(resumed.stoppedStage).toBeNull()
+    expect(resumed.completedStages).not.toContain('inferring_acts')
+  })
+
+  it('does not count a cached burst right after a stage start as speed', () => {
+    let state = startStages(['segmenting_beats'])
+    // A resume replays 20 saved scenes the instant the stage starts.
+    state = advanceImportProgress(
+      state,
+      { type: 'progress', stage: 'segmenting_beats', done: 20, total: 40 },
+      50,
+    )
+    for (let k = 1; k <= 5; k += 1) {
+      state = advanceImportProgress(
+        state,
+        {
+          type: 'progress',
+          stage: 'segmenting_beats',
+          done: 20 + k,
+          total: 40,
+        },
+        50 + k * 30_000,
+      )
+    }
+
+    // 5 real scenes at 30 s each; 15 segmenting + 40 facts still to go.
+    expect(estimateRemainingMs(state, 150_050)).toBe(55 * 30_000)
+    // Scene steps at the measured 30 s, plus every single-call step's prior:
+    // 450 + 1200 + acts 10 + entities 41.6 + threads 62 + overview 35.2
+    // + consistency 25.6 = 1824.4 s, ±40%.
+    expect(etaRange(state, 40)).toEqual({ lowMin: 18, highMin: 43 })
+  })
+
+  it('estimates from per-scene priors for every step before any speed is known', () => {
+    // 60 scenes: 8.05 s/scene over six steps + acts 11.4 s = 494.4 s, ±40%.
+    expect(etaRange(initialImportProgressState, 60)).toEqual({
+      lowMin: 4,
+      highMin: 12,
+    })
+
+    // Threads now: facts 118.2 s + threads 93 + overview 52.8
+    // + consistency 38.4 = 302.4 s, ±40%.
+    const threads = startStages([
+      'parsing_scenes',
+      'segmenting_beats',
+      'inferring_acts',
+      'inferring_entities',
+      'inferring_promises',
+    ])
+    expect(etaRange(threads, 60)).toEqual({ lowMin: 3, highMin: 8 })
+    expect(etaRange(initialImportProgressState, 0)).toBeNull()
+  })
+
+  it('gives a usual range for each single-call step', () => {
+    expect(usualRange('inferring_acts', 20)).toEqual({
+      lowSec: 6,
+      highSec: 14,
+    })
+    expect(usualRange('inferring_promises', 60)).toEqual({
+      lowSec: 56,
+      highSec: 130,
+    })
+    expect(usualRange('parsing_scenes', 60)).toBeNull()
   })
 })
