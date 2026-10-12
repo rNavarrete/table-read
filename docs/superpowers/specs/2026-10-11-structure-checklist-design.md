@@ -50,9 +50,9 @@ The picker choice is remembered per viewer in `localStorage`, like `tr.ledger.vi
 
 | Structure | Stages (canonical order) | How it's produced |
 |---|---|---|
-| TV act structure | Cold open (when `format.coldOpen`), Act N turn / Act N out for each act up to `format.actCount`, Climax, Tag (when `format.tag`) | **No AI.** Read from the import's `storyOverview.beatSheet` (labels such as "Act One Turn", with `beatId`, `sceneId`, `act`). A stage is Hit when a row with that label exists, else Missing. Computed client-side; nothing stored. |
+| TV act structure | The import beat sheet's own label list: Cold open (when `format.coldOpen`); then for acts One to N−1 an "Act N Turn" and an "Act N Out"; the last act gets only "Act N Out"; then Climax; then Tag (when `format.tag`). For a 4-act format: Act One Turn, Act One Out … Act Three Out, Act Four Out, Climax. | **No AI.** Read from the import's `storyOverview.beatSheet` (rows carry `label`, `beatId`, `sceneId`, `act`). Labels match case-insensitively, with whitespace collapsed; "Teaser" also counts as Cold open. A stage is Hit when a row with its label exists (the first such row wins), else Missing. Computed client-side; nothing stored. With no beat sheet every stage is Missing, and with no format the panel says the format isn't known yet. |
 | Hero's Journey | 12 stages: the existing `HeroJourneyStageName` enum (`ordinary_world` … `return_with_elixir`) | AI check |
-| Story Circle | 8 stages: you, need, go, search, find, take, return, change | AI check |
+| Story Circle | 8 stages (ids prefixed `circle_`): you, need, go, search, find, take, return, change | AI check |
 | Save the Cat | 15 beats: opening image, theme stated, set-up, catalyst, debate, break into two, B story, fun and games, midpoint, bad guys close in, all is lost, dark night of the soul, break into three, finale, final image | AI check |
 
 **Save the Cat and the import's ban.** The import's story-overview prompt bans Save the Cat labels from the beat sheet (`render.py:585-596`). That ban stays: it stops film vocabulary leaking into the TV beat sheet. Here the writer picks Save the Cat on purpose. The prompt notes that it's a feature-film template, and can say it doesn't fit a TV episode.
@@ -73,15 +73,18 @@ One click runs one structure: one model call, then one verification call.
      - `rationale`: one sentence; it's the "doesn't fit" note when `applies` is false
      - `stages[]`, each with `stage` (enum), `status` (`hit` | `thin` | `missing`), `beatId` (required for hit and thin, null for missing) and `reason` (one line).
    - **Server-side validation:**
-     - every stage of the structure appears exactly once, in canonical order
-     - cited beat ids exist
-     - a schema failure gets exactly one retry, then `SCHEMA_INVALID_LLM` (rule 9).
+     - every stage of the structure appears exactly once; the server puts them in canonical order
+     - every stage belongs to the requested structure
+     - hit and thin stages cite a beat id that exists; missing stages cite none.
+   - **Retries:** a shape failure is retried once inside the LLM client, as for every op. A validation failure above gets one retry with the problems listed, then `SCHEMA_INVALID_LLM` (rule 9).
+   - **Doesn't fit:** when `applies` is false, the stages are dropped and verification is skipped. Only the rationale is stored.
    - **Evidence:** the server attaches the evidence quote from the cited beat's own text. The model never writes quotes.
 2. **Verify (`verify_structure_check`, Sonnet 5.5 via `writer`, effort low).**
    - **Input:** each hit or thin stage's claim plus a bounded excerpt of its cited beat (same 520-char cap as the map verifier).
    - **Output:** for each stage, `supported` true/false plus a reason.
    - **Unsupported stages** become **Couldn't verify** and keep the verifier's reason. They are never deleted, and they never sink the other stages.
    - **Missing stages** are not verified, because absence can't be cited.
+   - **A stage the verifier returns no verdict for** is also Couldn't verify, with the reason "Not verified". That label describes the check, not the story, so it's not a fabricated answer. Verdicts for stages that weren't claimed are ignored.
    - **If the verify call itself fails** after its one retry, the whole check fails with `SCHEMA_INVALID_LLM` and nothing is saved. There is no fabricated fallback.
 3. **Save.** The result is written through the snapshot helper (`storage/snapshots.py`, rule 4) as one snapshot.
 
@@ -94,13 +97,13 @@ One click runs one structure: one model call, then one verification call.
 All homes change together (rule 3): Zod in `packages/contract`, Pydantic in `schemas.py`, the data-contract doc, the prompt-spec summary, and regenerated `config/tool_schemas/`.
 
 ```ts
-StructureLens = 'tv_act_structure' | 'heros_journey' | 'story_circle' | 'save_the_cat'
+StructureLens = 'heros_journey' | 'story_circle' | 'save_the_cat'   // the AI structures; TV act structure is web-only
 StructureStageStatus = 'hit' | 'thin' | 'missing' | 'unverified'
 StructureStage = { stage: StructureStageName, status, beatId: Id | null, sceneId: Id | null,
                    reason: string, evidenceQuote: string | null }
 StructureCheck = { lens, applies: boolean, rationale: string, stages: StructureStage[],
                    sourceHash: string, checkedAt: string, promptVersion: string }
-// stored at episode.structureChecks: Partial<Record<Exclude<StructureLens,'tv_act_structure'>, StructureCheck>>
+// stored at episode.structureChecks: StructureCheck[] (default []), at most one per lens; a new check replaces that lens's entry
 ```
 
 **Schema notes:**
@@ -108,16 +111,23 @@ StructureCheck = { lens, applies: boolean, rationale: string, stages: StructureS
 - **Stage names:** `StructureStageName` is one enum covering the AI structures' stages (12 + 8 + 15). The server checks each stage belongs to the requested structure. That keeps the tool schema strict and static.
 - **Hero's Journey:** reuses `HeroJourneyStageName`'s values.
 - **No numeric constraints:** `minimum`/`maximum` are stripped for strict tools.
+- **A list, not a keyed map:** `make check-contract` can't compare a Pydantic `dict` keyed by an enum against Zod's record.
 
 **Server-filled fields:** `sceneId` comes from the beat, and the quote from the beat text.
 
-**Source hash:** covers scene and beat ids plus beat `scriptText`, the same inputs as the Story Map's source hash. A mismatch with the head shows the stale line.
+**Source hash:** a plain fingerprint the server and the browser compute the same way. Walk the episode's scenes in order, and each scene's beats in order. For each beat, add `sceneId + "\x1f" + beatId + "\x1f" + scriptText + "\x1e"` (empty `scriptText` when absent). Take the SHA-256 of the UTF-8 string as lowercase hex. The web recomputes it from the project it already has (`crypto.subtle`), and shows the stale line when it differs from the stored `sourceHash`. This is narrower than the Story Map's hash on purpose: it changes only when the script text or scene and beat ids change.
 
 **API:**
 
-- `POST /api/v1/projects/{pid}/structure-checks/{lens}`, with `If-Match` against the head snapshot (409 `CONFLICT_STALE_HEAD` otherwise). Returns the saved `StructureCheck` and the new head.
+- `POST /api/v1/projects/{pid}/structure-checks/{lens}`, with `If-Match` against the head snapshot (409 `CONFLICT_STALE_HEAD` otherwise). Returns the updated `Project` (as accept does), which carries the new head and the saved check.
 - Saved checks are read from the project doc; there is no GET endpoint.
-- `tv_act_structure` is rejected with 400, since it's never generated.
+- Any `lens` outside `StructureLens`, `tv_act_structure` included, is rejected with 400 `VALIDATION`.
+- An episode with no beats returns 409 `STRUCTURE_CHECK_NOT_READY` (a new code, added to data contract §4).
+- Errors follow accept's mapping:
+  - 409 `CONFLICT_STALE_HEAD`
+  - 502 `SCHEMA_INVALID_LLM`
+  - 503 `LLM_UNAVAILABLE`, for provider errors and timeouts.
+- **Locks:** a check runs on a locked episode (owner answer 1). It never runs the whole-doc lock assertion, because that would flag the new `structureChecks` entry. Instead the lock-violation test proves nothing outside `episode.structureChecks` changes.
 
 ## Repo rules this touches
 
