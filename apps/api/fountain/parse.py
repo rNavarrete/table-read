@@ -165,6 +165,16 @@ _FRONT_MATTER_SIGNAL_RE = re.compile(
     re.IGNORECASE,
 )
 _FADE_IN_RE = re.compile(r"^\s*fade\s+in\s*[:.]?\s*$", re.IGNORECASE)
+# "Written by", "by", "Teleplay by Jane Doe": the credit block of a plain title page.
+_CREDIT_LINE_RE = re.compile(
+    r"^\s*(?:(?:written|teleplay|story|screenplay|created|developed)\s+)?by(?:\s+\S.*)?$",
+    re.IGNORECASE,
+)
+# Title-page lines are short (a title, a name, a date, ACT ONE); story text that
+# opens before the first heading (a montage, a narration) runs longer.
+_TITLE_PAGE_LINE_MAX_WORDS = 8
+# A SETS or CAST list line ("JOSH LYMAN, Deputy Chief of Staff"); action runs longer.
+_LIST_LINE_MAX_WORDS = 12
 
 
 def _strip_result(
@@ -201,7 +211,17 @@ def strip_screenplay_front_matter(source: str) -> FrontMatterStrip:
             _TITLE_PAGE_FIELD_RE.match(line) or _FRONT_MATTER_SIGNAL_RE.match(line)
             for line in prefix
         )
-        if not slug_before_fade or metadata_signal:
+        # Headings before FADE IN are fine when they are a SETS list: everything
+        # from the first one down reads as a list. Real scenes carry action lines,
+        # and cutting through them once took 15 scenes of Mr. Plow, whose only
+        # FADE IN sits mid-script under a "Written by" title page.
+        first_heading = next((i for i, line in enumerate(prefix) if is_slugline(line)), None)
+        listed = first_heading is None or all(
+            is_slugline(line) or len(line.split()) <= _LIST_LINE_MAX_WORDS
+            for line in prefix[first_heading:]
+            if line.strip()
+        )
+        if (not slug_before_fade or metadata_signal) and listed:
             return _strip_result(source, lines[fade_index + 1 :], prefix)
 
     first_slug = next((index for index, line in enumerate(lines) if is_slugline(line)), None)
@@ -210,6 +230,16 @@ def strip_screenplay_front_matter(source: str) -> FrontMatterStrip:
         meaningful = [line for line in prefix if line.strip()]
         if meaningful and all(
             _TITLE_PAGE_FIELD_RE.match(line) or line[:1].isspace() for line in meaningful
+        ):
+            return _strip_result(source, lines[first_slug:], prefix)
+        # A plain title page: PDF extraction drops the indentation above, so
+        # "Mr. Plow" / Written by / Jon Vitti / ACT ONE stayed in as scene 1 and
+        # its credits became story facts. Any act marker in it still counts:
+        # printed_structure reads the stripped front matter too.
+        if (
+            meaningful
+            and any(_CREDIT_LINE_RE.match(line) for line in meaningful)
+            and all(len(line.split()) <= _TITLE_PAGE_LINE_MAX_WORDS for line in meaningful)
         ):
             return _strip_result(source, lines[first_slug:], prefix)
 

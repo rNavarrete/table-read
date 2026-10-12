@@ -183,6 +183,62 @@ def test_strip_front_matter_preserves_unrecognized_pre_slug_story_text():
     assert strip_screenplay_front_matter(source).content == source
 
 
+@pytest.mark.parametrize(
+    "title_page",
+    [
+        # Mr. Plow's PDF: no Fountain fields, no indentation, no FADE IN. Left in,
+        # it became scene 1 and "written by" became a story fact.
+        ['"The Long Pour"', "", "Written by", "Example Writer", "", "ACT ONE", ""],
+        # The Americans' PDF: a bare "by", a date and the teaser marker.
+        ['"The Long Pour"', "by", "Example Writer", "October 2011", "TEASER"],
+        ["THE LONG POUR", "Teleplay by Example Writer", "Story by Other Writer", ""],
+    ],
+)
+def test_strip_front_matter_removes_a_plain_pdf_title_page(title_page):
+    source = "\n".join([*title_page, "INT. BAR - NIGHT", "Dan pours a drink."])
+
+    result = strip_screenplay_front_matter(source)
+
+    assert result.content == "INT. BAR - NIGHT\nDan pours a drink."
+    assert result.removed_line_count == len(title_page)
+
+
+def test_a_mid_script_fade_in_under_a_title_page_never_cuts_real_scenes():
+    """Mr. Plow: a "Written by" title page, real scenes, then a FADE IN in scene 16.
+    The FADE IN rule once cut everything above it; now only the title page goes."""
+    scenes = [
+        "INT. BAR - NIGHT",
+        "Dan pours a drink and slides it down the bar to a stranger in a wet coat.",
+        "EXT. STREET - DAY",
+        "Reyes waits by the curb while the snowplow grinds past and buries his car.",
+        "FADE IN:",
+        "INT. CONVENTION CENTER - LATER",
+        "The crowd applauds.",
+    ]
+    source = "\n".join(['"The Long Pour"', "Written by", "Example Writer", "", *scenes])
+
+    result = strip_screenplay_front_matter(source)
+
+    assert result.content == "\n".join(scenes)
+    assert result.removed_line_count == 4
+
+
+def test_strip_front_matter_keeps_an_opening_montage_before_the_first_heading():
+    """Field of Dreams opens on narration with no heading; that is story."""
+    source = "\n".join(
+        [
+            "MONTAGE OF PHOTOS",
+            "RAY (V.O.)",
+            "My father was born in North Dakota and never once mentioned it to anyone.",
+            "A faded photo, signed by a man nobody in the family remembers meeting.",
+            "INT. KITCHEN - NIGHT",
+            "Ray eats.",
+        ]
+    )
+
+    assert strip_screenplay_front_matter(source).content == source
+
+
 # ── stage 2: typed-start normalization ─────────────────────────────────────
 
 
