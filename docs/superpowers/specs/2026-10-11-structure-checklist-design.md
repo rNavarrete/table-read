@@ -125,10 +125,12 @@ StructureCheck = { lens, applies: boolean, rationale: string, stages: StructureS
 - **Rule 2:** this is a new generation path, so the lock-violation test comes first. A check must never change scene, beat, plan or ledger content, and the test asserts the doc is identical outside `episode.structureChecks`.
 - **Rule 4:** every save goes through the snapshot helper.
 - **Rule 5:** logs carry ids, structure, token counts and `PROMPT_VERSION`, never stage reasons or quotes.
-- **Rule 7:** two new prompts, so bump `PROMPT_VERSION` and add eval cases. `make evals` must run before merge; the owner runs or approves it, since it costs money.
-  - *Field of Dreams*-like single-hero script: Hero's Journey applies.
-  - West Wing-like ensemble: Hero's Journey doesn't fit.
-  - Fabricated-evidence probe: the verifier downgrades the stage.
+- **Rule 7:** two new prompts, so bump `PROMPT_VERSION`. **Sign-off is a hand check, not `make evals`** (owner decision, 2026-10-11): `make evals` hangs and is inefficient, and won't be re-run until the evals are redesigned. Before merge, with the owner's OK (about $1 total), run each AI structure in the local app on *Field of Dreams* and the West Wing pilot, and record the results in the PR:
+  - stage statuses and evidence for each run
+  - Hero's Journey applies on *Field of Dreams*
+  - Hero's Journey doesn't fit the West Wing pilot
+  - nothing is thrown away when a stage fails verification
+  - cost and time for each check.
 - **Rule 8:** checks only start from a click on the Ledger Structure tab. Nothing runs in Write.
 - **Rule 10:** no new dependencies.
 
@@ -158,6 +160,7 @@ StructureCheck = { lens, applies: boolean, rationale: string, stages: StructureS
 - Deleting the Narrative Map code, card, run table use and contract types (step 4). Until then the old card stays on the Story tab.
 - Re-citing a stage whose claim is right but whose beat is wrong. A later improvement if "Couldn't verify" turns up often for that reason.
 - Structures beyond these four.
+- Redesigning the evals. That's a separate task, and it has to be done before `make evals` is run again.
 
 ## Open questions for the owner
 
