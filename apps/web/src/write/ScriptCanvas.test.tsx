@@ -285,8 +285,11 @@ describe('ScriptCanvas', () => {
     expect(screen.getByTestId('formatted-script').textContent).toContain(
       "Dan doesn't know yet.",
     )
-    expect(screen.getByText('Locked — unlock to edit')).not.toBeNull()
+    // UI spec §4: caret placement reveals the hint (CSS peer-focus), so the
+    // locked block must take focus without becoming an editor.
     await user.click(screen.getByTestId('formatted-script'))
+    expect(document.activeElement).toBe(screen.getByTestId('formatted-script'))
+    expect(screen.getByText('Locked — click the lock to edit')).not.toBeNull()
     expect(screen.queryByTestId('beat-beat-1-2')).toBeNull()
   })
 })
