@@ -4,6 +4,7 @@ import {
   InferredActBreaks,
   NarrativeMap,
   NarrativePromises,
+  ProjectImportProgressEvent,
   ProjectImportStageName,
   StoryThread,
   WorldRule,
@@ -292,6 +293,88 @@ describe('ProjectImportStageName', () => {
     expect(stages.indexOf('inferring_promises')).toBe(
       stages.indexOf('inferring_entities') + 1,
     )
+  })
+})
+
+describe('ProjectImportProgressEvent found', () => {
+  const format = {
+    genre: 'drama',
+    runtimeMinutes: 60,
+    actCount: 4,
+    coldOpen: true,
+    tag: false,
+    serialization: 0.5,
+  }
+  const examples = [
+    {
+      kind: 'scenes',
+      scenes: [
+        {
+          index: 0,
+          slugline: 'INT. BAR - NIGHT',
+          lineCount: 12,
+          intExt: 'int',
+        },
+      ],
+    },
+    {
+      kind: 'scene',
+      index: 3,
+      beatCount: 5,
+      whatHappens: 'Marta finds the transfer.',
+      failed: false,
+    },
+    { kind: 'acts', format, sceneActs: [1, 1, 2] },
+    { kind: 'castRead', sceneIndexes: [0, 1, 2] },
+    { kind: 'cast', total: 7, characters: [{ name: 'MARTA', sceneCount: 9 }] },
+    {
+      kind: 'threads',
+      threads: [
+        {
+          label: 'The money',
+          status: 'open',
+          setupSceneIndex: 1,
+          payoffSceneIndex: null,
+        },
+      ],
+    },
+    {
+      kind: 'overview',
+      logline: 'A bartender learns her brother moved the money.',
+      beatSheet: [{ label: 'Catalyst', sceneIndex: null }],
+    },
+    { kind: 'facts', index: 2, factCount: 4, secretCount: 1, failed: false },
+    { kind: 'flags', contradictions: 1, tensions: 2, other: 0 },
+  ]
+
+  it.each(examples)('accepts a $kind frame', (data) => {
+    const event = { type: 'found', stage: 'parsing_scenes', data }
+    expect(ProjectImportProgressEvent.parse(event)).toEqual({
+      ...event,
+      cached: false,
+    })
+  })
+
+  it('rejects a negative index and an unknown kind', () => {
+    const frame = (data: unknown) => ({
+      type: 'found',
+      stage: 'segmenting_beats',
+      data,
+    })
+    expect(() =>
+      ProjectImportProgressEvent.parse(
+        frame({
+          kind: 'scene',
+          index: -1,
+          beatCount: 1,
+          whatHappens: '',
+          failed: false,
+        }),
+      ),
+    ).toThrow()
+    expect(() =>
+      ProjectImportProgressEvent.parse(frame({ kind: 'mystery' })),
+    ).toThrow()
   })
 })
 
