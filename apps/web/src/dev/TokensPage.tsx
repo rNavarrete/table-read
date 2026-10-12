@@ -194,6 +194,33 @@ const TOKEN_GROUPS: TokenGroup[] = [
     ],
   },
   {
+    title: 'Import board',
+    tokens: [
+      {
+        cssVar: '--tr-board-paper',
+        description: 'index card paper',
+        kind: 'color',
+      },
+      { cssVar: '--tr-board-rule', description: 'card rules', kind: 'color' },
+      {
+        cssVar: '--tr-board-rule-top',
+        description: 'card header rule',
+        kind: 'color',
+      },
+      { cssVar: '--tr-shadow-card-board', kind: 'shadow' },
+      { cssVar: '--tr-shadow-card-lift', kind: 'shadow' },
+      { cssVar: '--tr-motion-spring', kind: 'motion' },
+      { cssVar: '--tr-motion-settle', kind: 'motion' },
+      { cssVar: '--tr-motion-deal', kind: 'motion' },
+      { cssVar: '--tr-motion-flight', kind: 'motion' },
+      { cssVar: '--tr-motion-string', kind: 'motion' },
+      { cssVar: '--tr-card-board-w', kind: 'width' },
+      { cssVar: '--tr-card-board-h', kind: 'width' },
+      { cssVar: '--tr-card-board-compact-w', kind: 'width' },
+      { cssVar: '--tr-card-board-compact-h', kind: 'width' },
+    ],
+  },
+  {
     title: 'Overview panel',
     tokens: [
       { cssVar: '--tr-overview-expand-bg', kind: 'color' },

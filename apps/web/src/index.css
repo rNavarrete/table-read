@@ -33,18 +33,48 @@ body {
     var(--tr-motion-ease-standard) both;
 }
 
-@keyframes tr-import-progress {
+/* Import board (UI spec §2a): entrance keyframes. Tilt, flight, lamp,
+   count-up and sweep all stop under reduced motion (guard below). */
+@keyframes tr-board-fade {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+@keyframes tr-board-drop {
+  from {
+    opacity: 0;
+    translate: 0 -14px;
+    rotate: calc(var(--tilt, 0deg) - 6deg);
+  }
+}
+
+@keyframes tr-board-pop {
+  from {
+    scale: 0;
+  }
+}
+
+@keyframes tr-board-pulse {
+  50% {
+    box-shadow: 0 0 0 7px var(--tr-coral-soft);
+  }
+}
+
+@keyframes tr-board-breathe {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@keyframes tr-board-sweep {
   from {
     transform: translateX(-100%);
   }
   to {
-    transform: translateX(250%);
+    transform: translateX(290%);
   }
-}
-
-.tr-import-progress-indeterminate {
-  width: 40%;
-  animation: tr-import-progress 1.2s ease-in-out infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -52,8 +82,13 @@ body {
     animation: none;
   }
 
-  .tr-import-progress-indeterminate {
-    animation: none;
-    transform: translateX(75%);
+  .tr-board,
+  .tr-board * {
+    animation: none !important;
+    transition: none !important;
+  }
+
+  .tr-board [data-tilt] {
+    rotate: none !important;
   }
 }
