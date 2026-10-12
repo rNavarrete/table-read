@@ -1,7 +1,8 @@
 import { expect, test } from '@playwright/test'
 
 // Spec §12 flow 2 (verbatim): Dashboard → Import → upload fixture Fountain →
-// explicit create/analyze → Plan scenes/beats → Ledger pending queue. Runs
+// explicit create/analyze → Plan scenes/beats → Ledger pending queue. The
+// import board (2026-10-12) holds at the finale until Open your story. Runs
 // against the real api + seeded fixture DB + MockLlmClient — the real
 // create-and-import pipeline and SSE stream, no route interception.
 //
@@ -23,7 +24,7 @@ const SOURCE = [
   'Marta sets a coaster straight on the bar.',
 ].join('\n')
 
-test('import a script → the Ledger Story tab shows the pending queue', async ({
+test('import a script → the board holds at the finale → Open your story shows the pending queue', async ({
   page,
 }) => {
   await page.goto('/projects/new/import')
@@ -45,8 +46,28 @@ test('import a script → the Ledger Story tab shows the pending queue', async (
   // The only AI trigger. Real SSE stream runs the create-and-import.
   await page.getByRole('button', { name: 'Create & analyze script' }).click()
 
-  // On success the writer lands on the Ledger's Story tab.
-  await page.waitForURL(/\/ledger\?project=/, { timeout: 20_000 })
+  // The board builds live from `found` frames. The mock finishes in under a
+  // second, so it must still reach the finale, and it holds there: nothing
+  // navigates until the writer chooses.
+  const board = page.getByTestId('import-board')
+  await expect(board.getByTestId('board-finale')).toBeVisible({
+    timeout: 20_000,
+  })
+  await expect(board.getByTestId('board-headline')).toHaveText(
+    'The board is up.',
+  )
+  await expect(board.getByTestId('board-card-0')).toHaveAttribute(
+    'data-state',
+    'read',
+  )
+  await expect(board.locator('[data-testid^="board-act-"]')).not.toHaveCount(0)
+  await expect(page).toHaveURL(/\/projects\/new\/import/)
+
+  // Open your story (focused) lands on the Ledger's Story tab.
+  const openStory = board.getByTestId('open-your-story')
+  await expect(openStory).toBeFocused()
+  await openStory.click()
+  await page.waitForURL(/\/ledger\?project=/)
   await expect(
     page.getByRole('button', { name: 'Story', pressed: true }),
   ).toBeVisible()
