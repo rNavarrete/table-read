@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Breaking the Board</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Courier+Prime&family=Instrument+Sans:wght@400;500;600&family=Newsreader:opsz,wght@6..72,400;6..72,500&display=swap" rel="stylesheet" />
+<style>
+/* Table Read "Quiet Tool" tokens (apps/web/src/styles/tokens.css) */
+:root{
+  --page:#F6F6F3; --raised:#FFFFFF; --sunken:#F0F0EC; --clay:#EBEBE6; --desk:#F1EEEA;
+  --border:#E8E8E2; --border-strong:#D9D9D2;
+  --ink:#26272B; --ink-2:#84857D; --ink-3:#9a9b92;
+  --accent:#5B79A6; --accent-ink:#33445E; --sky:#41608A; --sage:#7D9678; --amber:#8A6120;
+  --paper:#FFFEFB; --rule:rgba(65,96,138,.10); --rule-top:rgba(91,121,166,.55);
+  --sh-card:0 1px 1px rgba(38,39,43,.05),0 3px 8px rgba(38,39,43,.06);
+  --sh-lift:0 2px 4px rgba(38,39,43,.06),0 16px 32px rgba(38,39,43,.16);
+  --spring:cubic-bezier(.34,1.42,.64,1); --settle:cubic-bezier(.2,0,0,1);
+  --serif:"Newsreader",Georgia,serif; --sans:"Instrument Sans",system-ui,sans-serif; --mono:"Courier Prime","Courier New",monospace;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--page);color:var(--ink);font-family:var(--sans);-webkit-font-smoothing:antialiased}
+.wrap{max-width:1280px;margin:0 auto;padding:28px 32px 40px}
+.eyebrow{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3)}
+header{display:flex;justify-content:space-between;align-items:flex-end;gap:24px}
+#headline{font-family:var(--serif);font-weight:500;font-size:40px;line-height:46px;letter-spacing:-.01em;margin:6px 0 4px;transition:opacity .28s var(--settle),transform .28s var(--settle)}
+#headline.out{opacity:0;transform:translateY(6px)}
+#caption{font-size:14px;color:var(--ink-2);min-height:20px;font-variant-numeric:tabular-nums}
+.meta{text-align:right;font-size:13px;color:var(--ink-2);font-variant-numeric:tabular-nums;line-height:20px}
+.meta b{font-weight:500;color:var(--ink)}
+/* progress spine */
+#spine{display:grid;grid-template-columns:repeat(9,1fr);margin:22px 0 18px;position:relative}
+#spine::before{content:"";position:absolute;left:4%;right:4%;top:5px;height:1px;background:var(--border-strong)}
+#spinefill{position:absolute;left:4%;top:5px;height:1px;background:var(--accent);width:0;transition:width .6s var(--settle)}
+.sp{position:relative;display:flex;flex-direction:column;align-items:center;gap:8px;font-size:11px;color:var(--ink-3)}
+.sp i{width:11px;height:11px;border-radius:50%;background:var(--page);border:1px solid var(--border-strong);transition:all .3s}
+.sp.done{color:var(--ink-2)}.sp.done i{background:var(--accent);border-color:var(--accent)}
+.sp.now{color:var(--ink);font-weight:500}.sp.now i{border-color:var(--accent);box-shadow:0 0 0 4px rgba(91,121,166,.16);animation:pulse 1.8s ease-in-out infinite}
+@keyframes pulse{50%{box-shadow:0 0 0 7px rgba(91,121,166,.06)}}
+/* layout */
+.main{display:grid;grid-template-columns:minmax(0,1fr) 284px;gap:24px;align-items:start}
+#board{position:relative;background:var(--desk);border-radius:18px;padding:26px;min-height:470px;overflow:hidden;transition:transform .7s var(--settle);box-shadow:inset 0 1px 0 rgba(255,255,255,.6),inset 0 0 0 1px rgba(38,39,43,.04)}
+#board.pull{transform:scale(.975)}
+#lamp{position:absolute;width:300px;height:220px;border-radius:50%;left:0;top:0;pointer-events:none;opacity:0;
+  background:radial-gradient(closest-side,rgba(255,255,255,.95),rgba(255,255,255,0));transition:transform .45s var(--settle),opacity .5s;z-index:0}
+#lamp.idle{animation:breathe 2.6s ease-in-out infinite}
+@keyframes breathe{50%{opacity:.35}}
+#frames{position:relative;z-index:1;display:flex;flex-wrap:wrap;gap:18px;align-items:flex-start}
+.frame.order{flex:1 1 100%}
+.frame{border-radius:14px;padding:14px;transition:background-color .5s var(--settle)}
+.frame.act{background:var(--clay)}
+.flab{height:22px;margin-bottom:8px;position:relative}
+.tape{position:absolute;left:-4px;top:-4px;font-family:var(--mono);font-size:12px;letter-spacing:.06em;color:var(--accent-ink);
+  background:rgba(255,253,240,.92);padding:3px 12px 2px;transform:rotate(-1.5deg);box-shadow:0 1px 2px rgba(38,39,43,.10);
+  border-left:1px dashed rgba(38,39,43,.08);border-right:1px dashed rgba(38,39,43,.08)}
+.flabs{font-size:11px;color:var(--ink-2);position:absolute;right:0;top:2px}
+.grid{display:grid;gap:10px}
+/* index card */
+.card{width:118px;height:88px;background:var(--paper);border-radius:4px;box-shadow:var(--sh-card);position:relative;padding:7px 8px 6px;
+  display:flex;flex-direction:column;transition:box-shadow .35s var(--settle),transform .45s var(--spring);
+  background-image:linear-gradient(var(--rule-top),var(--rule-top)),repeating-linear-gradient(to bottom,transparent 0 13px,var(--rule) 13px 14px);
+  background-size:100% 1px,100% 100%;background-position:0 21px,0 22px;background-repeat:no-repeat,no-repeat}
+.card.unread{transform:rotate(var(--tilt))}
+.card.lift{box-shadow:var(--sh-lift);transform:translateY(-3px) scale(1.03);z-index:3}
+.card .top{display:flex;align-items:center;gap:5px;font-family:var(--mono);font-size:10.5px;color:var(--ink-3);white-space:nowrap;overflow:hidden;height:14px}
+.card .num{color:var(--ink-2)}
+.dot{width:5px;height:5px;border-radius:50%;flex:none}
+.card .body{flex:1;margin-top:7px;font-family:var(--serif);font-size:12.5px;line-height:14px;color:var(--ink);overflow:hidden;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical}
+.card .body.pending{font-family:var(--sans);font-size:10.5px;color:var(--ink-3);padding-top:20px}
+.card .foot{display:flex;justify-content:space-between;align-items:center;height:12px}
+.marks{display:flex;gap:2px}.mark{width:7px;height:2px;border-radius:1px;background:#6f7068;transform:rotate(-8deg)}
+.stamp{font-family:var(--mono);font-size:10px;color:var(--sky);opacity:0;transform:scale(1.4) rotate(-6deg);transition:opacity .25s,transform .35s var(--spring)}
+.stamp.on{opacity:1;transform:scale(1) rotate(-6deg)}
+.castmark{position:absolute;left:8px;right:8px;bottom:-1px;height:2px;border-radius:2px;background:linear-gradient(90deg,rgba(91,121,166,.0),rgba(91,121,166,.55),rgba(91,121,166,0));opacity:0;transition:opacity .4s}
+.castmark.on{opacity:1}
+.pin{position:absolute;top:-5px;left:50%;width:11px;height:11px;margin-left:-5px;border-radius:50%;z-index:5;
+  background:radial-gradient(circle at 35% 30%,#8fa6c8,var(--sky) 60%);box-shadow:0 2px 3px rgba(38,39,43,.28);transform:scale(0);transition:transform .35s var(--spring)}
+.pin.on{transform:scale(1)}
+#strings{position:absolute;inset:0;z-index:4;pointer-events:none;overflow:visible}
+/* deck */
+#deck{position:absolute;left:26px;top:26px;width:118px;height:88px;z-index:2}
+#deck .dc{position:absolute;inset:0;background:var(--paper);border-radius:4px;box-shadow:var(--sh-card)}
+#deckLabel{position:absolute;left:160px;top:48px;font-family:var(--mono);font-size:13px;color:var(--ink-2);z-index:2}
+/* rail */
+.rail{display:flex;flex-direction:column;gap:14px}
+@media (max-width:1100px){.main{grid-template-columns:minmax(0,1fr)}.rail{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}}
+.panel{background:var(--raised);border-radius:14px;padding:14px 16px;box-shadow:0 1px 2px rgba(38,39,43,.04),0 0 0 1px var(--border)}
+#logline{font-family:var(--serif);font-size:17px;line-height:23px;margin-top:6px;min-height:69px;transition:opacity .2s}
+.ruled{height:1px;background:var(--border);margin:11px 0}
+#format{font-size:13px;color:var(--ink-2);margin-top:4px;line-height:19px;min-height:38px}
+#cast{display:flex;flex-wrap:wrap;gap:10px 8px;margin-top:10px;min-height:70px}
+.pol{width:54px;background:var(--paper);border-radius:3px;padding:4px 4px 5px;box-shadow:var(--sh-card);transform:rotate(var(--r));opacity:0;
+  animation:drop .5s var(--spring) forwards}
+.pol .ph{height:40px;border-radius:2px;display:flex;align-items:center;justify-content:center;font-family:var(--serif);font-size:20px;color:var(--accent-ink);background:#E6ECF4}
+.pol .nm{font-family:var(--mono);font-size:9.5px;color:var(--ink);margin-top:3px;text-align:center;white-space:nowrap;overflow:hidden}
+.pol .ct{font-size:9.5px;color:var(--ink-3);text-align:center}
+@keyframes drop{from{opacity:0;transform:translateY(-14px) rotate(calc(var(--r) - 6deg))}to{opacity:1;transform:rotate(var(--r))}}
+#notes{font-size:13px;color:var(--ink-2);line-height:19px;margin-top:6px;min-height:58px}
+#notes .n{animation:fade .3s var(--settle)}
+@keyframes fade{from{opacity:0;transform:translateY(4px)}}
+.chip{display:inline-block;font-size:12px;border-radius:999px;padding:2px 10px;margin:2px 4px 0 0;background:var(--sunken);color:var(--ink-2)}
+.chip.amber{background:#F5ECDD;color:var(--amber)}
+.thread{display:flex;align-items:center;gap:8px;font-size:12.5px;margin-top:7px;animation:fade .35s var(--settle) both}
+.thread .no{width:16px;height:16px;border-radius:50%;background:var(--sky);color:#fff;font-size:10px;display:flex;align-items:center;justify-content:center;flex:none}
+.thread .st{margin-left:auto;font-size:11px;color:var(--sage)}
+.thread .st.open{color:var(--amber)}
+#fin{display:flex;justify-content:space-between;align-items:center;margin-top:20px;opacity:0;transform:translateY(6px);transition:all .45s var(--settle)}
+#fin.on{opacity:1;transform:none}
+#summary{font-size:14px;color:var(--ink-2);font-variant-numeric:tabular-nums}
+.btn{font-family:var(--sans);font-size:14px;font-weight:500;border:0;border-radius:10px;padding:10px 18px;cursor:pointer}
+.btn.primary{background:var(--accent);color:#fff;box-shadow:0 1px 2px rgba(38,39,43,.12),0 6px 16px rgba(91,121,166,.28)}
+.btn.link{background:none;color:var(--accent-ink)}
+#replay{position:fixed;right:20px;bottom:18px;background:var(--raised);color:var(--ink-2);box-shadow:0 0 0 1px var(--border),0 4px 12px rgba(38,39,43,.08)}
+.sweep{display:inline-block;width:90px;height:2px;background:var(--border);border-radius:2px;overflow:hidden;vertical-align:middle;margin-left:10px}
+.sweep i{display:block;width:35%;height:100%;background:var(--accent);animation:sw 1.5s linear infinite}
+@keyframes sw{from{transform:translateX(-100%)}to{transform:translateX(290%)}}
+@media (prefers-reduced-motion:reduce){*{animation-duration:0s!important;transition-duration:0s!important}.card.unread{transform:none}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <div class="eyebrow" id="eyebrow">Importing · The Long Pour</div>
+      <h1 id="headline">24 scenes found in your pages</h1>
+      <div id="caption">Usually 4–6 minutes for a script this size. Keep this tab open.</div>
+    </div>
+    <div class="meta"><div>Elapsed <b id="elapsed">0:00</b></div><div id="totals">&nbsp;</div></div>
+  </header>
+  <div id="spine"><div id="spinefill"></div></div>
+  <div class="main">
+    <div id="board">
+      <div id="lamp"></div>
+      <div id="deck"></div><div id="deckLabel"></div>
+      <div id="frames"></div>
+      <svg id="strings"></svg>
+    </div>
+    <div class="rail">
+      <div class="panel"><div class="eyebrow">Logline</div><div id="logline"><div class="ruled"></div><div class="ruled"></div><div class="ruled"></div></div></div>
+      <div class="panel"><div class="eyebrow">Format</div><div id="format"></div></div>
+      <div class="panel"><div class="eyebrow" id="castlab">Cast</div><div id="cast"></div></div>
+      <div class="panel"><div class="eyebrow" id="notelab">Notes</div><div id="notes"></div></div>
+    </div>
+  </div>
+  <div id="fin"><span id="summary"></span><span><button class="btn link">See it in Plan</button><button class="btn primary">Open your story</button></span></div>
+</div>
+<button class="btn" id="replay">Replay</button>
+<script>
+const SC=[['INT. THE LONG POUR – NIGHT','Marta pours the good bourbon and lies about the books.',5,4,'i'],['INT. BACK OFFICE','Dev finds a second ledger behind the ice machine.',3,6,'i'],['EXT. ALLEY','Ruth smokes and tells Dev to leave it alone.',2,2,'e'],['INT. WALK-IN','Marta and Dev argue where nobody can hear.',4,5,'i'],['INT. BAR – DAY','A regular spots Marta’s signature on a check.',3,3,'i'],['EXT. DISTRIBUTOR LOT','Luis calls in the loan a week early.',2,4,'e'],['INT. MARTA’S CAR','Marta rehearses a lie out loud.',1,1,'i'],['INT. BANK','The teller asks Marta for ID twice.',2,3,'i'],['INT. BAR – NIGHT','Dev confronts Marta in front of the staff.',6,7,'i'],['INT. DEV’S APARTMENT','Dev counts what he owes on a napkin.',2,3,'i'],['INT. BAR – MORNING','Ruth opens alone and finds the safe empty.',3,4,'i'],['EXT. RIVER WALK','Marta and Ruth walk; Ruth already knows.',3,5,'e'],['INT. LUIS’S OFFICE','Luis offers a deal with strings attached.',4,4,'i'],['INT. BAR – NIGHT','Kenji quits mid-shift over back pay.',2,2,'i'],['INT. WALK-IN','Dev hides the second ledger again.',1,3,'i'],['INT. HOSPITAL','Their mother’s bills arrive at once.',3,5,'i'],['EXT. BAR – NIGHT','Marta locks up and doesn’t go home.',2,2,'e'],['INT. BAR – DAWN','Marta finally tells Dev the truth.',5,6,'i'],['INT. LUIS’S OFFICE','Dev signs Luis’s deal to save her.',3,4,'i'],['INT. BAR – DAY','The staff learn who owns the bar now.',4,5,'i'],['EXT. ALLEY','Ruth forgives Dev, almost.',2,3,'e'],['INT. BANK','Marta pays the first installment.',2,2,'i'],['INT. BAR – NIGHT','Last call; the family drinks together.',4,4,'i'],['INT. BAR – LATER','Marta pours the good bourbon for herself.',1,2,'i']];
+const N=SC.length,SPLIT=9;
+const CAST=[['Marta',17,-2.5],['Dev',12,2],['Ruth',8,-1],['Luis',5,3],['Kenji',3,-3]];
+const TH=[['The second ledger',1,17,'Paid off'],['The early loan',5,21,'Paid off'],['Ruth already knows',11,20,'Paid off'],['Kenji’s back pay',13,null,'Open']];
+const STEPS=['Reading','Beats','Acts','Cast','Threads','Logline','Facts','Continuity','Saving'];
+const $=s=>document.getElementById(s), sleep=ms=>new Promise(r=>setTimeout(r,ms));
+const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
+let cards=[],run=0,clockT=null,stepStart=0,t0=0,elapsedT=null;
+
+function spine(i){$('spine').innerHTML='<div id="spinefill"></div>'+STEPS.map((s,j)=>`<div class="sp ${j<i?'done':j===i?'now':''}"><i></i>${s}</div>`).join('');
+  requestAnimationFrame(()=>{$('spinefill').style.width=(Math.min(i,8)/8*92)+'%'})}
+async function headline(text){const h=$('headline');h.classList.add('out');await sleep(220);h.textContent=text;h.classList.remove('out')}
+function caption(text,silent){$('caption').innerHTML=text+(silent?'<span class="sweep"><i></i></span>':'')}
+function stepClock(label,usual){clearInterval(clockT);stepStart=Date.now();const f=()=>{const s=Math.round((Date.now()-stepStart)/1000*6);caption(`${label} · ${Math.floor(s/60)}:${String(s%60).padStart(2,'0')} on this step${usual?' · usually '+usual:''}`,true)};f();clockT=setInterval(f,250)}
+function stopClock(){clearInterval(clockT)}
+function note(html){$('notes').innerHTML=`<div class="n">${html}</div>`}
+function countTo(el,to,suffix=''){const from=+(el.dataset.v||0);el.dataset.v=to;const t=performance.now();const f=n=>{const p=Math.min(1,(n-t)/500);el.textContent=Math.round(from+(to-from)*(1-Math.pow(1-p,3)))+suffix;if(p<1)requestAnimationFrame(f)};requestAnimationFrame(f)}
+function lampTo(card){const b=$('board').getBoundingClientRect(),r=card.getBoundingClientRect();const L=$('lamp');L.classList.remove('idle');L.style.opacity=1;L.style.transform=`translate(${r.left-b.left+r.width/2-150}px,${r.top-b.top+r.height/2-110}px)`}
+function lampIdle(){$('lamp').classList.add('idle')}
+
+function frame(label,count,cols,act){const f=document.createElement('div');f.className='frame'+(act?' act':' order');f.innerHTML=`<div class="flab">${label?`<span class="tape">${label}</span>`:''}<span class="flabs">${count||''}</span></div><div class="grid" style="grid-template-columns:${cols?`repeat(${cols},118px)`:'repeat(auto-fill,118px)'}"></div>`;$('frames').appendChild(f);return f.querySelector('.grid')}
+function makeCard(i){const [slug,,,,ie]=SC[i];const c=document.createElement('div');c.className='card unread';c.style.setProperty('--tilt',(((i*37)%7)-3)*.45+'deg');
+  c.innerHTML=`<div class="top"><span class="num">${i+1}</span><span class="dot" style="background:${ie==='e'?'var(--amber)':'var(--sky)'}"></span>${slug}</div><div class="body pending">Not read yet</div><div class="foot"><span class="marks"></span><span class="stamp"></span></div><span class="castmark"></span><span class="pin"></span>`;return c}
+
+async function deal(){const deck=$('deck');deck.innerHTML='';for(let k=0;k<4;k++)deck.insertAdjacentHTML('beforeend',`<div class="dc" style="transform:translate(${k*2}px,${-k*2}px) rotate(${k-1.5}deg)"></div>`);
+  $('deckLabel').textContent='24 index cards';await sleep(900);
+  const g=frame('','In script order',0);cards=SC.map((_,i)=>{const c=makeCard(i);g.appendChild(c);return c});
+  const d=deck.getBoundingClientRect();deck.style.opacity=0;$('deckLabel').textContent='';
+  cards.forEach((c,i)=>{const r=c.getBoundingClientRect();c.animate([{transform:`translate(${d.left-r.left}px,${d.top-r.top}px) rotate(${(i%5)-2}deg)`,opacity:.9},{transform:`rotate(var(--tilt))`,opacity:1}],{duration:reduce?0:620,delay:reduce?0:i*28,easing:'cubic-bezier(.34,1.32,.64,1)',fill:'backwards'})});
+  await sleep(reduce?0:620+N*28)}
+
+async function readScenes(){const order=[...Array(N).keys()].sort((a,b)=>((a*7+3)%N)-((b*7+3)%N));
+  for(let k=0;k<N;k++){const i=order[k],c=cards[i],[,read,beats]=SC[i];
+    cards.forEach(x=>x.classList.remove('lift'));c.classList.remove('unread');c.classList.add('lift');lampTo(c);
+    const body=c.querySelector('.body');body.classList.remove('pending');body.style.opacity=0;body.textContent='~ '+read;body.animate([{opacity:0},{opacity:1}],{duration:200,fill:'forwards'});
+    c.querySelector('.marks').innerHTML='<i class="mark"></i>'.repeat(beats);
+    caption(`Breaking scenes into beats · ${k+1} of ${N}`);note(`Sc. ${i+1} · ${beats} beat${beats>1?'s':''} · <span style="color:var(--ink)">${read}</span>`);
+    await sleep(k===0?700:260)}
+  cards.forEach(x=>x.classList.remove('lift'))}
+
+async function actBreak(){const board=$('board');board.classList.add('pull');cards.forEach(c=>c.style.boxShadow='var(--sh-lift)');await sleep(380);
+  const first=cards.map(c=>c.getBoundingClientRect());$('frames').innerHTML='';
+  const a1=frame('ACT ONE','9 scenes · 29 beats',3,true),a2=frame('ACT TWO','15 scenes · 46 beats',4,true);
+  cards.forEach((c,i)=>(i<SPLIT?a1:a2).appendChild(c));
+  cards.forEach((c,i)=>{const l=c.getBoundingClientRect(),f=first[i];c.animate([{transform:`translate(${f.left-l.left}px,${f.top-l.top}px)`},{transform:`translate(0,-6px) rotate(${(i%3)-1}deg)`,offset:.78},{transform:'none'}],{duration:reduce?0:760,delay:reduce?0:(i<SPLIT?0:90)+i*14,easing:'cubic-bezier(.22,.9,.3,1)'})});
+  document.querySelectorAll('.tape').forEach((t,k)=>t.animate([{opacity:0,transform:'translateY(-10px) rotate(-8deg) scale(1.1)'},{opacity:1,transform:'rotate(-1.5deg)'}],{duration:reduce?0:420,delay:reduce?0:700+k*120,easing:'cubic-bezier(.34,1.5,.64,1)',fill:'backwards'}));
+  await sleep(reduce?0:820);board.classList.remove('pull');cards.forEach(c=>c.style.boxShadow='');await sleep(500)}
+
+async function cast(){$('castlab').textContent='Cast · 14 speaking parts';const ranges=[[0,6],[12,18],[6,12],[18,24]];
+  for(let k=0;k<CAST.length;k++){const [n,ct,r]=CAST[k];$('cast').insertAdjacentHTML('beforeend',`<div class="pol" style="--r:${r}deg"><div class="ph">${n[0]}</div><div class="nm">${n.toUpperCase()}</div><div class="ct">${ct} scenes</div></div>`);
+    if(ranges[k])for(let i=ranges[k][0];i<ranges[k][1];i++)cards[i].querySelector('.castmark').classList.add('on');
+    caption(`Meeting the cast · part ${Math.min(k+1,4)} of 4`);await sleep(520)}
+  $('cast').insertAdjacentHTML('beforeend','<div style="font-size:12px;color:var(--ink-3);align-self:center">+9 more</div>')}
+
+function sag(x1,y1,x2,y2){const mx=(x1+x2)/2,my=(y1+y2)/2,d=Math.hypot(x2-x1,y2-y1);return `M${x1},${y1} Q${mx},${my+Math.min(90,d*.28)} ${x2},${y2}`}
+async function threads(){const svg=$('strings'),b=$('board').getBoundingClientRect();svg.innerHTML='';
+  $('notelab').textContent='Story threads';$('notes').innerHTML='';
+  for(let k=0;k<TH.length;k++){const [label,a,z,st]=TH[k];
+    $('notes').insertAdjacentHTML('beforeend',`<div class="thread" style="animation-delay:${k*60}ms"><span class="no">${k+1}</span><span style="color:var(--ink)">~ ${label}</span><span class="st ${z==null?'open':''}">${st}</span></div>`);
+    [a,z].forEach(i=>{if(i==null)return;cards[i].querySelector('.pin').classList.add('on')});
+    if(z!=null){const ra=cards[a].getBoundingClientRect(),rz=cards[z].getBoundingClientRect();
+      const p=document.createElementNS('http://www.w3.org/2000/svg','path');p.setAttribute('d',sag(ra.left-b.left+ra.width/2,ra.top-b.top,rz.left-b.left+rz.width/2,rz.top-b.top));
+      p.setAttribute('fill','none');p.setAttribute('stroke','#41608A');p.setAttribute('stroke-width',k===0?'1.8':'1.1');p.setAttribute('stroke-linecap','round');p.setAttribute('opacity',k===0?'.9':'.38');svg.appendChild(p);
+      const len=p.getTotalLength();p.style.strokeDasharray=len;p.animate([{strokeDashoffset:len},{strokeDashoffset:0}],{duration:reduce?0:700,easing:'cubic-bezier(.2,0,0,1)',fill:'forwards'})}
+    await sleep(380)}}
+
+async function facts(){const order=[...Array(N).keys()].sort((a,b)=>((a*5+1)%N)-((b*5+1)%N));let tot=0;
+  for(let k=0;k<N;k++){const i=order[k],s=cards[i].querySelector('.stamp');s.textContent=SC[i][3]+' facts'+(i===11||i===17?' ◆':'');s.classList.add('on');tot+=SC[i][3];
+    $('totals').innerHTML=`<span id="fc">${tot}</span> facts so far`;caption(`Pulling facts · ${k+1} of ${N} scenes`);await sleep(110)}}
+
+async function play(){const me=++run;const live=()=>me===run;
+  // reset
+  stopClock();clearInterval(elapsedT);t0=Date.now();elapsedT=setInterval(()=>{const s=Math.round((Date.now()-t0)/1000*6);$('elapsed').textContent=Math.floor(s/60)+':'+String(s%60).padStart(2,'0')},250);
+  $('frames').innerHTML='';$('strings').innerHTML='';$('cast').innerHTML='';$('notes').innerHTML='';$('format').innerHTML='';$('totals').innerHTML='&nbsp;';$('castlab').textContent='Cast';$('notelab').textContent='Notes';
+  $('logline').innerHTML='<div class="ruled"></div><div class="ruled"></div><div class="ruled"></div>';$('fin').classList.remove('on');$('deck').style.opacity=1;$('lamp').style.opacity=0;
+  $('eyebrow').textContent='Importing · The Long Pour';
+  spine(0);await headline('24 scenes found in your pages');caption('Usually 4–6 minutes for a script this size. Keep this tab open.');
+  await deal();if(!live())return;
+  spine(1);await headline('Reading your script');await readScenes();if(!live())return;
+  spine(2);await headline('Finding the act breaks');lampIdle();stepClock('One read of the whole episode','10–20 s');note('While you wait, every card is open to read.');await sleep(2400);stopClock();if(!live())return;
+  await headline('The breaks go up');caption('Act One: 9 scenes · Act Two: 15 scenes');await actBreak();
+  $('format').innerHTML='Comedy · 22 min<br>2 acts · no cold open';if(!live())return;
+  spine(3);await headline('Meeting the cast');await cast();if(!live())return;
+  spine(4);await headline('Tracing the story threads');lampIdle();stepClock('One long read of all 75 beats','1–2 min');note('While you wait: pick a name to light the scenes they’re in.');await sleep(2600);stopClock();if(!live())return;
+  caption('4 threads traced');await threads();if(!live())return;
+  spine(5);await headline('Writing the logline');stepClock('Writing the logline and overview','about 1 min');await sleep(1600);stopClock();
+  const L=$('logline');L.style.opacity=0;await sleep(200);L.textContent='~ A bar owner hiding her brother’s debts has one week to keep the place open before the books, and the family, fall apart.';L.style.opacity=1;caption('Logline written');await sleep(700);if(!live())return;
+  spine(6);await headline('Pulling the facts');await facts();if(!live())return;
+  spine(7);await headline('Checking for continuity');stepClock('Checking the board for continuity','about 30 s');await sleep(1500);stopClock();
+  $('notelab').textContent='To look at';$('notes').innerHTML='<div class="n"><span class="chip amber">2 contradictions</span><span class="chip amber">6 tensions</span></div>';if(!live())return;
+  spine(9);clearInterval(elapsedT);$('lamp').style.opacity=0;$('eyebrow').textContent='Your board · The Long Pour';await headline('The board is up.');caption('Read in 7:25. Every card is a scene; open your story to start working.');
+  $('summary').textContent='24 scenes · 75 beats · 2 acts · 14 characters · 4 threads · 84 facts (40 to review)';$('fin').classList.add('on');
+}
+$('replay').onclick=play;play();
+</script>
+</body>
+</html>
