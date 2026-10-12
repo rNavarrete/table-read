@@ -48,6 +48,7 @@ from drama_manager.promises import merge_narrative_promises
 from fountain import acts
 from fountain.characters import (
     cues_from_scenes,
+    is_shooting_script,
     merge_characters_into_bible,
     merge_inferred_entities,
     normalize_known_by,
@@ -57,6 +58,17 @@ from fountain.entity_inference import (
     ENTITY_INFER_USER_CHAR_BUDGET,
     chunk_entity_scene_summaries,
     combine_story_entities,
+)
+from fountain.found import (
+    acts_found,
+    cast_found,
+    cast_read_found,
+    facts_found,
+    flags_found,
+    overview_found,
+    scene_found,
+    scenes_found,
+    threads_found,
 )
 from fountain.object_states import detect_object_conflicts, infer_object_states
 from fountain.parse import (
@@ -112,7 +124,18 @@ class ImportStageProgress:
     total: int
 
 
-ImportPipelineEvent = ImportStageStarted | ImportStageProgress
+@dataclass(frozen=True)
+class ImportFound:
+    """What a stage found (§9.3 `found`): `data` is one `ProjectImportFound`
+    payload from `fountain.found`; `cached` marks a result reused from a
+    checkpoint."""
+
+    stage: str
+    data: dict
+    cached: bool = False
+
+
+ImportPipelineEvent = ImportStageStarted | ImportStageProgress | ImportFound
 ImportCheckpointWriter = Callable[[str, dict | list, int | None], None]
 
 
@@ -208,6 +231,7 @@ def analyze_import(
         STAGE_PARSING_SCENES,
         {"sceneCount": len(spans)},
     )
+    yield ImportFound(STAGE_PARSING_SCENES, scenes_found(spans))
     yield ImportStageProgress(STAGE_PARSING_SCENES, 1, 1)
 
     yield ImportStageStarted(STAGE_SEGMENTING_BEATS)
@@ -250,6 +274,7 @@ def analyze_import(
             {"beats": _dump_imported_beats(unit[0]), "reading": unit[1]},
             index,
         ),
+        found=lambda index, unit: scene_found(index, *unit, index in failed_segments),
     )
 
     # ── Infer the total act partition after all scenes have their semantic
@@ -265,7 +290,10 @@ def analyze_import(
         None if infer_format else acts.acts_from_markers(spans, project_doc["format"])
     )
     retried_acts = False
-    if cached_scene_acts is not None and (cached_format is not None or not infer_format):
+    acts_cached = cached_scene_acts is not None and (
+        cached_format is not None or not infer_format
+    )
+    if acts_cached:
         scene_acts = cached_scene_acts
         if infer_format:
             project_doc = {**project_doc, "format": cached_format}
@@ -381,6 +409,7 @@ def analyze_import(
         fmt["runtimeMinutes"],
         render.PROMPT_VERSION,
     )
+    yield ImportFound(STAGE_INFERRING_ACTS, acts_found(fmt, scene_acts), cached=acts_cached)
 
     # ── Assemble the episode doc with deterministic ids, carrying each beat's
     # unassigned ranges so they can be flagged. ──────────────────────────────
@@ -430,6 +459,7 @@ def analyze_import(
         )
 
     new_doc, episode_id = _install_scenes(project_doc, scene_docs)
+    scene_index_by_id = {scene["id"]: scene["index"] for scene in scene_docs}
     beat_index = {b["id"]: b for s in scene_docs for b in s["beats"]}
     known_ids = set(beat_index) | {s["id"] for s in scene_docs}
 
@@ -466,6 +496,7 @@ def analyze_import(
         len(summary_chunks),
         StoryEntities,
     )
+    entities_cached = all(part is not None for part in entity_parts)
     # WARNING (not INFO): uvicorn's default app log level often hides INFO,
     # and these lines are the only signal that chunking ran on a large import.
     _logger.warning(
@@ -536,6 +567,9 @@ def analyze_import(
             part.model_dump(by_alias=True, mode="json"),
             index,
         ),
+        found=lambda index, _part: cast_read_found(
+            [scene_index_by_id[summary["id"]] for summary in summary_chunks[index]]
+        ),
     )
     entities = combine_story_entities([cast(StoryEntities, part) for part in entity_parts])
     # Pass the imported script so an inferred character the script never names
@@ -547,6 +581,16 @@ def analyze_import(
         bible, entities, content
     )
     _episode_ref(new_doc, episode_id)["relationshipStates"] = relationship_states
+    yield ImportFound(
+        STAGE_INFERRING_ENTITIES,
+        cast_found(
+            characters,
+            scene_docs,
+            # The decision `cues_from_scenes(scene_docs)` made over the same lines.
+            is_shooting_script(line for span in spans for line in span.lines),
+        ),
+        cached=entities_cached,
+    )
     _logger.info(
         "import_infer_entities characters=%d relationships=%d world_elements=%d "
         "chunks=%d prompt_version=%s",
@@ -573,6 +617,7 @@ def analyze_import(
     narrative_promises = _load_model_checkpoint(
         checkpoint, STAGE_INFERRING_PROMISES, NarrativePromises
     )
+    promises_cached = narrative_promises is not None
     if narrative_promises is None:
         yield ImportStageProgress(STAGE_INFERRING_PROMISES, 0, 2)
         promises_spine = _promises_prompt_spine(scene_docs)
@@ -601,6 +646,11 @@ def analyze_import(
             narrative_promises.model_dump(by_alias=True, mode="json"),
         )
     merge_narrative_promises(new_doc, episode_id, narrative_promises)
+    yield ImportFound(
+        STAGE_INFERRING_PROMISES,
+        threads_found(_episode_ref(new_doc, episode_id)["threads"], scene_index_by_id),
+        cached=promises_cached,
+    )
     yield ImportStageProgress(STAGE_INFERRING_PROMISES, 2, 2)
     _logger.info(
         "import_infer_promises threads=%d scene_motivations=%d world_rules=%d prompt_version=%s",
@@ -619,6 +669,7 @@ def analyze_import(
     story_overview = _load_model_checkpoint(
         checkpoint, STAGE_INFERRING_OVERVIEW, InferredStoryOverview
     )
+    overview_cached = story_overview is not None
     if story_overview is None:
         yield ImportStageProgress(STAGE_INFERRING_OVERVIEW, 0, 1)
         system, user = render.build_overview_prompt(
@@ -637,6 +688,13 @@ def analyze_import(
             story_overview.model_dump(by_alias=True, mode="json"),
         )
     merge_story_overview(new_doc, episode_id, story_overview)
+    yield ImportFound(
+        STAGE_INFERRING_OVERVIEW,
+        overview_found(
+            _episode_ref(new_doc, episode_id).get("storyOverview") or {}, scene_index_by_id
+        ),
+        cached=overview_cached,
+    )
     yield ImportStageProgress(STAGE_INFERRING_OVERVIEW, 1, 1)
     _logger.info(
         "import_infer_overview outline=%d beat_sheet=%d prompt_version=%s",
@@ -686,6 +744,9 @@ def analyze_import(
                 "extraction": extraction.model_dump(by_alias=True, mode="json"),
             },
             index,
+        ),
+        found=lambda index, extraction: facts_found(
+            index, extraction, index in failed_extractions
         ),
     )
     new_facts: list[dict] = []
@@ -737,6 +798,7 @@ def analyze_import(
     scan = _load_model_checkpoint(
         checkpoint, STAGE_CHECKING_CONSISTENCY, ConsistencyScan
     )
+    scan_cached = scan is not None
     if scan is None:
         yield ImportStageProgress(STAGE_CHECKING_CONSISTENCY, 0, 1)
         system, user = render.build_scan_prompt(
@@ -830,6 +892,7 @@ def analyze_import(
             }
         )
 
+    yield ImportFound(STAGE_CHECKING_CONSISTENCY, flags_found(raw_flags), cached=scan_cached)
     return ImportAnalysis(new_doc=new_doc, new_facts=new_facts, raw_flags=raw_flags)
 
 
@@ -1098,6 +1161,7 @@ def _run_ordered_parallel[T, R](
     stage: str,
     existing_results: list[R | None] | None = None,
     on_result: Callable[[int, R], None] | None = None,
+    found: Callable[[int, R], dict] | None = None,
     warm_cache_first: bool = False,
 ) -> Generator[ImportPipelineEvent, None, list[R]]:
     """Run per-scene LLM work concurrently while returning results by source index.
@@ -1113,6 +1177,9 @@ def _run_ordered_parallel[T, R](
     import: three redundant 30k-token writes per loop, about $0.18 each on
     the Sonnet import worker. The cost is one scene of serial latency; the
     saving is every redundant write in that loop.
+
+    `found` builds each result's `ImportFound` payload: checkpointed results
+    first (`cached=True`), then each new result just before its progress frame.
     """
     if not items:
         return []
@@ -1123,6 +1190,10 @@ def _run_ordered_parallel[T, R](
         list(existing_results) if existing_results is not None else [None] * len(items)
     )
     done = sum(result is not None for result in results)
+    if found is not None:
+        for index, result in enumerate(results):
+            if result is not None:
+                yield ImportFound(stage, found(index, result), cached=True)
     yield ImportStageProgress(stage, done, len(items))
     missing = [
         (index, item)
@@ -1142,6 +1213,8 @@ def _run_ordered_parallel[T, R](
             on_result(warm_index, warm_result)
         results[warm_index] = warm_result
         done += 1
+        if found is not None:
+            yield ImportFound(stage, found(warm_index, warm_result))
         yield ImportStageProgress(stage, done, len(items))
         missing = missing[1:]
 
@@ -1158,6 +1231,8 @@ def _run_ordered_parallel[T, R](
                 on_result(index, result)
             results[index] = result
             done += 1
+            if found is not None:
+                yield ImportFound(stage, found(index, result))
             yield ImportStageProgress(stage, done, len(items))
     except BaseException:
         # A provider request can fail while other submitted calls have already

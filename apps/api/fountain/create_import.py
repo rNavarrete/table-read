@@ -1,9 +1,10 @@
 """Atomic create-and-import (data contract §9.3): `POST /projects/import` in
 routes.py streams these events. This module builds the initial (unwritten)
 project doc, runs `fountain/pipeline.analyze_import`'s LLM/parsing stages —
-emitting `stage` SSE frames as stages begin and `progress` frames as scene
-work completes — then writes the project row and its **one** root snapshot
-(already carrying the imported doc/ledger/flags) in a single transaction
+emitting `stage` SSE frames as stages begin, `progress` frames as scene
+work completes and `found` frames with what each step found — then writes
+the project row and its **one** root snapshot (already carrying the
+imported doc/ledger/flags) in a single transaction
 (`storage/snapshots.create_project_with_state`).
 
 Every stage that can fail runs before that single project write, so a fault
@@ -38,7 +39,12 @@ from sqlalchemy.orm import Session
 from drama_manager import locks
 from fountain import import_runs
 from fountain.parse import CoverageError
-from fountain.pipeline import ImportStageProgress, ImportStageStarted, analyze_import
+from fountain.pipeline import (
+    ImportFound,
+    ImportStageProgress,
+    ImportStageStarted,
+    analyze_import,
+)
 from import_diagnostics import import_run_context, new_import_run_id
 from llm.errors import LlmTimeoutError, SchemaInvalidLlmError, log_llm_unavailable
 from llm.protocol import LlmClient
@@ -58,6 +64,13 @@ def _progress_frame(stage: str, done: int, total: int) -> str:
     return format_sse(
         "progress",
         {"type": "progress", "stage": stage, "done": done, "total": total},
+    )
+
+
+def _found_frame(event: ImportFound) -> str:
+    return format_sse(
+        "found",
+        {"type": "found", "stage": event.stage, "cached": event.cached, "data": event.data},
     )
 
 
@@ -221,6 +234,19 @@ def create_and_import_events(
                         _elapsed_ms(started_at),
                     )
                     yield _progress_frame(event.stage, event.done, event.total)
+                elif isinstance(event, ImportFound):
+                    # Kind and counts only: payloads carry sluglines and readings.
+                    _logger.info(
+                        "import_found run_id=%s stage=%s kind=%s cached=%s count=%d",
+                        run_id,
+                        event.stage,
+                        event.data["kind"],
+                        event.cached,
+                        next(
+                            (len(v) for v in event.data.values() if isinstance(v, list)), 1
+                        ),
+                    )
+                    yield _found_frame(event)
                 else:
                     raise TypeError(f"unknown import progress event: {type(event).__name__}")
         except StopIteration as stop:
