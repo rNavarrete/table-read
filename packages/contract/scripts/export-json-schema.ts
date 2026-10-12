@@ -35,6 +35,8 @@ const SCHEMA_NAMES = [
   'ThreadMovement',
   'NarrativeMap',
   'NarrativeMapRun',
+  'StructureStage',
+  'StructureCheck',
   'WorldRule',
   'Episode',
   'Season',
@@ -84,6 +86,8 @@ const SCHEMA_NAMES = [
   'InferredNarrativeSceneAnalysisBatch',
   'InferredNarrativeMapSynthesis',
   'NarrativeMapVerification',
+  'InferredStructureCheck',
+  'StructureCheckVerification',
 ] as const
 
 const { z } = await import('zod')

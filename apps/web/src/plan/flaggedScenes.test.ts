@@ -80,6 +80,7 @@ function project(scenes: Scene[]): Project {
             secrets: [],
             storyOverview: null,
             narrativeMap: null,
+            structureChecks: [],
           },
         ],
       },

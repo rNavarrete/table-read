@@ -73,6 +73,7 @@ function episode(overrides: Partial<Episode> = {}): Episode {
     secrets: [],
     storyOverview: null,
     narrativeMap: null,
+    structureChecks: [],
     ...overrides,
   }
 }

@@ -17,6 +17,8 @@ EXPECTED_OPS = {
     "infer_narrative_scene_analysis": "import_analyst",
     "infer_narrative_map_synthesis": "import_analyst",
     "verify_narrative_map": "writer",
+    "check_structure": "import_analyst",  # structure checklist
+    "verify_structure_check": "writer",
     "segment_scene": "import_worker",  # high-volume Sonnet import work
     "scan_consistency": "classifier",
     "generate_scene_skeleton": "writer",  # §9.4 guided-setup scene skeleton

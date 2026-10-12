@@ -13,6 +13,7 @@ import type {
   ProjectCreateRequest,
   ProjectSummary,
   SnapshotSummary,
+  StructureLens,
   SuggestRequest,
 } from 'contract'
 
@@ -181,6 +182,20 @@ export async function exportProjectJson(projectId: string): Promise<object> {
 
 export function getProject(projectId: string): Promise<Project> {
   return getJson<Project>(`/projects/${projectId}`)
+}
+
+/** Run one AI structure check (Ledger Structure tab, explicit click only).
+ * Returns the updated project with the saved check and the new head. */
+export function checkStructure(
+  projectId: string,
+  lens: StructureLens,
+  opts?: IfMatchOpts,
+): Promise<Project> {
+  return postJson<Project>(
+    `/projects/${projectId}/structure-checks/${lens}`,
+    {},
+    opts,
+  )
 }
 
 /** Generate the optional Narrative Map in a separate snapshot. A failed map

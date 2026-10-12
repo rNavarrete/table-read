@@ -43,6 +43,7 @@ function episode(scenes: Scene[]): Episode {
     secrets: [],
     storyOverview: null,
     narrativeMap: null,
+    structureChecks: [],
   }
 }
 

@@ -12,6 +12,7 @@ const OPTIONS: { value: LedgerViewId; label: string }[] = [
   { value: 'atlas', label: 'Atlas' },
   { value: 'web', label: 'Web' },
   { value: 'threads', label: 'Threads' },
+  { value: 'structure', label: 'Structure' },
 ]
 
 /**

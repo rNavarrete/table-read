@@ -11,6 +11,8 @@ import {
   KnowledgeEvent,
   Motivation,
   Secret,
+  StructureCheck,
+  StructureStage,
 } from './index'
 
 // Placeholder scaffold test — real schema tests land in T0.2.
@@ -384,5 +386,56 @@ describe('Episode.secrets', () => {
       scenes: [],
     })
     expect(episode.secrets).toEqual([])
+  })
+})
+
+describe('StructureCheck', () => {
+  const stage = {
+    stage: 'circle_you',
+    status: 'hit',
+    beatId: 'beat-1-1',
+    sceneId: 'scene-1',
+    reason: 'Marta at the bar.',
+    evidenceQuote: 'Marta pours.',
+  }
+  const check = {
+    lens: 'story_circle',
+    applies: true,
+    rationale: 'Fits.',
+    stages: [stage],
+    sourceHash: 'abc',
+    checkedAt: '2026-10-11T00:00:00Z',
+    promptVersion: '0.51.0',
+  }
+  it('accepts a check and a missing stage with null beat and quote', () => {
+    expect(StructureCheck.safeParse(check).success).toBe(true)
+    expect(
+      StructureStage.safeParse({
+        ...stage,
+        status: 'missing',
+        beatId: null,
+        sceneId: null,
+        evidenceQuote: null,
+      }).success,
+    ).toBe(true)
+  })
+  it('rejects tv_act_structure as a stored lens and an unknown stage', () => {
+    expect(
+      StructureCheck.safeParse({ ...check, lens: 'tv_act_structure' }).success,
+    ).toBe(false)
+    expect(StructureStage.safeParse({ ...stage, stage: 'you' }).success).toBe(
+      false,
+    )
+  })
+  it('defaults Episode.structureChecks to []', () => {
+    const episode = Episode.parse({
+      id: 'ep-1',
+      index: 0,
+      title: 'Pilot',
+      premise: '',
+      storylines: [],
+      scenes: [],
+    })
+    expect(episode.structureChecks).toEqual([])
   })
 })

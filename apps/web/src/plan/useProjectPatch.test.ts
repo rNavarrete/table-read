@@ -162,6 +162,7 @@ describe('useProjectPatch', () => {
             secrets: [],
             storyOverview: null,
             narrativeMap: null,
+            structureChecks: [],
           },
         ],
       },

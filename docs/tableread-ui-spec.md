@@ -175,6 +175,7 @@ Ledger is a **story bible** — writers open it to understand what is true in th
 | ------------------------- | -------------------------------------------------------------------------- |
 | **Story Atlas** (default) | Scannable two-column fact **card grid** (owner, secret treatment, knowers) |
 | **Knowledge Web**         | Character- or Audience-focused who-knows-what (ranked list + detail)       |
+| **Structure**             | The script against one story structure, stage by stage (§7a-ter)           |
 
 Layout: left **CAST rail** (236px, `--tr-panel-ledger-filters`, raised) · main column on `--tr-ledger-content` (max-width 1040px, centered) with page header · **story overview card** · review queue (when non-empty) · active view body.
 
@@ -182,7 +183,7 @@ Layout: left **CAST rail** (236px, `--tr-panel-ledger-filters`, raised) · main 
 
 - **Title:** Ledger display font — "What's true in this story" (`font-ledger-display` / Newsreader, 30px / 500) with a one-line secondary subtitle. Default: “Your story bible — browse truths, or focus who knows what.” When a CAST person is selected: “Showing what {name} knows, and facts they appear in.”
 - **Secrets only:** pill toggle (`◆ Secrets only`) — filters to `audienceKnows === false`. Off: raised + border; on: secret badge fill/ink (`--tr-ledger-secret-*`). Combines with CAST / Status / As-of (AND).
-- **View switcher:** segmented control **Atlas · Web** in the header (`LedgerViewSwitcher`); clay track, active segment `--tr-coral-soft` + `--tr-accent-ink` + `--tr-shadow-raised`. Choice persists per project in `localStorage` (`tr.ledger.view.{projectId}`).
+- **View switcher:** segmented control **Story · Atlas · Web · Threads · Structure** in the header (`LedgerViewSwitcher`); clay track, active segment `--tr-coral-soft` + `--tr-accent-ink` + `--tr-shadow-raised`. Choice persists per project in `localStorage` (`tr.ledger.view.{projectId}`).
 - **Threads:** header text link (not in the CAST rail); shows `(n)` when count > 0. Story overview is **not** a header button — see §7a-bis.
 - **Pending chip:** amber-soft when `pending_review` count > 0 ("N to review"); click scrolls to / focuses the review queue; focus-visible uses `--tr-outline-selected` + `--tr-coral`.
 - **Motion:** Atlas ↔ Web body uses a brief fade/rise enter (`.tr-ledger-view-enter`, `--tr-motion-duration-standard` / `--tr-motion-ease-standard`; disabled under `prefers-reduced-motion`).
@@ -194,6 +195,22 @@ Persistent card between the page header and the review queue / fact grid (`Story
 - **Collapsed (default):** icon tile · “STORY OVERVIEW” · ● ready / ● not yet · meta chips (scenes / threads / facts) · logline always visible (Newsreader ~19px) · “Read summary & outline” expander when overview exists.
 - **Expanded:** sunken band with two columns — **Summary** paragraphs · **Outline** scrollable scene rows (number · summary · slug · →). Row click jumps to that scene in Write. Optional **Beat sheet** disclosure below (same jump semantics as before).
 - **Empty:** “Import a script to generate a story overview.”
+
+### 7a-ter. Structure tab
+
+The **Structure** view (`StructurePanel`, after Threads) checks the script against one story structure and lists every stage. Spec: `docs/superpowers/specs/2026-10-11-structure-checklist-design.md`.
+
+- **Picker:** `Check against` select — **TV act structure** (default) · **Hero's Journey** · **Story Circle** · **Save the Cat**. Remembered per viewer and project in `localStorage` (`tr.ledger.structure.{projectId}`); never a doc mutation.
+- **Header:** 11px "Structure" legend · structure name (display 22px) · summary line ("3 of 8 stages hit · 3 thin · 2 missing", plus "· N couldn't verify" when any). An applied AI check adds its one-line rationale, muted.
+- **Timeline strip:** one tick per cited stage, placed by the cited scene's position and grouped by act.
+- **Stage list,** in the structure's canonical order. Each row: stage name · status `Chip` with a text label — **Hit** (sage) · **Thin** (amber) · **Missing** (neutral) · **Couldn't verify** (sky) · one-line reason · for cited stages, the evidence line quoted from the beat (italic, muted; omitted when the beat has no text). A row with a beat is a whole-row button (`structure-row-{stage}`) that opens Write at that beat (`/?project=…&scene=…&highlightBeat=…`).
+- **TV act structure** needs no AI and no button: it reads the import beat sheet's labels (Cold Open/Teaser when `format.coldOpen`; Act N Turn and Act N Out, the last act Out only; Climax; Tag when `format.tag`). Missing labels render **Missing**; with no beat sheet every stage is Missing. With no format the panel says "The show format isn't known yet."
+- **States (AI structures):**
+  - _Not run:_ **Check structure** (coral) with "About 25¢, under a minute." Nothing runs on mount or in Write (rule 8).
+  - _Checking:_ button disabled, label "Checking…".
+  - _Error:_ danger line (`role="alert"`). A 409 `CONFLICT_STALE_HEAD` reads "The script changed while checking. Reload and try again."
+  - _Doesn't fit:_ clay box — "{Structure} doesn't fit this script." · the model's rationale · **Check TV act structure instead** (switches the picker).
+  - _Stale:_ amber-soft line "The script changed since this check." with **Check again**, which replaces that structure's saved check. Shown when the browser's fingerprint of scene/beat ids plus `scriptText` differs from the check's `sourceHash`.
 
 ### 7b. CAST filter rail (shared filters)
 

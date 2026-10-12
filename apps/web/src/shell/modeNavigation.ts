@@ -45,3 +45,14 @@ export function navigateToWriteScene(sceneId: string) {
   url.searchParams.delete('highlightBeat')
   window.location.assign(url.toString())
 }
+
+/** Open Write at a specific beat (Ledger Structure row). Same as
+ * `navigateToWriteScene`, but keeps the beat as `?highlightBeat=`. */
+export function navigateToWriteBeat(sceneId: string, beatId: string) {
+  const url = new URL(window.location.href)
+  url.pathname = '/'
+  url.searchParams.set('scene', sceneId)
+  url.searchParams.set('highlightBeat', beatId)
+  url.searchParams.delete('changeSet')
+  window.location.assign(url.toString())
+}
