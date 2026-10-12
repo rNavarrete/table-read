@@ -392,6 +392,7 @@ export function ImportWizard() {
           : 'Create & analyze script'
       }
       isFinalActionDisabled={isRunning}
+      wide={isRunning}
       onFinalAction={handleAnalyze}
       steps={[
         {

@@ -488,6 +488,30 @@ describe('reconcileWithResult', () => {
     ])
   })
 
+  it('marks failed units the client never saw from their scene flags', () => {
+    const unitFlag = (sceneId: string, code: string) =>
+      ({
+        objectType: 'scene',
+        objectId: sceneId,
+        severity: 'tension',
+        explanation: `[${code}] The model's output failed validation twice.`,
+      }) as unknown as ConsistencyFlag
+    const final = reconcileWithResult(emptyBoard(), {
+      ...result,
+      consistencyFlags: [
+        unitFlag('scene-2', 'segmentation_failed'),
+        unitFlag('scene-3', 'extraction_failed'),
+      ],
+    })
+
+    expect(final.scenes[0]).toMatchObject({ read: 'read', factsFailed: false })
+    expect(final.scenes[1]).toMatchObject({
+      read: 'failed',
+      factsFailed: false,
+    })
+    expect(final.scenes[2]).toMatchObject({ read: 'read', factsFailed: true })
+  })
+
   it('turns a pending card into its project reading', () => {
     const final = reconcileWithResult(scanned(), result)
     expect(final.scenes[1]).toMatchObject({

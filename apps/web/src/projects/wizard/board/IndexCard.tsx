@@ -139,6 +139,12 @@ export function IndexCard({
       className={`relative flex flex-col rounded-[4px] px-2 pb-1.5 pt-[7px] outline-none transition-[rotate,translate,scale,box-shadow] duration-[450ms] ease-spring group-data-[motion=off]/desk:transition-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-tr-coral ${compact ? 'h-card-board-compact-h w-card-board-compact-w' : 'h-card-board-h w-card-board-w'} ${failed ? 'bg-tr-amber-soft' : 'bg-tr-board-paper'} ${unread ? 'rotate-(--tilt)' : ''} ${lifted ? 'z-[3] -translate-y-[3px] scale-[1.03] shadow-card-lift' : 'shadow-card-board'}`}
       style={{ ...RULED, '--tilt': `${tilt}deg` } as CSSProperties}
     >
+      {/* The act break's lift: a shadow layer whose opacity animates. */}
+      <span
+        aria-hidden="true"
+        data-lift
+        className="pointer-events-none absolute inset-0 rounded-[4px] opacity-0 shadow-card-lift"
+      />
       <div
         aria-hidden="true"
         className="flex h-3.5 items-center gap-[5px] overflow-hidden whitespace-nowrap font-script text-[10.5px] text-tr-text-muted"

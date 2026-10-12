@@ -59,7 +59,7 @@ The prototype is the reference. Stage by stage:
 
 **Leaving the page.** Copy is honest: "Keep this tab open. Leaving pauses the import; finished work is saved." Retry continues from saved work, as today.
 
-**Big scripts.** At more than 40 scenes, cards switch to a compact size: number, slug and ticks, with the reading shown when focused. At 120 scenes the board stays within about two screens. The act-break move is a FLIP from where the cards are, so it works scrolled.
+**Big scripts.** At more than 40 scenes, cards switch to a compact size: number, slug and ticks, with the reading shown when focused. At 120 scenes the board stays within about two screens: while the import runs and holds its finale, the wizard widens to the prototype's 1280px column. The act-break move is a FLIP from where the cards are, so it works scrolled.
 
 **Reduced motion.** No tilt, flight, lamp or count-up; everything simply appears.
 
@@ -108,7 +108,7 @@ Old clients ignore unknown event types, so the change is additive. It's not an L
 - **ETA:**
   - It uses per-scene priors for every step, from a constant table built from real runs.
   - It ignores a resume's cached burst.
-  - It shows "about N–M min left", hides after 30 s with no news, and is labelled typical, not promised.
+  - It shows "about N–M min left", hides after 30 s with no news, and is labelled typical, not promised. Every stage start and progress frame is news. A single-call step sends nothing until it ends, so its news is due by the high end of its usual time, and the time it has already run comes off its prior.
 - **Elapsed** survives a resume within the same page.
 
 ## Visual tokens (rule 6)

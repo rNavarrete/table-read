@@ -98,6 +98,18 @@ function layoutStrings(desk: HTMLElement, svg: SVGSVGElement) {
   })
 }
 
+/** Each clay act frame spans its tape label down to its last card. */
+function layoutFrames(desk: HTMLElement) {
+  desk.querySelectorAll<HTMLElement>('[data-frame]').forEach((frame) => {
+    const { frame: act = '', last = '' } = frame.dataset
+    const head = desk.querySelector<HTMLElement>(`[data-act-head="${act}"]`)
+    const card = desk.querySelector<HTMLElement>(`[data-index="${last}"]`)
+    if (!head || !card) return
+    frame.style.top = `${head.offsetTop}px`
+    frame.style.height = `${card.offsetTop + card.offsetHeight - head.offsetTop}px`
+  })
+}
+
 function cardRects(desk: HTMLElement): Map<number, DOMRect> {
   return new Map(
     [...desk.querySelectorAll<HTMLElement>('[data-card]')].map((card) => [
@@ -179,8 +191,8 @@ export function ImportBoard({
       ? 0
       : Math.max(0, nowMs - progress.startedAtMs)
   const eta =
-    phase === 'streaming' && !isImportProgressStale(progress, nowMs)
-      ? etaRange(progress, sceneCount)
+    phase === 'streaming' && !isImportProgressStale(progress, nowMs, sceneCount)
+      ? etaRange(progress, sceneCount, nowMs)
       : null
   const actSummary = groups
     .map(
@@ -302,7 +314,10 @@ export function ImportBoard({
     const desk = deskRef.current
     const svg = svgRef.current
     if (!desk || !svg) return
-    const draw = () => layoutStrings(desk, svg)
+    const draw = () => {
+      layoutFrames(desk)
+      layoutStrings(desk, svg)
+    }
     draw()
     window.addEventListener('resize', draw)
     return () => window.removeEventListener('resize', draw)
@@ -317,7 +332,7 @@ export function ImportBoard({
     paths.forEach((path, k) => drawString(path, k * gap))
   }, [board.threads, animate])
 
-  const gridClass = `grid gap-2.5 ${compact ? 'grid-cols-[repeat(auto-fill,var(--tr-card-board-compact-w))]' : 'grid-cols-[repeat(auto-fill,var(--tr-card-board-w))]'}`
+  const gridClass = `relative grid gap-2.5 p-3.5 ${compact ? 'grid-cols-[repeat(auto-fill,var(--tr-card-board-compact-w))]' : 'grid-cols-[repeat(auto-fill,var(--tr-card-board-w))]'}`
   const card = (scene: BoardScene) => (
     <IndexCard
       key={scene.index}
@@ -440,52 +455,71 @@ export function ImportBoard({
             About {plural(approxSceneCount, 'index card')}
           </p>
         )}
-        <div className="relative z-[1] flex flex-wrap items-start gap-[18px]">
-          {groups.length > 0
-            ? groups.map((group) => (
-                <div
-                  key={group.act}
-                  data-testid={`board-act-${group.act}`}
-                  className="flex-[1_1_100%] rounded-[14px] bg-tr-surface-clay p-3.5"
-                >
-                  <div className="relative mb-2 h-[22px]">
-                    <span
-                      data-tape
-                      className="absolute -left-1 -top-1 -rotate-[1.5deg] border-x border-dashed border-tr-border bg-tr-board-paper px-3 pb-0.5 pt-[3px] font-script text-12 tracking-[.06em] text-tr-accent-ink shadow-raised"
+        {/* One list, one keyed node per card, before and after the act
+            break: a card keeps its focus and its DOM node (the FLIP flies the
+            same node). The clay frames are measured behind the cards. */}
+        <div className="relative z-[1]">
+          {groups.map((group) => (
+            <div
+              key={group.act}
+              aria-hidden="true"
+              data-frame={group.act}
+              data-last={group.sceneIndexes.at(-1)}
+              className="absolute inset-x-0 -mt-3.5 box-content rounded-[14px] bg-tr-surface-clay py-3.5"
+            />
+          ))}
+          {scenes.length > 0 && (
+            <ol
+              aria-label={
+                groups.length > 0 ? 'Scenes by act' : 'In script order'
+              }
+              className={gridClass}
+            >
+              {groups.length > 0
+                ? groups.flatMap((group) => [
+                    <li
+                      key={`act-${group.act}`}
+                      role="presentation"
+                      data-act-head={group.act}
+                      data-testid={`board-act-${group.act}`}
+                      className="relative col-span-full h-[22px] not-first:mt-9"
                     >
-                      {group.label}
-                    </span>
-                    <span className="absolute right-0 top-0.5 text-11 leading-4 text-tr-text-secondary">
-                      {plural(group.sceneIndexes.length, 'scene')} ·{' '}
-                      {plural(
-                        group.sceneIndexes.reduce(
-                          (sum, i) => sum + (byIndex.get(i)?.beatCount ?? 0),
-                          0,
-                        ),
-                        'beat',
-                      )}
-                    </span>
-                  </div>
-                  <ol aria-label={titleCase(group.label)} className={gridClass}>
-                    {group.sceneIndexes.map((i) => {
+                      <span
+                        data-tape
+                        className="absolute -left-1 -top-1 -rotate-[1.5deg] border-x border-dashed border-tr-border bg-tr-board-paper px-3 pb-0.5 pt-[3px] font-script text-12 tracking-[.06em] text-tr-accent-ink shadow-raised"
+                      >
+                        {group.label}
+                      </span>
+                      <span className="absolute right-0 top-0.5 text-11 leading-4 text-tr-text-secondary">
+                        {plural(group.sceneIndexes.length, 'scene')} ·{' '}
+                        {plural(
+                          group.sceneIndexes.reduce(
+                            (sum, i) => sum + (byIndex.get(i)?.beatCount ?? 0),
+                            0,
+                          ),
+                          'beat',
+                        )}
+                      </span>
+                    </li>,
+                    ...group.sceneIndexes.flatMap((i) => {
                       const scene = byIndex.get(i)
-                      return scene ? card(scene) : null
-                    })}
-                  </ol>
-                </div>
-              ))
-            : scenes.length > 0 && (
-                <div className="flex-[1_1_100%] rounded-[14px] p-3.5">
-                  <div className="relative mb-2 h-[22px]">
-                    <span className="absolute right-0 top-0.5 text-11 leading-4 text-tr-text-secondary">
-                      In script order
-                    </span>
-                  </div>
-                  <ol aria-label="In script order" className={gridClass}>
-                    {scenes.map(card)}
-                  </ol>
-                </div>
-              )}
+                      return scene ? [card(scene)] : []
+                    }),
+                  ])
+                : [
+                    <li
+                      key="order"
+                      role="presentation"
+                      className="relative col-span-full h-[22px]"
+                    >
+                      <span className="absolute right-0 top-0.5 text-11 leading-4 text-tr-text-secondary">
+                        In script order
+                      </span>
+                    </li>,
+                    ...scenes.map(card),
+                  ]}
+            </ol>
+          )}
         </div>
         <svg
           ref={svgRef}

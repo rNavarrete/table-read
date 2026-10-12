@@ -2,6 +2,7 @@ import type { ProjectImportStageName } from 'contract'
 import {
   STEP_SECONDS_PER_SCENE,
   USUAL_BAND,
+  usualRange,
   usualSeconds,
 } from './importTimings'
 
@@ -100,6 +101,7 @@ export function advanceImportProgress(
     return {
       ...withStart,
       currentStage: event.name,
+      lastProgressAtMs: nowMs,
       stoppedStage: null,
       completedStages: addCompletedStage(
         withStart.completedStages,
@@ -131,7 +133,9 @@ export function advanceImportProgress(
     }
   }
 
-  if (isIndeterminate(event.stage)) return withStart
+  // Every progress frame is news, even one whose fraction the client ignores.
+  if (isIndeterminate(event.stage))
+    return { ...withStart, lastProgressAtMs: nowMs }
 
   const previousStage = withStart.stages[event.stage] ?? { done: 0, total: 0 }
   const nextStage = {
@@ -152,7 +156,7 @@ export function advanceImportProgress(
   return {
     ...withStart,
     stages,
-    lastProgressAtMs: advanced ? nowMs : withStart.lastProgressAtMs,
+    lastProgressAtMs: nowMs,
     samples: !advanced
       ? withStart.samples
       : isBurst
@@ -176,10 +180,12 @@ export function stageStatus(
 }
 
 /** "about N–M min left": scene steps at the measured pace once there is one,
- * every other unfinished step at its prior, ±40%. Null when nothing is left. */
+ * every other unfinished step at its prior (less the time the current one has
+ * already run, given `nowMs`), ±40%. Null when nothing is left. */
 export function etaRange(
   state: ImportProgressState,
   sceneCount: number,
+  nowMs?: number,
 ): { lowMin: number; highMin: number } | null {
   if (sceneCount <= 0) return null
   const measuredMs = msPerSceneUnit(state)
@@ -190,7 +196,13 @@ export function etaRange(
   ][]) {
     if (state.completedStages.includes(stage)) continue
     if (!SCENE_UNIT_STAGES.includes(stage)) {
-      seconds += usualSeconds(stage, sceneCount)
+      const startedAt =
+        stage === state.currentStage ? state.stageStartedAtMs[stage] : undefined
+      const spent =
+        nowMs === undefined || startedAt === undefined
+          ? 0
+          : (nowMs - startedAt) / 1_000
+      seconds += Math.max(0, usualSeconds(stage, sceneCount) - spent)
       continue
     }
     const progress = state.stages[stage]
@@ -247,12 +259,22 @@ function msPerSceneUnit(state: ImportProgressState): number | null {
   return elapsedDelta / completedDelta
 }
 
+/** No news for 30 s, or, in a step that sends nothing until it ends (acts,
+ * cast, threads, logline, continuity), for longer than it usually takes. */
 export function isImportProgressStale(
   state: ImportProgressState,
   nowMs: number,
+  sceneCount = 0,
 ): boolean {
   const lastActivityMs = state.lastProgressAtMs ?? state.startedAtMs
-  return lastActivityMs !== null && nowMs - lastActivityMs > STALE_PROGRESS_MS
+  if (lastActivityMs === null) return false
+  const stage = state.currentStage
+  const usual =
+    stage === null || SCENE_UNIT_STAGES.includes(stage)
+      ? null
+      : usualRange(stage, sceneCount)
+  const quietMs = Math.max(STALE_PROGRESS_MS, (usual?.highSec ?? 0) * 1_000)
+  return nowMs - lastActivityMs > quietMs
 }
 
 function addCompletedStage(

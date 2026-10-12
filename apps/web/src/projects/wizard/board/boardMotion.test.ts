@@ -84,6 +84,24 @@ describe('board motion', () => {
     expect(animate).toHaveBeenCalledTimes(2)
   })
 
+  it('flies the act break on transform and opacity only', () => {
+    stubReducedMotion(false)
+    const animate = stubAnimate()
+    const { root, cards } = desk(1)
+    const lift = document.createElement('span')
+    lift.dataset.lift = ''
+    cards[0].append(lift)
+    actBreakFlip(root, new Map([[0, new DOMRect(10, 10, 118, 88)]]))
+    // The desk's pull-back, card 0's flight, and its lift layer fading.
+    expect(animate.mock.instances).toEqual([root, cards[0], lift])
+    const animated = animate.mock.calls.flatMap(([frames]) =>
+      (frames as Keyframe[]).flatMap((frame) => Object.keys(frame)),
+    )
+    expect(new Set(animated)).toEqual(
+      new Set(['transform', 'opacity', 'offset']),
+    )
+  })
+
   it('does nothing under reduced motion', () => {
     stubReducedMotion(true)
     const animate = stubAnimate()

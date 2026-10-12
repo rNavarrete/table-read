@@ -204,6 +204,15 @@ export function reconcileWithResult(
   const sceneIndex = (id: string | null) =>
     id === null ? null : (indexById.get(id) ?? null)
   const seen = new Map(state.scenes.map((card) => [card.index, card]))
+  // A unit the stream never showed (a replay of only the terminal `complete`)
+  // is known failed by the flag the server files on its scene.
+  const flagged = (sceneId: string, code: string) =>
+    consistencyFlags.some(
+      (f) =>
+        f.objectType === 'scene' &&
+        f.objectId === sceneId &&
+        f.explanation.startsWith(`[${code}]`),
+    )
 
   const threads: BoardThread[] = (episode?.threads ?? []).map((thread) => ({
     label: thread.label,
@@ -227,14 +236,21 @@ export function reconcileWithResult(
           0,
         ),
       intExt: card?.intExt ?? sceneLocationType(scene),
-      read: wasRead ? card.read : 'read',
+      read: wasRead
+        ? card.read
+        : flagged(scene.id, 'segmentation_failed')
+          ? 'failed'
+          : 'read',
       whatHappens: wasRead ? card.whatHappens : scene.whatHappens,
       beatCount: scene.beats.length,
       act: scene.act,
       castRead: true,
       factCount: facts.length,
       secretCount: facts.filter((f) => !f.audienceKnows).length,
-      factsFailed: card?.factsFailed ?? false,
+      factsFailed:
+        card !== undefined && (card.factCount !== null || card.factsFailed)
+          ? card.factsFailed
+          : flagged(scene.id, 'extraction_failed'),
       pins: pinsFor(scene.index, threads),
     }
   })

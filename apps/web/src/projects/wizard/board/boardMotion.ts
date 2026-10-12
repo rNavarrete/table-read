@@ -85,13 +85,13 @@ export function deal(
 }
 
 /** The act break: the board pulls back, every card lifts and flies (FLIP)
- * from where it was into its act frame, then the tape labels drop on. */
+ * from where it was into its act frame, then the tape labels drop on.
+ * Transform and opacity only: the lift's shadow is the card's [data-lift]
+ * layer fading out, never an animated box-shadow. */
 export function actBreakFlip(desk: HTMLElement, first: Map<number, DOMRect>) {
   if (!canAnimate(desk)) return
   const duration = tokenMs('--tr-motion-flight')
   const settle = token('--tr-motion-settle') || 'ease-out'
-  const lift = token('--tr-shadow-card-lift')
-  const rest = token('--tr-shadow-card-board')
   const cards = [...desk.querySelectorAll<HTMLElement>('[data-card]')]
   const step = staggerMs(cards.length) / 2
   desk.animate(
@@ -106,21 +106,31 @@ export function actBreakFlip(desk: HTMLElement, first: Map<number, DOMRect>) {
     const was = first.get(Number(card.dataset.index))
     if (!was) return
     const now = card.getBoundingClientRect()
+    const timing = {
+      duration,
+      delay: i * step,
+      easing: settle,
+      fill: 'backwards' as const,
+    }
     card.animate(
       [
         {
           transform: `translate(${was.left - now.left}px, ${was.top - now.top}px)`,
-          boxShadow: lift,
         },
         {
           transform: `translate(0, -6px) rotate(${(i % 3) - 1}deg)`,
-          boxShadow: lift,
           offset: 0.78,
         },
-        { transform: 'none', boxShadow: rest },
+        { transform: 'none' },
       ],
-      { duration, delay: i * step, easing: settle, fill: 'backwards' },
+      timing,
     )
+    card
+      .querySelector('[data-lift]')
+      ?.animate(
+        [{ opacity: 1 }, { opacity: 1, offset: 0.78 }, { opacity: 0 }],
+        timing,
+      )
   })
   desk.querySelectorAll('[data-tape]').forEach((tape, k) =>
     tape.animate(

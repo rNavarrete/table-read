@@ -393,6 +393,8 @@ describe('ImportWizard', () => {
     expect(document.activeElement).toBe(screen.getByTestId('open-your-story'))
     for (const step of screen.getAllByTestId(/^board-step-/))
       expect(step.dataset.status).toBe('done')
+    // The finale keeps the board's wide column.
+    expect(screen.getByRole('main').className).toContain('max-w-7xl')
     expect(assignSpy).not.toHaveBeenCalled()
     expect(loadDraft(IMPORT_PATH)).toBeNull()
 
@@ -486,6 +488,8 @@ describe('ImportWizard', () => {
     )
     expect(screen.getByTestId('board-card-0').dataset.state).toBe('pending')
     expect(screen.getByRole('status').textContent).toBe('Reading your script')
+    // The running board gets the wide column (narrow is the form's).
+    expect(screen.getByRole('main').className).toContain('max-w-7xl')
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(5_000)
@@ -687,10 +691,11 @@ describe('ImportWizard', () => {
     expect(loadDraft<{ title: string }>(IMPORT_PATH)?.title).toBe(
       'Ferry Crossing',
     )
-    // The board stays, frozen where it got to.
+    // The board stays, frozen where it got to, in the form's narrow column.
     expect(screen.getByTestId('board-step-parsing_scenes').dataset.status).toBe(
       'stopped',
     )
+    expect(screen.getByRole('main').className).toContain('max-w-3xl')
   })
 
   it('Retry starts the steps over on the same board and keeps the clock', async () => {
@@ -846,5 +851,6 @@ describe('ImportWizard', () => {
 
     // A board of "Not read yet" before anything runs would read as stuck.
     expect(screen.queryByTestId('import-board')).toBeNull()
+    expect(screen.getByRole('main').className).toContain('max-w-3xl')
   })
 })

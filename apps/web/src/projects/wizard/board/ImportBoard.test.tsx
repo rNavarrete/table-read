@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -128,10 +129,12 @@ describe('ImportBoard', () => {
       ),
     })
     expect(screen.queryByRole('list', { name: 'In script order' })).toBeNull()
+    const cards = screen.getByRole('list', { name: 'Scenes by act' })
+    expect(within(cards).getAllByRole('listitem')).toHaveLength(3)
     expect(screen.getByTestId('board-act-0').textContent).toContain('COLD OPEN')
-    const actOne = screen.getByTestId('board-act-1')
-    expect(actOne.textContent).toContain('ACT ONE')
-    expect(within(actOne).getAllByRole('listitem')).toHaveLength(2)
+    expect(screen.getByTestId('board-act-1').textContent).toBe(
+      'ACT ONE2 scenes · 0 beats',
+    )
     expect(screen.getByTestId('board-headline').textContent).toBe(
       'The breaks go up',
     )
@@ -207,6 +210,23 @@ describe('ImportBoard', () => {
     ).not.toBeNull()
   })
 
+  it('keeps the ETA 40 s into a single-call step', () => {
+    renderBoard({
+      state: board(scenesFrame(60)),
+      progress: progressAt(
+        'parsing_scenes',
+        'segmenting_beats',
+        'inferring_acts',
+        'inferring_entities',
+        'inferring_promises',
+      ),
+      nowMs: 4_000 + 40_000,
+    })
+    expect(screen.getByText(/min left$/).textContent).toBe(
+      'typically about 2–7 min left',
+    )
+  })
+
   it('freezes a stopped step: Stopped in words, no sweep', () => {
     const progress = advanceImportProgress(
       progressAt('parsing_scenes', 'segmenting_beats', 'inferring_acts'),
@@ -256,6 +276,51 @@ describe('ImportBoard', () => {
     expect(
       screen.getByText('3 beats · ~ Ruth smokes in the alley.'),
     ).not.toBeNull()
+  })
+
+  it('keeps a focused card focused through the act break; Notes follow focus', () => {
+    const props = {
+      title: 'x',
+      progress: progressAt('parsing_scenes', 'segmenting_beats'),
+      phase: 'streaming' as const,
+      animate: true,
+      nowMs: 0,
+      approxSceneCount: 3,
+      onOpenStory: () => {},
+      onSeeInPlan: () => {},
+    }
+    const { rerender } = render(
+      <ImportBoard {...props} board={board(scenesFrame(3))} />,
+    )
+    const card = screen.getByTestId('board-card-1')
+    act(() => card.focus())
+    expect(screen.getByText('Sc. 2 · INT. ROOM 2')).not.toBeNull()
+
+    rerender(
+      <ImportBoard
+        {...props}
+        board={board(scenesFrame(3), ACTS, {
+          kind: 'threads',
+          threads: [
+            {
+              label: 'Back pay',
+              status: 'open',
+              setupSceneIndex: 1,
+              payoffSceneIndex: null,
+            },
+          ],
+        })}
+      />,
+    )
+    // The same node, still focused: the act break never remounts a card.
+    expect(screen.getByTestId('board-card-1')).toBe(card)
+    expect(document.activeElement).toBe(card)
+    expect(screen.getByText('Sc. 2 · INT. ROOM 2')).not.toBeNull()
+
+    act(() => card.blur())
+    expect(screen.getByTestId('board-threads').textContent).toContain(
+      '~ Back pay',
+    )
   })
 
   it('counts read scenes and announces only every 10th', () => {

@@ -288,6 +288,36 @@ describe('import progress model', () => {
     expect(etaRange(initialImportProgressState, 0)).toBeNull()
   })
 
+  it('counts every stage start and progress frame as news, and gives a single-call step its usual time', () => {
+    // 60 scenes: threads usually take 93 s (56–130 s); started at 4 s.
+    let state = startStages([
+      'parsing_scenes',
+      'segmenting_beats',
+      'inferring_acts',
+      'inferring_entities',
+      'inferring_promises',
+    ])
+    expect(state.lastProgressAtMs).toBe(4_000)
+    state = advanceImportProgress(
+      state,
+      { type: 'progress', stage: 'inferring_promises', done: 1, total: 2 },
+      5_000,
+    )
+    expect(state.lastProgressAtMs).toBe(5_000)
+
+    expect(isImportProgressStale(state, 44_000, 60)).toBe(false)
+    // 40 s of threads already run: 302.4 s of priors less 40 = 262.4 s, ±40%.
+    expect(etaRange(state, 60, 44_000)).toEqual({ lowMin: 2, highMin: 7 })
+    expect(isImportProgressStale(state, 135_001, 60)).toBe(true)
+    // A scene step's units are due every few seconds: 30 s still means stale.
+    const facts = advanceImportProgress(
+      state,
+      { type: 'stage', name: 'extracting_facts' },
+      100_000,
+    )
+    expect(isImportProgressStale(facts, 130_001, 60)).toBe(true)
+  })
+
   it('gives a usual range for each single-call step', () => {
     expect(usualRange('inferring_acts', 20)).toEqual({
       lowSec: 6,
