@@ -236,4 +236,59 @@ describe('WriteScreen autosave', () => {
     expect(vi.mocked(patchProject).mock.calls[1][1]).toEqual(ops)
     expect(row.textContent).toContain('Script for scene-1 More.')
   })
+
+  it('a save that can never succeed says why once, with Dismiss, and keeps the text', async () => {
+    const user = userEvent.setup()
+    vi.mocked(getProject).mockResolvedValue(project())
+    vi.mocked(getLedger).mockResolvedValue([])
+    vi.mocked(patchProject).mockRejectedValueOnce(
+      new ApiError(409, { code: 'LOCKED_OBJECT', message: 'locked' }),
+    )
+    window.history.pushState({}, '', '/?project=proj-1&scene=scene-1')
+
+    render(<WriteScreen />)
+    const row = await screen.findByTestId('beat-row-beat-scene-1')
+    await user.click(row.querySelector('[data-testid="formatted-script"]')!)
+    await user.type(screen.getByTestId('beat-beat-scene-1'), ' More.')
+    await user.tab()
+
+    const line = await screen.findByTestId('write-save-failed')
+    expect(line.textContent).toContain("Couldn't save: this beat is locked.")
+    expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull()
+    expect(row.textContent).toContain('Script for scene-1 More.')
+    await user.click(screen.getByRole('button', { name: 'Dismiss' }))
+    expect(screen.queryByTestId('write-save-failed')).toBeNull()
+    expect(patchProject).toHaveBeenCalledOnce()
+  })
+})
+
+describe('WriteScreen craft level', () => {
+  it('saves without If-Match and rolls back to the server value, not the click-time one', async () => {
+    const user = userEvent.setup()
+    vi.mocked(getProject).mockResolvedValue(project())
+    vi.mocked(getLedger).mockResolvedValue([])
+    let failFirst!: (err: unknown) => void
+    vi.mocked(patchProject)
+      .mockReturnValueOnce(
+        new Promise((_resolve, reject) => (failFirst = reject)),
+      )
+      .mockRejectedValueOnce(new Error('offline'))
+    window.history.pushState({}, '', '/?project=proj-1')
+
+    render(<WriteScreen />)
+    const fast = await screen.findByRole('button', { name: /Fast draft/ })
+    await user.click(fast)
+    await user.click(screen.getByRole('button', { name: /Considered/ }))
+    failFirst(new Error('offline'))
+
+    const standard = screen.getByRole('button', { name: /Standard/ })
+    await waitFor(() => expect(patchProject).toHaveBeenCalledTimes(2))
+    await waitFor(() =>
+      expect(standard.getAttribute('aria-pressed')).toBe('true'),
+    )
+    expect(vi.mocked(patchProject).mock.calls[0]).toEqual([
+      'proj-1',
+      [{ op: 'add', path: '/defaultCraftLevel', value: 'fast' }],
+    ])
+  })
 })

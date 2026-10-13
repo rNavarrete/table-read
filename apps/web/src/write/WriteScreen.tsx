@@ -92,6 +92,12 @@ export function WriteScreen() {
   }, [projectId, requestedSceneId, setProject])
 
   const scenes: Scene[] = project ? allScenes(project) : []
+  const lockedEpisodeSceneIds = new Set(
+    (project?.seasons ?? [])
+      .flatMap((season) => season.episodes)
+      .filter((episode) => episode.locked)
+      .flatMap((episode) => episode.scenes.map((scene) => scene.id)),
+  )
   const activeScene =
     activeSceneId && project ? findScene(project, activeSceneId) : null
 
@@ -231,39 +237,49 @@ export function WriteScreen() {
     return activeScene.beats[activeScene.beats.length - 1].id
   }, [activeScene])
 
+  // Generation anchors on the queue's head as it is *after* the flush (an
+  // Accept or a refetch may just have landed), not on this render's project.
+  const { getHead } = queue
+  const anchorAtHead = useCallback((): string | null => {
+    const head = getHead()
+    if (!head || !activeSceneId) return null
+    const beats = findScene(head, activeSceneId)?.beats ?? []
+    return beats[beats.length - 1]?.id ?? null
+  }, [getHead, activeSceneId])
+
   const handleNextBeat = useCallback(() => {
     if (!activeSceneId) return
-    candidateSession.generate({
-      afterBeatId: lastBeatId(),
+    candidateSession.generate(() => ({
+      afterBeatId: anchorAtHead(),
       craftLevel,
-    })
-  }, [candidateSession, lastBeatId, craftLevel, activeSceneId])
+    }))
+  }, [candidateSession, anchorAtHead, craftLevel, activeSceneId])
 
   function handleCommandBarSubmit(instruction: string) {
     if (!activeSceneId) return
-    candidateSession.generate({
-      afterBeatId: lastBeatId(),
+    candidateSession.generate(() => ({
+      afterBeatId: anchorAtHead(),
       instruction,
       craftLevel,
-    })
+    }))
   }
 
-  async function handleCraftLevelChange(level: CraftLevel) {
-    const prev = craftLevel
+  function handleCraftLevelChange(level: CraftLevel) {
+    if (level === craftLevel) return
     setCraftLevel(level)
-    if (!projectId || prev === level) return
-    try {
-      await queue.run(async (head) => {
-        const result = await patchProject(
-          projectId,
-          [{ op: 'add', path: '/defaultCraftLevel', value: level }],
-          { expectedHeadSnapshotId: head.headSnapshotId },
-        )
+    if (!projectId) return
+    // A single-field add can't clobber anything, so no If-Match — but it
+    // stays on the queue so the head it returns lands in order.
+    void queue.run(async (head) => {
+      try {
+        const result = await patchProject(projectId, [
+          { op: 'add', path: '/defaultCraftLevel', value: level },
+        ])
         setProject(result.project)
-      })
-    } catch {
-      setCraftLevel(prev)
-    }
+      } catch {
+        setCraftLevel(head.defaultCraftLevel ?? 'standard') // server's value
+      }
+    })
   }
 
   const handleAccept = useCallback(
@@ -361,7 +377,7 @@ export function WriteScreen() {
       activeMode="Write"
       ledgerCount={ledgerCount}
       projectId={projectId}
-      beforeHistoryChange={flush}
+      runHistoryChange={queue.runAfterSaves}
     >
       {llmUnavailableAccept && (
         <Toast
@@ -383,23 +399,31 @@ export function WriteScreen() {
             data-testid="write-scrollport"
             className="h-full min-h-0 overflow-y-auto bg-tr-write-desk px-6 pb-28"
           >
-            {queue.saveFailed && (
+            {(queue.saveFailed || queue.notice) && (
               // Pinned to the top of the editor column (zero-height sticky
               // row, so the sheet never shifts): visible wherever the writer
               // has scrolled, and in the desk margin above the sheet.
+              // Retryable failures offer Retry; saves that can never succeed
+              // (locked / removed / changed elsewhere) say why, once.
               <div className="sticky top-0 z-10 flex h-0 items-start justify-center">
                 <p
                   role="status"
                   data-testid="write-save-failed"
                   className="mt-2 flex items-center gap-2 rounded-chip border border-tr-border bg-tr-surface-raised px-3 py-1 text-12 text-tr-danger shadow-write-card"
                 >
-                  Couldn&apos;t save your last edit.
+                  {queue.saveFailed
+                    ? "Couldn't save your last edit."
+                    : queue.notice}
                   <button
                     type="button"
-                    onClick={() => void flush()}
+                    onClick={
+                      queue.saveFailed
+                        ? () => void flush()
+                        : queue.dismissNotice
+                    }
                     className="font-medium underline"
                   >
-                    Retry
+                    {queue.saveFailed ? 'Retry' : 'Dismiss'}
                   </button>
                 </p>
               </div>
@@ -410,6 +434,7 @@ export function WriteScreen() {
               highlightBeatId={highlightBeatId}
               activeSceneId={activeSceneId}
               onSceneFocus={(id) => selectScene(id, { scroll: false })}
+              lockedEpisodeSceneIds={lockedEpisodeSceneIds}
               onBeatEdit={queue.editBeat}
               onBeatBlur={() => void flush()}
             />
@@ -417,7 +442,7 @@ export function WriteScreen() {
           <CommandBar
             ref={commandBarRef}
             onSubmit={handleCommandBarSubmit}
-            disabled={streaming || !activeSceneId}
+            disabled={streaming || candidateSession.saving || !activeSceneId}
             hidden={quiet}
             projectId={projectId}
             sceneId={activeSceneId ?? ''}
@@ -446,6 +471,7 @@ export function WriteScreen() {
             projectId={projectId}
             sceneId={activeSceneId ?? ''}
             beforeGenerate={flush}
+            saving={candidateSession.saving}
           />
         </div>
       </div>

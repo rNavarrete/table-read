@@ -1,5 +1,11 @@
 import type { Beat, Project, Scene } from 'contract'
 
+// A beat id no server ever mints (CLAUDE.md: server assigns ids; clients
+// never mint them) — the client-local placeholder for an in-flight Accept
+// (useAcceptBeat.ts), replaced wholesale by the server's response. The script
+// canvas renders it read-only.
+export const OPTIMISTIC_BEAT_ID = 'optimistic-pending-accept'
+
 /**
  * Locates `sceneId` anywhere in the project doc (data contract §1:
  * `Project.seasons[].episodes[].scenes[]`). MVP has exactly one season and

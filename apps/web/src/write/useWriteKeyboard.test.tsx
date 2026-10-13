@@ -3,8 +3,8 @@ import { renderHook } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { useWriteKeyboard } from './useWriteKeyboard'
 
-function press(key: string, target?: HTMLElement) {
-  const event = new KeyboardEvent('keydown', { key, bubbles: true })
+function press(key: string, target?: HTMLElement, repeat = false) {
+  const event = new KeyboardEvent('keydown', { key, bubbles: true, repeat })
   Object.defineProperty(event, 'target', {
     value: target ?? document.body,
   })
@@ -12,6 +12,27 @@ function press(key: string, target?: HTMLElement) {
 }
 
 describe('useWriteKeyboard', () => {
+  it('a held Enter (key repeat) accepts once, not once per repeat', () => {
+    const onAcceptFocused = vi.fn()
+    renderHook(() =>
+      useWriteKeyboard({
+        quiet: false,
+        streaming: false,
+        onGenerate: vi.fn(),
+        onFocusCommandBar: vi.fn(),
+        onCycleFocus: vi.fn(),
+        onAcceptFocused,
+        onDismissDock: vi.fn(),
+        onSelectCard: vi.fn(),
+        hasCards: true,
+      }),
+    )
+    press('Enter')
+    press('Enter', undefined, true)
+    press('Enter', undefined, true)
+    expect(onAcceptFocused).toHaveBeenCalledOnce()
+  })
+
   it('fires Q to generate when not quiet and not typing', () => {
     const onGenerate = vi.fn()
     renderHook(() =>

@@ -94,6 +94,7 @@ export function useWriteKeyboard({
       }
       if (key === 'Enter' && hasCards) {
         event.preventDefault()
+        if (event.repeat) return // a held Enter is one accept, not several
         onAcceptFocused()
         return
       }

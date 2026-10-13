@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useReducer, useRef } from 'react'
+import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
 import type { CraftLevel } from 'contract'
 import { candidatesUrl } from '../api/client'
 import { streamSse } from '../api/sse'
@@ -9,6 +9,7 @@ import {
   type CandidateSession,
   type CandidateSlot,
 } from './candidateReducer'
+import type { FlushResult } from './useWriteQueue'
 
 export interface GenerateRequest {
   afterBeatId: string | null
@@ -23,28 +24,39 @@ export interface GenerateRequest {
  * (CLAUDE.md rule 8) — `generate` only ever runs from Next Beat / command-bar
  * submit, never on a timer or on mount.
  *
- * `beforeGenerate` (Write's autosave flush) runs first and is awaited: the
- * server must generate from the writer's latest text, so a failed save
- * (`false`) means no generation — the save failure line says why.
+ * `beforeGenerate` (Write's autosave flush) runs first and is awaited
+ * (`saving` is true meanwhile): the server must generate from the writer's
+ * latest text, so a failed save (`false`) means no generation — the save
+ * failure line says why. The request is built only *after* the flush, by
+ * `buildRequest`, so its anchor (`afterBeatId`) reflects whatever the queue
+ * just landed (an Accept, a refetch); Retry rebuilds it the same way.
  */
 export function useCandidateSession(
   projectId: string,
   sceneId: string,
-  beforeGenerate?: () => Promise<boolean>,
+  beforeGenerate?: () => FlushResult,
 ) {
   const [session, dispatch] = useReducer(sessionReducer, INITIAL_SESSION)
+  const [saving, setSaving] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
-  const lastRequestRef = useRef<GenerateRequest | null>(null)
+  const lastBuildRef = useRef<(() => GenerateRequest) | null>(null)
 
   const generate = useCallback(
-    (request: GenerateRequest) => {
+    (buildRequest: () => GenerateRequest) => {
       abortRef.current?.abort()
       const controller = new AbortController()
       abortRef.current = controller
-      lastRequestRef.current = request
+      lastBuildRef.current = buildRequest
       void (async () => {
-        if (beforeGenerate && !(await beforeGenerate())) return
+        const flushed = beforeGenerate?.()
+        if (flushed) {
+          setSaving(true)
+          const ok = await flushed
+          setSaving(false)
+          if (!ok) return
+        }
         if (controller.signal.aborted) return
+        const request = buildRequest()
         dispatch({ type: 'start' })
         let sawDone = false
         try {
@@ -85,7 +97,7 @@ export function useCandidateSession(
   )
 
   const retry = useCallback(() => {
-    if (lastRequestRef.current) generate(lastRequestRef.current)
+    if (lastBuildRef.current) generate(lastBuildRef.current)
   }, [generate])
 
   const skip = useCallback(
@@ -108,7 +120,7 @@ export function useCandidateSession(
   // stale response can't dispatch into an unmounted session.
   useEffect(() => () => abortRef.current?.abort(), [])
 
-  return { session, generate, retry, skip, replaceSlot, reset }
+  return { session, saving, generate, retry, skip, replaceSlot, reset }
 }
 
 export type { CandidateSession }

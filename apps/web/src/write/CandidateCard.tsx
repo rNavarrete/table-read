@@ -9,6 +9,7 @@ import {
 } from './normalizeScriptText'
 import { SuggestionChips } from './SuggestionChips'
 import { useTuneSession } from './useTuneSession'
+import type { FlushResult } from './useWriteQueue'
 import type { AcceptErrorState } from './useAcceptBeat'
 
 export interface CandidateCardProps {
@@ -30,7 +31,7 @@ export interface CandidateCardProps {
    * retry granularity the generation endpoint offers a failed slot. */
   onRetryGeneration: () => void
   /** Write's autosave flush, awaited before Tune runs (useTuneSession). */
-  beforeGenerate?: () => Promise<boolean>
+  beforeGenerate?: () => FlushResult
 }
 
 const cardShell =
@@ -349,10 +350,10 @@ export function CandidateCard({
                 />
                 <button
                   type="submit"
-                  disabled={!instruction.trim()}
+                  disabled={!instruction.trim() || tuneSession.saving}
                   className="rounded-card border border-tr-border px-3 py-1.5 text-13 text-tr-text-primary disabled:opacity-50"
                 >
-                  Go
+                  {tuneSession.saving ? 'Saving…' : 'Go'}
                 </button>
                 <button
                   type="button"

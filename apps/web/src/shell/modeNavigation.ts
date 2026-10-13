@@ -20,12 +20,19 @@ export function isModeBuilt(mode: Mode): boolean {
   return MODE_PATHS[mode] !== null
 }
 
-let beforeModeSwitch: (() => Promise<unknown>) | null = null
+let beforeModeSwitch: (() => Promise<unknown> | null) | null = null
+
+/** How long a mode switch waits for Write's save before leaving anyway (the
+ * beforeunload prompt then covers whatever is still unsaved). */
+export const MODE_SWITCH_SAVE_WAIT_MS = 1500
 
 /** Write registers its autosave flush here (write/useWriteQueue.ts): a mode
- * switch is a full navigation, so it waits for the save instead of leaving
- * mid-flight and tripping the beforeunload prompt. */
-export function setBeforeModeSwitch(fn: (() => Promise<unknown>) | null) {
+ * switch is a full navigation, so it waits briefly for the save instead of
+ * leaving mid-flight and tripping the beforeunload prompt. The flush returns
+ * `null` when nothing is pending, and the switch is then immediate. */
+export function setBeforeModeSwitch(
+  fn: (() => Promise<unknown> | null) | null,
+) {
   beforeModeSwitch = fn
 }
 
@@ -42,8 +49,12 @@ export function navigateToMode(mode: Mode) {
     url.searchParams.delete('changeSet')
   }
   const go = () => window.location.assign(url.toString())
-  if (beforeModeSwitch) void beforeModeSwitch().then(go)
-  else go()
+  const saving = beforeModeSwitch?.()
+  if (!saving) return go()
+  void Promise.race([
+    saving,
+    new Promise((resolve) => setTimeout(resolve, MODE_SWITCH_SAVE_WAIT_MS)),
+  ]).then(go)
 }
 
 /** Open Write on a specific scene (Plan scene-card double-click / deep link).

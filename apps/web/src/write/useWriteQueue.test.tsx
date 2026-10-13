@@ -3,6 +3,7 @@ import { act, cleanup, renderHook } from '@testing-library/react'
 import type { BeatCandidate, Project } from 'contract'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiError } from '../api/errors'
+import { navigateToMode } from '../shell/modeNavigation'
 import { useAcceptBeat } from './useAcceptBeat'
 import { SAVE_DEBOUNCE_MS, useWriteQueue } from './useWriteQueue'
 
@@ -101,7 +102,7 @@ describe('useWriteQueue autosave', () => {
     const { result } = setup()
 
     act(() => result.current.editBeat('scene-1', 'beat-1', 'New'))
-    let ok = false
+    let ok: boolean | null = false
     await act(async () => {
       ok = await result.current.flush()
     })
@@ -155,7 +156,7 @@ describe('useWriteQueue autosave', () => {
     const { result } = setup()
 
     act(() => result.current.editBeat('scene-1', 'beat-1', 'New'))
-    let ok = false
+    let ok: boolean | null = false
     await act(async () => {
       ok = await result.current.flush()
     })
@@ -168,21 +169,20 @@ describe('useWriteQueue autosave', () => {
     expect(result.current.saveFailed).toBe(false)
   })
 
-  it('LOCKED_OBJECT surfaces the failure, keeps the edit, and Retry re-saves it', async () => {
+  it('a retryable failure (5xx) keeps the edit, blocks flush, and Retry re-saves it', async () => {
     vi.mocked(patchProject).mockRejectedValueOnce(
-      new ApiError(409, { code: 'LOCKED_OBJECT', message: 'locked' }),
+      new ApiError(503, { code: 'UNKNOWN', message: 'offline' }),
     )
     const { result } = setup()
 
     act(() => result.current.editBeat('scene-1', 'beat-1', 'New'))
-    let ok = true
+    let ok: boolean | null = true
     await act(async () => {
       ok = await result.current.flush()
     })
     expect(ok).toBe(false)
     expect(result.current.saveFailed).toBe(true)
-    expect(getProject).not.toHaveBeenCalled()
-    expect(patchProject).toHaveBeenCalledOnce()
+    expect(result.current.notice).toBeNull()
 
     vi.mocked(patchProject).mockResolvedValueOnce(patched(project('snap-2')))
     await act(async () => {
@@ -195,6 +195,64 @@ describe('useWriteQueue autosave', () => {
     ])
   })
 
+  it('LOCKED_OBJECT drops the edit with one notice, picks up the lock, and unblocks flush', async () => {
+    vi.mocked(patchProject).mockRejectedValueOnce(
+      new ApiError(409, { code: 'LOCKED_OBJECT', message: 'locked' }),
+    )
+    vi.mocked(getProject).mockResolvedValue(project('snap-5'))
+    const { result } = setup()
+
+    act(() => result.current.editBeat('scene-1', 'beat-1', 'New'))
+    let ok: boolean | null = false
+    await act(async () => {
+      ok = await result.current.flush()
+    })
+    expect(ok).toBe(true)
+    expect(result.current.saveFailed).toBe(false)
+    expect(result.current.notice).toBe("Couldn't save: this beat is locked.")
+    expect(result.current.project?.headSnapshotId).toBe('snap-5')
+    // Dropped, not retried: nothing left to flush.
+    expect(result.current.flush()).toBeNull()
+    expect(patchProject).toHaveBeenCalledOnce()
+
+    act(() => result.current.dismissNotice())
+    expect(result.current.notice).toBeNull()
+  })
+
+  it('a beat missing from the head drops the edit with "removed"', async () => {
+    const { result } = setup()
+    act(() => result.current.editBeat('scene-1', 'beat-gone', 'New'))
+    let ok: boolean | null = false
+    await act(async () => {
+      ok = await result.current.flush()
+    })
+    expect(ok).toBe(true)
+    expect(patchProject).not.toHaveBeenCalled()
+    expect(result.current.notice).toBe("Couldn't save: this beat was removed.")
+  })
+
+  it('a stale head whose refetch changed the beat does not retry (the other window wins)', async () => {
+    vi.mocked(patchProject).mockRejectedValueOnce(
+      new ApiError(409, { code: 'CONFLICT_STALE_HEAD', message: 'stale' }),
+    )
+    vi.mocked(getProject).mockResolvedValue(
+      project('snap-8', 'Edited in another window.'),
+    )
+    const { result } = setup()
+
+    act(() => result.current.editBeat('scene-1', 'beat-1', 'New'))
+    let ok: boolean | null = false
+    await act(async () => {
+      ok = await result.current.flush()
+    })
+    expect(ok).toBe(true)
+    expect(patchProject).toHaveBeenCalledOnce()
+    expect(result.current.notice).toBe(
+      "Couldn't save: this beat changed in another window.",
+    )
+    expect(result.current.project?.headSnapshotId).toBe('snap-8')
+  })
+
   it('unmount flushes a pending edit', () => {
     vi.mocked(patchProject).mockResolvedValue(patched(project('snap-2')))
     const { result, unmount } = setup()
@@ -203,7 +261,7 @@ describe('useWriteQueue autosave', () => {
     return vi.waitFor(() => expect(patchProject).toHaveBeenCalledOnce())
   })
 
-  it('beforeunload is only active while an edit is unsaved or in flight', async () => {
+  it('beforeunload is armed while an edit is unsaved or in flight, and only then', async () => {
     const save = deferred<ReturnType<typeof patched>>()
     vi.mocked(patchProject).mockReturnValueOnce(save.promise)
     const { result } = setup()
@@ -220,6 +278,72 @@ describe('useWriteQueue autosave', () => {
     save.resolve(patched(project('snap-2')))
     await act(() => result.current.flush())
     expect(unloadPrevented()).toBe(false)
+  })
+
+  it('a mode switch right after a successful save leaves without a prompt (no render needed)', async () => {
+    vi.mocked(patchProject).mockResolvedValue(patched(project('snap-2')))
+    const { result } = setup()
+    const original = window.location
+    const prompted: boolean[] = []
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      value: {
+        ...original,
+        href: 'http://localhost/?project=proj-1',
+        // Checked at the instant navigation starts, outside act — exactly
+        // when the browser would ask.
+        assign: () => prompted.push(unloadPrevented()),
+      },
+    })
+    try {
+      act(() => result.current.editBeat('scene-1', 'beat-1', 'New'))
+      navigateToMode('Plan')
+      await vi.waitFor(() => expect(prompted).toHaveLength(1))
+      expect(patchProject).toHaveBeenCalledOnce()
+      expect(prompted).toEqual([false])
+    } finally {
+      Object.defineProperty(window, 'location', {
+        configurable: true,
+        value: original,
+      })
+    }
+  })
+
+  it('runAfterSaves (Undo/restore) saves pending edits and then runs the request in one op', async () => {
+    const order: string[] = []
+    vi.mocked(patchProject).mockImplementation(async () => {
+      order.push('save')
+      return patched(project('snap-2'))
+    })
+    const { result } = setup()
+    act(() => result.current.editBeat('scene-1', 'beat-1', 'New'))
+
+    let ran: boolean | undefined
+    await act(async () => {
+      ran = await result.current.runAfterSaves(async () => {
+        order.push('undo')
+      })
+    })
+    expect(ran).toBe(true)
+    expect(order).toEqual(['save', 'undo'])
+    expect(unloadPrevented()).toBe(false)
+  })
+
+  it('runAfterSaves skips the request while a save keeps failing', async () => {
+    vi.mocked(patchProject).mockRejectedValue(
+      new ApiError(503, { code: 'UNKNOWN', message: 'offline' }),
+    )
+    const { result } = setup()
+    act(() => result.current.editBeat('scene-1', 'beat-1', 'New'))
+    const undo = vi.fn(async () => {})
+
+    let ran: boolean | undefined
+    await act(async () => {
+      ran = await result.current.runAfterSaves(undo)
+    })
+    expect(ran).toBe(false)
+    expect(undo).not.toHaveBeenCalled()
+    expect(result.current.saveFailed).toBe(true)
   })
 })
 
@@ -273,5 +397,75 @@ describe('one queue for autosave and Accept', () => {
     expect(result.current.accept.errorByIndex).toEqual({})
     expect(result.current.queue.saveFailed).toBe(false)
     expect(result.current.queue.project).toBe(accepted)
+  })
+
+  function acceptHarness() {
+    const hook = renderHook(() => {
+      const queue = useWriteQueue('proj-1')
+      const accept = useAcceptBeat(
+        'proj-1',
+        'scene-1',
+        queue.run,
+        queue.setProject,
+      )
+      return { queue, accept }
+    })
+    act(() => hook.result.current.queue.setProject(project('snap-1')))
+    return hook
+  }
+
+  it('a second accept while one is in flight is a no-op (no duplicate beat)', async () => {
+    const held = deferred<unknown>()
+    vi.mocked(acceptBeat).mockReturnValueOnce(held.promise as never)
+    const { result } = acceptHarness()
+
+    let first!: Promise<unknown>
+    let second!: Promise<unknown>
+    act(() => {
+      first = result.current.accept.accept(0, candidate, 'beat-1')
+    })
+    act(() => {
+      second = result.current.accept.accept(1, candidate, 'beat-1')
+    })
+    expect(await second).toBeNull()
+    expect(result.current.accept.acceptingIndex).toBe(0)
+
+    held.resolve({
+      project: project('snap-2'),
+      newFacts: [],
+      consistencyFlags: [],
+    })
+    await act(async () => {
+      await first
+    })
+    expect(acceptBeat).toHaveBeenCalledOnce()
+    // Released: a later accept goes through.
+    vi.mocked(acceptBeat).mockResolvedValueOnce({
+      project: project('snap-3'),
+      newFacts: [],
+      consistencyFlags: [],
+    } as never)
+    await act(async () => {
+      await result.current.accept.accept(0, candidate, 'beat-1')
+    })
+    expect(acceptBeat).toHaveBeenCalledTimes(2)
+  })
+
+  it('Accept CONFLICT_STALE_HEAD refetches the head into the queue, without re-accepting', async () => {
+    vi.mocked(acceptBeat).mockRejectedValueOnce(
+      new ApiError(409, { code: 'CONFLICT_STALE_HEAD', message: 'stale' }),
+    )
+    vi.mocked(getProject).mockResolvedValue(project('snap-7'))
+    const { result } = acceptHarness()
+
+    await act(async () => {
+      await result.current.accept.accept(0, candidate, 'beat-1')
+    })
+    expect(acceptBeat).toHaveBeenCalledOnce()
+    expect(result.current.accept.errorByIndex[0]?.code).toBe(
+      'CONFLICT_STALE_HEAD',
+    )
+    expect(result.current.queue.project?.headSnapshotId).toBe('snap-7')
+    expect(result.current.queue.getHead()?.headSnapshotId).toBe('snap-7')
   })
 })

@@ -1,14 +1,14 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import type { Beat, BeatCandidate, Project } from 'contract'
-import { acceptBeat, type AcceptResponse } from '../api/client'
+import { acceptBeat, getProject, type AcceptResponse } from '../api/client'
 import { ApiError } from '../api/errors'
-import { findScene, spliceBeat, withSceneBeats } from './projectTree'
+import {
+  findScene,
+  OPTIMISTIC_BEAT_ID,
+  spliceBeat,
+  withSceneBeats,
+} from './projectTree'
 import type { WriteQueueRun } from './useWriteQueue'
-
-// A beat id no server ever mints (CLAUDE.md: server assigns ids; clients
-// never mint them) — this one is purely a client-local placeholder, replaced
-// wholesale by the server's response before anything else can observe it.
-const OPTIMISTIC_BEAT_ID = 'optimistic-pending-accept'
 
 export interface AcceptErrorState {
   code: string
@@ -37,8 +37,14 @@ function withoutIndex<T>(
  * The accept runs on Write's one mutation queue (`run`, write/useWriteQueue.ts):
  * it waits for any in-flight autosave and CAS-es on the head current *when it
  * runs*, so it can't race a save into `CONFLICT_STALE_HEAD` and roll back to
- * a stale doc. The queue owns `setProject`; this hook never fetches — the
- * only value that survives is the one that came back from the server.
+ * a stale doc. The queue owns `setProject`; the only value that survives is
+ * the one that came back from the server.
+ *
+ * One accept at a time: a second call while one is in flight (double click,
+ * key repeat, another card) returns `null` and touches nothing. A
+ * `CONFLICT_STALE_HEAD` (the head moved outside Write's queue, e.g. Settings)
+ * refetches the head so the writer's manual retry can succeed — never an
+ * automatic re-accept.
  */
 export function useAcceptBeat(
   projectId: string,
@@ -50,6 +56,7 @@ export function useAcceptBeat(
   const [errorByIndex, setErrorByIndex] = useState<
     Record<number, AcceptErrorState>
   >({})
+  const inFlightRef = useRef(false)
 
   const accept = useCallback(
     (
@@ -57,6 +64,8 @@ export function useAcceptBeat(
       candidate: BeatCandidate,
       afterBeatId: string | null,
     ): Promise<AcceptResponse | null> => {
+      if (inFlightRef.current) return Promise.resolve(null)
+      inFlightRef.current = true
       setAcceptingIndex(index)
       setErrorByIndex((prev) => withoutIndex(prev, index))
       return run(async (before) => {
@@ -97,6 +106,9 @@ export function useAcceptBeat(
           return response
         } catch (err) {
           setProject(before) // rollback: scene reverts to its pre-accept state
+          if (err instanceof ApiError && err.code === 'CONFLICT_STALE_HEAD') {
+            await getProject(projectId).then(setProject, () => {})
+          }
           setAcceptingIndex(null)
           setErrorByIndex((prev) => ({
             ...prev,
@@ -107,6 +119,8 @@ export function useAcceptBeat(
           }))
           return null
         }
+      }).finally(() => {
+        inFlightRef.current = false
       })
     },
     [run, projectId, sceneId, setProject],
