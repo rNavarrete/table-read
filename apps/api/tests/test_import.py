@@ -139,6 +139,39 @@ def test_extract_retries_one_provider_invalid_request_without_logging_script(cap
     assert "PRIVATE_SCRIPT_TEXT" not in joined
 
 
+def test_extract_never_reissues_a_spend_limit_refusal():
+    """A spend limit the org set is a 400 too, but a second request fails the
+    same way, so it is not the transient 400 `_extract_one` reissues."""
+    response = httpx.Response(
+        400,
+        request=httpx.Request("POST", "https://api.anthropic.com/v1/messages"),
+        json={
+            "type": "error",
+            "error": {
+                "type": "invalid_request_error",
+                "message": "You have reached your specified workspace API usage limits.",
+            },
+        },
+    )
+
+    class _OverLimit:
+        calls = 0
+
+        def extract_ledger_facts(self, **_kwargs):
+            self.calls += 1
+            raise anthropic.BadRequestError(
+                message="bad request", response=response, body=response.json()
+            )
+
+    llm = _OverLimit()
+    scene = {"id": "scene-1", "beats": [{"id": "beat-1-1", "scriptText": "x"}]}
+    with pytest.raises(anthropic.BadRequestError):
+        pipeline._extract_one(
+            0, scene, {"title": "T", "format": NEW_PROJECT_BODY["format"]}, "ep-1", [], llm, "n"
+        )
+    assert llm.calls == 1
+
+
 def test_parallel_failure_checkpoints_completed_in_flight_results():
     second_worker_started = threading.Event()
     saved: list[tuple[int, str]] = []
@@ -155,6 +188,7 @@ def test_parallel_failure_checkpoints_completed_in_flight_results():
         [0, 1],
         worker,
         stage="extracting_facts",
+        workers=2,
         on_result=lambda index, result: saved.append((index, result)),
     )
 
