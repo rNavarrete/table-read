@@ -24,6 +24,7 @@ import fountain.characters as characters_mod
 from drama_manager import ledger_policy
 from fountain import pipeline
 from fountain.parse import split_into_scenes
+from import_diagnostics import current_import_run_id, current_import_unit, import_run_context
 from llm.dependency import get_llm_client
 from llm.errors import SchemaInvalidLlmError
 from llm.mock import MockLlmClient
@@ -245,6 +246,108 @@ def test_import_concurrency_defaults_to_8_and_clamps_to_1_16(monkeypatch, raw, e
     else:
         monkeypatch.setenv("TABLEREAD_IMPORT_CONCURRENCY", raw)
     assert pipeline._import_concurrency() == expected
+
+
+_CAP_ENV = (
+    "TABLEREAD_IMPORT_CONCURRENCY",
+    "TABLEREAD_IMPORT_CONCURRENCY_SONNET",
+    "TABLEREAD_IMPORT_CONCURRENCY_HAIKU",
+)
+_FAN_OUT_OPS = ("segment_scene", "infer_story_entities", "extract_ledger_facts")
+
+
+@pytest.mark.parametrize(
+    ("env", "segment", "entities", "facts"),
+    [
+        ({}, 8, 8, 8),
+        ({"": "4"}, 4, 4, 4),
+        ({"": "4", "_SONNET": "16"}, 16, 16, 4),
+        ({"_HAIKU": "2"}, 8, 8, 2),
+        ({"_SONNET": "40", "_HAIKU": "0"}, 16, 16, 1),
+        ({"": "6", "_SONNET": "many"}, 6, 6, 6),
+    ],
+    ids=["default", "import-cap", "sonnet", "haiku", "clamped", "bad-value-falls-back"],
+)
+def test_per_model_caps_fall_back_to_the_import_cap_then_8(
+    monkeypatch, env, segment, entities, facts
+):
+    """`env` maps a `TABLEREAD_IMPORT_CONCURRENCY` suffix to its value.
+    config/models.toml pins segmentation and the cast to Sonnet
+    (import_worker) and facts to Haiku (classifier)."""
+    for name in _CAP_ENV:
+        monkeypatch.delenv(name, raising=False)
+    for suffix, value in env.items():
+        monkeypatch.setenv(f"TABLEREAD_IMPORT_CONCURRENCY{suffix}", value)
+    monkeypatch.setattr(pipeline, "IMPORT_LLM_CONCURRENCY", pipeline._import_concurrency())
+
+    caps = [pipeline._stage_concurrency(op) for op in _FAN_OUT_OPS]
+
+    assert caps == [segment, entities, facts]
+
+
+def test_a_stage_takes_the_cap_of_its_ops_model_not_its_name(monkeypatch):
+    for name in _CAP_ENV:
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("TABLEREAD_IMPORT_CONCURRENCY_SONNET", "12")
+    monkeypatch.setenv("TABLEREAD_IMPORT_CONCURRENCY_HAIKU", "3")
+    pins = {"import_worker": "claude-haiku-5-5", "classifier": "claude-sonnet-5-5"}
+    monkeypatch.setattr(pipeline, "model_pins", lambda: pins)
+
+    assert [pipeline._stage_concurrency(op) for op in _FAN_OUT_OPS] == [3, 3, 12]
+
+
+class _ContextLlm(_ScriptedLlm):
+    """Records the run id and import unit each model call and prewarm sees."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.seen: list[tuple] = []
+
+    def _call(self, op, **kwargs):
+        self.seen.append((op, current_import_run_id(), current_import_unit()))
+        return super()._call(op, **kwargs)
+
+    def prewarm_cache(self, op, **kwargs):
+        self.seen.append(("prewarm", current_import_run_id(), current_import_unit()))
+        return super().prewarm_cache(op, **kwargs)
+
+
+_STAGE_OF = {
+    "segment_scene": "segmenting_beats",
+    "infer_act_breaks": "inferring_acts",
+    "infer_story_entities": "inferring_entities",
+    "infer_narrative_promises": "inferring_promises",
+    "infer_story_overview": "inferring_overview",
+    "extract_ledger_facts": "extracting_facts",
+    "scan_consistency": "checking_consistency",
+}
+
+
+@pytest.mark.parametrize("overlap", [True, False], ids=["overlap", "serial"])
+def test_every_call_carries_the_run_id_and_its_unit_on_any_thread(monkeypatch, overlap):
+    """Pool workers do not inherit context vars: the run id, stage and scene
+    reach every call, prewarms (one on its own thread) included."""
+    llm = _ContextLlm()
+
+    with import_run_context("import-ctx"):
+        _analyze(monkeypatch, llm, overlap=overlap, concurrency=3)
+
+    assert {run_id for _op, run_id, _unit in llm.seen} == {"import-ctx"}
+    assert sum(op == "prewarm" for op, _run_id, _unit in llm.seen) == 2  # segments, facts
+    calls = [(op, unit) for op, _run_id, unit in llm.seen if op != "prewarm"]
+    assert {op for op, _unit in calls} == set(_STAGE_OF)
+    for op, unit in calls:
+        assert unit.stage == _STAGE_OF[op]
+        on_generator_thread = op == "infer_act_breaks" or (
+            not overlap and op in ("infer_narrative_promises", "infer_story_overview",
+                                   "scan_consistency")
+        )
+        assert (unit.queue_ms is None) == on_generator_thread
+        assert unit.queue_ms is None or unit.queue_ms >= 0
+    for op in ("segment_scene", "extract_ledger_facts"):
+        assert sorted(unit.scene for name, unit in calls if name == op) == [0, 1, 2, 3, 4]
+    assert all(unit.scene is None for op, unit in calls if op not in (
+        "segment_scene", "extract_ledger_facts"))
 
 
 def test_overlap_saves_byte_identical_output_events_and_prompts(monkeypatch, fixed_ids):

@@ -41,7 +41,9 @@ registry only here; T7.28 owns its prompt/pipeline wiring.
 
 from __future__ import annotations
 
+import tomllib
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Literal
 
 from pydantic import BaseModel
@@ -389,3 +391,11 @@ _OPS: tuple[LlmOp, ...] = (
 )
 
 OP_REGISTRY: dict[str, LlmOp] = {op.name: op for op in _OPS}
+
+MODELS_CONFIG_PATH = Path(__file__).resolve().parents[3] / "config" / "models.toml"
+
+
+def model_pins() -> dict[str, str]:
+    """Role -> pinned model id, from config/models.toml."""
+    with MODELS_CONFIG_PATH.open("rb") as f:
+        return tomllib.load(f)["models"]

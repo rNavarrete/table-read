@@ -35,6 +35,7 @@ import hashlib
 import json
 import logging
 import os
+import time
 from collections.abc import Callable, Generator
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, as_completed, wait
 from dataclasses import asdict, dataclass
@@ -83,7 +84,9 @@ from fountain.parse import (
     strip_screenplay_front_matter,
 )
 from fountain.timeline import merge_timeline_anchors, slugline_time
+from import_diagnostics import ImportUnit, import_unit_context
 from llm.errors import SchemaInvalidLlmError, classify_llm_unavailable_reason
+from llm.ops import OP_REGISTRY, model_pins
 from llm.protocol import LlmClient
 from schemas import (
     ConsistencyScan,
@@ -113,18 +116,39 @@ STAGE_EXTRACTING_FACTS = "extracting_facts"
 STAGE_CHECKING_CONSISTENCY = "checking_consistency"
 
 
+def _env_concurrency(name: str) -> int | None:
+    """Env var `name` as a call cap, clamped to 1-16; None when it is unset or
+    not a number (a bad value falls back rather than failing startup)."""
+    try:
+        return min(max(int(os.environ[name]), 1), 16)
+    except (KeyError, ValueError):
+        return None
+
+
 def _import_concurrency() -> int:
     """`TABLEREAD_IMPORT_CONCURRENCY`: calls each per-scene stage keeps in
-    flight. Default 8 (it was a fixed 4), clamped to 1-16; a bad value is the
-    default rather than a failed startup."""
-    try:
-        value = int(os.environ.get("TABLEREAD_IMPORT_CONCURRENCY", "8"))
-    except ValueError:
-        value = 8
-    return min(max(value, 1), 16)
+    flight. Default 8 (it was a fixed 4), clamped to 1-16."""
+    value = _env_concurrency("TABLEREAD_IMPORT_CONCURRENCY")
+    return 8 if value is None else value
 
 
 IMPORT_LLM_CONCURRENCY = _import_concurrency()
+
+
+def _stage_concurrency(op: str) -> int:
+    """The cap for a fan-out of `op` calls. Rate limits are per model, so
+    `TABLEREAD_IMPORT_CONCURRENCY_SONNET` / `_HAIKU` (same clamp) override
+    IMPORT_LLM_CONCURRENCY for an op whose model, its role's pin in
+    config/models.toml, is that family. Read as each stage starts."""
+    model = model_pins()[OP_REGISTRY[op].role]
+    for family in ("sonnet", "haiku"):
+        if family in model:
+            value = _env_concurrency(f"TABLEREAD_IMPORT_CONCURRENCY_{family.upper()}")
+            if value is not None:
+                return value
+    return IMPORT_LLM_CONCURRENCY
+
+
 # `TABLEREAD_IMPORT_OVERLAP=0` runs the late stages one after another again
 # (see analyze_import's late-stage comment); anything else overlaps them.
 IMPORT_OVERLAP = os.environ.get("TABLEREAD_IMPORT_OVERLAP") != "0"
@@ -280,6 +304,7 @@ def analyze_import(
             ),
         ),
         stage=STAGE_SEGMENTING_BEATS,
+        workers=_stage_concurrency("segment_scene"),
         existing_results=cached_beats,
         # Every call carries `split_source`; without a prewarm, every worker
         # of the first wave writes it.
@@ -316,6 +341,7 @@ def analyze_import(
         None if infer_format else acts.acts_from_markers(spans, project_doc["format"])
     )
     retried_acts = False
+    infer_act_breaks = _unit(STAGE_INFERRING_ACTS, None, llm.infer_act_breaks, pooled=False)
     acts_cached = cached_scene_acts is not None and (
         cached_format is not None or not infer_format
     )
@@ -343,7 +369,7 @@ def analyze_import(
         system, user = render.build_act_inference_prompt(
             project_doc, summaries, run_nonce, **prompt_kwargs
         )
-        inferred = llm.infer_act_breaks(
+        inferred = infer_act_breaks(
             system=system,
             user_message=user,
             prompt_version=render.PROMPT_VERSION,
@@ -359,7 +385,7 @@ def analyze_import(
                     run_nonce,
                     **prompt_kwargs,
                 )
-                inferred = llm.infer_act_breaks(
+                inferred = infer_act_breaks(
                     system=retry_system,
                     user_message=retry_user,
                     prompt_version=render.PROMPT_VERSION,
@@ -396,7 +422,7 @@ def analyze_import(
                     first_error.diagnostics,
                     run_nonce,
                 )
-                repaired = llm.infer_act_breaks(
+                repaired = infer_act_breaks(
                     system=retry_system,
                     user_message=retry_user,
                     prompt_version=render.PROMPT_VERSION,
@@ -522,7 +548,9 @@ def analyze_import(
     facts_prewarm: Callable[[], None] | None = None
     if send_facts_prewarm is not None:
         prewarm_pool = ThreadPoolExecutor(max_workers=1)
-        facts_prewarm = prewarm_pool.submit(send_facts_prewarm).result
+        facts_prewarm = prewarm_pool.submit(
+            _unit(STAGE_EXTRACTING_FACTS, None, send_facts_prewarm)
+        ).result
         prewarm_pool.shutdown(wait=False)
 
     # ── Entity inference (§5a, T7.15): import_worker (Sonnet) calls over compact
@@ -618,6 +646,8 @@ def analyze_import(
         summary_chunks,
         _infer_entity_chunk,
         stage=STAGE_INFERRING_ENTITIES,
+        workers=_stage_concurrency("infer_story_entities"),
+        per_scene=False,
         existing_results=entity_parts,
         # Every chunk carries `split_source` under the entity prompt's own
         # tools and system text: write that entry once, before the fan-out.
@@ -774,12 +804,12 @@ def analyze_import(
         if drain is None:
 
             def run_now() -> R:
-                result = send(*prompt())
+                result = _unit(stage, None, send, pooled=False)(*prompt())
                 save(result)
                 return result
 
             return run_now
-        future = drain.submit(cast(ThreadPoolExecutor, solo), save, send, *prompt())
+        future = drain.submit(cast(ThreadPoolExecutor, solo), save, send, *prompt(), stage=stage)
         return lambda: drain.until(future)
 
     extractions = list(cached_extractions)
@@ -891,7 +921,7 @@ def analyze_import(
             # scene at once (facts_prewarm is None unless 2+ are outstanding).
             if facts_prewarm is not None:
                 facts_prewarm()
-            facts_pool = drain.pool(IMPORT_LLM_CONCURRENCY)
+            facts_pool = drain.pool(_stage_concurrency("extract_ledger_facts"))
             for index in missing_facts:
                 drain.submit(
                     facts_pool,
@@ -899,6 +929,8 @@ def analyze_import(
                     extract_prebuilt,
                     index,
                     fact_prompts[index],
+                    stage=STAGE_EXTRACTING_FACTS,
+                    scene=index,
                     on_error=on_fact_error,
                 )
             if not missing_facts:
@@ -980,6 +1012,7 @@ def analyze_import(
                     lambda _scene: LedgerExtraction(new_facts=[], contradictions=[]),
                 ),
                 stage=STAGE_EXTRACTING_FACTS,
+                workers=_stage_concurrency("extract_ledger_facts"),
                 existing_results=cached_extractions,
                 # Same race as segmentation — every call carries `episode_source`.
                 prewarm=facts_prewarm,
@@ -1388,6 +1421,30 @@ def _prewarm(
     )
 
 
+def _unit[R](
+    stage: str, scene: int | None, fn: Callable[..., R], *, pooled: bool = True
+) -> Callable[..., R]:
+    """`fn` as one import unit, for whichever thread runs it: it runs in a copy
+    of the context it was made in (so the import run id reaches pool workers,
+    which do not inherit context vars), with its model calls tagged with
+    `stage`, `scene` and, when `pooled`, the ms from now until it starts (the
+    wait for a free worker). Make one per submission: a context copy can run
+    on one thread at a time."""
+    context = contextvars.copy_context()
+    made = time.monotonic()
+
+    def run(*args: Any, **kwargs: Any) -> R:
+        queue_ms = round((time.monotonic() - made) * 1000) if pooled else None
+
+        def call() -> R:
+            with import_unit_context(ImportUnit(stage, scene, queue_ms)):
+                return fn(*args, **kwargs)
+
+        return context.run(call)
+
+    return run
+
+
 def _stage_opening[R](
     stage: str, results: list[R | None], found: Callable[[int, R], dict] | None
 ) -> Generator[ImportPipelineEvent, None, None]:
@@ -1407,6 +1464,8 @@ def _run_ordered_parallel[T, R](
     worker: Callable[[int, T], R],
     *,
     stage: str,
+    workers: int,
+    per_scene: bool = True,
     existing_results: list[R | None] | None = None,
     on_result: Callable[[int, R], None] | None = None,
     found: Callable[[int, R], dict] | None = None,
@@ -1414,19 +1473,22 @@ def _run_ordered_parallel[T, R](
 ) -> Generator[ImportPipelineEvent, None, list[R]]:
     """Run per-scene LLM work concurrently while returning results by source index.
 
+    At most `workers` calls run at once. Each item runs as an import unit
+    (`_unit`) of `stage`, tagged with its index as the scene when `per_scene`.
+
     On failure, calls not yet started are cancelled and the generator emits no
     later progress. Already-running HTTP calls cannot be killed, so it waits for
     them and checkpoints each one that succeeded before raising.
 
     `prewarm` writes the shared cached prefix before the fan-out; it runs once,
     synchronously, when more than one item is outstanding. Set it when the
-    worker sends a shared cached prefix: otherwise the first
-    IMPORT_LLM_CONCURRENCY calls all start before any cache entry exists and
-    each pays a full cache write (measured on a real 60-page import: three
-    redundant 30k-token writes per loop, about $0.18 each on the Sonnet import
-    worker). It replaced running the first item alone, which cost one whole
-    call of serial latency per stage (27.6 s on a 68-scene import); a prewarm
-    generates nothing, so it costs only the prefill.
+    worker sends a shared cached prefix: otherwise the first `workers` calls
+    all start before any cache entry exists and each pays a full cache write
+    (measured on a real 60-page import: three redundant 30k-token writes per
+    loop, about $0.18 each on the Sonnet import worker). It replaced running
+    the first item alone, which cost one whole call of serial latency per
+    stage (27.6 s on a 68-scene import); a prewarm generates nothing, so it
+    costs only the prefill.
 
     `found` builds each result's `ImportFound` payload: checkpointed results
     first (`cached=True`), then each new result just before its progress frame.
@@ -1452,10 +1514,10 @@ def _run_ordered_parallel[T, R](
     if prewarm is not None and len(missing) > 1:
         prewarm()
 
-    pool = ThreadPoolExecutor(max_workers=IMPORT_LLM_CONCURRENCY)
+    pool = ThreadPoolExecutor(max_workers=workers)
     try:
         futures = {
-            pool.submit(worker, index, item): index
+            pool.submit(_unit(stage, index if per_scene else None, worker), index, item): index
             for index, item in missing
         }
         for future in as_completed(futures):
@@ -1519,11 +1581,11 @@ class _Drain:
         fn: Callable[..., Any],
         /,
         *args: Any,
+        stage: str,
+        scene: int | None = None,
         on_error: Callable[[BaseException], None] | None = None,
     ) -> Future:
-        # The caller's context goes along, so the import run id still tags a
-        # call's retry logs (llm.errors) as it did when the call ran here.
-        future = pool.submit(contextvars.copy_context().run, fn, *args)
+        future = pool.submit(_unit(stage, scene, fn), *args)
         self._handlers[future] = (handler, on_error)
         return future
 

@@ -19,20 +19,11 @@ point.
 from __future__ import annotations
 
 import os
-import tomllib
-from pathlib import Path
 
 import anthropic
 
 from llm.anthropic_client import AnthropicClient
-
-_MODELS_CONFIG_PATH = Path(__file__).resolve().parents[3] / "config" / "models.toml"
-
-
-def _load_model_roles() -> dict[str, str]:
-    with _MODELS_CONFIG_PATH.open("rb") as f:
-        config = tomllib.load(f)
-    return config["models"]
+from llm.ops import model_pins
 
 
 def build_anthropic_client() -> AnthropicClient:
@@ -41,7 +32,7 @@ def build_anthropic_client() -> AnthropicClient:
     Raises `KeyError` immediately if the API key is unset -- fail fast at
     startup, not on the first request."""
     api_key = os.environ["ANTHROPIC_API_KEY"]
-    return AnthropicClient(sdk_client=build_sdk_client(api_key), models=_load_model_roles())
+    return AnthropicClient(sdk_client=build_sdk_client(api_key), models=model_pins())
 
 
 def build_sdk_client(api_key: str) -> anthropic.Anthropic:
