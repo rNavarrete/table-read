@@ -160,3 +160,19 @@ class LlmClient(Protocol):
     def generate_scene_skeleton(
         self, *, system: str, user_message: str, prompt_version: str
     ) -> InitialSceneSkeleton: ...
+
+    def prewarm_cache(
+        self,
+        op: str,
+        *,
+        system: str,
+        user_message: str,
+        cache_prefix: str | None = None,
+    ) -> None:
+        """Best-effort: write the prompt cache for `op` without generating an answer.
+
+        Takes the same `system`/`user_message`/`cache_prefix` the real `op`
+        call will send, so the cached prefix matches. Never validates output
+        and never raises for a failed request (a cold cache costs money, not
+        correctness); an unknown `op` raises `KeyError`."""
+        ...

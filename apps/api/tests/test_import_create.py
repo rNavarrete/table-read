@@ -1754,21 +1754,14 @@ def test_failing_scene_worker_fails_fast_with_zero_rows(db_session, monkeypatch)
         for name, data in events
         if name == "progress" and data["stage"] == "segmenting_beats"
     ]
-    # The cache-warming call runs one scene alone before the fan-out, so a
-    # done:1 frame is emitted and is honest — that scene really did finish.
-    # What matters for fail-fast is unchanged: progress stops at the failure
-    # and never reports work the run did not complete.
+    # Alpha and Beta start together (a prewarm, not a lone first scene, warms
+    # the cache); Beta fails while Alpha is still running. Progress stops at
+    # the failure and never reports work the run did not complete.
     assert segment_progress == [
         {
             "type": "progress",
             "stage": "segmenting_beats",
             "done": 0,
-            "total": 3,
-        },
-        {
-            "type": "progress",
-            "stage": "segmenting_beats",
-            "done": 1,
             "total": 3,
         },
     ]
