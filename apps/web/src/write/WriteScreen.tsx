@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { BeatCandidate, CraftLevel, Project, Scene } from 'contract'
+import type { BeatCandidate, CraftLevel, Scene } from 'contract'
 import { getLedger, getProject, patchProject } from '../api/client'
 import { requireProjectId } from '../projects/projectRouting'
 import { loadResume, saveResume } from '../projects/resumeContext'
@@ -14,6 +14,7 @@ import { useAcceptBeat } from './useAcceptBeat'
 import { useCandidateSession } from './useCandidateSession'
 import { useQuietAi } from './useQuietAi'
 import { useWriteKeyboard } from './useWriteKeyboard'
+import { useWriteQueue } from './useWriteQueue'
 import { allScenes, findScene, pickDefaultScene } from './projectTree'
 import { isEditingInScrollport, pickTopIntersectingSceneId } from './scrollSpy'
 function useUrlParam(name: string): string | null {
@@ -35,7 +36,10 @@ export function WriteScreen() {
   const highlightBeatId = useUrlParam('highlightBeat')
   const activeProjectId = projectId ?? ''
 
-  const [project, setProject] = useState<Project | null>(null)
+  // Project state + the one serial queue for Write's head-CAS mutations
+  // (autosave, Accept, craft default) — see useWriteQueue.ts.
+  const queue = useWriteQueue(activeProjectId)
+  const { project, setProject } = queue
   const [ledgerCount, setLedgerCount] = useState(0)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [focusedCard, setFocusedCard] = useState(0)
@@ -85,15 +89,27 @@ export function WriteScreen() {
     return () => {
       cancelled = true
     }
-  }, [projectId, requestedSceneId])
+  }, [projectId, requestedSceneId, setProject])
 
   const scenes: Scene[] = project ? allScenes(project) : []
+  const lockedEpisodeSceneIds = new Set(
+    (project?.seasons ?? [])
+      .flatMap((season) => season.episodes)
+      .filter((episode) => episode.locked)
+      .flatMap((episode) => episode.scenes.map((scene) => scene.id)),
+  )
   const activeScene =
     activeSceneId && project ? findScene(project, activeSceneId) : null
 
   useEffect(() => {
     activeSceneIdRef.current = activeSceneId
   }, [activeSceneId])
+
+  // Changing the active scene saves any pending edit right away.
+  const { flush } = queue
+  useEffect(() => {
+    void flush()
+  }, [activeSceneId, flush])
 
   useEffect(() => {
     if (projectId && activeSceneId) {
@@ -200,11 +216,12 @@ export function WriteScreen() {
   const candidateSession = useCandidateSession(
     activeProjectId,
     activeSceneId ?? '',
+    flush,
   )
   const accept = useAcceptBeat(
     activeProjectId,
     activeSceneId ?? '',
-    project,
+    queue.run,
     setProject,
   )
 
@@ -220,42 +237,49 @@ export function WriteScreen() {
     return activeScene.beats[activeScene.beats.length - 1].id
   }, [activeScene])
 
+  // Generation anchors on the queue's head as it is *after* the flush (an
+  // Accept or a refetch may just have landed), not on this render's project.
+  const { getHead } = queue
+  const anchorAtHead = useCallback((): string | null => {
+    const head = getHead()
+    if (!head || !activeSceneId) return null
+    const beats = findScene(head, activeSceneId)?.beats ?? []
+    return beats[beats.length - 1]?.id ?? null
+  }, [getHead, activeSceneId])
+
   const handleNextBeat = useCallback(() => {
     if (!activeSceneId) return
-    candidateSession.generate({
-      afterBeatId: lastBeatId(),
+    candidateSession.generate(() => ({
+      afterBeatId: anchorAtHead(),
       craftLevel,
-    })
-  }, [candidateSession, lastBeatId, craftLevel, activeSceneId])
+    }))
+  }, [candidateSession, anchorAtHead, craftLevel, activeSceneId])
 
   function handleCommandBarSubmit(instruction: string) {
     if (!activeSceneId) return
-    candidateSession.generate({
-      afterBeatId: lastBeatId(),
+    candidateSession.generate(() => ({
+      afterBeatId: anchorAtHead(),
       instruction,
       craftLevel,
-    })
+    }))
   }
 
-  async function handleCraftLevelChange(level: CraftLevel) {
+  function handleCraftLevelChange(level: CraftLevel) {
+    if (level === craftLevel) return
     setCraftLevel(level)
-    if (!projectId || !project) return
-    const prev = project.defaultCraftLevel ?? 'standard'
-    if (prev === level) return
-    setProject({ ...project, defaultCraftLevel: level })
-    try {
-      const result = await patchProject(projectId, [
-        {
-          op: 'add',
-          path: '/defaultCraftLevel',
-          value: level,
-        },
-      ])
-      setProject(result.project)
-    } catch {
-      setCraftLevel(prev)
-      setProject(project)
-    }
+    if (!projectId) return
+    // A single-field add can't clobber anything, so no If-Match — but it
+    // stays on the queue so the head it returns lands in order.
+    void queue.run(async (head) => {
+      try {
+        const result = await patchProject(projectId, [
+          { op: 'add', path: '/defaultCraftLevel', value: level },
+        ])
+        setProject(result.project)
+      } catch {
+        setCraftLevel(head.defaultCraftLevel ?? 'standard') // server's value
+      }
+    })
   }
 
   const handleAccept = useCallback(
@@ -353,6 +377,7 @@ export function WriteScreen() {
       activeMode="Write"
       ledgerCount={ledgerCount}
       projectId={projectId}
+      runHistoryChange={queue.runAfterSaves}
     >
       {llmUnavailableAccept && (
         <Toast
@@ -374,18 +399,50 @@ export function WriteScreen() {
             data-testid="write-scrollport"
             className="h-full min-h-0 overflow-y-auto bg-tr-write-desk px-6 pb-28"
           >
+            {(queue.saveFailed || queue.notice) && (
+              // Pinned to the top of the editor column (zero-height sticky
+              // row, so the sheet never shifts): visible wherever the writer
+              // has scrolled, and in the desk margin above the sheet.
+              // Retryable failures offer Retry; saves that can never succeed
+              // (locked / removed / changed elsewhere) say why, once.
+              <div className="sticky top-0 z-10 flex h-0 items-start justify-center">
+                <p
+                  role="status"
+                  data-testid="write-save-failed"
+                  className="mt-2 flex items-center gap-2 rounded-chip border border-tr-border bg-tr-surface-raised px-3 py-1 text-12 text-tr-danger shadow-write-card"
+                >
+                  {queue.saveFailed
+                    ? "Couldn't save your last edit."
+                    : queue.notice}
+                  <button
+                    type="button"
+                    onClick={
+                      queue.saveFailed
+                        ? () => void flush()
+                        : queue.dismissNotice
+                    }
+                    className="font-medium underline"
+                  >
+                    {queue.saveFailed ? 'Retry' : 'Dismiss'}
+                  </button>
+                </p>
+              </div>
+            )}
             <ScriptCanvas
               scenes={scenes}
               canvasHandlers={wrappedCanvasHandlers}
               highlightBeatId={highlightBeatId}
               activeSceneId={activeSceneId}
               onSceneFocus={(id) => selectScene(id, { scroll: false })}
+              lockedEpisodeSceneIds={lockedEpisodeSceneIds}
+              onBeatEdit={queue.editBeat}
+              onBeatBlur={() => void flush()}
             />
           </div>
           <CommandBar
             ref={commandBarRef}
             onSubmit={handleCommandBarSubmit}
-            disabled={streaming || !activeSceneId}
+            disabled={streaming || candidateSession.saving || !activeSceneId}
             hidden={quiet}
             projectId={projectId}
             sceneId={activeSceneId ?? ''}
@@ -413,6 +470,8 @@ export function WriteScreen() {
             errorByIndex={accept.errorByIndex}
             projectId={projectId}
             sceneId={activeSceneId ?? ''}
+            beforeGenerate={flush}
+            saving={candidateSession.saving}
           />
         </div>
       </div>

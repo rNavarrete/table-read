@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useReducer, useRef } from 'react'
+import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
 import type { BeatCandidate } from 'contract'
 import { tuneUrl } from '../api/client'
 import { streamSse } from '../api/sse'
@@ -8,6 +8,7 @@ import {
   tuneReducer,
   type TuneSession,
 } from './candidateReducer'
+import type { FlushResult } from './useWriteQueue'
 
 interface TuneRequest {
   candidate: BeatCandidate
@@ -22,10 +23,17 @@ interface TuneRequest {
  * back into the parent session via `sessionReducer`'s `replaceSlot`.
  *
  * `retry` re-POSTs the last tune request (manual writer gesture only —
- * CLAUDE.md rule 8; no auto-reconnect).
+ * CLAUDE.md rule 8; no auto-reconnect). `beforeGenerate` is Write's autosave
+ * flush, awaited first (`saving` meanwhile); `false` (the save failed) means
+ * no tune. The tune request carries no beat anchor, so nothing to rebuild.
  */
-export function useTuneSession(projectId: string, sceneId: string) {
+export function useTuneSession(
+  projectId: string,
+  sceneId: string,
+  beforeGenerate?: () => FlushResult,
+) {
   const [session, dispatch] = useReducer(tuneReducer, INITIAL_TUNE_SESSION)
+  const [saving, setSaving] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
   const lastRequestRef = useRef<TuneRequest | null>(null)
 
@@ -35,8 +43,16 @@ export function useTuneSession(projectId: string, sceneId: string) {
       const controller = new AbortController()
       abortRef.current = controller
       lastRequestRef.current = { candidate, instruction }
-      dispatch({ type: 'start' })
       void (async () => {
+        const flushed = beforeGenerate?.()
+        if (flushed) {
+          setSaving(true)
+          const ok = await flushed
+          setSaving(false)
+          if (!ok) return
+        }
+        if (controller.signal.aborted) return
+        dispatch({ type: 'start' })
         let sawDone = false
         try {
           const frames = streamSse(
@@ -68,7 +84,7 @@ export function useTuneSession(projectId: string, sceneId: string) {
         }
       })()
     },
-    [projectId, sceneId],
+    [projectId, sceneId, beforeGenerate],
   )
 
   const retry = useCallback(() => {
@@ -85,7 +101,7 @@ export function useTuneSession(projectId: string, sceneId: string) {
 
   useEffect(() => () => abortRef.current?.abort(), [])
 
-  return { session, tune, retry, reset }
+  return { session, saving, tune, retry, reset }
 }
 
 export type { TuneSession }

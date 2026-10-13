@@ -2,7 +2,7 @@
 import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { Scene } from 'contract'
+import type { Beat, Scene } from 'contract'
 import { ScriptCanvas } from './ScriptCanvas'
 
 // No @testing-library/jest-dom in this project (see useQuietAi.test.tsx) —
@@ -257,6 +257,127 @@ describe('ScriptCanvas', () => {
     expect(textarea.readOnly).toBe(false)
     await user.type(textarea, ' More.')
     expect(textarea.value).toBe('DAN\nWe are closed. More.')
+  })
+
+  it('reports each edit and asks for a save on blur (autosave hooks)', async () => {
+    const user = userEvent.setup()
+    const onBeatEdit = vi.fn()
+    const onBeatBlur = vi.fn()
+    render(
+      <ScriptCanvas
+        scenes={[
+          scene({
+            beats: [
+              {
+                id: 'beat-3-1',
+                index: 0,
+                locked: false,
+                scriptLocked: false,
+                whatHappens: '',
+                audienceLearns: '',
+                audienceFeels: '',
+                scriptText: 'DAN\nWe are closed.',
+              },
+            ],
+          }),
+        ]}
+        canvasHandlers={noopHandlers}
+        onBeatEdit={onBeatEdit}
+        onBeatBlur={onBeatBlur}
+      />,
+    )
+    await user.click(screen.getByTestId('formatted-script'))
+    await user.type(screen.getByTestId('beat-beat-3-1'), '!')
+    expect(onBeatEdit).toHaveBeenLastCalledWith(
+      'scene-1',
+      'beat-3-1',
+      'DAN\nWe are closed.!',
+    )
+    expect(onBeatBlur).not.toHaveBeenCalled()
+    await user.tab()
+    expect(onBeatBlur).toHaveBeenCalledOnce()
+    // The typed text stays on the page after blur.
+    expect(screen.getByTestId('formatted-script').textContent).toContain(
+      'We are closed.!',
+    )
+  })
+
+  function beat(id: string, scriptText: string): Beat {
+    return {
+      id,
+      index: 0,
+      locked: false,
+      scriptLocked: false,
+      whatHappens: '',
+      audienceLearns: '',
+      audienceFeels: '',
+      scriptText,
+    }
+  }
+
+  it('the optimistic Accept placeholder is read-only (it re-keys when the accept lands)', async () => {
+    const user = userEvent.setup()
+    render(
+      <ScriptCanvas
+        scenes={[
+          scene({ beats: [beat('optimistic-pending-accept', 'Accepted.')] }),
+        ]}
+        canvasHandlers={noopHandlers}
+      />,
+    )
+    await user.click(screen.getByTestId('formatted-script'))
+    expect(screen.queryByTestId('beat-optimistic-pending-accept')).toBeNull()
+    expect(screen.queryByText('Locked — unlock to edit')).toBeNull()
+  })
+
+  it('beats in a locked scene or a locked episode are read-only (effective locks)', async () => {
+    const user = userEvent.setup()
+    render(
+      <ScriptCanvas
+        scenes={[
+          scene({ id: 'scene-1', locked: true, beats: [beat('b-1', 'One.')] }),
+          scene({ id: 'scene-2', beats: [beat('b-2', 'Two.')] }),
+        ]}
+        lockedEpisodeSceneIds={new Set(['scene-2'])}
+        canvasHandlers={noopHandlers}
+      />,
+    )
+    for (const el of screen.getAllByTestId('formatted-script')) {
+      await user.click(el)
+    }
+    expect(screen.queryByTestId('beat-b-1')).toBeNull()
+    expect(screen.queryByTestId('beat-b-2')).toBeNull()
+    expect(screen.getAllByText('Locked — unlock to edit')).toHaveLength(2)
+  })
+
+  it("picks up the server's text after a refetch, unless the row holds its own", async () => {
+    const user = userEvent.setup()
+    const scenes = (a: string, b: string) => [
+      scene({ beats: [beat('b-1', a), { ...beat('b-2', b), index: 1 }] }),
+    ]
+    const { rerender } = render(
+      <ScriptCanvas
+        scenes={scenes('One.', 'Two.')}
+        canvasHandlers={noopHandlers}
+      />,
+    )
+    // The writer types into b-2 (unsaved / dropped text of its own).
+    await user.click(screen.getAllByTestId('formatted-script')[1])
+    await user.type(screen.getByTestId('beat-b-2'), ' Mine.')
+    await user.tab()
+
+    rerender(
+      <ScriptCanvas
+        scenes={scenes('One, newer.', 'Two, newer.')}
+        canvasHandlers={noopHandlers}
+      />,
+    )
+    expect(screen.getByTestId('beat-row-b-1').textContent).toContain(
+      'One, newer.',
+    )
+    expect(screen.getByTestId('beat-row-b-2').textContent).toContain(
+      'Two. Mine.',
+    )
   })
 
   it('a locked beat stays formatted and is not editable', async () => {

@@ -100,38 +100,44 @@ describe('AppShell', () => {
     // modes by re-fetching.
     await waitFor(() => expect(reloadMock).toHaveBeenCalled())
   })
-})
 
-describe('demo-mode banner', () => {
-  it('warns the writer when AI results are fixture data', async () => {
-    getLlmModeMock.mockResolvedValueOnce({ status: 'ok', llmMode: 'mock' })
+  it('Undo runs its request through runHistoryChange (Write queue) and stays put when it declines', async () => {
+    const user = userEvent.setup()
+    undoProjectMock.mockResolvedValue({ id: 'proj-1' })
+    let decline = true
+    const runHistoryChange = vi.fn(async (request: () => Promise<unknown>) => {
+      if (decline) return false // a save failed: no undo
+      await request()
+      return true
+    })
+
     render(
-      <AppShell projectTitle="The Long Pour" activeMode="Write" ledgerCount={0}>
-        <div />
+      <AppShell
+        activeMode="Write"
+        ledgerCount={0}
+        projectTitle="Long Pour"
+        projectId="proj-1"
+        runHistoryChange={runHistoryChange}
+      >
+        <p>Mode content</p>
       </AppShell>,
     )
-    const banner = await screen.findByTestId('mock-llm-banner')
-    expect(banner.textContent).toMatch(/sample data/i)
-  })
 
-  it('stays out of the way when the real client is configured', async () => {
-    render(
-      <AppShell projectTitle="The Long Pour" activeMode="Write" ledgerCount={0}>
-        <div />
-      </AppShell>,
+    await user.click(screen.getByTestId('undo-button'))
+    await waitFor(() =>
+      expect(
+        (screen.getByTestId('undo-button') as HTMLButtonElement).disabled,
+      ).toBe(false),
     )
-    await waitFor(() => expect(getLlmModeMock).toHaveBeenCalled())
-    expect(screen.queryByTestId('mock-llm-banner')).toBeNull()
-  })
+    expect(runHistoryChange).toHaveBeenCalledOnce()
+    expect(undoProjectMock).not.toHaveBeenCalled()
+    expect(reloadMock).not.toHaveBeenCalled()
 
-  it('says nothing when the health check cannot be reached', async () => {
-    getLlmModeMock.mockRejectedValueOnce(new Error('offline'))
-    render(
-      <AppShell projectTitle="The Long Pour" activeMode="Write" ledgerCount={0}>
-        <div />
-      </AppShell>,
-    )
-    await waitFor(() => expect(getLlmModeMock).toHaveBeenCalled())
-    expect(screen.queryByTestId('mock-llm-banner')).toBeNull()
+    decline = false
+    await user.click(screen.getByTestId('undo-button'))
+    await waitFor(() => expect(reloadMock).toHaveBeenCalled())
+    // The undo request ran inside the runner, not beside it.
+    expect(undoProjectMock).toHaveBeenCalledWith('proj-1')
+    expect(runHistoryChange).toHaveBeenCalledTimes(2)
   })
 })

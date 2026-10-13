@@ -20,6 +20,22 @@ export function isModeBuilt(mode: Mode): boolean {
   return MODE_PATHS[mode] !== null
 }
 
+let beforeModeSwitch: (() => Promise<unknown> | null) | null = null
+
+/** How long a mode switch waits for Write's save before leaving anyway (the
+ * beforeunload prompt then covers whatever is still unsaved). */
+export const MODE_SWITCH_SAVE_WAIT_MS = 1500
+
+/** Write registers its autosave flush here (write/useWriteQueue.ts): a mode
+ * switch is a full navigation, so it waits briefly for the save instead of
+ * leaving mid-flight and tripping the beforeunload prompt. The flush returns
+ * `null` when nothing is pending, and the switch is then immediate. */
+export function setBeforeModeSwitch(
+  fn: (() => Promise<unknown> | null) | null,
+) {
+  beforeModeSwitch = fn
+}
+
 /** Navigates to `mode` if it's built; a no-op for unbuilt modes. Shared by
  * ModeSwitcher's tab buttons and AppShell's ⌘1-4 shortcut (UI spec §2). */
 export function navigateToMode(mode: Mode) {
@@ -32,7 +48,13 @@ export function navigateToMode(mode: Mode) {
   if (mode === 'Review') {
     url.searchParams.delete('changeSet')
   }
-  window.location.assign(url.toString())
+  const go = () => window.location.assign(url.toString())
+  const saving = beforeModeSwitch?.()
+  if (!saving) return go()
+  void Promise.race([
+    saving,
+    new Promise((resolve) => setTimeout(resolve, MODE_SWITCH_SAVE_WAIT_MS)),
+  ]).then(go)
 }
 
 /** Open Write on a specific scene (Plan scene-card double-click / deep link).
