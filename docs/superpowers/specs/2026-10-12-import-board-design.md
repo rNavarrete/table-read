@@ -59,7 +59,7 @@ The prototype is the reference. Stage by stage:
 
 **Leaving the page.** Copy is honest: "Keep this tab open. Leaving pauses the import; finished work is saved." Retry continues from saved work, as today.
 
-**Big scripts.** At more than 40 scenes, cards switch to a compact size: number, slug and ticks, with the reading shown when focused. At 120 scenes the board stays within about two screens: while the import runs and holds its finale, the wizard widens to the prototype's 1280px column. The act-break move is a FLIP from where the cards are, so it works scrolled.
+**Big scripts.** Every script uses the same card (150×106: number, dot and heading on one line, the reading in up to four lines of 13px serif, ticks and facts), because a smaller card that dropped the reading made 54-scene boards unreadable (owner, 2026-10-12). The full heading and reading show on hover. In the 1280px running column that is about 7 cards a row: 54 scenes fit in about one screen, 120 in about two.
 
 **Reduced motion.** No tilt, flight, lamp or count-up; everything simply appears.
 

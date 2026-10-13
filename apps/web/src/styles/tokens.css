@@ -115,10 +115,8 @@
   --tr-motion-deal: 620ms;
   --tr-motion-flight: 760ms;
   --tr-motion-string: 700ms;
-  --tr-card-board-w: 118px;
-  --tr-card-board-h: 88px;
-  --tr-card-board-compact-w: 92px;
-  --tr-card-board-compact-h: 64px;
+  --tr-card-board-w: 150px;
+  --tr-card-board-h: 106px;
 
   /* Layout: Plan mode board (§5) panel/card widths. */
   --tr-panel-story-layers: 232px;
@@ -239,8 +237,6 @@
   --duration-string: var(--tr-motion-string);
   --spacing-card-board-w: var(--tr-card-board-w);
   --spacing-card-board-h: var(--tr-card-board-h);
-  --spacing-card-board-compact-w: var(--tr-card-board-compact-w);
-  --spacing-card-board-compact-h: var(--tr-card-board-compact-h);
 
   /* ease-standard utility + 160ms as the default transition duration. */
   --ease-standard: var(--tr-motion-ease-standard);

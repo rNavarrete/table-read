@@ -78,10 +78,8 @@ export const EXPECTED_TOKENS: Record<string, string> = {
   '--tr-motion-deal': '620ms',
   '--tr-motion-flight': '760ms',
   '--tr-motion-string': '700ms',
-  '--tr-card-board-w': '118px',
-  '--tr-card-board-h': '88px',
-  '--tr-card-board-compact-w': '92px',
-  '--tr-card-board-compact-h': '64px',
+  '--tr-card-board-w': '150px',
+  '--tr-card-board-h': '106px',
 
   // Overview panel accents
   '--tr-overview-expand-bg': '#F6F4F1',

@@ -30,8 +30,6 @@ import { StepSpine } from './StepSpine'
 
 export type BoardPhase = 'streaming' | 'failed' | 'done'
 
-const COMPACT_ABOVE = 40
-
 const HEADLINES: Record<ProjectImportStageName, string> = {
   parsing_scenes: '',
   segmenting_beats: 'Reading your script',
@@ -168,7 +166,6 @@ export function ImportBoard({
   const sceneCount = scenes.length || approxSceneCount
   const stage = progress.currentStage
   const groups = actGroups(board)
-  const compact = scenes.length > COMPACT_ABOVE
   const beats = scenes.reduce((sum, s) => sum + s.beatCount, 0)
   const readCount = scenes.filter((s) => s.read !== 'pending').length
   const factsCount = scenes.filter(
@@ -332,12 +329,12 @@ export function ImportBoard({
     paths.forEach((path, k) => drawString(path, k * gap))
   }, [board.threads, animate])
 
-  const gridClass = `relative grid gap-2.5 p-3.5 ${compact ? 'grid-cols-[repeat(auto-fill,var(--tr-card-board-compact-w))]' : 'grid-cols-[repeat(auto-fill,var(--tr-card-board-w))]'}`
+  const gridClass =
+    'relative grid justify-center gap-2.5 p-3.5 grid-cols-[repeat(auto-fill,var(--tr-card-board-w))]'
   const card = (scene: BoardScene) => (
     <IndexCard
       key={scene.index}
       scene={scene}
-      compact={compact}
       lifted={
         phase === 'streaming' && liveStage && scene.index === board.latestIndex
       }

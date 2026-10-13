@@ -216,8 +216,6 @@ const TOKEN_GROUPS: TokenGroup[] = [
       { cssVar: '--tr-motion-string', kind: 'motion' },
       { cssVar: '--tr-card-board-w', kind: 'width' },
       { cssVar: '--tr-card-board-h', kind: 'width' },
-      { cssVar: '--tr-card-board-compact-w', kind: 'width' },
-      { cssVar: '--tr-card-board-compact-h', kind: 'width' },
     ],
   },
   {

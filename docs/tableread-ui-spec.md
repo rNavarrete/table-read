@@ -80,10 +80,8 @@ Quiet Tool visual language: cool paper neutrals, slate-blue accent (`--tr-coral*
   --tr-motion-deal: 620ms; /* cards out of the deck; stagger min(28ms, 600ms / N) */
   --tr-motion-flight: 760ms; /* act-break FLIP */
   --tr-motion-string: 700ms; /* setup→payoff string draw */
-  --tr-card-board-w: 118px;
-  --tr-card-board-h: 88px;
-  --tr-card-board-compact-w: 92px; /* above 40 scenes */
-  --tr-card-board-compact-h: 64px;
+  --tr-card-board-w: 150px; /* one size for every script: the reading must stay readable */
+  --tr-card-board-h: 106px;
 
   /* Scale: 11/12/13/15/17/22/28, plus 30 for Ledger display titles. 11px = secondary chrome; script canvas 12pt Courier. */
   /* Spacing: 4-base — 4/8/12/16/24/32/48/64. Generous: default section pad 24. */
