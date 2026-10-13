@@ -414,7 +414,8 @@ describe('ImportBoard', () => {
     beatCount: 1,
     whatHappens: '',
     failed: true,
-    beats: [],
+    // Beats here too, so only the failed state keeps the card shut.
+    beats: [{ whatHappens: 'x', audienceLearns: '', audienceFeels: '' }],
   }
 
   it("opens a read card's beats beside the board; Esc closes, focus returns", () => {
@@ -508,6 +509,124 @@ describe('ImportBoard', () => {
     fireEvent.keyDown(open, { key: 'Escape' })
     expect(screen.queryByRole('dialog')).toBeNull()
     expect(document.activeElement).toBe(button)
+  })
+
+  it('leaves Esc outside the board alone', () => {
+    render(
+      <>
+        <textarea aria-label="Script text" />
+        <ImportBoard
+          title="x"
+          board={board(scenesFrame(3), READ)}
+          progress={progressAt('parsing_scenes', 'segmenting_beats')}
+          phase="streaming"
+          animate={false}
+          nowMs={0}
+          approxSceneCount={3}
+          onOpenStory={() => {}}
+          onSeeInPlan={() => {}}
+        />
+      </>,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Read scene 2' }))
+    fireEvent.keyDown(screen.getByLabelText('Script text'), { key: 'Escape' })
+    expect(screen.getByRole('dialog')).not.toBeNull()
+  })
+
+  it('Tab from the view goes back to its card and leaves the view open', () => {
+    renderBoard({
+      state: board(scenesFrame(3), READ),
+      progress: progressAt('parsing_scenes', 'segmenting_beats'),
+    })
+    const button = screen.getByRole('button', { name: 'Read scene 2' })
+    for (const shiftKey of [false, true]) {
+      fireEvent.click(button)
+      const reading = screen.getByRole('dialog')
+      expect(document.activeElement).toBe(reading)
+      fireEvent.keyDown(reading, { key: 'Tab', shiftKey })
+      expect(document.activeElement).toBe(button)
+      expect(screen.getByRole('dialog')).toBe(reading)
+      fireEvent.click(button)
+    }
+  })
+
+  it('brings the view into view on open, never wider than the board', () => {
+    const scroll = vi.spyOn(Element.prototype, 'scrollIntoView')
+    renderBoard({
+      state: board(scenesFrame(3), READ),
+      progress: progressAt('parsing_scenes', 'segmenting_beats'),
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Read scene 2' }))
+    const reading = screen.getByRole('dialog')
+    expect(scroll).toHaveBeenCalledWith({ block: 'nearest' })
+    expect(scroll.mock.contexts.at(-1)).toBe(reading)
+    expect(reading.classList).toContain('max-w-full')
+    scroll.mockRestore()
+  })
+
+  it('closes on a Retry and never reopens without a click', () => {
+    const props = {
+      title: 'x',
+      animate: false,
+      nowMs: 0,
+      approxSceneCount: 3,
+      onOpenStory: () => {},
+      onSeeInPlan: () => {},
+    }
+    const stopped = advanceImportProgress(
+      progressAt('parsing_scenes', 'segmenting_beats', 'inferring_acts'),
+      { type: 'failed' },
+      5_000,
+    )
+    const read = board(scenesFrame(3), READ)
+    const { rerender } = render(
+      <ImportBoard {...props} board={read} progress={stopped} phase="failed" />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Read scene 2' }))
+    expect(screen.getByRole('dialog')).not.toBeNull()
+
+    // Retry: the board is unchanged until the new parse lands.
+    const running = progressAt('parsing_scenes')
+    rerender(
+      <ImportBoard
+        {...props}
+        board={read}
+        progress={running}
+        phase="streaming"
+      />,
+    )
+    expect(screen.queryByRole('dialog')).toBeNull()
+    // The resume's cached burst reads the card again: still shut.
+    rerender(
+      <ImportBoard
+        {...props}
+        board={board(scenesFrame(3), structuredClone(READ))}
+        progress={running}
+        phase="streaming"
+      />,
+    )
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('closes when a new parse unreads its card, and stays shut', () => {
+    const props = {
+      title: 'x',
+      animate: false,
+      nowMs: 0,
+      approxSceneCount: 3,
+      progress: progressAt('parsing_scenes', 'segmenting_beats'),
+      phase: 'streaming' as const,
+      onOpenStory: () => {},
+      onSeeInPlan: () => {},
+    }
+    const { rerender } = render(
+      <ImportBoard {...props} board={board(scenesFrame(3), READ)} />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Read scene 2' }))
+    rerender(<ImportBoard {...props} board={board(scenesFrame(3))} />)
+    expect(screen.queryByRole('dialog')).toBeNull()
+    rerender(<ImportBoard {...props} board={board(scenesFrame(3), READ)} />)
+    expect(screen.queryByRole('dialog')).toBeNull()
   })
 
   it('reads a card in the Stopped state too', () => {

@@ -68,11 +68,19 @@ test('import a script → the board holds at the finale → Open your story show
   await expect(openStory).toBeFocused()
 
   // A read card opens its beats beside the board (T9.17), the finale
-  // included, without moving a card; Esc closes it and focus returns.
-  const card = board.getByTestId('board-card-0')
-  const layout = () =>
-    card.evaluate((el: HTMLElement) => [el.offsetLeft, el.offsetTop])
-  const before = await layout()
+  // included, without reflowing anything below it; Esc closes it and focus
+  // returns to the card.
+  const finale = board.getByTestId('board-finale')
+  await finale.evaluate((el) =>
+    Promise.all(el.getAnimations().map((a) => a.finished)),
+  )
+  // Page coordinates, so opening (which scrolls the view in) can't fake it.
+  const finaleBox = () =>
+    finale.evaluate((el) => {
+      const r = el.getBoundingClientRect()
+      return [r.x + window.scrollX, r.y + window.scrollY, r.width, r.height]
+    })
+  const before = await finaleBox()
   const readCard = board.getByRole('button', { name: 'Read scene 1' })
   await readCard.click()
   const reading = board.getByTestId('board-reading')
@@ -82,10 +90,25 @@ test('import a script → the board holds at the finale → Open your story show
   await expect(reading).toContainText(
     'Audience learns · Marta has proof of the transfer.',
   )
-  expect(await layout()).toEqual(before)
+  expect(await finaleBox()).toEqual(before)
   await page.keyboard.press('Escape')
   await expect(reading).toBeHidden()
   await expect(readCard).toBeFocused()
+
+  // At phone width the view stays inside the board: no sideways scroll.
+  const desktop = page.viewportSize()
+  await page.setViewportSize({ width: 375, height: 812 })
+  await readCard.click()
+  await expect(reading).toBeVisible()
+  const [view, wall] = [await reading.boundingBox(), await board.boundingBox()]
+  expect(view!.x + view!.width).toBeLessThanOrEqual(wall!.x + wall!.width + 1)
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBe(true)
+  await page.keyboard.press('Escape')
+  await page.setViewportSize(desktop!)
 
   await openStory.click()
   await page.waitForURL(/\/ledger\?project=/)

@@ -137,6 +137,7 @@ export function IndexCard({
 
   return (
     <li
+      id={`board-card-${scene.index}`}
       data-testid={`board-card-${scene.index}`}
       data-state={scene.read}
       data-card
@@ -198,6 +199,8 @@ export function IndexCard({
           type="button"
           data-read-card
           aria-label={`Read scene ${scene.index + 1}`}
+          // The card's own label: slugline, state and counts.
+          aria-describedby={`board-card-${scene.index}`}
           aria-expanded={reading}
           aria-controls={reading ? 'board-reading' : undefined}
           onClick={() => onRead?.(scene.index)}

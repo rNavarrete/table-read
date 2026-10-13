@@ -115,17 +115,29 @@ describe('IndexCard', () => {
     )
     const button = screen.getByRole('button', { name: 'Read scene 3' })
     expect(button.getAttribute('aria-expanded')).toBe('false')
+    // Described by the card, so it still says slugline, state and counts.
+    expect(card.id).toBe('board-card-2')
+    expect(button.getAttribute('aria-describedby')).toBe(card.id)
+    expect(card.getAttribute('aria-label')).toBe(
+      'Scene 3, INT. BAR, read, 1 beat',
+    )
     // The button holds the card's one tab stop.
     expect(card.tabIndex).toBe(-1)
     fireEvent.click(button)
     expect(onRead).toHaveBeenCalledWith(2)
   })
 
-  it('keeps reading, failed and beat-less cards from being buttons', () => {
+  it('keeps reading, failed, beat-less and empty-reading cards from being buttons', () => {
     for (const over of [
-      {},
-      { read: 'failed' as const, beatCount: 1 },
+      { beats: [BEAT] },
+      { read: 'failed' as const, beatCount: 1, beats: [BEAT] },
       { read: 'read' as const, beatCount: 0, whatHappens: 'x' },
+      {
+        read: 'read' as const,
+        beatCount: 1,
+        whatHappens: 'x',
+        beats: [{ ...BEAT, whatHappens: ' ' }],
+      },
     ]) {
       const card = renderCard(over, () => {})
       expect(screen.queryByRole('button')).toBeNull()

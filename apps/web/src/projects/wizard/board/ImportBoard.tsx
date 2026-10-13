@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
 import type { ProjectImportStageName } from 'contract'
 import {
@@ -197,6 +197,7 @@ export function ImportBoard({
   const drawn = useRef(false)
   const [focusedIndex, setFocusedIndex] = useState<number | null>(null)
   const [readingIndex, setReadingIndex] = useState<number | null>(null)
+  const [shownPhase, setShownPhase] = useState(phase)
 
   const { scenes } = board
   const sceneCount = scenes.length || approxSceneCount
@@ -308,32 +309,27 @@ export function ImportBoard({
   const reading =
     scenes.find((s) => s.index === readingIndex && isReadable(s)) ?? null
   const openIndex = reading?.index ?? null
+  // A Retry starts the board over, and a new parse unreads the card: either
+  // closes the reading view for good. Only a click opens it again.
+  if (phase !== shownPhase) {
+    setShownPhase(phase)
+    if (phase === 'streaming') setReadingIndex(null)
+  }
+  if (readingIndex !== null && reading === null) setReadingIndex(null)
 
-  // The writer's click opens a card's reading view and moves focus into it;
-  // closing hands focus back to the card.
+  // The writer's click opens a card's reading view, brings it into view and
+  // moves focus into it; closing hands focus back to the card.
   function openReading(index: number) {
     flushSync(() => setReadingIndex(index))
-    boardRef.current
-      ?.querySelector<HTMLElement>('#board-reading')
-      ?.focus({ preventScroll: true })
+    const panel = boardRef.current?.querySelector<HTMLElement>('#board-reading')
+    panel?.focus({ preventScroll: true })
+    panel?.scrollIntoView({ block: 'nearest' })
   }
 
   function closeReading(index: number) {
     setReadingIndex(null)
     readButton(deskRef.current, index)?.focus()
   }
-
-  // Esc closes it from anywhere: at the finale, focus is on Open your story.
-  useEffect(() => {
-    if (openIndex === null) return
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return
-      setReadingIndex(null)
-      readButton(deskRef.current, openIndex)?.focus()
-    }
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
-  }, [openIndex])
 
   // The deck deals the cards when the server's split lands.
   useLayoutEffect(() => {
@@ -433,6 +429,12 @@ export function ImportBoard({
       data-testid="import-board"
       aria-label="Import board"
       className="tr-board relative grid gap-5"
+      // Esc anywhere on the board (Open your story at the finale included)
+      // closes the reading view; Esc elsewhere on the page is not ours.
+      onKeyDown={(event) => {
+        if (event.key === 'Escape' && openIndex !== null)
+          closeReading(openIndex)
+      }}
     >
       <header className="flex items-end justify-between gap-6">
         <div className="min-w-0">
@@ -506,7 +508,9 @@ export function ImportBoard({
         <div
           ref={deckRef}
           aria-hidden="true"
-          className={`absolute left-[26px] top-[26px] z-[2] h-card-board-h w-card-board-w transition-opacity duration-300 ${scenes.length ? 'opacity-0' : ''}`}
+          // Faded out, the deck still sits over the first card on a narrow
+          // board: it must never take that card's clicks.
+          className={`pointer-events-none absolute left-[26px] top-[26px] z-[2] h-card-board-h w-card-board-w transition-opacity duration-300 ${scenes.length ? 'opacity-0' : ''}`}
         >
           {[0, 1, 2, 3].map((k) => (
             <div
@@ -622,6 +626,9 @@ export function ImportBoard({
           key={reading.index}
           scene={reading}
           onClose={() => closeReading(reading.index)}
+          // Tab hands focus back to the card, so the tab order carries on
+          // through the cards; the view stays open.
+          onTab={() => readButton(deskRef.current, reading.index)?.focus()}
         />
       )}
 

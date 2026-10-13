@@ -301,9 +301,12 @@ export function reconcileWithResult(
   }
 }
 
-/** A read card with beats to show opens its reading view (T9.17). */
+/** A read card with a beat to show opens its reading view (T9.17). */
 export function isReadable(scene: BoardScene): boolean {
-  return scene.read === 'read' && scene.beats.length > 0
+  return (
+    scene.read === 'read' &&
+    scene.beats.some((beat) => beat.whatHappens.trim() !== '')
+  )
 }
 
 /** Act frames for the board, in act order; `[]` until the acts land. */

@@ -81,7 +81,14 @@ const PROJECT_SCENE = {
   location: 'INT. BAR - NIGHT',
   time: 'NIGHT',
   whatHappens: 'Dan pours a drink.',
-  beats: [{ scriptText: 'INT. BAR - NIGHT' }],
+  beats: [
+    {
+      scriptText: 'INT. BAR - NIGHT',
+      whatHappens: 'Dan pours.',
+      audienceLearns: '',
+      audienceFeels: '',
+    },
+  ],
 }
 
 function completeFrame(projectId = 'proj-imported') {

@@ -8,9 +8,11 @@ import type { BoardScene } from '../importBoard'
 export function SceneReading({
   scene,
   onClose,
+  onTab,
 }: {
   scene: BoardScene
   onClose: () => void
+  onTab: () => void
 }) {
   return (
     <div
@@ -20,7 +22,12 @@ export function SceneReading({
       role="dialog"
       aria-label={`Scene ${scene.index + 1}, ${scene.slugline}`}
       tabIndex={-1}
-      className="absolute z-10 max-h-[70vh] w-panel-inspector animate-[tr-board-fade_200ms_var(--tr-motion-settle)] overflow-y-auto rounded-[14px] bg-tr-surface-raised px-4 py-3.5 shadow-card-lift outline-none ring-1 ring-tr-border"
+      onKeyDown={(event) => {
+        if (event.key !== 'Tab') return
+        event.preventDefault()
+        onTab()
+      }}
+      className="absolute z-10 max-h-[70vh] w-panel-inspector max-w-full animate-[tr-board-fade_200ms_var(--tr-motion-settle)] overflow-y-auto rounded-[14px] bg-tr-surface-raised px-4 py-3.5 shadow-card-lift outline-none ring-1 ring-tr-border"
     >
       <div className="flex items-start justify-between gap-3">
         <h4 className="flex min-w-0 items-center gap-[5px] font-script text-12 text-tr-text-secondary">

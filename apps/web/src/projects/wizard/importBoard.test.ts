@@ -98,7 +98,7 @@ describe('import board reducer', () => {
     })
   })
 
-  it("stores each read scene's beats; only a read card with beats opens", () => {
+  it("stores each read scene's beats; only a read card with a reading opens", () => {
     const frame: ProjectImportFound = {
       kind: 'scene',
       index: 2,
@@ -113,10 +113,20 @@ describe('import board reducer', () => {
       beatCount: 1,
       whatHappens: '',
       failed: true,
-      beats: [],
+      // Beats on a failed unit too: only its state keeps it shut.
+      beats: BEATS,
     })
     expect(state.scenes[2].beats).toEqual(BEATS)
     expect(state.scenes.map(isReadable)).toEqual([false, false, true])
+
+    // Read, but no beat says what happens: nothing to open.
+    const blank = apply(state, {
+      ...frame,
+      index: 1,
+      beats: [{ whatHappens: ' ', audienceLearns: 'x', audienceFeels: 'y' }],
+    })
+    expect(blank.scenes[1].read).toBe('read')
+    expect(isReadable(blank.scenes[1])).toBe(false)
 
     // A resume starts over, then its cached re-emit brings the beats back.
     const resumed = apply(state, SCENES, frame)
