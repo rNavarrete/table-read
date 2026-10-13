@@ -1,25 +1,42 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from '@testing-library/react'
+import {
+  cleanup,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import type { Episode, Project, Scene } from 'contract'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { loadResume, saveResume } from '../projects/resumeContext'
 import { PlanScreen } from './PlanScreen'
+import { withBeatField } from './planTree'
 
-const { getConsistencyFlagsMock, getLedgerMock, getProjectMock } = vi.hoisted(
-  () => ({
-    getConsistencyFlagsMock: vi.fn(),
-    getLedgerMock: vi.fn(),
-    getProjectMock: vi.fn(),
-  }),
-)
+const {
+  createChangeSetMock,
+  getConsistencyFlagsMock,
+  getLedgerMock,
+  getProjectMock,
+  patchProjectMock,
+  suggestInstructionsMock,
+} = vi.hoisted(() => ({
+  createChangeSetMock: vi.fn(),
+  getConsistencyFlagsMock: vi.fn(),
+  getLedgerMock: vi.fn(),
+  getProjectMock: vi.fn(),
+  patchProjectMock: vi.fn(),
+  suggestInstructionsMock: vi.fn(),
+}))
 
 vi.mock('../api/client', () => ({
-  createChangeSet: vi.fn(),
+  createChangeSet: createChangeSetMock,
   exportFountain: vi.fn(),
   getConsistencyFlags: getConsistencyFlagsMock,
   getLedger: getLedgerMock,
   getProject: getProjectMock,
-  patchProject: vi.fn(),
+  patchProject: patchProjectMock,
+  suggestInstructions: suggestInstructionsMock,
   undoProject: vi.fn(),
 }))
 
@@ -136,6 +153,16 @@ function project(): Project {
   }
 }
 
+/** Loads Plan on scene-1 (no resume stored) and resolves to the panel. */
+function loadPlan(p: Project = project()) {
+  getProjectMock.mockResolvedValue(p)
+  getLedgerMock.mockResolvedValue([])
+  getConsistencyFlagsMock.mockResolvedValue([])
+  window.history.pushState(null, '', '/plan?project=proj-longpour')
+  render(<PlanScreen />)
+  return screen.findByTestId('inspector')
+}
+
 describe('PlanScreen', () => {
   it('preserves a stored Plan scene while project loading is still pending', () => {
     const request = deferred<Project>()
@@ -164,6 +191,95 @@ describe('PlanScreen', () => {
     expect(loadResume('proj-longpour').sceneId).toBe('scene-2')
   })
 
+  it('shows the selected scene in the panel with its beats in the ladder, and never asks for suggestions on its own', async () => {
+    const user = userEvent.setup()
+    const panel = await loadPlan()
+
+    expect(within(panel).getByTestId('lock-toggle')).not.toBeNull()
+    expect(within(panel).getByTestId('beat-card-beat-1-1')).not.toBeNull()
+    expect(screen.queryByRole('button', { name: 'Expand beats' })).toBeNull()
+
+    await user.click(within(panel).getByLabelText('What happens'))
+    expect(suggestInstructionsMock).not.toHaveBeenCalled()
+  })
+
+  it('the Beat lock in the ladder sends one PATCH for beat.locked', async () => {
+    const user = userEvent.setup()
+    const p = project()
+    patchProjectMock.mockResolvedValue({
+      project: withBeatField(p, 'scene-1', 'beat-1-1', 'locked', true),
+      consistencyFlags: [],
+    })
+    const panel = await loadPlan(p)
+
+    await user.click(within(panel).getByTestId('beat-card-beat-1-1'))
+    await user.click(within(panel).getByTestId('beat-lock-toggle-beat-1-1'))
+
+    expect(patchProjectMock).toHaveBeenCalledTimes(1)
+    expect(patchProjectMock).toHaveBeenCalledWith(
+      'proj-longpour',
+      [
+        {
+          op: 'replace',
+          path: '/seasons/0/episodes/0/scenes/0/beats/0/locked',
+          value: true,
+        },
+      ],
+      { expectedHeadSnapshotId: 'snap-root' },
+    )
+    await waitFor(() =>
+      expect(
+        within(panel).getByTestId('beat-card-beat-1-1').textContent,
+      ).toContain('Locked'),
+    )
+  })
+
+  it('a failed save keeps what the writer typed (the draft survives the rollback)', async () => {
+    const user = userEvent.setup()
+    patchProjectMock.mockRejectedValue(new Error('network down'))
+    const panel = await loadPlan()
+
+    await user.type(
+      within(panel).getByLabelText('Audience learns'),
+      'She is not staying.',
+    )
+    await user.click(within(panel).getByRole('button', { name: 'Save' }))
+
+    expect(await screen.findByText('save failed')).not.toBeNull()
+    expect(
+      (within(panel).getByLabelText('Audience learns') as HTMLTextAreaElement)
+        .value,
+    ).toBe('She is not staying.')
+    expect(within(panel).getByRole('button', { name: 'Save' })).not.toBeNull()
+  })
+
+  it('a failed Open Review shows a danger toast, not a line above the board', async () => {
+    const user = userEvent.setup()
+    createChangeSetMock.mockRejectedValue(new Error('review is down'))
+    const panel = await loadPlan()
+
+    await user.type(within(panel).getByLabelText('What happens'), ' Again.')
+    await user.click(within(panel).getByRole('button', { name: 'Open Review' }))
+
+    const message = await screen.findByText('review is down')
+    expect(message.closest('[data-testid="toast"]')).not.toBeNull()
+  })
+
+  it('← Episode switches the panel to the episode view and clears the card selection', async () => {
+    const user = userEvent.setup()
+    const panel = await loadPlan()
+
+    await user.click(within(panel).getByRole('button', { name: '← Episode' }))
+
+    expect(
+      within(screen.getByTestId('inspector')).queryByTestId('lock-toggle'),
+    ).toBeNull()
+    expect(screen.getByTestId('scene-card-scene-1').className).not.toContain(
+      'bg-tr-coral-soft',
+    )
+  })
+
+  // Task 3's test, carried over unchanged.
   it('fills the height the shell leaves and scrolls the board and both side panels on their own', async () => {
     getProjectMock.mockResolvedValue(project())
     getLedgerMock.mockResolvedValue([])

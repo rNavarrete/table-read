@@ -1,10 +1,7 @@
 import type { DragEvent, KeyboardEvent, MouseEvent } from 'react'
-import { useState } from 'react'
 import type { Scene } from 'contract'
-import { BeatCard } from './BeatCard'
 import { Card } from './Card'
 import { Chip } from './Chip'
-import { isBeatEffectivelyLocked } from './planTree'
 
 function LockGlyph() {
   return (
@@ -22,21 +19,6 @@ function LockGlyph() {
   )
 }
 
-function Chevron({ expanded }: { expanded: boolean }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      className={`h-3.5 w-3.5 transition-transform motion-reduce:transition-none${expanded ? ' rotate-90' : ''}`}
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      aria-hidden="true"
-    >
-      <path d="M9 6l6 6-6 6" />
-    </svg>
-  )
-}
-
 export type PlanSelection =
   | { type: 'scene'; sceneId: string }
   | { type: 'beat'; sceneId: string; beatId: string }
@@ -45,18 +27,19 @@ export type PlanSelection =
 export interface SceneCardProps {
   scene: Scene
   episodeLocked: boolean
+  /** A beat selection also marks its scene's card: the panel is showing
+   * that scene, with the beat open in its ladder. */
   selection: PlanSelection
   /** A PATCH is in flight (useProjectPatch). Drag initiation is refused
    * while true — starting a second reorder mid-flight would let the first
    * one's rollback (which restores the exact pre-patch doc) silently erase
    * the second one's optimistic change. Same guard LockToggle and the
-   * inspector's save button already apply via `disabled`. */
+   * panel's save buttons already apply via `disabled`. */
   pending: boolean
   /** True when this scene (or one of its beats) has an open consistency
    * flag — UI spec §5 amber dot on Plan scene cards. */
   hasOpenConsistencyFlag: boolean
   onSelectScene: (sceneId: string) => void
-  onSelectBeat: (sceneId: string, beatId: string) => void
   /** Double-click opens Write on this scene (script-home deep link). */
   onOpenInWrite: (sceneId: string) => void
   dragging: boolean
@@ -69,19 +52,17 @@ export interface SceneCardProps {
 }
 
 /**
- * A scene card on the Plan board (UI spec §4). Draggable for reorder unless
+ * A scene card on the Plan board (UI spec §5). Draggable for reorder unless
  * the scene is locked — brief obligation 3: "do not build UI that lets a
  * user drag a locked scene" — or a mutation is in flight (`pending`; see
- * the prop doc above). Locked scenes are also refused as *drop* targets (a
- * conservative extension beyond the obligation's literal text, flagged in
- * the task report): swapping another scene into a locked scene's slot would
- * still change the locked scene's `index`, and nothing in the brief asked
- * for that risk to be taken on.
+ * the prop doc above). Locked scenes are also refused as *drop* targets:
+ * swapping another scene into a locked scene's slot would still change the
+ * locked scene's `index`.
  *
- * Keyboard: the card is a focusable button — Enter/Space selects the scene
- * (UI spec §8: full keyboard path). Only when the card itself is focused;
- * keydown bubbling up from the chevron (its own button) is ignored.
- * Double-click opens Write on this scene (UI spec §5).
+ * Beats are not on the board: they live in the scene panel's beat ladder
+ * (T3.3, plan redesign spec §4.6). Keyboard: the card is a focusable button
+ * — Enter/Space selects the scene (UI spec §8). Double-click opens Write on
+ * this scene (UI spec §5).
  */
 export function SceneCard({
   scene,
@@ -90,7 +71,6 @@ export function SceneCard({
   pending,
   hasOpenConsistencyFlag,
   onSelectScene,
-  onSelectBeat,
   onOpenInWrite,
   dragging,
   dropTarget,
@@ -100,30 +80,17 @@ export function SceneCard({
   onDragLeaveScene,
   onDropScene,
 }: SceneCardProps) {
-  const [expanded, setExpanded] = useState(false)
   const locked = scene.locked || episodeLocked
   const draggable = !locked && !pending
-  const selected = selection?.type === 'scene' && selection.sceneId === scene.id
-
-  function handleClick(event: MouseEvent) {
-    if (event.altKey) {
-      setExpanded((e) => !e)
-      return
-    }
-    onSelectScene(scene.id)
-  }
+  const selected = selection?.sceneId === scene.id
 
   function handleDoubleClick(event: MouseEvent) {
-    // Ignore dblclick on the expand chevron (nested button).
-    if ((event.target as HTMLElement).closest('button')) return
     event.preventDefault()
     onOpenInWrite(scene.id)
   }
 
   function handleKeyDown(event: KeyboardEvent) {
-    // Only when the card itself is the focused element — Enter on the
-    // chevron (a nested button whose keydown bubbles here) must keep its
-    // own expand/collapse meaning, not also select the scene.
+    // Only when the card itself is focused, not a control nested inside it.
     if (event.target !== event.currentTarget) return
     if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault()
@@ -165,7 +132,7 @@ export function SceneCard({
       onDragOver={handleDragOver}
       onDragLeave={onDragLeaveScene}
       onDrop={handleDrop}
-      onClick={handleClick}
+      onClick={() => onSelectScene(scene.id)}
       onDoubleClick={handleDoubleClick}
       onKeyDown={handleKeyDown}
       data-testid={`scene-card-${scene.id}`}
@@ -189,18 +156,6 @@ export function SceneCard({
             className="inline-block h-2 w-2 shrink-0 rounded-full bg-tr-amber"
           />
         )}
-        <button
-          type="button"
-          aria-expanded={expanded}
-          aria-label={expanded ? 'Collapse beats' : 'Expand beats'}
-          onClick={(e) => {
-            e.stopPropagation()
-            setExpanded((v) => !v)
-          }}
-          className="ml-auto shrink-0 text-tr-text-muted"
-        >
-          <Chevron expanded={expanded} />
-        </button>
       </div>
       <p className="mt-1 line-clamp-2 text-13 text-tr-text-secondary">
         {scene.whatHappens}
@@ -215,23 +170,6 @@ export function SceneCard({
           </Chip>
         )}
       </div>
-      {expanded && scene.beats.length > 0 && (
-        <div className="mt-3 flex flex-col gap-2 border-t border-tr-border pt-3">
-          {scene.beats.map((beat) => (
-            <BeatCard
-              key={beat.id}
-              beat={beat}
-              selected={
-                selection?.type === 'beat' &&
-                selection.sceneId === scene.id &&
-                selection.beatId === beat.id
-              }
-              locked={isBeatEffectivelyLocked(episodeLocked, scene, beat)}
-              onSelect={() => onSelectBeat(scene.id, beat.id)}
-            />
-          ))}
-        </div>
-      )}
     </Card>
   )
 }
