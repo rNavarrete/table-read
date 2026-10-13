@@ -10,11 +10,14 @@ import { FAILED_READING, plural, readState } from './boardText'
 
 const MAX_TICKS = 12
 
+// The body sets 13px type on a 15px line from y=28, so its baselines fall near
+// 40, 55, 70, 85: the faint rules sit one pixel under each, never through the
+// letters (a 14px pitch started at 22px used to strike through the text).
 const RULED: CSSProperties = {
   backgroundImage:
-    'linear-gradient(var(--tr-board-rule-top), var(--tr-board-rule-top)), repeating-linear-gradient(to bottom, transparent 0 13px, var(--tr-board-rule) 13px 14px)',
+    'linear-gradient(var(--tr-board-rule-top), var(--tr-board-rule-top)), repeating-linear-gradient(to bottom, transparent 0 14px, var(--tr-board-rule) 14px 15px)',
   backgroundSize: '100% 1px, 100% 100%',
-  backgroundPosition: '0 21px, 0 22px',
+  backgroundPosition: '0 21px, 0 27px',
   backgroundRepeat: 'no-repeat',
 }
 
@@ -45,6 +48,15 @@ function cardLabel(scene: BoardScene): string {
   return parts.join(', ')
 }
 
+// The full heading and reading on hover: the card truncates both.
+function cardTitle(scene: BoardScene): string {
+  const heading = `${scene.index + 1}. ${scene.slugline}`
+  if (scene.read === 'failed') return `${heading}\n${FAILED_READING}`
+  return scene.read === 'read' && scene.whatHappens
+    ? `${heading}\n${scene.whatHappens}`
+    : heading
+}
+
 function Pin({
   n,
   offset,
@@ -72,14 +84,12 @@ function Pin({
 
 export function IndexCard({
   scene,
-  compact = false,
   lifted = false,
   animate = true,
   onFocus,
   onBlur,
 }: {
   scene: BoardScene
-  compact?: boolean
   lifted?: boolean
   animate?: boolean
   onFocus?: (index: number) => void
@@ -92,15 +102,9 @@ export function IndexCard({
   const ticks = scene.read === 'read' ? Math.min(MAX_TICKS, scene.beatCount) : 0
 
   let body
-  if (compact) {
+  if (unread) {
     body = (
-      <p className="mt-1.5 line-clamp-2 flex-1 overflow-hidden font-script text-[10px] leading-3 text-tr-text-secondary">
-        {scene.slugline}
-      </p>
-    )
-  } else if (unread) {
-    body = (
-      <p className="flex-1 pt-5 font-ui text-[10.5px] text-tr-text-muted">
+      <p className="mt-[7px] flex-1 font-ui text-[11px] leading-[15px] text-tr-text-muted">
         Not read yet
       </p>
     )
@@ -108,7 +112,7 @@ export function IndexCard({
     body = (
       <p
         data-body
-        className="mt-[7px] flex-1 overflow-hidden font-ui text-[10.5px] leading-[13px] text-tr-amber"
+        className="mt-[7px] line-clamp-4 flex-1 overflow-hidden font-ui text-[11px] leading-[15px] text-tr-amber"
       >
         {FAILED_READING}
       </p>
@@ -117,7 +121,7 @@ export function IndexCard({
     body = (
       <p
         data-body
-        className="mt-[7px] line-clamp-3 flex-1 overflow-hidden font-ledger-display text-[12.5px] leading-[14px] text-tr-text-primary"
+        className="mt-[7px] line-clamp-4 flex-1 overflow-hidden font-ledger-display text-[13px] leading-[15px] text-tr-text-primary"
       >
         ~ {scene.whatHappens}
       </p>
@@ -130,13 +134,13 @@ export function IndexCard({
       data-state={scene.read}
       data-card
       data-index={scene.index}
-      data-size={compact ? 'compact' : 'full'}
       data-tilt={unread ? '' : undefined}
       tabIndex={0}
       aria-label={cardLabel(scene)}
+      title={cardTitle(scene)}
       onFocus={() => onFocus?.(scene.index)}
       onBlur={onBlur}
-      className={`relative flex flex-col rounded-[4px] px-2 pb-1.5 pt-[7px] outline-none transition-[rotate,translate,scale,box-shadow] duration-[450ms] ease-spring group-data-[motion=off]/desk:transition-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-tr-coral ${compact ? 'h-card-board-compact-h w-card-board-compact-w' : 'h-card-board-h w-card-board-w'} ${failed ? 'bg-tr-amber-soft' : 'bg-tr-board-paper'} ${unread ? 'rotate-(--tilt)' : ''} ${lifted ? 'z-[3] -translate-y-[3px] scale-[1.03] shadow-card-lift' : 'shadow-card-board'}`}
+      className={`relative flex flex-col rounded-[4px] px-2 pb-1.5 pt-[7px] outline-none transition-[rotate,translate,scale,box-shadow] duration-[450ms] ease-spring group-data-[motion=off]/desk:transition-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-tr-coral h-card-board-h w-card-board-w ${failed ? 'bg-tr-amber-soft' : 'bg-tr-board-paper'} ${unread ? 'rotate-(--tilt)' : ''} ${lifted ? 'z-[3] -translate-y-[3px] scale-[1.03] shadow-card-lift' : 'shadow-card-board'}`}
       style={{ ...RULED, '--tilt': `${tilt}deg` } as CSSProperties}
     >
       {/* The act break's lift: a shadow layer whose opacity animates. */}
@@ -147,13 +151,13 @@ export function IndexCard({
       />
       <div
         aria-hidden="true"
-        className="flex h-3.5 items-center gap-[5px] overflow-hidden whitespace-nowrap font-script text-[10.5px] text-tr-text-muted"
+        className="flex h-3.5 items-center gap-[5px] overflow-hidden whitespace-nowrap font-script text-[11px] text-tr-text-muted"
       >
         <span className="text-tr-text-secondary">{scene.index + 1}</span>
         <span
           className={`size-[5px] flex-none rounded-full ${sceneTypeDotClass(scene.intExt)}`}
         />
-        {!compact && scene.slugline}
+        <span className="truncate">{scene.slugline}</span>
       </div>
       {body}
       <div
@@ -168,14 +172,6 @@ export function IndexCard({
               className="h-0.5 w-[7px] flex-none -rotate-[8deg] rounded-[1px] bg-tr-text-secondary"
             />
           ))}
-          {compact && unread && (
-            <span className="font-ui text-[9.5px] text-tr-text-muted">
-              not read
-            </span>
-          )}
-          {compact && failed && (
-            <span className="font-ui text-[9.5px] text-tr-amber">flagged</span>
-          )}
         </span>
         <span
           data-stamp

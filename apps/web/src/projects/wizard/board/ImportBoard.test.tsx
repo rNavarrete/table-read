@@ -146,12 +146,20 @@ describe('ImportBoard', () => {
     )
   })
 
-  it('switches to compact cards above 40 scenes', () => {
-    renderBoard({ state: board(scenesFrame(41)) })
-    expect(screen.getByTestId('board-card-0').dataset.size).toBe('compact')
-    cleanup()
-    renderBoard({ state: board(scenesFrame(40)) })
-    expect(screen.getByTestId('board-card-0').dataset.size).toBe('full')
+  it('keeps every card readable on a big script', () => {
+    // A 54-scene import once switched to a card that dropped the reading.
+    renderBoard({
+      state: board(scenesFrame(54), {
+        kind: 'scene',
+        index: 40,
+        beatCount: 4,
+        whatHappens: 'Barney buys a bigger plow.',
+        failed: false,
+      }),
+    })
+    const card = screen.getByTestId('board-card-40')
+    expect(card.textContent).toContain('~ Barney buys a bigger plow.')
+    expect(card.querySelector('[data-body]')).not.toBeNull()
   })
 
   it('lists the threads with their status and strings the first one', () => {

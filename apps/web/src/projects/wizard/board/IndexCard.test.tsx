@@ -25,10 +25,10 @@ function scene(over: Partial<BoardScene> = {}): BoardScene {
   }
 }
 
-function renderCard(over: Partial<BoardScene> = {}, compact = false) {
+function renderCard(over: Partial<BoardScene> = {}) {
   render(
     <ul>
-      <IndexCard scene={scene(over)} compact={compact} />
+      <IndexCard scene={scene(over)} />
     </ul>,
   )
   return screen.getByTestId('board-card-2')
@@ -100,14 +100,19 @@ describe('IndexCard', () => {
     expect(card.getAttribute('aria-label')).toContain('threads 1 and 3')
   })
 
-  it('shrinks to number, slug and ticks when compact', () => {
-    const card = renderCard(
-      { read: 'read', beatCount: 3, whatHappens: 'Hidden reading.' },
-      true,
-    )
-    expect(card.dataset.size).toBe('compact')
-    expect(screen.queryByText('~ Hidden reading.')).toBeNull()
+  it('always shows the heading and the reading, with both in full on hover', () => {
+    const card = renderCard({
+      read: 'read',
+      beatCount: 3,
+      whatHappens: 'Homer buys a snowplow with money they do not have.',
+    })
     expect(screen.getByText('INT. BAR')).not.toBeNull()
+    expect(
+      screen.getByText('~ Homer buys a snowplow with money they do not have.'),
+    ).not.toBeNull()
     expect(card.querySelectorAll('[data-mark]')).toHaveLength(3)
+    expect(card.getAttribute('title')).toBe(
+      '3. INT. BAR\nHomer buys a snowplow with money they do not have.',
+    )
   })
 })
