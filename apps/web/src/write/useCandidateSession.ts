@@ -22,8 +22,16 @@ export interface GenerateRequest {
  * (candidateReducer.ts). This is the "explicit writer gesture" call site
  * (CLAUDE.md rule 8) — `generate` only ever runs from Next Beat / command-bar
  * submit, never on a timer or on mount.
+ *
+ * `beforeGenerate` (Write's autosave flush) runs first and is awaited: the
+ * server must generate from the writer's latest text, so a failed save
+ * (`false`) means no generation — the save failure line says why.
  */
-export function useCandidateSession(projectId: string, sceneId: string) {
+export function useCandidateSession(
+  projectId: string,
+  sceneId: string,
+  beforeGenerate?: () => Promise<boolean>,
+) {
   const [session, dispatch] = useReducer(sessionReducer, INITIAL_SESSION)
   const abortRef = useRef<AbortController | null>(null)
   const lastRequestRef = useRef<GenerateRequest | null>(null)
@@ -34,8 +42,10 @@ export function useCandidateSession(projectId: string, sceneId: string) {
       const controller = new AbortController()
       abortRef.current = controller
       lastRequestRef.current = request
-      dispatch({ type: 'start' })
       void (async () => {
+        if (beforeGenerate && !(await beforeGenerate())) return
+        if (controller.signal.aborted) return
+        dispatch({ type: 'start' })
         let sawDone = false
         try {
           const frames = streamSse(
@@ -71,7 +81,7 @@ export function useCandidateSession(projectId: string, sceneId: string) {
         }
       })()
     },
-    [projectId, sceneId],
+    [projectId, sceneId, beforeGenerate],
   )
 
   const retry = useCallback(() => {

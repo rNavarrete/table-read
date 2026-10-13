@@ -22,9 +22,14 @@ interface TuneRequest {
  * back into the parent session via `sessionReducer`'s `replaceSlot`.
  *
  * `retry` re-POSTs the last tune request (manual writer gesture only —
- * CLAUDE.md rule 8; no auto-reconnect).
+ * CLAUDE.md rule 8; no auto-reconnect). `beforeGenerate` is Write's autosave
+ * flush, awaited first; `false` (the save failed) means no tune.
  */
-export function useTuneSession(projectId: string, sceneId: string) {
+export function useTuneSession(
+  projectId: string,
+  sceneId: string,
+  beforeGenerate?: () => Promise<boolean>,
+) {
   const [session, dispatch] = useReducer(tuneReducer, INITIAL_TUNE_SESSION)
   const abortRef = useRef<AbortController | null>(null)
   const lastRequestRef = useRef<TuneRequest | null>(null)
@@ -35,8 +40,10 @@ export function useTuneSession(projectId: string, sceneId: string) {
       const controller = new AbortController()
       abortRef.current = controller
       lastRequestRef.current = { candidate, instruction }
-      dispatch({ type: 'start' })
       void (async () => {
+        if (beforeGenerate && !(await beforeGenerate())) return
+        if (controller.signal.aborted) return
+        dispatch({ type: 'start' })
         let sawDone = false
         try {
           const frames = streamSse(
@@ -68,7 +75,7 @@ export function useTuneSession(projectId: string, sceneId: string) {
         }
       })()
     },
-    [projectId, sceneId],
+    [projectId, sceneId, beforeGenerate],
   )
 
   const retry = useCallback(() => {

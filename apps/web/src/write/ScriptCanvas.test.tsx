@@ -259,6 +259,49 @@ describe('ScriptCanvas', () => {
     expect(textarea.value).toBe('DAN\nWe are closed. More.')
   })
 
+  it('reports each edit and asks for a save on blur (autosave hooks)', async () => {
+    const user = userEvent.setup()
+    const onBeatEdit = vi.fn()
+    const onBeatBlur = vi.fn()
+    render(
+      <ScriptCanvas
+        scenes={[
+          scene({
+            beats: [
+              {
+                id: 'beat-3-1',
+                index: 0,
+                locked: false,
+                scriptLocked: false,
+                whatHappens: '',
+                audienceLearns: '',
+                audienceFeels: '',
+                scriptText: 'DAN\nWe are closed.',
+              },
+            ],
+          }),
+        ]}
+        canvasHandlers={noopHandlers}
+        onBeatEdit={onBeatEdit}
+        onBeatBlur={onBeatBlur}
+      />,
+    )
+    await user.click(screen.getByTestId('formatted-script'))
+    await user.type(screen.getByTestId('beat-beat-3-1'), '!')
+    expect(onBeatEdit).toHaveBeenLastCalledWith(
+      'scene-1',
+      'beat-3-1',
+      'DAN\nWe are closed.!',
+    )
+    expect(onBeatBlur).not.toHaveBeenCalled()
+    await user.tab()
+    expect(onBeatBlur).toHaveBeenCalledOnce()
+    // The typed text stays on the page after blur.
+    expect(screen.getByTestId('formatted-script').textContent).toContain(
+      'We are closed.!',
+    )
+  })
+
   it('a locked beat stays formatted and is not editable', async () => {
     const user = userEvent.setup()
     render(

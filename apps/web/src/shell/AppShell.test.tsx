@@ -100,6 +100,42 @@ describe('AppShell', () => {
     // modes by re-fetching.
     await waitFor(() => expect(reloadMock).toHaveBeenCalled())
   })
+
+  it('Undo waits for beforeHistoryChange (Write save flush) and cancels on false', async () => {
+    const user = userEvent.setup()
+    undoProjectMock.mockResolvedValue({ id: 'proj-1' })
+    let release!: (ok: boolean) => void
+    const beforeHistoryChange = vi.fn(
+      () => new Promise<boolean>((resolve) => (release = resolve)),
+    )
+
+    render(
+      <AppShell
+        activeMode="Write"
+        ledgerCount={0}
+        projectTitle="Long Pour"
+        projectId="proj-1"
+        beforeHistoryChange={beforeHistoryChange}
+      >
+        <p>Mode content</p>
+      </AppShell>,
+    )
+
+    await user.click(screen.getByTestId('undo-button'))
+    expect(beforeHistoryChange).toHaveBeenCalledOnce()
+    expect(undoProjectMock).not.toHaveBeenCalled()
+    release(false)
+    await waitFor(() =>
+      expect(
+        (screen.getByTestId('undo-button') as HTMLButtonElement).disabled,
+      ).toBe(false),
+    )
+    expect(undoProjectMock).not.toHaveBeenCalled()
+
+    await user.click(screen.getByTestId('undo-button'))
+    release(true)
+    await waitFor(() => expect(undoProjectMock).toHaveBeenCalledWith('proj-1'))
+  })
 })
 
 describe('demo-mode banner', () => {

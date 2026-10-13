@@ -24,6 +24,8 @@ export interface CandidateDockProps {
   errorByIndex: Record<number, AcceptErrorState>
   projectId: string
   sceneId: string
+  /** Write's autosave flush, handed to each card's Tune. */
+  beforeGenerate?: () => Promise<boolean>
 }
 
 function NextBeatButton({
@@ -76,6 +78,7 @@ export function CandidateDock({
   errorByIndex,
   projectId,
   sceneId,
+  beforeGenerate,
 }: CandidateDockProps) {
   const session = useFrozenWhen(liveSession, quiet)
   const streaming = session.phase === 'streaming'
@@ -149,6 +152,7 @@ export function CandidateDock({
                   onSkip={() => onSkip(index)}
                   onReplace={(candidate) => onReplace(index, candidate)}
                   onRetryGeneration={onRetry}
+                  beforeGenerate={beforeGenerate}
                 />
               ))}
             </div>

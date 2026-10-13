@@ -3,6 +3,7 @@ import type { Beat, BeatCandidate, Project } from 'contract'
 import { acceptBeat, type AcceptResponse } from '../api/client'
 import { ApiError } from '../api/errors'
 import { findScene, spliceBeat, withSceneBeats } from './projectTree'
+import type { WriteQueueRun } from './useWriteQueue'
 
 // A beat id no server ever mints (CLAUDE.md: server assigns ids; clients
 // never mint them) — this one is purely a client-local placeholder, replaced
@@ -33,16 +34,16 @@ function withoutIndex<T>(
  * UI spec §3 Error state: a dock card with a danger border, not a full-dock
  * wipe, since the other two cards are unaffected and still actionable).
  *
- * `project`/`setProject` are owned by the caller (write/WriteScreen.tsx) —
- * this hook never fetches; it only computes the optimistic/rollback doc and
- * lets the caller hold it as state, consistent with "server is source of
- * truth" (CLAUDE.md conventions): the only value that survives is the one
- * that came back from the server.
+ * The accept runs on Write's one mutation queue (`run`, write/useWriteQueue.ts):
+ * it waits for any in-flight autosave and CAS-es on the head current *when it
+ * runs*, so it can't race a save into `CONFLICT_STALE_HEAD` and roll back to
+ * a stale doc. The queue owns `setProject`; this hook never fetches — the
+ * only value that survives is the one that came back from the server.
  */
 export function useAcceptBeat(
   projectId: string,
   sceneId: string,
-  project: Project | null,
+  run: WriteQueueRun,
   setProject: (project: Project) => void,
 ) {
   const [acceptingIndex, setAcceptingIndex] = useState<number | null>(null)
@@ -51,61 +52,64 @@ export function useAcceptBeat(
   >({})
 
   const accept = useCallback(
-    async (
+    (
       index: number,
       candidate: BeatCandidate,
       afterBeatId: string | null,
     ): Promise<AcceptResponse | null> => {
-      if (!project) return null
-      const scene = findScene(project, sceneId)
-      if (!scene) return null
-
-      const before = project
-      const optimisticBeat: Beat = {
-        id: OPTIMISTIC_BEAT_ID,
-        index: 0,
-        locked: false,
-        scriptLocked: false,
-        whatHappens: candidate.beatPlan.whatHappens,
-        audienceLearns: candidate.beatPlan.audienceLearns,
-        audienceFeels: candidate.beatPlan.audienceFeels,
-        scriptText: candidate.scriptText,
-      }
       setAcceptingIndex(index)
       setErrorByIndex((prev) => withoutIndex(prev, index))
-      setProject(
-        withSceneBeats(
-          project,
-          sceneId,
-          spliceBeat(scene.beats, afterBeatId, optimisticBeat),
-        ),
-      )
+      return run(async (before) => {
+        const scene = findScene(before, sceneId)
+        if (!scene) {
+          setAcceptingIndex(null)
+          return null
+        }
 
-      try {
-        const response = await acceptBeat(
-          projectId,
-          sceneId,
-          candidate,
-          afterBeatId,
-          { expectedHeadSnapshotId: before.headSnapshotId },
+        const optimisticBeat: Beat = {
+          id: OPTIMISTIC_BEAT_ID,
+          index: 0,
+          locked: false,
+          scriptLocked: false,
+          whatHappens: candidate.beatPlan.whatHappens,
+          audienceLearns: candidate.beatPlan.audienceLearns,
+          audienceFeels: candidate.beatPlan.audienceFeels,
+          scriptText: candidate.scriptText,
+        }
+        setProject(
+          withSceneBeats(
+            before,
+            sceneId,
+            spliceBeat(scene.beats, afterBeatId, optimisticBeat),
+          ),
         )
-        setProject(response.project)
-        setAcceptingIndex(null)
-        return response
-      } catch (err) {
-        setProject(before) // rollback: scene reverts to its pre-accept state
-        setAcceptingIndex(null)
-        setErrorByIndex((prev) => ({
-          ...prev,
-          [index]:
-            err instanceof ApiError
-              ? { code: err.code, message: err.message }
-              : { code: 'UNKNOWN', message: 'accept failed' },
-        }))
-        return null
-      }
+
+        try {
+          const response = await acceptBeat(
+            projectId,
+            sceneId,
+            candidate,
+            afterBeatId,
+            { expectedHeadSnapshotId: before.headSnapshotId },
+          )
+          setProject(response.project)
+          setAcceptingIndex(null)
+          return response
+        } catch (err) {
+          setProject(before) // rollback: scene reverts to its pre-accept state
+          setAcceptingIndex(null)
+          setErrorByIndex((prev) => ({
+            ...prev,
+            [index]:
+              err instanceof ApiError
+                ? { code: err.code, message: err.message }
+                : { code: 'UNKNOWN', message: 'accept failed' },
+          }))
+          return null
+        }
+      })
     },
-    [project, projectId, sceneId, setProject],
+    [run, projectId, sceneId, setProject],
   )
 
   const dismissError = useCallback((index: number) => {

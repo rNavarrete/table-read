@@ -1,6 +1,11 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { navigateToWriteBeat, navigateToWriteScene } from './modeNavigation'
+import {
+  navigateToMode,
+  navigateToWriteBeat,
+  navigateToWriteScene,
+  setBeforeModeSwitch,
+} from './modeNavigation'
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -59,6 +64,36 @@ describe('navigateToWriteBeat', () => {
     expect(url.searchParams.get('highlightBeat')).toBe('beat-2-1')
     expect(url.searchParams.get('changeSet')).toBeNull()
 
+    Object.defineProperty(window, 'location', {
+      value: original,
+      writable: true,
+    })
+  })
+})
+
+describe('navigateToMode', () => {
+  it('waits for the registered before-switch hook (Write autosave flush)', async () => {
+    const assignSpy = vi.fn()
+    const original = window.location
+    Object.defineProperty(window, 'location', {
+      value: {
+        ...original,
+        href: 'http://localhost/?project=proj-1',
+        assign: assignSpy,
+      },
+      writable: true,
+    })
+    let release!: () => void
+    setBeforeModeSwitch(() => new Promise<void>((r) => (release = r)))
+
+    navigateToMode('Plan')
+    await Promise.resolve()
+    expect(assignSpy).not.toHaveBeenCalled()
+    release()
+    await vi.waitFor(() => expect(assignSpy).toHaveBeenCalledOnce())
+    expect(new URL(String(assignSpy.mock.calls[0][0])).pathname).toBe('/plan')
+
+    setBeforeModeSwitch(null)
     Object.defineProperty(window, 'location', {
       value: original,
       writable: true,

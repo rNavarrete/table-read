@@ -43,7 +43,8 @@ vi.mock('./useAcceptBeat', () => ({
   }),
 }))
 
-import { getLedger, getProject } from '../api/client'
+import { getLedger, getProject, patchProject } from '../api/client'
+import { ApiError } from '../api/errors'
 
 beforeEach(() => {
   class FakeIntersectionObserver {
@@ -189,5 +190,50 @@ describe('WriteScreen script home', () => {
     await waitFor(() => {
       expect(scrollIntoView).toHaveBeenCalled()
     })
+  })
+})
+
+describe('WriteScreen autosave', () => {
+  it('a failed save keeps the typed text and Retry saves it again', async () => {
+    const user = userEvent.setup()
+    vi.mocked(getProject).mockResolvedValue(project())
+    vi.mocked(getLedger).mockResolvedValue([])
+    vi.mocked(patchProject).mockRejectedValueOnce(
+      new ApiError(503, { code: 'UNKNOWN', message: 'offline' }),
+    )
+    window.history.pushState({}, '', '/?project=proj-1&scene=scene-1')
+
+    render(<WriteScreen />)
+    const row = await screen.findByTestId('beat-row-beat-scene-1')
+    await user.click(row.querySelector('[data-testid="formatted-script"]')!)
+    await user.type(screen.getByTestId('beat-beat-scene-1'), ' More.')
+    await user.tab() // blur saves now
+
+    const failure = await screen.findByTestId('write-save-failed')
+    expect(failure.textContent).toContain("Couldn't save your last edit.")
+    expect(failure.className).toContain('text-tr-danger')
+    expect(row.textContent).toContain('Script for scene-1 More.')
+    const ops = [
+      {
+        op: 'replace',
+        path: '/seasons/0/episodes/0/scenes/0/beats/0/scriptText',
+        value: 'Script for scene-1 More.',
+      },
+    ]
+    expect(patchProject).toHaveBeenCalledWith('proj-1', ops, {
+      expectedHeadSnapshotId: 'snap-1',
+    })
+
+    vi.mocked(patchProject).mockResolvedValueOnce({
+      project: { ...project(), headSnapshotId: 'snap-2' },
+      consistencyFlags: [],
+    })
+    await user.click(screen.getByRole('button', { name: 'Retry' }))
+    await waitFor(() => {
+      expect(screen.queryByTestId('write-save-failed')).toBeNull()
+    })
+    expect(patchProject).toHaveBeenCalledTimes(2)
+    expect(vi.mocked(patchProject).mock.calls[1][1]).toEqual(ops)
+    expect(row.textContent).toContain('Script for scene-1 More.')
   })
 })

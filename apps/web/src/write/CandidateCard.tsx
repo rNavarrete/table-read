@@ -29,6 +29,8 @@ export interface CandidateCardProps {
   /** Session-level retry (regenerates the full 3-card round) — the only
    * retry granularity the generation endpoint offers a failed slot. */
   onRetryGeneration: () => void
+  /** Write's autosave flush, awaited before Tune runs (useTuneSession). */
+  beforeGenerate?: () => Promise<boolean>
 }
 
 const cardShell =
@@ -149,8 +151,9 @@ export function CandidateCard({
   onSkip,
   onReplace,
   onRetryGeneration,
+  beforeGenerate,
 }: CandidateCardProps) {
-  const tuneSession = useTuneSession(projectId, sceneId)
+  const tuneSession = useTuneSession(projectId, sceneId, beforeGenerate)
   const [tuneOpen, setTuneOpen] = useState(false)
   const [instruction, setInstruction] = useState('')
   const [conflictsConfirmed, setConflictsConfirmed] = useState(false)

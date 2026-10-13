@@ -29,6 +29,10 @@ export interface AppShellProps {
   /** When false, Undo stays disabled (e.g. at root snapshot). Default true
    * when `projectId` is set. */
   canUndo?: boolean
+  /** Awaited before Undo / history restore (Write: flush the pending
+   * autosave so Undo never reverts an older change under unsaved text).
+   * `false` cancels — the save failure is already on screen. */
+  beforeHistoryChange?: () => Promise<boolean>
   children: ReactNode
 }
 
@@ -80,6 +84,7 @@ export function AppShell({
   projectId,
   onUndo,
   canUndo = true,
+  beforeHistoryChange,
   children,
 }: AppShellProps) {
   useModeShortcuts()
@@ -162,6 +167,7 @@ export function AppShell({
     setBusy(true)
     setHistoryOpen(false)
     try {
+      if (beforeHistoryChange && !(await beforeHistoryChange())) return
       if (onUndo) {
         await onUndo()
       } else {
@@ -190,6 +196,7 @@ export function AppShell({
     setBusy(true)
     setHistoryOpen(false)
     try {
+      if (beforeHistoryChange && !(await beforeHistoryChange())) return
       await restoreProject(projectId, snapshotId)
       window.location.reload()
     } catch (err) {

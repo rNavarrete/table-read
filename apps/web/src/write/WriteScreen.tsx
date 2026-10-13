@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { BeatCandidate, CraftLevel, Project, Scene } from 'contract'
+import type { BeatCandidate, CraftLevel, Scene } from 'contract'
 import { getLedger, getProject, patchProject } from '../api/client'
 import { requireProjectId } from '../projects/projectRouting'
 import { loadResume, saveResume } from '../projects/resumeContext'
@@ -14,6 +14,7 @@ import { useAcceptBeat } from './useAcceptBeat'
 import { useCandidateSession } from './useCandidateSession'
 import { useQuietAi } from './useQuietAi'
 import { useWriteKeyboard } from './useWriteKeyboard'
+import { useWriteQueue } from './useWriteQueue'
 import { allScenes, findScene, pickDefaultScene } from './projectTree'
 import { isEditingInScrollport, pickTopIntersectingSceneId } from './scrollSpy'
 function useUrlParam(name: string): string | null {
@@ -35,7 +36,10 @@ export function WriteScreen() {
   const highlightBeatId = useUrlParam('highlightBeat')
   const activeProjectId = projectId ?? ''
 
-  const [project, setProject] = useState<Project | null>(null)
+  // Project state + the one serial queue for Write's head-CAS mutations
+  // (autosave, Accept, craft default) — see useWriteQueue.ts.
+  const queue = useWriteQueue(activeProjectId)
+  const { project, setProject } = queue
   const [ledgerCount, setLedgerCount] = useState(0)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [focusedCard, setFocusedCard] = useState(0)
@@ -85,7 +89,7 @@ export function WriteScreen() {
     return () => {
       cancelled = true
     }
-  }, [projectId, requestedSceneId])
+  }, [projectId, requestedSceneId, setProject])
 
   const scenes: Scene[] = project ? allScenes(project) : []
   const activeScene =
@@ -94,6 +98,12 @@ export function WriteScreen() {
   useEffect(() => {
     activeSceneIdRef.current = activeSceneId
   }, [activeSceneId])
+
+  // Changing the active scene saves any pending edit right away.
+  const { flush } = queue
+  useEffect(() => {
+    void flush()
+  }, [activeSceneId, flush])
 
   useEffect(() => {
     if (projectId && activeSceneId) {
@@ -200,11 +210,12 @@ export function WriteScreen() {
   const candidateSession = useCandidateSession(
     activeProjectId,
     activeSceneId ?? '',
+    flush,
   )
   const accept = useAcceptBeat(
     activeProjectId,
     activeSceneId ?? '',
-    project,
+    queue.run,
     setProject,
   )
 
@@ -238,23 +249,20 @@ export function WriteScreen() {
   }
 
   async function handleCraftLevelChange(level: CraftLevel) {
+    const prev = craftLevel
     setCraftLevel(level)
-    if (!projectId || !project) return
-    const prev = project.defaultCraftLevel ?? 'standard'
-    if (prev === level) return
-    setProject({ ...project, defaultCraftLevel: level })
+    if (!projectId || prev === level) return
     try {
-      const result = await patchProject(projectId, [
-        {
-          op: 'add',
-          path: '/defaultCraftLevel',
-          value: level,
-        },
-      ])
-      setProject(result.project)
+      await queue.run(async (head) => {
+        const result = await patchProject(
+          projectId,
+          [{ op: 'add', path: '/defaultCraftLevel', value: level }],
+          { expectedHeadSnapshotId: head.headSnapshotId },
+        )
+        setProject(result.project)
+      })
     } catch {
       setCraftLevel(prev)
-      setProject(project)
     }
   }
 
@@ -353,6 +361,7 @@ export function WriteScreen() {
       activeMode="Write"
       ledgerCount={ledgerCount}
       projectId={projectId}
+      beforeHistoryChange={flush}
     >
       {llmUnavailableAccept && (
         <Toast
@@ -374,12 +383,35 @@ export function WriteScreen() {
             data-testid="write-scrollport"
             className="h-full min-h-0 overflow-y-auto bg-tr-write-desk px-6 pb-28"
           >
+            {queue.saveFailed && (
+              // Pinned to the top of the editor column (zero-height sticky
+              // row, so the sheet never shifts): visible wherever the writer
+              // has scrolled, and in the desk margin above the sheet.
+              <div className="sticky top-0 z-10 flex h-0 items-start justify-center">
+                <p
+                  role="status"
+                  data-testid="write-save-failed"
+                  className="mt-2 flex items-center gap-2 rounded-chip border border-tr-border bg-tr-surface-raised px-3 py-1 text-12 text-tr-danger shadow-write-card"
+                >
+                  Couldn&apos;t save your last edit.
+                  <button
+                    type="button"
+                    onClick={() => void flush()}
+                    className="font-medium underline"
+                  >
+                    Retry
+                  </button>
+                </p>
+              </div>
+            )}
             <ScriptCanvas
               scenes={scenes}
               canvasHandlers={wrappedCanvasHandlers}
               highlightBeatId={highlightBeatId}
               activeSceneId={activeSceneId}
               onSceneFocus={(id) => selectScene(id, { scroll: false })}
+              onBeatEdit={queue.editBeat}
+              onBeatBlur={() => void flush()}
             />
           </div>
           <CommandBar
@@ -413,6 +445,7 @@ export function WriteScreen() {
             errorByIndex={accept.errorByIndex}
             projectId={projectId}
             sceneId={activeSceneId ?? ''}
+            beforeGenerate={flush}
           />
         </div>
       </div>

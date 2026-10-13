@@ -46,23 +46,24 @@ const HIGHLIGHT_CLASSES = [
  * show the plan pitch as solid primary copy — not muted ghost text — so the
  * page never looks blank after a scene-skeleton apply.
  *
- * Persistence scope note (T2.3): typing here updates only this component's
- * local state, driving the quiet-AI focus rule and the read-only/locked
- * rendering this task owns. Writing edits back to the server via `PATCH
- * /projects/{pid}` — including the locked-range 409 guard — is T3.2 (build
- * plan); wiring it here would duplicate that task's lock-guard tests ahead
- * of the endpoint actually enforcing them.
+ * The typed text stays in this row's state (the editor never loses it, even
+ * if a save fails); `onEdit` reports each change and `onEditBlur` asks for an
+ * immediate save — WriteScreen's queue autosaves it (write/useWriteQueue.ts).
  */
 function BeatRow({
   beat,
   index,
   highlighted,
   onFocusScene,
+  onEdit,
+  onEditBlur,
 }: {
   beat: Beat
   index: number
   highlighted: boolean
   onFocusScene?: () => void
+  onEdit?: (text: string) => void
+  onEditBlur?: () => void
 }) {
   const locked = beat.locked || beat.scriptLocked
   const [text, setText] = useState(beat.scriptText)
@@ -104,6 +105,7 @@ function BeatRow({
   function onChange(event: ChangeEvent<HTMLTextAreaElement>) {
     setText(event.target.value)
     autosize(event.target)
+    onEdit?.(event.target.value)
   }
 
   function startEditing() {
@@ -186,7 +188,10 @@ function BeatRow({
             }}
             onChange={onChange}
             onFocus={onFocusScene}
-            onBlur={() => setEditing(false)}
+            onBlur={() => {
+              setEditing(false)
+              onEditBlur?.()
+            }}
             rows={showPlan ? 3 : 1}
           />
         )}
@@ -217,6 +222,8 @@ function SceneBlock({
   active,
   highlightBeatId,
   onSceneFocus,
+  onBeatEdit,
+  onBeatBlur,
 }: {
   scene: Scene
   /** 1-based index matching the ON THE PAGE outline (document order). */
@@ -225,6 +232,8 @@ function SceneBlock({
   active: boolean
   highlightBeatId: string | null
   onSceneFocus?: (sceneId: string) => void
+  onBeatEdit?: ScriptCanvasProps['onBeatEdit']
+  onBeatBlur?: () => void
 }) {
   const slug = formatSceneSlug(scene)
   const scenePitch = scene.whatHappens.trim()
@@ -310,6 +319,8 @@ function SceneBlock({
             index={index}
             highlighted={highlightBeatId === beat.id}
             onFocusScene={focus}
+            onEdit={(text) => onBeatEdit?.(scene.id, beat.id, text)}
+            onEditBlur={onBeatBlur}
           />
         ))
       )}
@@ -327,6 +338,10 @@ export interface ScriptCanvasProps {
   onSceneFocus?: (sceneId: string) => void
   /** Active scene id — drives scene-number badge accent (matches outline). */
   activeSceneId?: string | null
+  /** Each change to an unlocked beat's text (autosave, debounced upstream). */
+  onBeatEdit?: (sceneId: string, beatId: string, text: string) => void
+  /** A beat editor blurred — save now. */
+  onBeatBlur?: () => void
 }
 
 /**
@@ -342,6 +357,8 @@ export function ScriptCanvas({
   highlightBeatId = null,
   onSceneFocus,
   activeSceneId = null,
+  onBeatEdit,
+  onBeatBlur,
 }: ScriptCanvasProps) {
   return (
     <div
@@ -358,6 +375,8 @@ export function ScriptCanvas({
           active={scene.id === activeSceneId}
           highlightBeatId={highlightBeatId}
           onSceneFocus={onSceneFocus}
+          onBeatEdit={onBeatEdit}
+          onBeatBlur={onBeatBlur}
         />
       ))}
     </div>
