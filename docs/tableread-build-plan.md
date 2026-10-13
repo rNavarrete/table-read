@@ -43,6 +43,9 @@ _Accept:_ e2e (Playwright + mock API): open fixture scene-3 → "Next Beat" → 
 **T2.4 Write script home.** Episode-continuous scrollable script + left scene outline + active-scene generation target (design: `docs/superpowers/specs/2026-07-14-write-script-home-design.md`). Client-only; Plan remains structural. No contract/prompt changes.
 _Accept:_ Write shows a scrollport with all episode scenes stacked; outline lists every scene and click jumps + highlights active; Next Beat / command bar use active scene; `[`/`]` step scenes when not typing; `?scene=` / Ledger `highlightBeat` still land correctly; unit tests for outline, stacked canvas, WriteScreen scrollport.
 
+**T2.5 Write autosave.** Typed script text saves through `PATCH /projects/{pid}` (~1 s debounce, plus blur / scene change / unmount) on one serial queue shared with Accept; generation, Tune and Undo flush first (UI spec §4 "Saving").
+_Accept:_ Vitest — one save ~1 s after typing stops; flush saves at once; edits to a beat coalesce to the latest text; an Accept queued behind an in-flight save runs on the new head and both succeed; Next Beat waits for the flush and doesn't generate if it fails; a stale head refetches and retries once; a failed save keeps the text and Retry re-saves; `LOCKED_OBJECT` surfaces; beforeunload only while dirty; unmount flushes; Undo and mode switch wait for the flush. E2E (`write-autosave.spec.ts`) — type, wait for the save, reload → text persists; type then Accept while the save is in flight → both persist, no error.
+
 ## Milestone 3 — Plan mode (simplified board)
 
 **T3.1 Board UI.** One episode: act columns (or rows) as frames, scene cards, expandable beat cards; select → right inspector (fields per UI spec §4); lock toggles; drag to reorder scenes (PATCH index swap).
