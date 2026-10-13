@@ -163,4 +163,33 @@ describe('PlanScreen', () => {
     expect(await screen.findByTestId('scene-card-scene-2')).not.toBeNull()
     expect(loadResume('proj-longpour').sceneId).toBe('scene-2')
   })
+
+  it('fills the height the shell leaves and scrolls the board and both side panels on their own', async () => {
+    getProjectMock.mockResolvedValue(project())
+    getLedgerMock.mockResolvedValue([])
+    getConsistencyFlagsMock.mockResolvedValue([])
+    window.history.pushState(null, '', '/plan?project=proj-longpour')
+
+    render(<PlanScreen />)
+
+    const board = await screen.findByLabelText('Plan board')
+    expect(board.className).toContain('overflow-y-auto')
+    expect(board.className).toContain('min-w-0')
+    // A flex column, not 100vh minus the header: the shell can render rows
+    // above Plan (the demo banner), and the row still ends at the viewport.
+    const main = screen.getByRole('main')
+    expect(main.parentElement?.className).toContain('h-screen')
+    expect(main.parentElement?.className).toContain('flex-col')
+    expect(main.className).toContain('min-h-0 flex-1')
+    const row = board.parentElement as HTMLElement
+    expect(row.className).toContain('min-h-0 flex-1 overflow-hidden')
+    expect(row.className).not.toContain('100vh')
+    expect(row.parentElement?.className).toContain('h-full flex-col')
+    expect(screen.getByTestId('story-layers-panel').className).toContain(
+      'overflow-y-auto',
+    )
+    expect(screen.getByTestId('inspector').className).toContain(
+      'overflow-y-auto',
+    )
+  })
 })

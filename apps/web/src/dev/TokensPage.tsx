@@ -344,6 +344,11 @@ const TOKEN_GROUPS: TokenGroup[] = [
         kind: 'width',
       },
       {
+        cssVar: '--tr-panel-plan',
+        description: 'Plan scene panel width (2026-10-13)',
+        kind: 'width',
+      },
+      {
         cssVar: '--tr-panel-ledger-filters',
         description: 'Ledger mode filter rail width (UI spec §6)',
         kind: 'width',

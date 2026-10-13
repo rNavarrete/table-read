@@ -329,64 +329,72 @@ export function PlanScreen() {
       ledgerCount={ledger.filter((f) => f.status === 'pending_review').length}
       projectId={projectId}
     >
-      {reviewError && (
-        <p className="px-6 pt-3 text-13 text-tr-danger" role="alert">
-          {reviewError}
-        </p>
-      )}
-      {patcher.error && (
-        <Toast tone="danger" onDismiss={patcher.dismissError}>
-          {patcher.error.code === 'LOCKED_OBJECT'
-            ? lockedObjectMessage
-            : patcher.error.code === 'CONFLICT_STALE_HEAD'
-              ? staleHeadMessage
-              : patcher.error.message}
-        </Toast>
-      )}
-      <div className="flex">
-        <StoryLayersPanel
-          project={project}
-          episode={episode}
-          selection={effectiveSelection}
-          collapsedActs={collapsedActs}
-          onSelectNothing={() => setSelection(null)}
-          onSelectScene={(sceneId) => setSelection({ type: 'scene', sceneId })}
-          onToggleActCollapse={toggleActCollapse}
-        />
-        <Board
-          project={project}
-          episode={episode}
-          selection={effectiveSelection}
-          collapsedActs={collapsedActs}
-          pending={patcher.pending}
-          flaggedSceneIds={flaggedSceneIds}
-          onSelectScene={(sceneId) => setSelection({ type: 'scene', sceneId })}
-          onSelectBeat={(sceneId, beatId) =>
-            setSelection({ type: 'beat', sceneId, beatId })
-          }
-          onOpenInWrite={(sceneId) => {
-            saveResume(activeProjectId, { mode: 'Write', sceneId })
-            navigateToWriteScene(sceneId)
-          }}
-          onReorder={handleReorder}
-        />
-        <Inspector
-          project={project}
-          episode={episode}
-          ledger={ledger}
-          selection={effectiveSelection}
-          pending={patcher.pending}
-          openingReview={openingReview}
-          onToggleSceneLock={handleToggleSceneLock}
-          onToggleBeatScriptLock={handleToggleBeatScriptLock}
-          onSaveSceneField={handleSaveSceneField}
-          onSaveBeatField={handleSaveBeatField}
-          onSaveProjectField={handleSaveProjectField}
-          onSaveEpisodeField={handleSaveEpisodeField}
-          onOpenReview={(targetObjectId, instruction) =>
-            void handleOpenReview(targetObjectId, instruction)
-          }
-        />
+      {/* Fills the shell's main (whatever renders above it, e.g. the demo
+          banner); the board and both panels scroll on their own. */}
+      <div className="flex h-full flex-col">
+        {reviewError && (
+          <p className="px-6 pt-3 text-13 text-tr-danger" role="alert">
+            {reviewError}
+          </p>
+        )}
+        {patcher.error && (
+          <Toast tone="danger" onDismiss={patcher.dismissError}>
+            {patcher.error.code === 'LOCKED_OBJECT'
+              ? lockedObjectMessage
+              : patcher.error.code === 'CONFLICT_STALE_HEAD'
+                ? staleHeadMessage
+                : patcher.error.message}
+          </Toast>
+        )}
+        <div className="flex min-h-0 flex-1 overflow-hidden">
+          <StoryLayersPanel
+            project={project}
+            episode={episode}
+            selection={effectiveSelection}
+            collapsedActs={collapsedActs}
+            onSelectNothing={() => setSelection(null)}
+            onSelectScene={(sceneId) =>
+              setSelection({ type: 'scene', sceneId })
+            }
+            onToggleActCollapse={toggleActCollapse}
+          />
+          <Board
+            project={project}
+            episode={episode}
+            selection={effectiveSelection}
+            collapsedActs={collapsedActs}
+            pending={patcher.pending}
+            flaggedSceneIds={flaggedSceneIds}
+            onSelectScene={(sceneId) =>
+              setSelection({ type: 'scene', sceneId })
+            }
+            onSelectBeat={(sceneId, beatId) =>
+              setSelection({ type: 'beat', sceneId, beatId })
+            }
+            onOpenInWrite={(sceneId) => {
+              saveResume(activeProjectId, { mode: 'Write', sceneId })
+              navigateToWriteScene(sceneId)
+            }}
+            onReorder={handleReorder}
+          />
+          <Inspector
+            project={project}
+            episode={episode}
+            ledger={ledger}
+            selection={effectiveSelection}
+            pending={patcher.pending}
+            openingReview={openingReview}
+            onToggleSceneLock={handleToggleSceneLock}
+            onToggleBeatScriptLock={handleToggleBeatScriptLock}
+            onSaveSceneField={handleSaveSceneField}
+            onSaveBeatField={handleSaveBeatField}
+            onSaveProjectField={handleSaveProjectField}
+            onSaveEpisodeField={handleSaveEpisodeField}
+            onOpenReview={(targetObjectId, instruction) =>
+              void handleOpenReview(targetObjectId, instruction)
+            }
+          />
+        </div>
       </div>
     </AppShell>
   )
