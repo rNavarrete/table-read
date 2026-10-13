@@ -4,9 +4,11 @@ Sets DATABASE_URL to a throwaway sqlite file before any test module gets a
 chance to import `main`/`storage.db`, so the entire test session runs
 against a disposable database and never touches the real dev DB
 (apps/api/tableread.db) — CLAUDE.md hard rule: never use the dev DB in
-tests. `storage.db`/`storage.seed` imports are deferred into the fixture
-bodies (not module level) purely to keep this side-effecting env var
-assignment ahead of them without violating import-order lint rules.
+tests. The import diagnostics log goes there too, so test runs never write
+into the dev server's log (apps/api/logs/). `storage.db`/`storage.seed`
+imports are deferred into the fixture bodies (not module level) purely to
+keep this side-effecting env var assignment ahead of them without violating
+import-order lint rules.
 """
 
 import os
@@ -17,6 +19,7 @@ import pytest
 
 _tmp_dir = tempfile.TemporaryDirectory()
 os.environ["DATABASE_URL"] = f"sqlite:///{_tmp_dir.name}/test.db"
+os.environ["TABLEREAD_IMPORT_DIAGNOSTICS_LOG"] = f"{_tmp_dir.name}/import-diagnostics.log"
 
 
 @pytest.fixture(autouse=True)

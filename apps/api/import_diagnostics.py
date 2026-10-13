@@ -19,7 +19,9 @@ from pathlib import Path
 from typing import NamedTuple
 
 IMPORT_DIAGNOSTICS_LOG_ENV = "TABLEREAD_IMPORT_DIAGNOSTICS_LOG"
-DEFAULT_IMPORT_DIAGNOSTICS_LOG = Path("/tmp/tableread-import-diagnostics.log")
+# Beside the dev DB, not in /tmp (which macOS wipes, losing a run's evidence).
+# Gitignored, and `uvicorn --reload` only restarts on `*.py` changes.
+DEFAULT_IMPORT_DIAGNOSTICS_LOG = Path(__file__).resolve().parent / "logs" / "import-diagnostics.log"
 _IMPORT_LOGGER_NAMES = (
     "drama_manager.narrative_map_runs",
     "fountain.create_import",
