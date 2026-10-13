@@ -684,7 +684,9 @@ def analyze_import(
     # thread before its call starts, and each result is checkpointed on this
     # thread as it lands. Merges run in the order below (threads, overview,
     # facts assembly, consistency), and events are yielded in that order
-    # (§9.3), facts held back until overview's are out.
+    # (§9.3), facts held back until overview's are out. A failed call is held
+    # the same way and raised once its own stage opens, so the run stops at
+    # the stage that failed.
     # TABLEREAD_IMPORT_OVERLAP=0 runs them one after another, each prompt
     # built after the previous merge; the prompts are byte-identical either
     # way (test_import_overlap.py). ──────────────────────────────────────────
@@ -783,6 +785,7 @@ def analyze_import(
     extractions = list(cached_extractions)
     missing_facts = [index for index, unit in enumerate(extractions) if unit is None]
     landed_facts: list[int] = []  # overlap: indexes in the order their calls finished
+    fact_errors: list[BaseException] = []  # overlap: held until the facts stage
     assembled: tuple[list[dict], list[dict]] | None = None
     get_scan: Callable[[], ConsistencyScan] | None = None
 
@@ -866,11 +869,23 @@ def analyze_import(
                 def handle(extraction: LedgerExtraction) -> None:
                     save_extraction(index, extraction)
                     extractions[index] = extraction
+                    if drain.failed:
+                        # Saved for a resume, never shown: serial's fan-out
+                        # shows nothing that lands after a failure either.
+                        return
                     landed_facts.append(index)
-                    if len(landed_facts) == len(missing_facts) and not drain.failed:
+                    if len(landed_facts) == len(missing_facts):
                         assemble_and_start_scan()
 
                 return handle
+
+            def on_fact_error(error: BaseException) -> None:
+                # Raised once the facts stage opens, after threads and
+                # overview have merged and shown what they found, as in
+                # serial. Scenes not yet started are cancelled; those in
+                # flight still land and are saved.
+                fact_errors.append(error)
+                facts_pool.shutdown(wait=False, cancel_futures=True)
 
             # Same rule as `_run_ordered_parallel`: one prewarm, then every
             # scene at once (facts_prewarm is None unless 2+ are outstanding).
@@ -879,7 +894,12 @@ def analyze_import(
             facts_pool = drain.pool(IMPORT_LLM_CONCURRENCY)
             for index in missing_facts:
                 drain.submit(
-                    facts_pool, on_fact(index), extract_prebuilt, index, fact_prompts[index]
+                    facts_pool,
+                    on_fact(index),
+                    extract_prebuilt,
+                    index,
+                    fact_prompts[index],
+                    on_error=on_fact_error,
                 )
             if not missing_facts:
                 assemble_and_start_scan()
@@ -974,6 +994,8 @@ def analyze_import(
             emitted = 0
             while emitted < len(missing_facts):
                 while emitted == len(landed_facts):
+                    if fact_errors:
+                        raise fact_errors[0]
                     drain.step()
                 index = landed_facts[emitted]
                 emitted += 1
@@ -1471,11 +1493,18 @@ class _Drain:
     """Model calls running on worker pools, whose results the generator's own
     thread handles (`step`, `until`) as each one lands. Workers only call the
     model; each result's handler (checkpoint writes, bookkeeping) runs on the
-    thread that owns the DB session, as soon as that call finishes."""
+    thread that owns the DB session, as soon as that call finishes.
+
+    A failed call is held, not raised where it lands: the generator may be
+    waiting on an earlier stage, which must still finish and be reported
+    first (§9.3). `until` raises a call's own error; a call submitted with
+    `on_error` hands its error there instead."""
 
     def __init__(self) -> None:
         self._pools: list[ThreadPoolExecutor] = []
-        self._handlers: dict[Future, Callable[[Any], None]] = {}
+        self._handlers: dict[
+            Future, tuple[Callable[[Any], None], Callable[[BaseException], None] | None]
+        ] = {}
         self.failed = False
 
     def pool(self, workers: int) -> ThreadPoolExecutor:
@@ -1490,23 +1519,34 @@ class _Drain:
         fn: Callable[..., Any],
         /,
         *args: Any,
+        on_error: Callable[[BaseException], None] | None = None,
     ) -> Future:
         # The caller's context goes along, so the import run id still tags a
         # call's retry logs (llm.errors) as it did when the call ran here.
         future = pool.submit(contextvars.copy_context().run, fn, *args)
-        self._handlers[future] = handler
+        self._handlers[future] = (handler, on_error)
         return future
 
     def step(self) -> None:
         """Wait for at least one call, then handle every call that has
-        finished. A failed call raises here (its siblings are left to
-        `salvage`)."""
+        finished. A failed call sets `failed` (so nothing that needs every
+        result starts) and is held for `until` or its `on_error`."""
         done, _pending = wait(self._handlers, return_when=FIRST_COMPLETED)
         for future in done:
-            self._handlers.pop(future)(future.result())
+            handler, on_error = self._handlers.pop(future)
+            if future.cancelled():
+                continue
+            error = future.exception()
+            if error is None:
+                handler(future.result())
+                continue
+            self.failed = True
+            if on_error is not None:
+                on_error(error)
 
     def until(self, future: Future) -> Any:
-        """Handle landing calls until `future` has been handled; its result."""
+        """Handle landing calls until `future` has been handled; its result,
+        or its error."""
         while future in self._handlers:
             self.step()
         return future.result()
@@ -1519,7 +1559,7 @@ class _Drain:
         self.failed = True
         for pool in self._pools:
             pool.shutdown(wait=True, cancel_futures=True)
-        for future, handler in list(self._handlers.items()):
+        for future, (handler, _on_error) in list(self._handlers.items()):
             if not future.cancelled() and future.exception() is None:
                 handler(future.result())
         self._handlers.clear()

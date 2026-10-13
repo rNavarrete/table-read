@@ -423,8 +423,8 @@ def test_a_failed_branch_saves_its_siblings_and_surfaces_its_own_error(db_sessio
 
     assert events[-1][0] == "failed"
     assert events[-1][1]["error"]["code"] == "SCHEMA_INVALID_LLM"
-    # No overview, facts or consistency frame reached the board: they follow
-    # threads in §9.3's order, and the failure came first.
+    # No overview, facts or consistency frame reached the board: the run
+    # stopped at overview, which §9.3 puts before facts and consistency.
     kinds = {data["data"]["kind"] for name, data in events if name == "found"}
     assert not kinds & {"overview", "facts", "flags"}
     # Threads and every scene's facts were in flight; each was saved.
@@ -439,4 +439,73 @@ def test_a_failed_branch_saves_its_siblings_and_surfaces_its_own_error(db_sessio
         .count()
     )
     assert saved_facts == 5
+    assert llm.invocation_count("scan_consistency") == 0
+
+
+class _SceneThreeOutageLlm(_ScriptedLlm):
+    """Scene 3's extraction hits an outage at once, while threads and
+    overview are still running."""
+
+    def __init__(self) -> None:
+        super().__init__({"infer_narrative_promises": 0.2, "infer_story_overview": 0.1})
+
+    def extract_ledger_facts(self, **kwargs):
+        if '"sceneId": "scene-3"' in kwargs["user_message"]:
+            raise _connection_error()
+        return super().extract_ledger_facts(**kwargs)
+
+
+@pytest.mark.parametrize("overlap", [False, True], ids=["serial", "overlap"])
+@pytest.mark.parametrize(
+    ("llm_type", "stage", "code", "key"),
+    [
+        (_SceneThreeOutageLlm, "extracting_facts", "LLM_UNAVAILABLE", "f1003"),
+        (_OverviewFailsLlm, "inferring_overview", "SCHEMA_INVALID_LLM", "f1004"),
+    ],
+    ids=["facts-outage", "overview-schema"],
+)
+def test_a_failure_stops_the_run_at_the_stage_that_failed(
+    db_session, monkeypatch, overlap, llm_type, stage, code, key
+):
+    """Overlap runs a call before its stage starts; its failure must still
+    be reported at that stage, after every earlier stage has merged and
+    shown what it found, as in serial."""
+    monkeypatch.setattr(pipeline, "IMPORT_OVERLAP", overlap)
+    key = f"00000000-0000-4000-8000-0000000{key}{int(overlap)}"
+
+    events = _post(llm_type(), key)
+
+    assert events[-1][0] == "failed"
+    assert events[-1][1]["error"]["code"] == code
+    assert [data["name"] for name, data in events if name == "stage"][-1] == stage
+    assert "threads" in {data["data"]["kind"] for name, data in events if name == "found"}
+    db_session.expire_all()
+    run = db_session.query(ImportRunRow).filter_by(idempotency_key=key).one()
+    assert run.phase == stage
+
+
+class _SceneOneFailsLlm(_ScriptedLlm):
+    """Scene 1's extraction fails (uncounted) after a moment; threads runs
+    long enough for every other scene to finish if nothing stops them."""
+
+    def __init__(self) -> None:
+        super().__init__({"infer_narrative_promises": 0.3, "extract_ledger_facts": 0.1})
+
+    def extract_ledger_facts(self, **kwargs):
+        if '"sceneId": "scene-1"' in kwargs["user_message"]:
+            time.sleep(0.05)
+            raise _connection_error()
+        return super().extract_ledger_facts(**kwargs)
+
+
+def test_a_scene_failure_cancels_the_scenes_not_yet_started(monkeypatch):
+    """One worker, so the scenes queue behind scene 1. Its failure is held
+    until the facts stage, but the queued scenes are cancelled as it lands:
+    at most the one already picked up is asked."""
+    llm = _SceneOneFailsLlm()
+
+    with pytest.raises(anthropic.APIConnectionError):
+        _analyze(monkeypatch, llm, overlap=True, concurrency=1)
+
+    assert llm.invocation_count("extract_ledger_facts") <= 1
     assert llm.invocation_count("scan_consistency") == 0
