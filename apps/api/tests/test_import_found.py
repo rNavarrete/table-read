@@ -51,6 +51,11 @@ SRC = "\n".join(
     ]
 )
 READING = "Someone reaches a quiet decision"
+BEAT = {
+    "whatHappens": "Marta presses Dan for an answer",
+    "audienceLearns": "The money already moved",
+    "audienceFeels": "Dread at what she will do next",
+}
 KIND_STAGE = {
     "scenes": "parsing_scenes",
     "scene": "segmenting_beats",
@@ -77,9 +82,7 @@ def mock_llm():
                     {
                         "kind": "beat",
                         "startLine": 1,
-                        "whatHappens": "w",
-                        "audienceLearns": "l",
-                        "audienceFeels": "f",
+                        **BEAT,
                     }
                 ],
                 "sceneWhatHappens": READING,
@@ -180,9 +183,15 @@ def test_found_frames_carry_each_steps_post_merge_results(db_session, mock_llm):
             "beatCount": len(scene["beats"]),
             "whatHappens": READING,
             "failed": False,
+            # Each saved beat's reading fields, in order, and nothing else.
+            "beats": [
+                {key: beat[key] for key in ("whatHappens", "audienceLearns", "audienceFeels")}
+                for beat in scene["beats"]
+            ],
         }
         for scene in scenes
     ]
+    assert all(frame["beats"] == [BEAT] for frame in scene_frames)
 
     (acts,) = _found(events, "acts")
     assert acts["data"]["format"] == project["format"]
@@ -239,6 +248,7 @@ def test_found_frames_carry_each_steps_post_merge_results(db_session, mock_llm):
     # No frame carries script text: only sluglines come from the page.
     strings = [s for frame in frames for s in _strings(frame["data"])]
     assert not [line for line in BODY_LINES for s in strings if line in s]
+    assert not [frame for frame in frames if "scriptText" in json.dumps(frame)]
 
     snapshots.purge_project(db_session, project["id"])
 
@@ -256,9 +266,9 @@ def test_found_frames_are_logged_as_counts_only(db_session, mock_llm, caplog):
         s
         for frame in _found(events)
         for key, s in _flat(frame["data"])
-        if key in {"slugline", "whatHappens", "label", "logline"}
+        if key in {"slugline", "whatHappens", "audienceLearns", "audienceFeels", "label", "logline"}
     ]
-    assert texts
+    assert BEAT["audienceFeels"] in texts
     assert not [text for text in texts if text in logged]
 
     snapshots.purge_project(db_session, events[-1][1]["result"]["project"]["id"])
@@ -294,6 +304,7 @@ def test_a_scene_that_fails_twice_is_found_failed(db_session, mock_llm, monkeypa
         "beatCount": 1,
         "whatHappens": "",
         "failed": True,
+        "beats": [],
     }
     assert not by_index[0]["failed"] and not by_index[2]["failed"]
 
@@ -321,7 +332,7 @@ def test_resume_re_emits_saved_units_as_cached(db_session, mock_llm, monkeypatch
     assert resumed[-1][0] == "complete"
     first_scenes = sorted((f["data"] for f in _found(first, "scene")), key=lambda d: d["index"])
     resumed_scene_frames = _found(resumed, "scene")
-    assert all(f["cached"] for f in resumed_scene_frames)
+    assert all(f["cached"] and f["data"]["beats"] == [BEAT] for f in resumed_scene_frames)
     assert sorted((f["data"] for f in resumed_scene_frames), key=lambda d: d["index"]) == (
         first_scenes
     )

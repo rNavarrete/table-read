@@ -96,8 +96,16 @@ describe('import board reducer', () => {
         beatCount: 4,
         whatHappens: 'Ruth drives.',
         failed: false,
+        beats: [],
       },
-      { kind: 'scene', index: 0, beatCount: 1, whatHappens: '', failed: true },
+      {
+        kind: 'scene',
+        index: 0,
+        beatCount: 1,
+        whatHappens: '',
+        failed: true,
+        beats: [],
+      },
     )
     expect(state.scenes.map((card) => card.read)).toEqual([
       'failed',
@@ -120,6 +128,7 @@ describe('import board reducer', () => {
         beatCount: 1,
         whatHappens: 'x',
         failed: false,
+        beats: [],
       }),
     ).toBe(state)
   })
@@ -247,6 +256,7 @@ describe('import board reducer', () => {
       beatCount: 1,
       whatHappens: 'a',
       failed: false,
+      beats: [],
     })
     expect(state.latestIndex).toBe(2)
     state = apply(state, {
@@ -270,6 +280,7 @@ describe('import board reducer', () => {
         beatCount: 2,
         whatHappens: 'a',
         failed: false,
+        beats: [],
       },
       { kind: 'flags', contradictions: 1, tensions: 0, other: 0 },
     )
@@ -285,6 +296,7 @@ describe('import board reducer', () => {
         beatCount: 2,
         whatHappens: 'b',
         failed: false,
+        beats: [],
       },
       {
         kind: 'scene',
@@ -292,6 +304,7 @@ describe('import board reducer', () => {
         beatCount: 3,
         whatHappens: 'a',
         failed: false,
+        beats: [],
       },
       {
         kind: 'scene',
@@ -299,6 +312,7 @@ describe('import board reducer', () => {
         beatCount: 1,
         whatHappens: 'c',
         failed: false,
+        beats: [],
       },
     ]
     const forward = apply(scanned(), ...frames)
@@ -401,6 +415,7 @@ describe('reconcileWithResult', () => {
           beatCount: 5,
           whatHappens: 'Live reading.',
           failed: false,
+          beats: [],
         },
         {
           kind: 'scene',
@@ -408,6 +423,7 @@ describe('reconcileWithResult', () => {
           beatCount: 1,
           whatHappens: '',
           failed: true,
+          beats: [],
         },
         { kind: 'castRead', sceneIndexes: [0] },
         {

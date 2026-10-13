@@ -155,6 +155,7 @@ describe('ImportBoard', () => {
         beatCount: 4,
         whatHappens: 'Barney buys a bigger plow.',
         failed: false,
+        beats: [],
       }),
     })
     const card = screen.getByTestId('board-card-40')
@@ -274,6 +275,7 @@ describe('ImportBoard', () => {
         beatCount: 3,
         whatHappens: 'Ruth smokes in the alley.',
         failed: false,
+        beats: [],
       }),
       progress: progressAt('parsing_scenes', 'segmenting_beats'),
     })
@@ -340,6 +342,7 @@ describe('ImportBoard', () => {
         beatCount: 1,
         whatHappens: 'x',
         failed: false,
+        beats: [],
       }),
     )
     const progress = progressAt('parsing_scenes', 'segmenting_beats')

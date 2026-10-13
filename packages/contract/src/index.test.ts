@@ -323,6 +323,13 @@ describe('ProjectImportProgressEvent found', () => {
       beatCount: 5,
       whatHappens: 'Marta finds the transfer.',
       failed: false,
+      beats: [
+        {
+          whatHappens: 'Marta opens the ledger.',
+          audienceLearns: 'The money moved.',
+          audienceFeels: 'Dread',
+        },
+      ],
     },
     { kind: 'acts', format, sceneActs: [1, 1, 2] },
     { kind: 'castRead', sceneIndexes: [0, 1, 2] },
@@ -352,6 +359,22 @@ describe('ProjectImportProgressEvent found', () => {
     expect(ProjectImportProgressEvent.parse(event)).toEqual({
       ...event,
       cached: false,
+    })
+  })
+
+  it("defaults a 'scene' frame's beats to none (additive, T9.17)", () => {
+    const data = {
+      kind: 'scene',
+      index: 0,
+      beatCount: 1,
+      whatHappens: '',
+      failed: true,
+    }
+    const event = { type: 'found', stage: 'segmenting_beats', data }
+    expect(ProjectImportProgressEvent.parse(event)).toEqual({
+      ...event,
+      cached: false,
+      data: { ...data, beats: [] },
     })
   })
 

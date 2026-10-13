@@ -770,10 +770,23 @@ export const ImportFoundScene = z.object({
   lineCount: NonNeg,
   intExt: z.enum(['int', 'ext', 'other']),
 })
+// A segmented beat's reading fields (T9.17), in scene order; never `scriptText`.
+export const ImportFoundBeat = z.object({
+  whatHappens: z.string(),
+  audienceLearns: z.string(),
+  audienceFeels: z.string(),
+})
 
 export const ProjectImportFound = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('scenes'), scenes: z.array(ImportFoundScene) }),
-  z.object({ kind: z.literal('scene'), index: NonNeg, beatCount: NonNeg, whatHappens: z.string(), failed: z.boolean() }),
+  z.object({
+    kind: z.literal('scene'),
+    index: NonNeg,
+    beatCount: NonNeg,
+    whatHappens: z.string(),
+    failed: z.boolean(),
+    beats: z.array(ImportFoundBeat).default([]),
+  }),
   z.object({ kind: z.literal('acts'), format: ShowFormat, sceneActs: z.array(NonNeg) }),
   z.object({ kind: z.literal('castRead'), sceneIndexes: z.array(NonNeg) }),
   z.object({
@@ -1265,7 +1278,7 @@ Defined transactions:
 - `POST /projects/import` `ProjectImportCreateRequest` with required `Idempotency-Key` header → **SSE** (§9.3 atomic create-and-import — the import-wizard analogue of `POST /projects` above): reuses the same parse/import pipeline as `POST /projects/{pid}/import`, but creates the project **and** its imported state in one DB transaction — every core LLM/parsing stage runs before that single write, never an empty root followed by an import child. A scene unit — one scene's `segment_scene` or `extract_ledger_facts` call — whose output still fails schema validation after its rule-9 retry does not fail the import (T9.11): a failed segmentation keeps the scene's verbatim text as a single beat with every description field empty (the server writes nothing for it), a failed extraction yields zero facts for that scene, and each files one open `tension` `ConsistencyFlag` on that scene (`objectType: "scene"`, explanation code `[segmentation_failed]` or `[extraction_failed]`). Such a unit is not saved as a checkpoint, so a resumed attempt asks the model again and reruns every later stage rather than reusing results saved without that unit. Act inference and every whole-script stage (`inferring_entities`, `inferring_promises`, `inferring_overview`, `checking_consistency`) stay required: their failure, and any provider error (timeout, unavailable), still ends the stream `failed` and persists nothing. Events: `stage {type: "stage", name}` announces each named stage in order (`parsing_scenes`, `segmenting_beats`, `inferring_acts`, `inferring_entities`, `inferring_promises`, `inferring_overview`, `extracting_facts`, `checking_consistency`, `saving`); `progress {type: "progress", stage, done, total}` may appear after a stage starts to report monotonic item progress within that stage, with `0 <= done <= total`. Scene progress is emitted for `segmenting_beats` and `extracting_facts`; singleton analysis stages emit no per-scene progress. The stream then emits exactly one terminal `complete {type: "complete", result: ProjectImportResult}` or `failed {type: "failed", error}`. `ProjectImportResult` is `{project, newFacts, consistencyFlags}` — the same shape `POST /projects/{pid}/import` returns. `POST /projects/{pid}/narrative-map` is an explicit post-import run (`import_analyst` scene and synthesis passes, independent `writer`-role verification) over the saved import analysis that writes a second snapshot; a timeout there never invalidates or re-runs the source import. Idempotency mirrors `POST /projects`: a hash conflict is rejected with a plain 409 `IDEMPOTENCY_CONFLICT` JSON response _before_ the stream opens (never a mid-stream surprise); a same-key/same-hash replay opens a stream whose only frame is the terminal `complete` with the original result; a failed transaction leaves no key, so a retry with the same key runs normally. That retry reuses a failed attempt's saved per-scene results only when the scene's text still matches and `PROMPT_VERSION` and `config/models.toml` are unchanged; an unfinished attempt expires 7 days after its last activity and is deleted, saved results included, when the next import starts (T9.5).
   - **`found {type: "found", stage, cached, data: ProjectImportFound}`** carries per-unit results for the live import board. **Additive; clients ignore unknown event types.** Payloads are built from data already in memory (no LLM calls, no DB writes), are post-merge where a merge exists, and never contain `scriptText`; the server logs each frame as stage, kind and counts only. Indexes are 0-based positions in the server's scene split (`scene-{index+1}` is the eventual id). Units reused from a resumed attempt's checkpoints are re-emitted with `cached: true` (default `false`). One kind per `data`:
     - `scenes` (`parsing_scenes`) — once, after the split: `{index, slugline, lineCount, intExt}` per scene.
-    - `scene` (`segmenting_beats`) — once per segmented scene, in completion order: `beatCount`, `whatHappens` (the segmenter's scene reading), and `failed: true` when the unit degraded (T9.11).
+    - `scene` (`segmenting_beats`) — once per segmented scene, in completion order: `beatCount`, `whatHappens` (the segmenter's scene reading), `failed: true` when the unit degraded (T9.11), and `beats` (T9.17, additive, default `[]`): each final beat's `whatHappens`, `audienceLearns` and `audienceFeels`, in scene order, post-merge, for the board's reading view. A beat's position in the array is its order; there are no beat ids yet. `beats` carries **only those three reading fields — never `scriptText` or any other script source text**; a failed unit sends `beats: []` (its one beat holds only the scene's verbatim text). A cached re-emit carries the same beats.
     - `acts` (`inferring_acts`) — once, after the acts merge: the resolved `format` and each scene's act number in `sceneActs`.
     - `castRead` (`inferring_entities`) — once per finished entity chunk: the scene indexes it covered.
     - `cast` (`inferring_entities`) — once, after the entities merge: `total` characters and the top 12 by `sceneCount` (scenes where the character speaks, using the whole-script shooting-script decision).
