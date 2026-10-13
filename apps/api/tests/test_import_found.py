@@ -302,12 +302,10 @@ def test_a_scene_that_fails_twice_is_found_failed(db_session, mock_llm, monkeypa
 
 def test_resume_re_emits_saved_units_as_cached(db_session, mock_llm, monkeypatch):
     original = mock_llm.extract_ledger_facts
-    calls: list[int] = []
 
     def flaky(**kwargs):
-        # The warm call (scene 0) is saved; the fan-out after it fails.
-        calls.append(1)
-        if len(calls) > 1:
+        # Scene 0's call is saved; the others fail.
+        if '"sceneId": "scene-1"' not in kwargs["user_message"]:
             raise anthropic.APIConnectionError(
                 request=httpx.Request("POST", "https://api.anthropic.com/v1/messages")
             )
