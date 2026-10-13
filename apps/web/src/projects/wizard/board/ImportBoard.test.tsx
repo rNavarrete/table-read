@@ -231,7 +231,7 @@ describe('ImportBoard', () => {
       nowMs: 4_000 + 40_000,
     })
     expect(screen.getByText(/min left$/).textContent).toBe(
-      'typically about 2–7 min left',
+      'typically about 1–2 min left',
     )
   })
 

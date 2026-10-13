@@ -4,6 +4,7 @@ import {
   advanceImportProgress,
   estimateRemainingMs,
   etaRange,
+  etaSeconds,
   formatElapsed,
   type ImportProgressState,
   initialImportProgressState,
@@ -263,20 +264,21 @@ describe('import progress model', () => {
     // 5 real scenes at 30 s each; 15 segmenting + 40 facts still to go.
     expect(estimateRemainingMs(state, 150_050)).toBe(55 * 30_000)
     // Scene steps at the measured 30 s, plus every single-call step's prior:
-    // 450 + 1200 + acts 10 + entities 41.6 + threads 62 + overview 35.2
-    // + consistency 25.6 = 1824.4 s, ±40%.
-    expect(etaRange(state, 40)).toEqual({ lowMin: 18, highMin: 43 })
+    // 450 + acts 10 + entities 41.6, then the longest late branch, facts
+    // 1200 + consistency 25.6 (threads 62, overview 35.2) = 1727.2 s, ±40%.
+    expect(etaRange(state, 40)).toEqual({ lowMin: 17, highMin: 41 })
   })
 
   it('estimates from per-scene priors for every step before any speed is known', () => {
-    // 60 scenes: 8.05 s/scene over six steps + acts 11.4 s = 494.4 s, ±40%.
+    // 60 scenes: segmenting 65.7 s + acts 11.4 + entities 62.4, then the
+    // longest late branch, facts 65.7 + consistency 38.4 = 243.5 s, ±40%.
     expect(etaRange(initialImportProgressState, 60)).toEqual({
-      lowMin: 4,
-      highMin: 12,
+      lowMin: 2,
+      highMin: 6,
     })
 
-    // Threads now: facts 118.2 s + threads 93 + overview 52.8
-    // + consistency 38.4 = 302.4 s, ±40%.
+    // Threads now: the longest branch is facts 65.7 s + consistency 38.4
+    // (threads 93, overview 52.8) = 104.1 s, ±40%.
     const threads = startStages([
       'parsing_scenes',
       'segmenting_beats',
@@ -284,7 +286,7 @@ describe('import progress model', () => {
       'inferring_entities',
       'inferring_promises',
     ])
-    expect(etaRange(threads, 60)).toEqual({ lowMin: 3, highMin: 8 })
+    expect(etaRange(threads, 60)).toEqual({ lowMin: 1, highMin: 3 })
     expect(etaRange(initialImportProgressState, 0)).toBeNull()
   })
 
@@ -306,8 +308,9 @@ describe('import progress model', () => {
     expect(state.lastProgressAtMs).toBe(5_000)
 
     expect(isImportProgressStale(state, 44_000, 60)).toBe(false)
-    // 40 s of threads already run: 302.4 s of priors less 40 = 262.4 s, ±40%.
-    expect(etaRange(state, 60, 44_000)).toEqual({ lowMin: 2, highMin: 7 })
+    // 40 s of every late branch already run: facts and consistency's 104.1 s
+    // less 40 = 64.1 s, ±40%.
+    expect(etaRange(state, 60, 44_000)).toEqual({ lowMin: 1, highMin: 2 })
     expect(isImportProgressStale(state, 135_001, 60)).toBe(true)
     // A scene step's units are due every few seconds: 30 s still means stale.
     const facts = advanceImportProgress(
@@ -316,6 +319,40 @@ describe('import progress model', () => {
       100_000,
     )
     expect(isImportProgressStale(facts, 130_001, 60)).toBe(true)
+  })
+
+  it('counts down only the longest late branch after the cast step', () => {
+    // 60 scenes, 40 s into threads, facts done: threads 93 − 40 = 53 s
+    // outlasts overview 52.8 − 40 and consistency 38.4.
+    const threads = startStages([
+      'parsing_scenes',
+      'segmenting_beats',
+      'inferring_acts',
+      'inferring_entities',
+      'inferring_promises',
+    ])
+    const factsDone: ImportProgressState = {
+      ...threads,
+      completedStages: [...threads.completedStages, 'extracting_facts'],
+    }
+    expect(etaSeconds(factsDone, 60, 44_000)).toBeCloseTo(53)
+    // Facts not done: its branch has run those 40 s too.
+    expect(etaSeconds(threads, 60, 44_000)).toBeCloseTo(
+      (60 * 1.97) / 1.8 + 38.4 - 40,
+    )
+  })
+
+  it('adds the longest late branch, not every one, before the cast step', () => {
+    // 60 scenes, 5 s into acts: acts 11.4 − 5 + entities 62.4, then
+    // max(threads 93, overview 52.8, facts 65.7 + consistency 38.4).
+    const acts = startStages([
+      'parsing_scenes',
+      'segmenting_beats',
+      'inferring_acts',
+    ])
+    expect(etaSeconds(acts, 60, 7_000)).toBeCloseTo(
+      11.4 - 5 + 62.4 + (60 * 1.97) / 1.8 + 38.4,
+    )
   })
 
   it('gives a usual range for each single-call step', () => {
