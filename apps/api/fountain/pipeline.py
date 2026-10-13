@@ -135,17 +135,28 @@ def _import_concurrency() -> int:
 IMPORT_LLM_CONCURRENCY = _import_concurrency()
 
 
+def _model_concurrency() -> dict[str, int]:
+    """Per-model overrides of IMPORT_LLM_CONCURRENCY, by model family: rate
+    limits are per model. `TABLEREAD_IMPORT_CONCURRENCY_SONNET` / `_HAIKU`,
+    same clamp; an unset or bad one is left out."""
+    caps = {
+        family: _env_concurrency(f"TABLEREAD_IMPORT_CONCURRENCY_{family.upper()}")
+        for family in ("sonnet", "haiku")
+    }
+    return {family: cap for family, cap in caps.items() if cap is not None}
+
+
+IMPORT_MODEL_CONCURRENCY = _model_concurrency()
+
+
 def _stage_concurrency(op: str) -> int:
-    """The cap for a fan-out of `op` calls. Rate limits are per model, so
-    `TABLEREAD_IMPORT_CONCURRENCY_SONNET` / `_HAIKU` (same clamp) override
-    IMPORT_LLM_CONCURRENCY for an op whose model, its role's pin in
-    config/models.toml, is that family. Read as each stage starts."""
+    """The cap for a fan-out of `op` calls: the IMPORT_MODEL_CONCURRENCY entry
+    for the family of the op's model (its role's pin in config/models.toml),
+    else IMPORT_LLM_CONCURRENCY."""
     model = model_pins()[OP_REGISTRY[op].role]
-    for family in ("sonnet", "haiku"):
+    for family, cap in IMPORT_MODEL_CONCURRENCY.items():
         if family in model:
-            value = _env_concurrency(f"TABLEREAD_IMPORT_CONCURRENCY_{family.upper()}")
-            if value is not None:
-                return value
+            return cap
     return IMPORT_LLM_CONCURRENCY
 
 

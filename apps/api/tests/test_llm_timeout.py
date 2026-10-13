@@ -8,6 +8,7 @@ never be treated as a rule-9 schema-invalid retry target -- the eval loops
 from __future__ import annotations
 
 import contextlib
+import functools
 import logging
 import time
 from dataclasses import dataclass, field
@@ -271,8 +272,16 @@ class _FakeStream:
         raise StopIteration
 
 
+# `meta` sends a plain call through `messages.with_raw_response`, as every
+# non-streamed op call does.
 _EACH_HELPER = pytest.mark.parametrize(
-    "helper", [_create_with_timeout, _stream_final_with_timeout], ids=["create", "stream"]
+    "helper",
+    [
+        _create_with_timeout,
+        functools.partial(_create_with_timeout, meta={}),
+        _stream_final_with_timeout,
+    ],
+    ids=["create", "create-raw", "stream"],
 )
 
 

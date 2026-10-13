@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import os
+import sys
 import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -84,21 +85,37 @@ def import_unit_context(unit: ImportUnit) -> Iterator[None]:
         _import_unit.reset(token)
 
 
-def configure_import_diagnostics_logging() -> Path:
-    """Attach one rotating diagnostic file handler to safe import loggers."""
+def configure_import_diagnostics_logging() -> Path | None:
+    """Attach one rotating diagnostic file handler, a single instance shared
+    by every safe import logger, so a rollover moves all of them to the new
+    file together. A log that cannot be opened is a warning on stderr, not a
+    failed boot: the app runs without it (and returns None)."""
     configured_path = os.getenv(IMPORT_DIAGNOSTICS_LOG_ENV)
     path = Path(configured_path) if configured_path else DEFAULT_IMPORT_DIAGNOSTICS_LOG
-    path.parent.mkdir(parents=True, exist_ok=True)
-
-    for logger_name in _IMPORT_LOGGER_NAMES:
-        logger = logging.getLogger(logger_name)
-        logger.setLevel(logging.INFO)
-        if any(getattr(handler, _HANDLER_MARKER, None) == path for handler in logger.handlers):
-            continue
-        handler = RotatingFileHandler(path, maxBytes=2_000_000, backupCount=3, encoding="utf-8")
+    loggers = [logging.getLogger(name) for name in _IMPORT_LOGGER_NAMES]
+    handler = next(
+        (h for lg in loggers for h in lg.handlers if getattr(h, _HANDLER_MARKER, None) == path),
+        None,
+    )
+    if handler is None:
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            handler = RotatingFileHandler(path, maxBytes=2_000_000, backupCount=3, encoding="utf-8")
+        except OSError as exc:
+            print(
+                f"warning: import diagnostics log disabled, cannot open {path}: "
+                f"{type(exc).__name__}",
+                file=sys.stderr,
+            )
+            return None
         handler.setLevel(logging.INFO)
         setattr(handler, _HANDLER_MARKER, path)
         handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s"))
+
+    for logger in loggers:
+        logger.setLevel(logging.INFO)
+        if any(getattr(h, _HANDLER_MARKER, None) == path for h in logger.handlers):
+            continue
         logger.addHandler(handler)
 
     return path

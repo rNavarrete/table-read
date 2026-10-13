@@ -431,7 +431,9 @@ class AnthropicClient:
     @contextmanager
     def _counted(self) -> Iterator[int]:
         """Count a request as in flight while it runs; yields the count at its
-        start, itself included."""
+        start, itself included. A call abandoned on its deadline stops counting
+        though its HTTP request may still be running, so after timeouts the
+        count runs low."""
         with self._in_flight_lock:
             self._in_flight += 1
             count = self._in_flight
@@ -615,7 +617,12 @@ class AnthropicClient:
                 try:
                     response = send(max_tokens)
                 except Exception as exc:
-                    if max_tokens != 0 or getattr(exc, "status_code", None) != 400:
+                    # A spend-limit refusal is a 400 too; 1 token fares no better.
+                    if (
+                        max_tokens != 0
+                        or getattr(exc, "status_code", None) != 400
+                        or is_spend_limit(exc)
+                    ):
                         raise
                     max_tokens = 1
                     response = send(max_tokens)

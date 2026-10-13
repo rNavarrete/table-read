@@ -279,6 +279,7 @@ def test_per_model_caps_fall_back_to_the_import_cap_then_8(
     for suffix, value in env.items():
         monkeypatch.setenv(f"TABLEREAD_IMPORT_CONCURRENCY{suffix}", value)
     monkeypatch.setattr(pipeline, "IMPORT_LLM_CONCURRENCY", pipeline._import_concurrency())
+    monkeypatch.setattr(pipeline, "IMPORT_MODEL_CONCURRENCY", pipeline._model_concurrency())
 
     caps = [pipeline._stage_concurrency(op) for op in _FAN_OUT_OPS]
 
@@ -286,14 +287,22 @@ def test_per_model_caps_fall_back_to_the_import_cap_then_8(
 
 
 def test_a_stage_takes_the_cap_of_its_ops_model_not_its_name(monkeypatch):
-    for name in _CAP_ENV:
-        monkeypatch.delenv(name, raising=False)
-    monkeypatch.setenv("TABLEREAD_IMPORT_CONCURRENCY_SONNET", "12")
-    monkeypatch.setenv("TABLEREAD_IMPORT_CONCURRENCY_HAIKU", "3")
+    monkeypatch.setattr(pipeline, "IMPORT_MODEL_CONCURRENCY", {"sonnet": 12, "haiku": 3})
     pins = {"import_worker": "claude-haiku-5-5", "classifier": "claude-sonnet-5-5"}
     monkeypatch.setattr(pipeline, "model_pins", lambda: pins)
 
     assert [pipeline._stage_concurrency(op) for op in _FAN_OUT_OPS] == [3, 3, 12]
+
+
+def test_pinning_the_import_cap_pins_every_stage(monkeypatch):
+    """Tests pin concurrency through IMPORT_LLM_CONCURRENCY. The per-model caps
+    are read once, at import, from an environment the test session clears."""
+    monkeypatch.setenv("TABLEREAD_IMPORT_CONCURRENCY_SONNET", "16")
+    monkeypatch.setenv("TABLEREAD_IMPORT_CONCURRENCY_HAIKU", "16")
+    monkeypatch.setattr(pipeline, "IMPORT_LLM_CONCURRENCY", 1)
+
+    assert pipeline.IMPORT_MODEL_CONCURRENCY == {}
+    assert [pipeline._stage_concurrency(op) for op in _FAN_OUT_OPS] == [1, 1, 1]
 
 
 class _ContextLlm(_ScriptedLlm):

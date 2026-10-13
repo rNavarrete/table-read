@@ -5,7 +5,10 @@ chance to import `main`/`storage.db`, so the entire test session runs
 against a disposable database and never touches the real dev DB
 (apps/api/tableread.db) — CLAUDE.md hard rule: never use the dev DB in
 tests. The import diagnostics log goes there too, so test runs never write
-into the dev server's log (apps/api/logs/). `storage.db`/`storage.seed`
+into the dev server's log (apps/api/logs/), and the import concurrency caps
+a developer may export are dropped, so every test sees the defaults (and a
+test that pins `pipeline.IMPORT_LLM_CONCURRENCY` pins every stage).
+`storage.db`/`storage.seed`
 imports are deferred into the fixture bodies (not module level) purely to
 keep this side-effecting env var assignment ahead of them without violating
 import-order lint rules.
@@ -20,6 +23,12 @@ import pytest
 _tmp_dir = tempfile.TemporaryDirectory()
 os.environ["DATABASE_URL"] = f"sqlite:///{_tmp_dir.name}/test.db"
 os.environ["TABLEREAD_IMPORT_DIAGNOSTICS_LOG"] = f"{_tmp_dir.name}/import-diagnostics.log"
+for _name in (
+    "TABLEREAD_IMPORT_CONCURRENCY",
+    "TABLEREAD_IMPORT_CONCURRENCY_SONNET",
+    "TABLEREAD_IMPORT_CONCURRENCY_HAIKU",
+):
+    os.environ.pop(_name, None)
 
 
 @pytest.fixture(autouse=True)

@@ -1538,6 +1538,33 @@ def test_prewarm_keeps_zero_tokens_when_the_400_was_about_something_else():
     assert [call["max_tokens"] for call in sdk.messages.calls] == [0, 1, 0]
 
 
+def test_prewarm_does_not_fall_back_to_one_token_on_a_spend_limit_400(caplog):
+    response = httpx.Response(
+        400,
+        request=_REQUEST,
+        json={
+            "type": "error",
+            "error": {
+                "type": "invalid_request_error",
+                "message": "You have reached your specified API usage limits.",
+            },
+        },
+    )
+    over_limit = anthropic.BadRequestError(
+        message="x", response=response, body=response.json()
+    )
+    sdk = FakeSdkClient([over_limit, _prewarm_reply()])
+    client = AnthropicClient(sdk_client=sdk, models=_MODELS)
+
+    with caplog.at_level(logging.INFO, logger="llm.anthropic_client"):
+        client.prewarm_cache("segment_scene", system="s", user_message="u", cache_prefix="p")
+
+    assert [call["max_tokens"] for call in sdk.messages.calls] == [0]
+    assert client._prewarm_max_tokens == 0
+    [message] = [r.getMessage() for r in caplog.records]
+    assert "failed=True" in message and "status=400" in message
+
+
 @pytest.mark.parametrize(
     ("error", "status"),
     [
