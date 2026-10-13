@@ -39,6 +39,8 @@ export interface SceneCardProps {
   /** True when this scene (or one of its beats) has an open consistency
    * flag — UI spec §5 amber dot on Plan scene cards. */
   hasOpenConsistencyFlag: boolean
+  /** Unsaved Plan edits on this scene (redesign spec §4.9): coral dot. */
+  unsaved?: boolean
   onSelectScene: (sceneId: string) => void
   /** Double-click opens Write on this scene (script-home deep link). */
   onOpenInWrite: (sceneId: string) => void
@@ -70,6 +72,7 @@ export function SceneCard({
   selection,
   pending,
   hasOpenConsistencyFlag,
+  unsaved = false,
   onSelectScene,
   onOpenInWrite,
   dragging,
@@ -154,6 +157,15 @@ export function SceneCard({
             aria-label="Open consistency flag"
             title="Open consistency flag"
             className="inline-block h-2 w-2 shrink-0 rounded-full bg-tr-amber"
+          />
+        )}
+        {unsaved && (
+          <span
+            data-testid="unsaved-dot"
+            role="img"
+            aria-label="Unsaved edits"
+            title="Unsaved edits"
+            className="inline-block h-2 w-2 shrink-0 rounded-full bg-tr-coral"
           />
         )}
       </div>

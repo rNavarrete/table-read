@@ -18,6 +18,7 @@ interface ActFrameProps {
   selection: PlanSelection
   pending: boolean
   flaggedSceneIds: Set<string>
+  draftSceneIds: ReadonlySet<string>
   dragSourceId: string | null
   dropTargetId: string | null
   onSelectScene: (sceneId: string) => void
@@ -38,6 +39,7 @@ function ActFrame({
   selection,
   pending,
   flaggedSceneIds,
+  draftSceneIds,
   dragSourceId,
   dropTargetId,
   onSelectScene,
@@ -71,6 +73,7 @@ function ActFrame({
                 selection={selection}
                 pending={pending}
                 hasOpenConsistencyFlag={flaggedSceneIds.has(scene.id)}
+                unsaved={draftSceneIds.has(scene.id)}
                 onSelectScene={onSelectScene}
                 onOpenInWrite={onOpenInWrite}
                 dragging={scene.id === dragSourceId}
@@ -91,6 +94,8 @@ function ActFrame({
   )
 }
 
+const NO_DRAFTS: ReadonlySet<string> = new Set()
+
 export interface BoardProps {
   project: Project
   episode: Episode
@@ -102,6 +107,8 @@ export interface BoardProps {
   /** Scene ids with at least one open consistency flag (UI spec §5 amber
    * badge). Built by PlanScreen from `GET .../consistency-flags?status=open`. */
   flaggedSceneIds: Set<string>
+  /** Scenes with unsaved Plan edits (drafts.dirtySceneIds): coral dot. */
+  draftSceneIds?: ReadonlySet<string>
   onSelectScene: (sceneId: string) => void
   onOpenInWrite?: (sceneId: string) => void
   onReorder: (draggedSceneId: string, targetSceneId: string) => void
@@ -125,6 +132,7 @@ export function Board({
   collapsedActs,
   pending,
   flaggedSceneIds,
+  draftSceneIds = NO_DRAFTS,
   onSelectScene,
   onOpenInWrite = () => {},
   onReorder,
@@ -158,6 +166,7 @@ export function Board({
             selection={selection}
             pending={pending}
             flaggedSceneIds={flaggedSceneIds}
+            draftSceneIds={draftSceneIds}
             dragSourceId={dragSourceId}
             dropTargetId={dropTargetId}
             onSelectScene={onSelectScene}
