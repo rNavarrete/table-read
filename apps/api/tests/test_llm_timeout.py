@@ -35,9 +35,22 @@ _MODELS = {
 }
 
 
+class _RawResponses:
+    """`messages.with_raw_response` over a fake whose `create` returns the
+    reply: the SDK's raw-response shape (`.headers`, `.parse()`)."""
+
+    def __init__(self, messages: Any) -> None:
+        self._messages = messages
+
+    def create(self, **kwargs: Any) -> Any:
+        reply = self._messages.create(**kwargs)
+        return SimpleNamespace(headers={}, parse=lambda: reply)
+
+
 class _HangSdk:
     def __init__(self) -> None:
         self.messages = self
+        self.with_raw_response = _RawResponses(self)
         self.calls = 0
 
     def create(self, **kwargs: Any) -> Any:
@@ -121,6 +134,7 @@ def test_hung_retry_call_also_times_out_without_a_third_attempt():
     class _FirstInvalidThenHangSdk:
         def __init__(self) -> None:
             self.messages = self
+            self.with_raw_response = _RawResponses(self)
             self.calls = 0
 
         def create(self, **kwargs: Any) -> Any:
@@ -207,10 +221,17 @@ _REQUEST = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
 _HANG = object()
 
 
-def _status_error(cls: type, status: int, retry_after: str | None = None) -> Exception:
+def _status_error(
+    cls: type, status: int, retry_after: str | None = None, body: dict | None = None
+) -> Exception:
     headers = {"retry-after": retry_after} if retry_after is not None else None
     response = httpx.Response(status, request=_REQUEST, headers=headers)
-    return cls(message="x", response=response, body=None)
+    return cls(message="x", response=response, body=body)
+
+
+def _error_body(error_type: str, **error: Any) -> dict:
+    """The API's error shape (platform.claude.com/docs/en/api/errors)."""
+    return {"type": "error", "error": {"type": error_type, "message": "x", **error}}
 
 
 class _ScriptedSdk:
@@ -219,6 +240,7 @@ class _ScriptedSdk:
 
     def __init__(self, *outcomes: Any) -> None:
         self.messages = self
+        self.with_raw_response = _RawResponses(self)
         self._outcomes = list(outcomes)
         self.calls: list[dict[str, Any]] = []
 
@@ -359,7 +381,10 @@ def test_a_retry_after_above_the_cap_surfaces_at_once(sleeps):
 
 
 def test_each_wait_is_logged_with_numbers_only(sleeps, caplog):
-    sdk = _ScriptedSdk(_status_error(anthropic.RateLimitError, 429, retry_after="3"), "reply")
+    limited = _status_error(
+        anthropic.RateLimitError, 429, retry_after="3", body=_error_body("rate_limit_error")
+    )
+    sdk = _ScriptedSdk(limited, "reply")
 
     with caplog.at_level(logging.WARNING, logger="llm.anthropic_client"):
         _create_with_timeout(sdk, 180.0, "segment_scene", model="m")
@@ -370,6 +395,8 @@ def test_each_wait_is_logged_with_numbers_only(sleeps, caplog):
     assert "status=429" in line
     assert "attempt=1" in line
     assert "wait_ms=3000" in line
+    assert "retry_after=3.0" in line
+    assert "error_type=rate_limit_error" in line
 
 
 @_EACH_HELPER
@@ -392,6 +419,54 @@ def test_other_failures_are_not_retried(helper, error, no_backoff):
         helper(sdk, 180.0, "segment_scene", model="m")
     assert len(sdk.calls) == 1
     assert no_backoff == []
+
+
+# Billing and spend-limit refusals keep failing until someone pays or raises
+# the limit (platform.claude.com/docs/en/api/errors and /api/rate-limits).
+_BILLING = _status_error(anthropic.APIStatusError, 402, body=_error_body("billing_error"))
+_SPEND_CAP = _status_error(
+    anthropic.RateLimitError,
+    429,
+    body=_error_body("rate_limit_error", details={"error_code": "enforced_spend_limit_reached"}),
+)
+_OWN_SPEND_LIMIT = _status_error(
+    anthropic.BadRequestError,
+    400,
+    body=_error_body(
+        "invalid_request_error",
+        message="You have reached your specified API usage limits. You will regain access "
+        "on 2026-11-01 at 00:00 UTC.",
+    ),
+)
+
+
+@_EACH_HELPER
+@pytest.mark.parametrize(
+    "error", [_BILLING, _SPEND_CAP, _OWN_SPEND_LIMIT], ids=["402", "429-spend-cap", "400"]
+)
+def test_billing_and_spend_limit_errors_fail_fast(helper, error, no_backoff, caplog):
+    sdk = _ScriptedSdk(error, "unused")
+
+    with caplog.at_level(logging.WARNING, logger="llm.anthropic_client"):
+        with pytest.raises(type(error)):
+            helper(sdk, 180.0, "segment_scene", model="m")
+
+    assert len(sdk.calls) == 1
+    assert no_backoff == []
+    [line] = [r.getMessage() for r in caplog.records]
+    assert "reason_class=spend_limit" in line
+    assert "attempt=None wait_ms=None" in line, "logged as a failure, not a retry wait"
+    assert "regain access" not in line
+
+
+def test_an_ordinary_rate_limit_is_still_retried(sleeps):
+    limited = _status_error(
+        anthropic.RateLimitError, 429, retry_after="2", body=_error_body("rate_limit_error")
+    )
+    sdk = _ScriptedSdk(limited, "reply")
+
+    assert _create_with_timeout(sdk, 180.0, "segment_scene", model="m") == "reply"
+    assert sleeps == [2.0]
 
 
 @_EACH_HELPER

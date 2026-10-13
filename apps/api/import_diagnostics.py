@@ -1,8 +1,9 @@
 """Privacy-safe, durable diagnostics for script-import attempts.
 
 The import pipeline handles writer-owned source text, so this module never
-accepts or formats that text. It only provides a correlation id and configures
-a small rotating log for the import and LLM metadata loggers.
+accepts or formats that text. It only provides a correlation id, the import
+unit a model call belongs to, and a small rotating log for the import and LLM
+metadata loggers.
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
+from typing import NamedTuple
 
 IMPORT_DIAGNOSTICS_LOG_ENV = "TABLEREAD_IMPORT_DIAGNOSTICS_LOG"
 DEFAULT_IMPORT_DIAGNOSTICS_LOG = Path("/tmp/tableread-import-diagnostics.log")
@@ -27,6 +29,19 @@ _IMPORT_LOGGER_NAMES = (
 )
 _HANDLER_MARKER = "_tableread_import_diagnostics"
 _import_run_id: ContextVar[str | None] = ContextVar("import_run_id", default=None)
+
+
+class ImportUnit(NamedTuple):
+    """The import work a model call belongs to: its stage, the 0-based scene
+    index for a per-scene unit (else None), and the ms it waited for a pool
+    worker (None when it ran on the caller's thread)."""
+
+    stage: str
+    scene: int | None = None
+    queue_ms: int | None = None
+
+
+_import_unit: ContextVar[ImportUnit | None] = ContextVar("import_unit", default=None)
 
 
 def new_import_run_id() -> str:
@@ -51,6 +66,20 @@ def import_run_context(run_id: str) -> Iterator[None]:
         yield
     finally:
         _import_run_id.reset(token)
+
+
+def current_import_unit() -> ImportUnit | None:
+    return _import_unit.get()
+
+
+@contextmanager
+def import_unit_context(unit: ImportUnit) -> Iterator[None]:
+    """Tag the model calls made inside with `unit` (the `llm_call` line)."""
+    token = _import_unit.set(unit)
+    try:
+        yield
+    finally:
+        _import_unit.reset(token)
 
 
 def configure_import_diagnostics_logging() -> Path:
