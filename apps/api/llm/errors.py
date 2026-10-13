@@ -43,6 +43,14 @@ _PROMPT_TOO_LONG_RE = re.compile(
     re.I,
 )
 _RATE_LIMIT_RE = re.compile(r"rate\s*limit", re.I)
+# A spend limit the organization set on itself comes back as a plain 400
+# `invalid_request_error`, and its message is the only documented signal
+# (https://platform.claude.com/docs/en/api/rate-limits, "Setting your own spend
+# limit": the message "begins `You have reached your specified API usage
+# limits`, or `... specified workspace API usage limits`").
+_OWN_SPEND_LIMIT_RE = re.compile(
+    r"\s*You have reached your specified (?:workspace )?API usage limits", re.I
+)
 _OVERLOADED_RE = re.compile(r"overloaded", re.I)
 _TEMPERATURE_RE = re.compile(r"temperature", re.I)
 _TOOL_SCHEMA_RE = re.compile(
@@ -113,6 +121,39 @@ def _anthropic_error_type(exc: BaseException) -> Any:
     if isinstance(inner, dict):
         return inner.get("type")
     return body.get("type")
+
+
+def is_spend_limit(exc: BaseException) -> bool:
+    """A billing or spend-limit refusal: it keeps failing until someone pays or
+    raises the limit, so it is never retried. Per the API errors and rate-limits
+    docs (platform.claude.com/docs/en/api/errors, /api/rate-limits):
+    - 402 `billing_error`: a billing or payment problem;
+    - 429 `rate_limit_error` with `error.details.error_code ==
+      "enforced_spend_limit_reached"`: the usage tier's monthly spend cap (no
+      `retry-after`; the docs name this field as the way to tell it apart);
+    - 400 `invalid_request_error` whose message begins "You have reached your
+      specified ... API usage limits": a limit the organization set itself
+      (`_OWN_SPEND_LIMIT_RE`; no structured field is documented for it)."""
+    error_type = _anthropic_error_type(exc)
+    if error_type == "billing_error":
+        return True
+    body = getattr(exc, "body", None)
+    error = body.get("error") if isinstance(body, dict) else None
+    details = error.get("details") if isinstance(error, dict) else None
+    if isinstance(details, dict) and details.get("error_code") == "enforced_spend_limit_reached":
+        return True
+    message = _anthropic_error_message(exc) if error_type == "invalid_request_error" else None
+    return bool(message and _OWN_SPEND_LIMIT_RE.match(message))
+
+
+def retry_after_seconds(exc: BaseException) -> float | None:
+    """The API's `retry-after` header, in seconds, if it sent a readable one."""
+    headers = getattr(getattr(exc, "response", None), "headers", None)
+    try:
+        seconds = float(headers.get("retry-after"))
+    except (AttributeError, TypeError, ValueError):
+        return None
+    return seconds if seconds >= 0 else None
 
 
 def _message_from_sdk_text(raw: str) -> str | None:
@@ -196,6 +237,8 @@ def classify_llm_unavailable_reason(exc: BaseException) -> tuple[str, str | None
     """
     if isinstance(exc, LlmTimeoutError):
         return "timeout", None
+    if is_spend_limit(exc):
+        return "spend_limit", None
 
     error_type = _anthropic_error_type(exc)
     message = _anthropic_error_message(exc)
@@ -230,14 +273,16 @@ def log_llm_unavailable(
 ) -> None:
     """Log structured metadata when mapping a transport/timeout failure to
     `LLM_UNAVAILABLE`. Logs class name, HTTP status, Anthropic error type,
-    request id, op, and a privacy-safe reason classification — never raw
-    exception messages, body dumps, or prompts. An overload that will be
-    retried also logs which attempt failed and how long the wait is."""
+    request id, op, the API's `retry-after` seconds, and a privacy-safe
+    reason classification — never raw exception messages, body dumps, or
+    prompts. An overload that will be retried also logs which attempt failed
+    and how long the wait is."""
     resolved_op = op if op is not None else getattr(exc, "op", None)
     reason_class, reason = classify_llm_unavailable_reason(exc)
     logger.warning(
         "llm_unavailable run_id=%s where=%s cause=%s op=%s model=%s status=%s error_type=%s "
-        "request_id=%s timeout_seconds=%s reason_class=%s reason=%s attempt=%s wait_ms=%s",
+        "request_id=%s timeout_seconds=%s reason_class=%s reason=%s attempt=%s wait_ms=%s "
+        "retry_after=%s",
         current_import_run_id(),
         where,
         type(exc).__name__,
@@ -251,4 +296,5 @@ def log_llm_unavailable(
         reason,
         attempt,
         wait_ms,
+        retry_after_seconds(exc),
     )
