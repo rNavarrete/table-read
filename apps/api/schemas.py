@@ -877,12 +877,21 @@ class ImportFoundScenes(_Base):
     scenes: list[ImportFoundScene]
 
 
+class ImportFoundBeat(_Base):
+    """A segmented beat's reading fields (T9.17); never its `scriptText`."""
+
+    what_happens: str
+    audience_learns: str
+    audience_feels: str
+
+
 class ImportFoundSceneRead(_Base):
     kind: Literal["scene"]
     index: int = Field(ge=0)
     beat_count: int = Field(ge=0)
     what_happens: str
     failed: bool
+    beats: list[ImportFoundBeat] = []
 
 
 class ImportFoundActs(_Base):

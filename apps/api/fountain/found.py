@@ -54,6 +54,18 @@ def scene_found(
         "beatCount": len(beats),
         "whatHappens": reading["whatHappens"],
         "failed": failed,
+        # Each beat's reading, in scene order, for the board's reading view
+        # (T9.17). A failed unit kept its text as one beat with nothing to read.
+        "beats": []
+        if failed
+        else [
+            {
+                "whatHappens": beat.what_happens,
+                "audienceLearns": beat.audience_learns,
+                "audienceFeels": beat.audience_feels,
+            }
+            for beat in beats
+        ],
     }
 
 

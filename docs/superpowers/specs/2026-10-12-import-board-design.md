@@ -57,6 +57,8 @@ The prototype is the reference. Stage by stage:
 
 **Dead time:** nothing moves on its own during single-call steps. The only motion is the step clock, the sweep and the dimmed, breathing lamp. "While you wait, every card is open to read." Every card is focusable, and a focused card shows its reading in the rail's Notes.
 
+**Reading a card's beats (amended 2026-10-13, T9.17):** a read card is also a button that opens its beats (what happens, what the audience learns and feels) in a reading view beside it, while the import runs on. The `scene` frame carries them as `beats`. UI spec §2a has the behavior.
+
 **Leaving the page.** Copy is honest: "Keep this tab open. Leaving pauses the import; finished work is saved." Retry continues from saved work, as today.
 
 **Big scripts.** Every script uses the same card (150×106: number, dot and heading on one line, the reading in up to four lines of 13px serif, ticks and facts), because a smaller card that dropped the reading made 54-scene boards unreadable (owner, 2026-10-12). The full heading and reading show on hover. In the 1280px running column that is about 7 cards a row: 54 scenes fit in about one screen, 120 in about two.
@@ -78,7 +80,8 @@ The page needs per-unit results, which the stream does not carry today. Add one 
 
 ProjectImportFound = discriminated on `kind`:
   { kind: 'scenes',   scenes: { index, slugline, lineCount, intExt: 'int'|'ext'|'other' }[] }  // after parsing
-  { kind: 'scene',    index, beatCount, whatHappens, failed: boolean }                         // per segmented scene
+  { kind: 'scene',    index, beatCount, whatHappens, failed: boolean,
+                      beats: { whatHappens, audienceLearns, audienceFeels }[] /* T9.17, default [] */ }  // per segmented scene
   { kind: 'acts',     format: ShowFormat, sceneActs: number[] }                                // after acts merge
   { kind: 'castRead', sceneIndexes: number[] }                                                 // per entity chunk
   { kind: 'cast',     total, characters: { name, sceneCount }[] /* top 12 by sceneCount */ }   // after entities merge

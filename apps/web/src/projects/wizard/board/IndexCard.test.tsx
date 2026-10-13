@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from '@testing-library/react'
-import { afterEach, describe, expect, it } from 'vitest'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { BoardScene } from '../importBoard'
 import { IndexCard } from './IndexCard'
 
@@ -15,6 +15,7 @@ function scene(over: Partial<BoardScene> = {}): BoardScene {
     read: 'pending',
     beatCount: 0,
     whatHappens: '',
+    beats: [],
     act: null,
     castRead: false,
     factCount: null,
@@ -25,13 +26,19 @@ function scene(over: Partial<BoardScene> = {}): BoardScene {
   }
 }
 
-function renderCard(over: Partial<BoardScene> = {}) {
+function renderCard(over: Partial<BoardScene> = {}, onRead?: () => void) {
   render(
     <ul>
-      <IndexCard scene={scene(over)} />
+      <IndexCard scene={scene(over)} onRead={onRead} />
     </ul>,
   )
   return screen.getByTestId('board-card-2')
+}
+
+const BEAT = {
+  whatHappens: 'Dev finds a second ledger.',
+  audienceLearns: '',
+  audienceFeels: '',
 }
 
 describe('IndexCard', () => {
@@ -98,6 +105,45 @@ describe('IndexCard', () => {
     const pins = [...card.querySelectorAll('[data-pin]')]
     expect(pins.map((pin) => pin.textContent)).toEqual(['1', '3'])
     expect(card.getAttribute('aria-label')).toContain('threads 1 and 3')
+  })
+
+  it('makes a read card with beats a button that opens its reading', () => {
+    const onRead = vi.fn()
+    const card = renderCard(
+      { read: 'read', beatCount: 1, whatHappens: 'x', beats: [BEAT] },
+      onRead,
+    )
+    const button = screen.getByRole('button', { name: 'Read scene 3' })
+    expect(button.getAttribute('aria-expanded')).toBe('false')
+    // Described by the card, so it still says slugline, state and counts.
+    expect(card.id).toBe('board-card-2')
+    expect(button.getAttribute('aria-describedby')).toBe(card.id)
+    expect(card.getAttribute('aria-label')).toBe(
+      'Scene 3, INT. BAR, read, 1 beat',
+    )
+    // The button holds the card's one tab stop.
+    expect(card.tabIndex).toBe(-1)
+    fireEvent.click(button)
+    expect(onRead).toHaveBeenCalledWith(2)
+  })
+
+  it('keeps reading, failed, beat-less and empty-reading cards from being buttons', () => {
+    for (const over of [
+      { beats: [BEAT] },
+      { read: 'failed' as const, beatCount: 1, beats: [BEAT] },
+      { read: 'read' as const, beatCount: 0, whatHappens: 'x' },
+      {
+        read: 'read' as const,
+        beatCount: 1,
+        whatHappens: 'x',
+        beats: [{ ...BEAT, whatHappens: ' ' }],
+      },
+    ]) {
+      const card = renderCard(over, () => {})
+      expect(screen.queryByRole('button')).toBeNull()
+      expect(card.tabIndex).toBe(0)
+      cleanup()
+    }
   })
 
   it('always shows the heading and the reading, with both in full on hover', () => {

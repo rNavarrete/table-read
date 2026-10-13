@@ -896,6 +896,15 @@ export const ImportFoundScene = z.object({
 })
 export type ImportFoundScene = z.infer<typeof ImportFoundScene>
 
+// A segmented beat's reading for the board's reading view (T9.17): the
+// reading fields only, in scene order; never its `scriptText`.
+export const ImportFoundBeat = z.object({
+  whatHappens: z.string(),
+  audienceLearns: z.string(),
+  audienceFeels: z.string(),
+})
+export type ImportFoundBeat = z.infer<typeof ImportFoundBeat>
+
 export const ProjectImportFound = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('scenes'), scenes: z.array(ImportFoundScene) }),
   z.object({
@@ -904,6 +913,7 @@ export const ProjectImportFound = z.discriminatedUnion('kind', [
     beatCount: NonNeg,
     whatHappens: z.string(),
     failed: z.boolean(),
+    beats: z.array(ImportFoundBeat).default([]),
   }),
   z.object({
     kind: z.literal('acts'),

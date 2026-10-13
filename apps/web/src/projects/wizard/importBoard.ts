@@ -1,5 +1,6 @@
 import type {
   ConsistencyFlag,
+  ImportFoundBeat,
   LedgerFact,
   Project,
   ProjectImportFound,
@@ -20,6 +21,7 @@ export type BoardScene = {
   read: 'pending' | 'read' | 'failed'
   beatCount: number
   whatHappens: string
+  beats: ImportFoundBeat[] // each beat's reading, in order; [] until read
   act: number | null
   castRead: boolean
   factCount: number | null
@@ -74,6 +76,7 @@ function pendingCard(
     read: 'pending',
     beatCount: 0,
     whatHappens: '',
+    beats: [],
     act: null,
     castRead: false,
     factCount: null,
@@ -123,6 +126,8 @@ export function applyFound(
         read: data.failed ? 'failed' : 'read',
         beatCount: data.beatCount,
         whatHappens: data.whatHappens,
+        // Frames arrive unparsed, so the contract's default applies here.
+        beats: data.beats ?? [],
       })
       return next === state ? state : { ...next, latestIndex: data.index }
     }
@@ -242,6 +247,13 @@ export function reconcileWithResult(
           ? 'failed'
           : 'read',
       whatHappens: wasRead ? card.whatHappens : scene.whatHappens,
+      beats: wasRead
+        ? card.beats
+        : scene.beats.map((beat) => ({
+            whatHappens: beat.whatHappens,
+            audienceLearns: beat.audienceLearns,
+            audienceFeels: beat.audienceFeels,
+          })),
       beatCount: scene.beats.length,
       act: scene.act,
       castRead: true,
@@ -287,6 +299,14 @@ export function reconcileWithResult(
     },
     factTotal: newFacts.length,
   }
+}
+
+/** A read card with a beat to show opens its reading view (T9.17). */
+export function isReadable(scene: BoardScene): boolean {
+  return (
+    scene.read === 'read' &&
+    scene.beats.some((beat) => beat.whatHappens.trim() !== '')
+  )
 }
 
 /** Act frames for the board, in act order; `[]` until the acts land. */

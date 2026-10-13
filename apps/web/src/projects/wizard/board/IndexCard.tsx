@@ -1,12 +1,13 @@
 import type { CSSProperties } from 'react'
 import { sceneTypeDotClass } from '../../../write/sceneType'
-import type { BoardScene } from '../importBoard'
+import { type BoardScene, isReadable } from '../importBoard'
 import { useEntrance } from './boardMotion'
 import { FAILED_READING, plural, readState } from './boardText'
 
 // One scene's index card on the import board (UI spec §2a): ruled paper,
 // tilted until read, then squared up with the reading and a pencil tick per
-// beat. Status is always text as well as color.
+// beat. Status is always text as well as color. A read card is also a button
+// that opens its beats (T9.17).
 
 const MAX_TICKS = 12
 
@@ -86,17 +87,23 @@ export function IndexCard({
   scene,
   lifted = false,
   animate = true,
+  reading = false,
   onFocus,
   onBlur,
+  onRead,
 }: {
   scene: BoardScene
   lifted?: boolean
   animate?: boolean
+  /** Its reading view is open. */
+  reading?: boolean
   onFocus?: (index: number) => void
   onBlur?: () => void
+  onRead?: (index: number) => void
 }) {
   const unread = scene.read === 'pending'
   const failed = scene.read === 'failed'
+  const readable = onRead !== undefined && isReadable(scene)
   const facts = factsText(scene)
   const tilt = (((scene.index * 37) % 7) - 3) * 0.45
   const ticks = scene.read === 'read' ? Math.min(MAX_TICKS, scene.beatCount) : 0
@@ -130,17 +137,20 @@ export function IndexCard({
 
   return (
     <li
+      id={`board-card-${scene.index}`}
       data-testid={`board-card-${scene.index}`}
       data-state={scene.read}
       data-card
       data-index={scene.index}
       data-tilt={unread ? '' : undefined}
-      tabIndex={0}
+      // A readable card's button takes the tab stop; -1 keeps a card focused
+      // when it turns readable under the writer's focus.
+      tabIndex={readable ? -1 : 0}
       aria-label={cardLabel(scene)}
       title={cardTitle(scene)}
       onFocus={() => onFocus?.(scene.index)}
       onBlur={onBlur}
-      className={`relative flex flex-col rounded-[4px] px-2 pb-1.5 pt-[7px] outline-none transition-[rotate,translate,scale,box-shadow] duration-[450ms] ease-spring group-data-[motion=off]/desk:transition-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-tr-coral h-card-board-h w-card-board-w ${failed ? 'bg-tr-amber-soft' : 'bg-tr-board-paper'} ${unread ? 'rotate-(--tilt)' : ''} ${lifted ? 'z-[3] -translate-y-[3px] scale-[1.03] shadow-card-lift' : 'shadow-card-board'}`}
+      className={`relative flex flex-col rounded-[4px] px-2 pb-1.5 pt-[7px] transition-[rotate,translate,scale,box-shadow] duration-[450ms] ease-spring group-data-[motion=off]/desk:transition-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-tr-coral h-card-board-h w-card-board-w ${failed ? 'bg-tr-amber-soft' : 'bg-tr-board-paper'} ${unread ? 'rotate-(--tilt)' : ''} ${lifted ? 'z-[3] -translate-y-[3px] scale-[1.03] shadow-card-lift' : 'shadow-card-board'}`}
       style={{ ...RULED, '--tilt': `${tilt}deg` } as CSSProperties}
     >
       {/* The act break's lift: a shadow layer whose opacity animates. */}
@@ -184,6 +194,19 @@ export function IndexCard({
         aria-hidden="true"
         className={`absolute inset-x-2 -bottom-px h-0.5 rounded-sm bg-[linear-gradient(90deg,transparent,var(--tr-board-rule-top),transparent)] transition-opacity duration-[400ms] group-data-[motion=off]/desk:transition-none ${scene.castRead ? 'opacity-100' : 'opacity-0'}`}
       />
+      {readable && (
+        <button
+          type="button"
+          data-read-card
+          aria-label={`Read scene ${scene.index + 1}`}
+          // The card's own label: slugline, state and counts.
+          aria-describedby={`board-card-${scene.index}`}
+          aria-expanded={reading}
+          aria-controls={reading ? 'board-reading' : undefined}
+          onClick={() => onRead?.(scene.index)}
+          className={`absolute inset-0 cursor-pointer rounded-[4px] outline-offset-2 outline-tr-coral focus-visible:outline-2 ${reading ? 'outline-selected' : ''}`}
+        />
+      )}
       {scene.pins.map((n, k) => (
         <Pin
           key={n}
