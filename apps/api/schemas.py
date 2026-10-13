@@ -865,6 +865,107 @@ class ImportProgressItemEvent(_Base):
     total: int = Field(ge=0)
 
 
+class ImportFoundScene(_Base):
+    index: int = Field(ge=0)
+    slugline: str
+    line_count: int = Field(ge=0)
+    int_ext: Literal["int", "ext", "other"]
+
+
+class ImportFoundScenes(_Base):
+    kind: Literal["scenes"]
+    scenes: list[ImportFoundScene]
+
+
+class ImportFoundSceneRead(_Base):
+    kind: Literal["scene"]
+    index: int = Field(ge=0)
+    beat_count: int = Field(ge=0)
+    what_happens: str
+    failed: bool
+
+
+class ImportFoundActs(_Base):
+    kind: Literal["acts"]
+    format: ShowFormat
+    scene_acts: list[Annotated[int, Field(ge=0)]]
+
+
+class ImportFoundCastRead(_Base):
+    kind: Literal["castRead"]
+    scene_indexes: list[Annotated[int, Field(ge=0)]]
+
+
+class ImportFoundCharacter(_Base):
+    name: str
+    scene_count: int = Field(ge=0)
+
+
+class ImportFoundCast(_Base):
+    kind: Literal["cast"]
+    total: int = Field(ge=0)
+    characters: list[ImportFoundCharacter]
+
+
+class ImportFoundThread(_Base):
+    label: str
+    status: ThreadStatus
+    setup_scene_index: int | None = Field(ge=0)
+    payoff_scene_index: int | None = Field(ge=0)
+
+
+class ImportFoundThreads(_Base):
+    kind: Literal["threads"]
+    threads: list[ImportFoundThread]
+
+
+class ImportFoundBeatSheetItem(_Base):
+    label: str
+    scene_index: int | None = Field(ge=0)
+
+
+class ImportFoundOverview(_Base):
+    kind: Literal["overview"]
+    logline: str
+    beat_sheet: list[ImportFoundBeatSheetItem]
+
+
+class ImportFoundFacts(_Base):
+    kind: Literal["facts"]
+    index: int = Field(ge=0)
+    fact_count: int = Field(ge=0)
+    secret_count: int = Field(ge=0)
+    failed: bool
+
+
+class ImportFoundFlags(_Base):
+    kind: Literal["flags"]
+    contradictions: int = Field(ge=0)
+    tensions: int = Field(ge=0)
+    other: int = Field(ge=0)
+
+
+ProjectImportFound = Annotated[
+    ImportFoundScenes
+    | ImportFoundSceneRead
+    | ImportFoundActs
+    | ImportFoundCastRead
+    | ImportFoundCast
+    | ImportFoundThreads
+    | ImportFoundOverview
+    | ImportFoundFacts
+    | ImportFoundFlags,
+    Field(discriminator="kind"),
+]
+
+
+class ProjectImportFoundEvent(_Base):
+    type: Literal["found"]
+    stage: ImportProgressStageName
+    cached: bool = False
+    data: ProjectImportFound
+
+
 class ImportProgressCompleteEvent(_Base):
     type: Literal["complete"]
     result: ProjectImportResult
@@ -886,6 +987,7 @@ class ProjectImportProgressEvent(
         Annotated[
             ImportProgressStageEvent
             | ImportProgressItemEvent
+            | ProjectImportFoundEvent
             | ImportProgressCompleteEvent
             | ImportProgressFailedEvent,
             Field(discriminator="type"),

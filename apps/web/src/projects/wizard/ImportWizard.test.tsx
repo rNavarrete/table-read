@@ -74,6 +74,92 @@ async function* timedFramesFrom(
   }
 }
 
+const PROJECT_SCENE = {
+  id: 'scene-1',
+  index: 0,
+  act: 0,
+  location: 'INT. BAR - NIGHT',
+  time: 'NIGHT',
+  whatHappens: 'Dan pours a drink.',
+  beats: [{ scriptText: 'INT. BAR - NIGHT' }],
+}
+
+function completeFrame(projectId = 'proj-imported') {
+  return {
+    event: 'complete',
+    data: {
+      type: 'complete',
+      result: {
+        project: {
+          id: projectId,
+          format: {
+            genre: 'drama',
+            runtimeMinutes: 60,
+            actCount: 1,
+            coldOpen: false,
+            tag: false,
+            serialization: 0.5,
+          },
+          seriesBible: { characters: [{ id: 'char-dan' }] },
+          seasons: [
+            {
+              episodes: [
+                { scenes: [PROJECT_SCENE], threads: [], storyOverview: null },
+              ],
+            },
+          ],
+        },
+        newFacts: [
+          {
+            id: 'fact-01',
+            status: 'pending_review',
+            sourceSpan: { sceneId: 'scene-1' },
+            audienceKnows: true,
+          },
+        ],
+        consistencyFlags: [],
+      },
+    },
+  }
+}
+
+function stage(name: string) {
+  return { event: 'stage', data: { type: 'stage', name } }
+}
+
+function found(stageName: string, data: unknown, cached = false) {
+  return {
+    event: 'found',
+    data: { type: 'found', stage: stageName, cached, data },
+  }
+}
+
+function scenesFound(count: number) {
+  return found('parsing_scenes', {
+    kind: 'scenes',
+    scenes: Array.from({ length: count }, (_, index) => ({
+      index,
+      slugline: `INT. ROOM ${index + 1}`,
+      lineCount: 3,
+      intExt: 'int',
+    })),
+  })
+}
+
+function sceneFound(index: number, cached = false) {
+  return found(
+    'segmenting_beats',
+    {
+      kind: 'scene',
+      index,
+      beatCount: 2,
+      whatHappens: `Reading ${index + 1}.`,
+      failed: false,
+    },
+    cached,
+  )
+}
+
 async function fillSourceAndBasics(
   user: ReturnType<typeof userEvent.setup>,
   title: string,
@@ -268,31 +354,20 @@ describe('ImportWizard', () => {
     expect(mockedStreamSse).not.toHaveBeenCalled()
   })
 
-  it('streams named stages, sends the Idempotency-Key, and opens the Ledger Story tab on success', async () => {
+  it('streams the board, sends the Idempotency-Key, and holds on the finale until Open your story', async () => {
     const user = userEvent.setup()
     const { assignSpy, restore } = stubLocationAssign()
     mockedStreamSse.mockImplementation(() =>
       framesFrom([
-        { event: 'stage', data: { type: 'stage', name: 'parsing_scenes' } },
-        { event: 'stage', data: { type: 'stage', name: 'segmenting_beats' } },
-        { event: 'stage', data: { type: 'stage', name: 'inferring_acts' } },
-        { event: 'stage', data: { type: 'stage', name: 'extracting_facts' } },
-        {
-          event: 'stage',
-          data: { type: 'stage', name: 'checking_consistency' },
-        },
-        { event: 'stage', data: { type: 'stage', name: 'saving' } },
-        {
-          event: 'complete',
-          data: {
-            type: 'complete',
-            result: {
-              project: { id: 'proj-imported' },
-              newFacts: [],
-              consistencyFlags: [],
-            },
-          },
-        },
+        stage('parsing_scenes'),
+        scenesFound(1),
+        stage('segmenting_beats'),
+        sceneFound(0),
+        stage('inferring_acts'),
+        stage('extracting_facts'),
+        stage('checking_consistency'),
+        stage('saving'),
+        completeFrame(),
       ]),
     )
 
@@ -302,13 +377,32 @@ describe('ImportWizard', () => {
       screen.getByRole('button', { name: 'Create & analyze script' }),
     )
 
+    // The finale holds: nothing navigates on its own (owner decision
+    // 2026-10-12).
+    await waitFor(() =>
+      expect(screen.getByTestId('board-finale')).not.toBeNull(),
+    )
+    expect(screen.getByTestId('board-headline').textContent).toBe(
+      'The board is up.',
+    )
+    expect(screen.getByTestId('board-card-0').dataset.state).toBe('read')
+    expect(screen.getByText('~ Reading 1.')).not.toBeNull()
+    expect(screen.getByTestId('board-finale').textContent).toContain(
+      '1 fact (1 to review)',
+    )
+    expect(document.activeElement).toBe(screen.getByTestId('open-your-story'))
+    for (const step of screen.getAllByTestId(/^board-step-/))
+      expect(step.dataset.status).toBe('done')
+    // The finale keeps the board's wide column.
+    expect(screen.getByRole('main').className).toContain('max-w-7xl')
+    expect(assignSpy).not.toHaveBeenCalled()
+    expect(loadDraft(IMPORT_PATH)).toBeNull()
+
     // The writer lands on the Ledger's Story tab: the overview, then the facts
     // waiting for review.
-    await waitFor(() =>
-      expect(assignSpy).toHaveBeenCalledWith('/ledger?project=proj-imported'),
-    )
+    await user.click(screen.getByTestId('open-your-story'))
+    expect(assignSpy).toHaveBeenCalledWith('/ledger?project=proj-imported')
     expect(loadLedgerView('proj-imported')).toBe('story')
-    expect(screen.getByText('Working out format & acts')).not.toBeNull()
 
     expect(mockedStreamSse).toHaveBeenCalledTimes(1)
     const [url, body, , headers] = mockedStreamSse.mock.calls[0]
@@ -325,38 +419,15 @@ describe('ImportWizard', () => {
         /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
       ),
     })
-    expect(loadDraft(IMPORT_PATH)).toBeNull()
 
     restore()
   })
 
-  it('commits terminal stage completion before navigating away', async () => {
+  it('See it in Plan opens the project on the Plan board', async () => {
     const user = userEvent.setup()
     const { assignSpy, restore } = stubLocationAssign()
-    assignSpy.mockImplementation(() => {
-      expect(
-        screen.getByText('Parsing scenes').closest('li')?.textContent,
-      ).toContain('Done')
-      expect(
-        screen.getByText('Saving project').closest('li')?.textContent,
-      ).toContain('Done')
-    })
     mockedStreamSse.mockImplementation(() =>
-      framesFrom([
-        { event: 'stage', data: { type: 'stage', name: 'parsing_scenes' } },
-        { event: 'stage', data: { type: 'stage', name: 'saving' } },
-        {
-          event: 'complete',
-          data: {
-            type: 'complete',
-            result: {
-              project: { id: 'proj-imported' },
-              newFacts: [],
-              consistencyFlags: [],
-            },
-          },
-        },
-      ]),
+      framesFrom([stage('parsing_scenes'), completeFrame('proj-plan')]),
     )
 
     render(<ImportWizard />)
@@ -364,31 +435,32 @@ describe('ImportWizard', () => {
     await user.click(
       screen.getByRole('button', { name: 'Create & analyze script' }),
     )
+    await user.click(await screen.findByTestId('see-it-in-plan'))
 
-    await waitFor(() => expect(assignSpy).toHaveBeenCalledTimes(1))
-
+    expect(assignSpy).toHaveBeenCalledWith('/plan?project=proj-plan')
     restore()
   })
 
-  it('renders truthful streaming counters, elapsed time, ETA, and throttled announcements', async () => {
+  it('fills cards as scenes are read, with elapsed, a typical ETA, and throttled announcements', async () => {
     const user = userEvent.setup()
     mockedStreamSse.mockImplementation(() =>
       timedFramesFrom([
-        {
-          delayMs: 0,
-          event: 'stage',
-          data: { type: 'stage', name: 'segmenting_beats' },
-        },
-        ...Array.from({ length: 10 }, (_, index) => ({
-          delayMs: 1_000,
-          event: 'progress',
-          data: {
-            type: 'progress',
-            stage: 'segmenting_beats',
-            done: index + 1,
-            total: 10,
+        { delayMs: 0, ...stage('parsing_scenes') },
+        { delayMs: 0, ...scenesFound(10) },
+        { delayMs: 0, ...stage('segmenting_beats') },
+        ...Array.from({ length: 10 }, (_, index) => [
+          { delayMs: 1_000, ...sceneFound(index) },
+          {
+            delayMs: 0,
+            event: 'progress',
+            data: {
+              type: 'progress',
+              stage: 'segmenting_beats',
+              done: index + 1,
+              total: 10,
+            },
           },
-        })),
+        ]).flat(),
         {
           delayMs: 60_000,
           event: 'failed',
@@ -408,50 +480,47 @@ describe('ImportWizard', () => {
     )
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(0)
+      await vi.advanceTimersByTimeAsync(20)
     })
 
-    expect(screen.getByText('Segmenting beats')).not.toBeNull()
-    expect(screen.getByRole('status').textContent).toContain('Segmenting beats')
-    expect(screen.getByRole('status').textContent).not.toContain('1 of 10')
+    expect(screen.getByTestId('board-headline').textContent).toBe(
+      'Reading your script',
+    )
+    expect(screen.getByTestId('board-card-0').dataset.state).toBe('pending')
+    expect(screen.getByRole('status').textContent).toBe('Reading your script')
+    // The running board gets the wide column (narrow is the form's).
+    expect(screen.getByRole('main').className).toContain('max-w-7xl')
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(5_000)
     })
 
-    expect(screen.getByText('5 of 10')).not.toBeNull()
-    expect(screen.getByText('Elapsed 0:05')).not.toBeNull()
-    expect(screen.getByText('about 1 min left')).not.toBeNull()
-    const segmentingProgress = screen.getByRole('progressbar', {
-      name: 'Segmenting beats progress',
-    })
-    expect(segmentingProgress.getAttribute('aria-valuenow')).toBe('50')
-    expect(segmentingProgress.getAttribute('aria-valuemax')).toBe('100')
+    expect(screen.getByTestId('board-caption').textContent).toBe(
+      'Breaking scenes into beats · 5 of 10',
+    )
+    expect(screen.getByTestId('board-card-4').dataset.state).toBe('read')
+    expect(screen.getByTestId('board-card-5').dataset.state).toBe('pending')
+    expect(screen.getByText(/^Elapsed/).textContent).toBe('Elapsed 0:05')
+    expect(screen.getByText(/min left$/).textContent).toMatch(
+      /^typically about \d+(–\d+)? min left$/,
+    )
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(4_000)
     })
-
-    expect(screen.getByText('9 of 10')).not.toBeNull()
-    expect(screen.getByRole('status').textContent).not.toContain('9 of 10')
+    expect(screen.getByRole('status').textContent).toBe('Reading your script')
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(1_000)
     })
-
-    expect(screen.getByText('10 of 10')).not.toBeNull()
-    expect(screen.getByRole('status').textContent).toContain('10 of 10')
+    expect(screen.getByRole('status').textContent).toBe('10 of 10 scenes read')
   })
 
-  it('hides estimating before the first progress frame goes stale while elapsed remains', async () => {
+  it('hides the ETA after 30 s with no news while elapsed remains', async () => {
     const user = userEvent.setup()
     mockedStreamSse.mockImplementation(() =>
       timedFramesFrom([
-        {
-          delayMs: 0,
-          event: 'stage',
-          data: { type: 'stage', name: 'segmenting_beats' },
-        },
+        { delayMs: 0, ...stage('segmenting_beats') },
         {
           delayMs: 60_000,
           event: 'failed',
@@ -473,34 +542,30 @@ describe('ImportWizard', () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(0)
     })
-    expect(screen.getByText('estimating…')).not.toBeNull()
+    expect(screen.queryByText(/min left$/)).not.toBeNull()
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(31_000)
     })
 
-    expect(screen.getByText('Elapsed 0:31')).not.toBeNull()
-    expect(screen.queryByText('estimating…')).toBeNull()
-    expect(screen.queryByText(/min left/)).toBeNull()
+    expect(screen.getByText(/^Elapsed/).textContent).toBe('Elapsed 0:31')
+    expect(screen.queryByText(/min left$/)).toBeNull()
   })
 
-  it('renders an indeterminate progressbar until a stage reports progress', async () => {
+  it('shows single-call steps as indeterminate, never a fake half bar', async () => {
     const user = userEvent.setup()
     mockedStreamSse.mockImplementation(() =>
       timedFramesFrom([
+        { delayMs: 0, ...stage('inferring_promises') },
         {
-          delayMs: 0,
-          event: 'stage',
-          data: { type: 'stage', name: 'segmenting_beats' },
-        },
-        {
+          // The server sends threads' "1 of 2" before the call starts.
           delayMs: 0,
           event: 'progress',
           data: {
             type: 'progress',
-            stage: 'segmenting_beats',
-            done: 0,
-            total: 0,
+            stage: 'inferring_promises',
+            done: 1,
+            total: 2,
           },
         },
         {
@@ -522,15 +587,69 @@ describe('ImportWizard', () => {
     )
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(0)
+      await vi.advanceTimersByTimeAsync(8_000)
     })
 
-    const progress = screen.getByRole('progressbar', {
-      name: 'Segmenting beats progress',
+    expect(
+      screen.getByTestId('inferring_promises-indeterminate'),
+    ).not.toBeNull()
+    expect(screen.queryByText(/1 of 2/)).toBeNull()
+    expect(screen.getByTestId('board-caption').textContent).toContain(
+      '0:08 on this step',
+    )
+    expect(
+      screen.getByTestId('board-step-inferring_promises').dataset.status,
+    ).toBe('now')
+
+    // A failed step freezes: Stopped, no sweep, no clock.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_000)
     })
-    expect(progress.getAttribute('aria-valuenow')).toBeNull()
-    expect(screen.getByTestId('segmenting_beats-indeterminate')).not.toBeNull()
-    expect(screen.getAllByRole('progressbar')).toHaveLength(9)
+    const step = screen.getByTestId('board-step-inferring_promises')
+    expect(step.dataset.status).toBe('stopped')
+    expect(step.textContent).toContain('Stopped')
+    expect(screen.queryByTestId('inferring_promises-indeterminate')).toBeNull()
+    const frozen = screen.getByTestId('board-caption').textContent
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000)
+    })
+    expect(screen.getByTestId('board-caption').textContent).toBe(frozen)
+  })
+
+  it('lands a burst of cached frames without motion', async () => {
+    const user = userEvent.setup()
+    mockedStreamSse.mockImplementation(() =>
+      timedFramesFrom([
+        { delayMs: 0, ...stage('parsing_scenes') },
+        { delayMs: 0, ...scenesFound(3) },
+        { delayMs: 0, ...stage('segmenting_beats') },
+        { delayMs: 0, ...sceneFound(0, true) },
+        { delayMs: 0, ...sceneFound(1, true) },
+        {
+          delayMs: 60_000,
+          event: 'failed',
+          data: {
+            type: 'failed',
+            error: { code: 'CONNECTION_ERROR', message: 'connection lost' },
+          },
+        },
+      ]),
+    )
+
+    render(<ImportWizard />)
+    await fillSourceAndBasics(user, 'Ferry Crossing')
+    vi.useFakeTimers()
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Create & analyze script' }),
+    )
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(20)
+    })
+
+    expect(screen.getByTestId('board-card-1').dataset.state).toBe('read')
+    expect(
+      screen.getByTestId('import-board').querySelector('[data-motion]'),
+    ).toHaveProperty('dataset.motion', 'off')
   })
 
   it('on failure preserves the draft, creates no project, and offers recovery actions', async () => {
@@ -571,6 +690,66 @@ describe('ImportWizard', () => {
     ).not.toBeNull()
     expect(loadDraft<{ title: string }>(IMPORT_PATH)?.title).toBe(
       'Ferry Crossing',
+    )
+    // The board stays, frozen where it got to, in the form's narrow column.
+    expect(screen.getByTestId('board-step-parsing_scenes').dataset.status).toBe(
+      'stopped',
+    )
+    expect(screen.getByRole('main').className).toContain('max-w-3xl')
+  })
+
+  it('Retry starts the steps over on the same board and keeps the clock', async () => {
+    const user = userEvent.setup()
+    async function* stalled(events: Array<{ event: string; data: unknown }>) {
+      yield* events
+      await new Promise(() => {})
+    }
+    mockedStreamSse
+      .mockImplementationOnce(() =>
+        framesFrom([
+          stage('parsing_scenes'),
+          scenesFound(2),
+          stage('segmenting_beats'),
+          sceneFound(0),
+          {
+            event: 'failed',
+            data: {
+              type: 'failed',
+              error: { code: 'LLM_UNAVAILABLE', message: 'unavailable' },
+            },
+          },
+        ]),
+      )
+      .mockImplementationOnce(() =>
+        stalled([stage('parsing_scenes'), scenesFound(2), sceneFound(0, true)]),
+      )
+
+    render(<ImportWizard />)
+    await fillSourceAndBasics(user, 'Ferry Crossing')
+    await user.click(
+      screen.getByRole('button', { name: 'Create & analyze script' }),
+    )
+    await waitFor(() =>
+      expect(
+        screen.getByTestId('board-step-segmenting_beats').dataset.status,
+      ).toBe('stopped'),
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Retry' }))
+
+    await waitFor(() =>
+      expect(screen.getByTestId('board-card-0').dataset.state).toBe('read'),
+    )
+    expect(screen.getByTestId('board-step-parsing_scenes').dataset.status).toBe(
+      'now',
+    )
+    expect(
+      screen.getByTestId('board-step-segmenting_beats').dataset.status,
+    ).toBe('waiting')
+    expect(mockedStreamSse).toHaveBeenCalledTimes(2)
+    // Same key: the server resumes from saved work.
+    expect(mockedStreamSse.mock.calls[1][3]).toEqual(
+      mockedStreamSse.mock.calls[0][3],
     )
   })
 
@@ -665,12 +844,13 @@ describe('ImportWizard', () => {
     },
   )
 
-  it('shows the stage list only once the import has started', async () => {
+  it('shows the board only once the import has started', async () => {
     const user = userEvent.setup()
     render(<ImportWizard />)
     await fillSourceAndBasics(user, 'Ferry Crossing')
 
-    // A list of "Pending" stages before anything runs read as a stuck import.
-    expect(screen.queryByText('Parsing scenes')).toBeNull()
+    // A board of "Not read yet" before anything runs would read as stuck.
+    expect(screen.queryByTestId('import-board')).toBeNull()
+    expect(screen.getByRole('main').className).toContain('max-w-3xl')
   })
 })

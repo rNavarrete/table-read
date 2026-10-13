@@ -884,11 +884,79 @@ export const ProjectImportStageName = z.enum([
 ])
 export type ProjectImportStageName = z.infer<typeof ProjectImportStageName>
 
+// §9.3 `found` payloads: per-unit import results for the live import board.
+// Indexes are 0-based positions in the server's scene split; data is
+// post-merge where a merge exists and never carries `scriptText`.
+const NonNeg = z.number().int().nonnegative()
+export const ImportFoundScene = z.object({
+  index: NonNeg,
+  slugline: z.string(),
+  lineCount: NonNeg,
+  intExt: z.enum(['int', 'ext', 'other']),
+})
+export type ImportFoundScene = z.infer<typeof ImportFoundScene>
+
+export const ProjectImportFound = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('scenes'), scenes: z.array(ImportFoundScene) }),
+  z.object({
+    kind: z.literal('scene'),
+    index: NonNeg,
+    beatCount: NonNeg,
+    whatHappens: z.string(),
+    failed: z.boolean(),
+  }),
+  z.object({
+    kind: z.literal('acts'),
+    format: ShowFormat,
+    sceneActs: z.array(NonNeg),
+  }),
+  z.object({ kind: z.literal('castRead'), sceneIndexes: z.array(NonNeg) }),
+  z.object({
+    kind: z.literal('cast'),
+    total: NonNeg,
+    characters: z.array(z.object({ name: z.string(), sceneCount: NonNeg })),
+  }),
+  z.object({
+    kind: z.literal('threads'),
+    threads: z.array(
+      z.object({
+        label: z.string(),
+        status: z.enum(['open', 'paid_off', 'abandoned']),
+        setupSceneIndex: NonNeg.nullable(),
+        payoffSceneIndex: NonNeg.nullable(),
+      }),
+    ),
+  }),
+  z.object({
+    kind: z.literal('overview'),
+    logline: z.string(),
+    beatSheet: z.array(
+      z.object({ label: z.string(), sceneIndex: NonNeg.nullable() }),
+    ),
+  }),
+  z.object({
+    kind: z.literal('facts'),
+    index: NonNeg,
+    factCount: NonNeg,
+    secretCount: NonNeg,
+    failed: z.boolean(),
+  }),
+  z.object({
+    kind: z.literal('flags'),
+    contradictions: NonNeg,
+    tensions: NonNeg,
+    other: NonNeg,
+  }),
+])
+export type ProjectImportFound = z.infer<typeof ProjectImportFound>
+
 // §9.3 SSE progress: `stage` events mark named stage transitions and
 // `progress` events report scene completions within those stages, followed by
-// exactly one terminal `complete` or `failed`. `error` matches the canonical
-// `{code, message, details?}` envelope (data contract §4) so the wizard's
-// failure UI reuses the same error rendering as every other endpoint.
+// exactly one terminal `complete` or `failed`. `found` events (additive)
+// carry per-unit results; `cached` marks units replayed from checkpoints.
+// `error` matches the canonical `{code, message, details?}` envelope (data
+// contract §4) so the wizard's failure UI reuses the same error rendering as
+// every other endpoint.
 export const ProjectImportProgressEvent = z.discriminatedUnion('type', [
   z.object({ type: z.literal('stage'), name: ProjectImportStageName }),
   z.object({
@@ -896,6 +964,12 @@ export const ProjectImportProgressEvent = z.discriminatedUnion('type', [
     stage: ProjectImportStageName,
     done: z.number().int().nonnegative(),
     total: z.number().int().nonnegative(),
+  }),
+  z.object({
+    type: z.literal('found'),
+    stage: ProjectImportStageName,
+    cached: z.boolean().default(false),
+    data: ProjectImportFound,
   }),
   z.object({ type: z.literal('complete'), result: ProjectImportResult }),
   z.object({

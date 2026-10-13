@@ -66,6 +66,25 @@ Quiet Tool visual language: cool paper neutrals, slate-blue accent (`--tr-coral*
   --tr-overview-ready-bg: #e8f5ec;
   --tr-overview-ready-ink: #3d8a5a;
 
+  /* Import board (§2a "Breaking the Board") — index-card paper, rules, card shadows, motion, card sizes */
+  --tr-board-paper: #fffefb; /* index card and tape paper */
+  --tr-board-rule: rgb(65 96 138 / 0.1); /* card rules */
+  /* card header rule, cast underline */
+  --tr-board-rule-top: rgb(91 121 166 / 0.55);
+  --tr-shadow-card-board:
+    0 1px 1px rgb(38 39 43 / 0.05), 0 3px 8px rgb(38 39 43 / 0.06);
+  --tr-shadow-card-lift:
+    0 2px 4px rgb(38 39 43 / 0.06), 0 16px 32px rgb(38 39 43 / 0.16);
+  --tr-motion-spring: cubic-bezier(0.34, 1.42, 0.64, 1);
+  --tr-motion-settle: cubic-bezier(0.2, 0, 0, 1);
+  --tr-motion-deal: 620ms; /* cards out of the deck; stagger min(28ms, 600ms / N) */
+  --tr-motion-flight: 760ms; /* act-break FLIP */
+  --tr-motion-string: 700ms; /* setup→payoff string draw */
+  --tr-card-board-w: 118px;
+  --tr-card-board-h: 88px;
+  --tr-card-board-compact-w: 92px; /* above 40 scenes */
+  --tr-card-board-compact-h: 64px;
+
   /* Scale: 11/12/13/15/17/22/28, plus 30 for Ledger display titles. 11px = secondary chrome; script canvas 12pt Courier. */
   /* Spacing: 4-base — 4/8/12/16/24/32/48/64. Generous: default section pad 24. */
   /* Radius: cards 12px, chips 999px, canvas frames 12px, controls 9px, Ledger cards 15px. */
@@ -110,7 +129,15 @@ Both creation paths (`/projects/new/idea`, `/projects/new/import`) share `Wizard
    - **Review the script text**, a disclosure holding the editable source (pasted text, locally read Fountain/text, or server-extracted PDF text). PDF results show a muted method badge (`Text layer` / `OCR`) in the disclosure's summary, plus page count and warning codes; the writer fixes OCR mistakes here before analysis.
    - A line stating that **Create & analyze script** (the step's final action) is the only action that sends the script to the model.
 
-   Once analysis starts, the form gives way to a one-line summary (the title) and the stage list, whose act row reads **Working out format & acts**; the list is not shown before then, because a column of "Pending" rows read as a stuck import. The named stages stream over SSE (`POST /projects/import`, data contract §9.3) as truthful text rows with a status word each (Pending / In progress / Done — never a spinner-only wait, `aria-live="polite"` announces the current stage): parsing scenes → segmenting beats → **inferring act structure** → extracting facts → checking consistency → saving project. Scene-level analysis stages may complete scenes in parallel, but the UI shows ordered source results only after the terminal success. During analysis, stage rows show counters from progress frames (`done / total`) that only increase; a stage becomes **Done** only once all scenes for that stage have completed and the next stage begins (or the terminal result arrives for saving). Act inference is a singleton stage after all scene summaries exist; it uses normal stage start/completion semantics and no per-scene progress. The footer shows elapsed time immediately. ETA stays hidden until at least five scene completions have been observed, then appears as `ETA ~Xm`; if no new completion arrives for a long gap, hide the stale ETA and keep elapsed visible. PDF reaches this endpoint as the writer-confirmed `format: "text"` source. On the terminal `complete`, the draft clears and the writer lands on the Ledger's **Story** tab (story overview, Narrative Map card, and the review queue of pending facts), with the Ledger pending-review badge in the top bar (owner decision 2026-10-11). On `failed`, nothing was created — the form returns with the draft (source + basics) intact, the stage list stays visible, and the step offers **Retry**, **Edit source** (opens and focuses the script text in place), and **Return to dashboard**.
+   Once analysis starts, the form gives way to the **import board** ("Breaking the Board", spec `docs/superpowers/specs/2026-10-12-import-board-design.md`, prototype `docs/superpowers/prototypes/2026-10-12-breaking-the-board.html`); it is not shown before then, because a board of unread cards read as a stuck import. It replaces the old stage list. **Live results (owner decision 2026-10-12, amending "ordered source results only after the terminal success"):** the board builds from the stream's `found` frames (data contract §9.3) while the import runs:
+   - A headline narrates each step (Newsreader 40, cross-fading); a nine-step spine says each step's status in words (done / in progress / waiting / **Stopped**); elapsed time sits top right with "typically about N–M min left" (per-scene priors for every step, the current single-call step's run time taken off its prior, a resume's cached burst ignored, hidden after 30 s with no news; every stage start and progress frame is news, and a single-call step's news is due by the high end of its usual time). While the import runs and holds its finale, the wizard column widens from 768px to 1280px (the prototype's), so a 120-scene board stays within about two screens; the form's steps and a failed import keep the narrow column.
+   - Before the server's split, the headline reads "About N scenes found in your pages" (the client slugline count) with "Usually X–Y minutes for a script this size. Keep this tab open." The parse deals one index card per scene into an **In script order** frame (number, INT/EXT dot, slugline, "Not read yet", slightly tilted).
+   - Cards fill out of order as scenes are read: `~ <reading>`, one pencil tick per beat, squared up; the newest lifts and a soft lamp glides to it. A scene the model couldn't break turns amber: "Couldn't break into beats. Kept whole; flagged for you."
+   - Single-call steps (acts, threads, logline, continuity, saving) are indeterminate: a step clock ("0:08 on this step · usually 10–20 s") and a thin sweep, never a fraction. When the acts land the cards fly into clay act frames with masking-tape labels and the Format card fills; then the cast (Polaroids, "Cast · N speaking parts"), numbered pins and sagging strings from setup to payoff with the threads listed (Paid off / Open / Dropped), the logline (faded in whole), a fact stamp per card (◆ when a fact is hidden from the audience) and, last, amber chips for contradictions and tensions. Model-written text carries `~`.
+   - Every card is focusable and shows its reading in the rail's Notes; the act break keeps a focused card focused (the cards stay one list, the act frames are drawn behind them). Above 40 scenes cards go compact (number, slug, ticks). Frames that arrive more than 8 to an animation frame, or cached (a resume), land without motion; reduced motion turns off tilt, flight, lamp, count-up and sweep. `aria-live="polite"` announces stage starts, the act result and every 10th scene.
+   - Copy is honest about leaving: "Keep this tab open. Leaving pauses the import; finished work is saved."
+
+   On the terminal `complete`, the draft clears and the board reconciles once against the payload, then **holds** (owner decision 2026-10-12): "The board is up." with a one-line summary, **Open your story** (focused; saves the Ledger **Story** view and lands there — story overview, Narrative Map card, the review queue — owner decision 2026-10-11) and **See it in Plan**. Nothing navigates on its own. On `failed`, nothing was created: the board freezes where it got to and the step reads **Stopped** (its sweep and clock stop), the form returns with the draft (source + basics) intact, and the step offers **Retry** (continues from saved work; elapsed keeps counting in the same page), **Edit source** (opens and focuses the script text in place), and **Return to dashboard**. PDF reaches this endpoint as the writer-confirmed `format: "text"` source.
 
 ## 3. App shell
 

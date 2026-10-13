@@ -4,16 +4,19 @@ import type {
   PdfExtractMethod,
   ProjectImportCreateRequest,
   ProjectImportProgressEvent,
-  ProjectImportStageName,
 } from 'contract'
 import { extractPdf, importCreateUrl } from '../../api/client'
 import { streamSse } from '../../api/sse'
+import { ImportBoard } from './board/ImportBoard'
+import {
+  applyFound,
+  type BoardState,
+  emptyBoard,
+  reconcileWithResult,
+} from './importBoard'
 import { formatImportCostLine } from './importCostEstimate'
 import {
   advanceImportProgress,
-  estimateRemainingMs,
-  formatElapsed,
-  isImportProgressStale,
   type ImportProgressState,
   initialImportProgressState,
 } from './importProgress'
@@ -26,29 +29,11 @@ const IMPORT_PATH = '/projects/new/import'
 
 const ACCEPTED_EXTENSIONS = ['.fountain', '.txt', '.pdf']
 
-const STAGE_ORDER: ProjectImportStageName[] = [
-  'parsing_scenes',
-  'segmenting_beats',
-  'inferring_acts',
-  'inferring_entities',
-  'inferring_promises',
-  'inferring_overview',
-  'extracting_facts',
-  'checking_consistency',
-  'saving',
-]
+// More `found` frames than this in one animation frame (or any cached one, a
+// resume's replay) apply without motion (import board spec).
+const MAX_ANIMATED_BATCH = 8
 
-const STAGE_LABELS: Record<ProjectImportStageName, string> = {
-  parsing_scenes: 'Parsing scenes',
-  segmenting_beats: 'Segmenting beats',
-  inferring_acts: 'Working out format & acts',
-  inferring_entities: 'Identifying characters & world',
-  inferring_promises: 'Finding story threads & world rules',
-  inferring_overview: 'Writing story overview',
-  extracting_facts: 'Extracting facts',
-  checking_consistency: 'Checking consistency',
-  saving: 'Saving project',
-}
+type FoundFrame = Extract<ProjectImportProgressEvent, { type: 'found' }>
 
 interface ImportDraft {
   idempotencyKey: string
@@ -72,17 +57,21 @@ interface AnalyzeError {
 }
 
 interface AnalyzeSession {
-  phase: 'idle' | 'streaming' | 'failed'
+  phase: 'idle' | 'streaming' | 'failed' | 'done'
   progress: ImportProgressState
-  liveAnnouncement: string
+  board: BoardState
+  animate: boolean
   error: AnalyzeError | null
+  result: { projectId: string; toReview: number } | null
 }
 
 const INITIAL_SESSION: AnalyzeSession = {
   phase: 'idle',
   progress: initialImportProgressState,
-  liveAnnouncement: '',
+  board: emptyBoard(),
+  animate: true,
   error: null,
+  result: null,
 }
 
 function newIdempotencyKey(): string {
@@ -142,32 +131,6 @@ function importCreateBody(draft: ImportDraft): ProjectImportCreateRequest {
   }
 }
 
-function shouldAnnounceProgress(
-  previous: ImportProgressState,
-  next: ImportProgressState,
-  event: ProjectImportProgressEvent,
-): boolean {
-  if (event.type !== 'progress') return false
-  const before = previous.stages[event.stage]?.done ?? 0
-  const after = next.stages[event.stage]?.done ?? 0
-  return after > before && after % 10 === 0
-}
-
-function liveAnnouncementFor(
-  progress: ImportProgressState,
-  event: ProjectImportProgressEvent,
-): string | null {
-  if (event.type === 'stage') {
-    return `${STAGE_LABELS[event.name]}…`
-  }
-  if (event.type === 'progress') {
-    const stage = progress.stages[event.stage]
-    if (stage === undefined) return null
-    return `${STAGE_LABELS[event.stage]} ${stage.done} of ${stage.total}`
-  }
-  return null
-}
-
 export function ImportWizard() {
   const [draft, setDraft] = useState<ImportDraft>(() => {
     const stored = loadDraft<StoredDraft>(IMPORT_PATH)
@@ -188,6 +151,8 @@ export function ImportWizard() {
   const [textOpen, setTextOpen] = useState(false)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const scriptTextRef = useRef<HTMLTextAreaElement | null>(null)
+  const foundQueue = useRef<FoundFrame[]>([])
+  const foundFlush = useRef<number | null>(null)
 
   useEffect(() => {
     if (session.phase !== 'streaming') return
@@ -283,10 +248,63 @@ export function ImportWizard() {
     scriptTextRef.current?.focus()
   }
 
+  // `found` frames pile up between animation frames and land in one render;
+  // the stream loop never waits for the board.
+  function flushFound() {
+    if (foundFlush.current !== null) cancelAnimationFrame(foundFlush.current)
+    foundFlush.current = null
+    const batch = foundQueue.current
+    if (batch.length === 0) return
+    foundQueue.current = []
+    const animate =
+      batch.length <= MAX_ANIMATED_BATCH && !batch.some((f) => f.cached)
+    setSession((current) => ({
+      ...current,
+      animate,
+      board: batch.reduce(
+        (board, f) => applyFound(board, f.data),
+        current.board,
+      ),
+    }))
+  }
+
+  function queueFound(frame: FoundFrame) {
+    foundQueue.current.push(frame)
+    foundFlush.current ??= requestAnimationFrame(flushFound)
+  }
+
+  function failSession(error: AnalyzeError) {
+    flushFound()
+    const now = Date.now()
+    setSession((current) => ({
+      ...current,
+      phase: 'failed',
+      error,
+      progress: advanceImportProgress(
+        current.progress,
+        { type: 'failed' },
+        now,
+      ),
+    }))
+  }
+
   async function handleAnalyze() {
-    if (session.phase === 'streaming') return
-    setNowMs(Date.now())
-    setSession({ ...INITIAL_SESSION, phase: 'streaming' })
+    if (session.phase === 'streaming' || session.phase === 'done') return
+    const now = Date.now()
+    setNowMs(now)
+    // A retry starts the steps over but keeps the clock running (spec:
+    // elapsed survives a resume in the same page). The board stays until the
+    // new parse replaces it.
+    setSession((current) => ({
+      ...INITIAL_SESSION,
+      phase: 'streaming',
+      board: current.board,
+      progress: {
+        ...initialImportProgressState,
+        startedAtMs: current.progress.startedAtMs,
+        lastProgressAtMs: current.progress.startedAtMs === null ? null : now,
+      },
+    }))
     let settled = false
     try {
       const frames = streamSse(
@@ -297,86 +315,72 @@ export function ImportWizard() {
       )
       for await (const raw of frames) {
         const data = raw.data as ProjectImportProgressEvent
-        if (data.type === 'stage') {
+        if (data.type === 'found') {
+          queueFound(data)
+        } else if (data.type === 'stage' || data.type === 'progress') {
+          const at = Date.now()
           setSession((current) => ({
             ...current,
-            progress: advanceImportProgress(current.progress, data, Date.now()),
-            liveAnnouncement: liveAnnouncementFor(current.progress, data) ?? '',
+            progress: advanceImportProgress(current.progress, data, at),
           }))
-        } else if (data.type === 'progress') {
-          setSession((current) => {
-            const progress = advanceImportProgress(
-              current.progress,
-              data,
-              Date.now(),
-            )
-            const announcement = shouldAnnounceProgress(
-              current.progress,
-              progress,
-              data,
-            )
-              ? liveAnnouncementFor(progress, data)
-              : current.liveAnnouncement
-            return {
-              ...current,
-              progress,
-              liveAnnouncement: announcement ?? current.liveAnnouncement,
-            }
-          })
         } else if (data.type === 'complete') {
           settled = true
-          flushSync(() => {
-            setSession((current) => ({
-              ...current,
-              progress: advanceImportProgress(
-                current.progress,
-                data,
-                Date.now(),
-              ),
-            }))
-          })
-          const result = data.result
+          flushFound()
+          const { result } = data
+          const at = Date.now()
+          setNowMs(at)
+          setSession((current) => ({
+            ...current,
+            phase: 'done',
+            animate: false,
+            progress: advanceImportProgress(current.progress, data, at),
+            board: reconcileWithResult(current.board, result),
+            result: {
+              projectId: result.project.id,
+              toReview: result.newFacts.filter(
+                (fact) => fact.status === 'pending_review',
+              ).length,
+            },
+          }))
           clearDraft(IMPORT_PATH)
-          // Land on the Ledger's Story tab: the overview and the facts to
-          // review come first after an import (owner decision 2026-10-11).
-          saveLedgerView(result.project.id, 'story')
-          window.location.assign(
-            `/ledger?project=${encodeURIComponent(result.project.id)}`,
-          )
           return
         } else if (data.type === 'failed') {
           settled = true
-          const { error } = data as { error: AnalyzeError }
-          setSession((current) => ({ ...current, phase: 'failed', error }))
+          failSession((data as { error: AnalyzeError }).error)
         }
       }
       if (!settled) {
-        setSession((current) => ({
-          ...current,
-          phase: 'failed',
-          error: { code: 'CONNECTION_ERROR', message: 'connection lost' },
-        }))
+        failSession({ code: 'CONNECTION_ERROR', message: 'connection lost' })
       }
     } catch (caught) {
-      setSession((current) => ({
-        ...current,
-        phase: 'failed',
-        error: {
-          code: 'CONNECTION_ERROR',
-          message: caught instanceof Error ? caught.message : 'connection lost',
-        },
-      }))
+      failSession({
+        code: 'CONNECTION_ERROR',
+        message: caught instanceof Error ? caught.message : 'connection lost',
+      })
     }
+  }
+
+  // The finale holds; the writer chooses where to go (owner decision
+  // 2026-10-12). The Story tab first: the overview and the facts to review
+  // (owner decision 2026-10-11).
+  function openYourStory() {
+    if (!session.result) return
+    saveLedgerView(session.result.projectId, 'story')
+    window.location.assign(
+      `/ledger?project=${encodeURIComponent(session.result.projectId)}`,
+    )
+  }
+
+  function seeItInPlan() {
+    if (!session.result) return
+    window.location.assign(
+      `/plan?project=${encodeURIComponent(session.result.projectId)}`,
+    )
   }
 
   const stats = analyzeSource(draft.source)
   const hasEnteredData = Boolean(draft.source || draft.title)
-  const elapsedMs =
-    session.progress.startedAtMs === null
-      ? 0
-      : Math.max(0, nowMs - session.progress.startedAtMs)
-  const etaMs = estimateRemainingMs(session.progress, nowMs)
-  const isProgressStale = isImportProgressStale(session.progress, nowMs)
+  const isRunning = session.phase === 'streaming' || session.phase === 'done'
 
   return (
     <WizardShell
@@ -387,7 +391,8 @@ export function ImportWizard() {
           ? 'Analyzing...'
           : 'Create & analyze script'
       }
-      isFinalActionDisabled={session.phase === 'streaming'}
+      isFinalActionDisabled={isRunning}
+      wide={isRunning}
       onFinalAction={handleAnalyze}
       steps={[
         {
@@ -537,9 +542,7 @@ export function ImportWizard() {
                   </div>
                 </div>
               )}
-              {session.phase === 'streaming' ? (
-                <p className="text-13 text-tr-text-secondary">{draft.title}</p>
-              ) : (
+              {!isRunning && (
                 <>
                   <label className="text-13 font-medium text-tr-text-primary">
                     Title
@@ -609,104 +612,19 @@ export function ImportWizard() {
                 </>
               )}
               {session.phase !== 'idle' && (
-                <>
-                  <ol aria-label="Import progress" className="grid gap-2">
-                    {STAGE_ORDER.map((stage) => {
-                      const progress = session.progress.stages[stage] ?? {
-                        done: 0,
-                        total: 0,
-                      }
-                      const isDone =
-                        session.progress.completedStages.includes(stage)
-                      const isCurrent =
-                        session.progress.currentStage === stage && !isDone
-                      const isIndeterminate = isCurrent && progress.done === 0
-                      const visualPercent = isDone
-                        ? 100
-                        : progress.total > 0
-                          ? Math.min(
-                              100,
-                              (progress.done / progress.total) * 100,
-                            )
-                          : 0
-                      const status =
-                        session.phase === 'idle'
-                          ? 'Pending'
-                          : isDone
-                            ? 'Done'
-                            : isCurrent
-                              ? 'In progress'
-                              : 'Pending'
-                      return (
-                        <li
-                          key={stage}
-                          aria-current={isCurrent ? 'step' : undefined}
-                          className="grid gap-2 rounded-card border border-tr-border bg-tr-surface-page px-3 py-2 text-13"
-                        >
-                          <div className="flex items-center justify-between gap-3">
-                            <span>{STAGE_LABELS[stage]}</span>
-                            <span className="text-tr-text-secondary">
-                              {status}
-                            </span>
-                          </div>
-                          <div className="grid gap-1">
-                            {progress.total > 1 && (
-                              <span className="text-12 text-tr-text-muted">
-                                {progress.done} of {progress.total}
-                              </span>
-                            )}
-                            <div
-                              role="progressbar"
-                              aria-label={`${STAGE_LABELS[stage]} progress`}
-                              aria-valuemin={0}
-                              aria-valuemax={100}
-                              aria-valuenow={
-                                isIndeterminate ? undefined : visualPercent
-                              }
-                              aria-valuetext={
-                                isIndeterminate
-                                  ? `${STAGE_LABELS[stage]} in progress`
-                                  : progress.total > 1
-                                    ? `${progress.done} of ${progress.total}`
-                                    : status
-                              }
-                              className="h-1 overflow-hidden rounded-card bg-tr-surface-sunken"
-                            >
-                              {isIndeterminate ? (
-                                <div
-                                  className="tr-import-progress-indeterminate h-full bg-tr-coral"
-                                  data-testid={`${stage}-indeterminate`}
-                                />
-                              ) : (
-                                <div
-                                  className="h-full bg-tr-coral transition-[width]"
-                                  style={{ width: `${visualPercent}%` }}
-                                />
-                              )}
-                            </div>
-                          </div>
-                        </li>
-                      )
-                    })}
-                  </ol>
-                  {session.phase === 'streaming' && (
-                    <p className="flex flex-wrap gap-2 text-13 text-tr-text-secondary">
-                      <span>Elapsed {formatElapsed(elapsedMs)}</span>
-                      {etaMs !== null ? (
-                        <span>
-                          about {Math.max(1, Math.ceil(etaMs / 60_000))} min
-                          left
-                        </span>
-                      ) : isProgressStale ? null : (
-                        <span>estimating…</span>
-                      )}
-                    </p>
-                  )}
-                </>
+                <ImportBoard
+                  title={draft.title}
+                  board={session.board}
+                  progress={session.progress}
+                  phase={session.phase}
+                  animate={session.animate}
+                  nowMs={nowMs}
+                  approxSceneCount={stats.detectedSceneCount}
+                  toReview={session.result?.toReview ?? null}
+                  onOpenStory={openYourStory}
+                  onSeeInPlan={seeItInPlan}
+                />
               )}
-              <p role="status" aria-live="polite">
-                {session.phase === 'streaming' && session.liveAnnouncement}
-              </p>
             </div>
           ),
         },

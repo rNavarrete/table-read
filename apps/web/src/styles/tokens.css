@@ -103,6 +103,23 @@
   --tr-write-dot-ext:#4FA877;
   --tr-write-dot-other:#C4C0B8;
 
+  /* Import board (§2a "Breaking the Board"): index-card paper and rules,
+     card shadows, motion, card sizes. Values from the approved prototype. */
+  --tr-board-paper:#FFFEFB;
+  --tr-board-rule:rgb(65 96 138 / 0.1);
+  --tr-board-rule-top:rgb(91 121 166 / 0.55);
+  --tr-shadow-card-board: 0 1px 1px rgb(38 39 43 / 0.05), 0 3px 8px rgb(38 39 43 / 0.06);
+  --tr-shadow-card-lift: 0 2px 4px rgb(38 39 43 / 0.06), 0 16px 32px rgb(38 39 43 / 0.16);
+  --tr-motion-spring: cubic-bezier(.34,1.42,.64,1);
+  --tr-motion-settle: cubic-bezier(.2,0,0,1);
+  --tr-motion-deal: 620ms;
+  --tr-motion-flight: 760ms;
+  --tr-motion-string: 700ms;
+  --tr-card-board-w: 118px;
+  --tr-card-board-h: 88px;
+  --tr-card-board-compact-w: 92px;
+  --tr-card-board-compact-h: 64px;
+
   /* Layout: Plan mode board (§5) panel/card widths. */
   --tr-panel-story-layers: 232px;
   --tr-panel-inspector: 296px;
@@ -207,6 +224,23 @@
   --color-tr-write-dot-int: var(--tr-write-dot-int);
   --color-tr-write-dot-ext: var(--tr-write-dot-ext);
   --color-tr-write-dot-other: var(--tr-write-dot-other);
+
+  --color-tr-board-paper: var(--tr-board-paper);
+  --color-tr-board-rule: var(--tr-board-rule);
+  --color-tr-board-rule-top: var(--tr-board-rule-top);
+  --shadow-card-board: var(--tr-shadow-card-board);
+  --shadow-card-lift: var(--tr-shadow-card-lift);
+  /* ease-spring / ease-settle utilities; --duration-* are read by the
+     board's Web Animations (boardMotion.ts). */
+  --ease-spring: var(--tr-motion-spring);
+  --ease-settle: var(--tr-motion-settle);
+  --duration-deal: var(--tr-motion-deal);
+  --duration-flight: var(--tr-motion-flight);
+  --duration-string: var(--tr-motion-string);
+  --spacing-card-board-w: var(--tr-card-board-w);
+  --spacing-card-board-h: var(--tr-card-board-h);
+  --spacing-card-board-compact-w: var(--tr-card-board-compact-w);
+  --spacing-card-board-compact-h: var(--tr-card-board-compact-h);
 
   /* ease-standard utility + 160ms as the default transition duration. */
   --ease-standard: var(--tr-motion-ease-standard);

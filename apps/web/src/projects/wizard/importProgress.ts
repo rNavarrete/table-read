@@ -1,4 +1,10 @@
 import type { ProjectImportStageName } from 'contract'
+import {
+  STEP_SECONDS_PER_SCENE,
+  USUAL_BAND,
+  usualRange,
+  usualSeconds,
+} from './importTimings'
 
 export interface StageProgress {
   done: number
@@ -17,7 +23,11 @@ export interface ImportProgressState {
   startedAtMs: number | null
   lastProgressAtMs: number | null
   samples: ProgressSample[]
+  stoppedStage: ProjectImportStageName | null
+  stageStartedAtMs: Partial<Record<ProjectImportStageName, number>>
 }
+
+export type StageStatus = 'done' | 'now' | 'waiting' | 'stopped'
 
 type ImportProgressEvent =
   | { type: 'stage'; name: ProjectImportStageName }
@@ -28,13 +38,28 @@ type ImportProgressEvent =
       total: number
     }
   | { type: 'complete' }
+  | { type: 'failed' }
 
 const SCENE_UNIT_STAGES: ProjectImportStageName[] = [
   'segmenting_beats',
   'extracting_facts',
 ]
 
+// Single model calls: their server-sent fractions (threads' "1 of 2") say
+// nothing about time left, so the client shows them as indeterminate.
+const INDETERMINATE_STAGES: ProjectImportStageName[] = [
+  'inferring_acts',
+  'inferring_promises',
+  'inferring_overview',
+  'checking_consistency',
+  'saving',
+]
+
 const MAX_SAMPLES = 11
+// A resume replays saved units the instant a stage starts; that burst is not
+// the model's speed.
+const BURST_WINDOW_MS = 200
+const BURST_UNITS = 3
 const MIN_COMPLETED_UNITS_FOR_ETA = 5
 const STALE_PROGRESS_MS = 30_000
 
@@ -45,6 +70,8 @@ export const initialImportProgressState: ImportProgressState = {
   startedAtMs: null,
   lastProgressAtMs: null,
   samples: [],
+  stoppedStage: null,
+  stageStartedAtMs: {},
 }
 
 export function advanceImportProgress(
@@ -65,16 +92,30 @@ export function advanceImportProgress(
       : state
 
   if (event.type === 'stage') {
+    const isNewStage = withStart.currentStage !== event.name
+    // A stopped stage never reads done just because another stage started.
     const previousStage =
-      withStart.currentStage === event.name ? null : withStart.currentStage
+      isNewStage && withStart.stoppedStage === null
+        ? withStart.currentStage
+        : null
     return {
       ...withStart,
       currentStage: event.name,
+      lastProgressAtMs: nowMs,
+      stoppedStage: null,
       completedStages: addCompletedStage(
         withStart.completedStages,
         previousStage,
       ),
+      stageStartedAtMs:
+        isNewStage || withStart.stoppedStage !== null
+          ? { ...withStart.stageStartedAtMs, [event.name]: nowMs }
+          : withStart.stageStartedAtMs,
     }
+  }
+
+  if (event.type === 'failed') {
+    return { ...withStart, stoppedStage: withStart.currentStage }
   }
 
   if (event.type === 'complete') {
@@ -92,6 +133,10 @@ export function advanceImportProgress(
     }
   }
 
+  // Every progress frame is news, even one whose fraction the client ignores.
+  if (isIndeterminate(event.stage))
+    return { ...withStart, lastProgressAtMs: nowMs }
+
   const previousStage = withStart.stages[event.stage] ?? { done: 0, total: 0 }
   const nextStage = {
     done: Math.max(previousStage.done, event.done),
@@ -101,16 +146,77 @@ export function advanceImportProgress(
   const completedUnits = completedSceneUnits({ ...withStart, stages })
   const previousUnits = completedSceneUnits(withStart)
   const advanced = completedUnits > previousUnits
+  const stageStartedAtMs = withStart.stageStartedAtMs[event.stage]
+  const isBurst =
+    stageStartedAtMs !== undefined &&
+    nowMs - stageStartedAtMs <= BURST_WINDOW_MS &&
+    nextStage.done > BURST_UNITS
+  const sample = { atMs: nowMs, completedUnits }
 
   return {
     ...withStart,
     stages,
-    lastProgressAtMs: advanced ? nowMs : withStart.lastProgressAtMs,
-    samples: advanced
-      ? [...withStart.samples, { atMs: nowMs, completedUnits }].slice(
-          -MAX_SAMPLES,
-        )
-      : withStart.samples,
+    lastProgressAtMs: nowMs,
+    samples: !advanced
+      ? withStart.samples
+      : isBurst
+        ? [sample]
+        : [...withStart.samples, sample].slice(-MAX_SAMPLES),
+  }
+}
+
+export function isIndeterminate(stage: ProjectImportStageName): boolean {
+  return INDETERMINATE_STAGES.includes(stage)
+}
+
+export function stageStatus(
+  state: ImportProgressState,
+  stage: ProjectImportStageName,
+): StageStatus {
+  if (state.stoppedStage === stage) return 'stopped'
+  if (state.completedStages.includes(stage)) return 'done'
+  if (state.currentStage === stage) return 'now'
+  return 'waiting'
+}
+
+/** "about N–M min left": scene steps at the measured pace once there is one,
+ * every other unfinished step at its prior (less the time the current one has
+ * already run, given `nowMs`), ±40%. Null when nothing is left. */
+export function etaRange(
+  state: ImportProgressState,
+  sceneCount: number,
+  nowMs?: number,
+): { lowMin: number; highMin: number } | null {
+  if (sceneCount <= 0) return null
+  const measuredMs = msPerSceneUnit(state)
+  let seconds = 0
+  for (const [stage, perScene] of Object.entries(STEP_SECONDS_PER_SCENE) as [
+    ProjectImportStageName,
+    number,
+  ][]) {
+    if (state.completedStages.includes(stage)) continue
+    if (!SCENE_UNIT_STAGES.includes(stage)) {
+      const startedAt =
+        stage === state.currentStage ? state.stageStartedAtMs[stage] : undefined
+      const spent =
+        nowMs === undefined || startedAt === undefined
+          ? 0
+          : (nowMs - startedAt) / 1_000
+      seconds += Math.max(0, usualSeconds(stage, sceneCount) - spent)
+      continue
+    }
+    const progress = state.stages[stage]
+    const left = Math.max(
+      0,
+      (progress?.total || sceneCount) - (progress?.done ?? 0),
+    )
+    seconds += left * (measuredMs === null ? perScene : measuredMs / 1_000)
+  }
+  if (seconds <= 0) return null
+  const lowMin = Math.max(1, Math.floor((seconds * (1 - USUAL_BAND)) / 60))
+  return {
+    lowMin,
+    highMin: Math.max(lowMin, Math.ceil((seconds * (1 + USUAL_BAND)) / 60)),
   }
 }
 
@@ -132,32 +238,43 @@ export function estimateRemainingMs(
     return null
   }
 
-  const latest = state.samples.at(-1)
-  if (
-    latest === undefined ||
-    latest.completedUnits < MIN_COMPLETED_UNITS_FOR_ETA ||
-    state.samples.length < 2
-  ) {
-    return null
-  }
-
-  const first = state.samples[0]
-  const completedDelta = latest.completedUnits - first.completedUnits
-  const elapsedDelta = latest.atMs - first.atMs
-  if (completedDelta <= 0 || elapsedDelta <= 0) return null
+  const msPerUnit = msPerSceneUnit(state)
+  if (msPerUnit === null) return null
 
   const remaining = remainingSceneUnits(state)
   if (remaining <= 0) return 0
 
-  return Math.round((elapsedDelta / completedDelta) * remaining)
+  return Math.round(msPerUnit * remaining)
 }
 
+function msPerSceneUnit(state: ImportProgressState): number | null {
+  const first = state.samples[0]
+  const latest = state.samples.at(-1)
+  if (first === undefined || latest === undefined) return null
+  const completedDelta = latest.completedUnits - first.completedUnits
+  const elapsedDelta = latest.atMs - first.atMs
+  if (completedDelta < MIN_COMPLETED_UNITS_FOR_ETA || elapsedDelta <= 0) {
+    return null
+  }
+  return elapsedDelta / completedDelta
+}
+
+/** No news for 30 s, or, in a step that sends nothing until it ends (acts,
+ * cast, threads, logline, continuity), for longer than it usually takes. */
 export function isImportProgressStale(
   state: ImportProgressState,
   nowMs: number,
+  sceneCount = 0,
 ): boolean {
   const lastActivityMs = state.lastProgressAtMs ?? state.startedAtMs
-  return lastActivityMs !== null && nowMs - lastActivityMs > STALE_PROGRESS_MS
+  if (lastActivityMs === null) return false
+  const stage = state.currentStage
+  const usual =
+    stage === null || SCENE_UNIT_STAGES.includes(stage)
+      ? null
+      : usualRange(stage, sceneCount)
+  const quietMs = Math.max(STALE_PROGRESS_MS, (usual?.highSec ?? 0) * 1_000)
+  return nowMs - lastActivityMs > quietMs
 }
 
 function addCompletedStage(
