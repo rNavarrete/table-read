@@ -11,6 +11,7 @@ import {
   applyFound,
   type BoardState,
   emptyBoard,
+  isReadable,
   reconcileWithResult,
 } from './importBoard'
 
@@ -51,6 +52,15 @@ function scanned() {
   return apply(emptyBoard(), SCENES)
 }
 
+const BEATS = [
+  {
+    whatHappens: 'Ruth starts the car.',
+    audienceLearns: 'She has the keys.',
+    audienceFeels: 'Unease',
+  },
+  { whatHappens: 'She drives off.', audienceLearns: '', audienceFeels: '' },
+]
+
 describe('import board reducer', () => {
   it('starts empty', () => {
     expect(emptyBoard()).toEqual({
@@ -78,6 +88,7 @@ describe('import board reducer', () => {
       read: 'pending',
       beatCount: 0,
       whatHappens: '',
+      beats: [],
       act: null,
       castRead: false,
       factCount: null,
@@ -85,6 +96,45 @@ describe('import board reducer', () => {
       factsFailed: false,
       pins: [],
     })
+  })
+
+  it("stores each read scene's beats; only a read card with beats opens", () => {
+    const frame: ProjectImportFound = {
+      kind: 'scene',
+      index: 2,
+      beatCount: 2,
+      whatHappens: 'Ruth drives.',
+      failed: false,
+      beats: BEATS,
+    }
+    const state = apply(scanned(), frame, {
+      kind: 'scene',
+      index: 0,
+      beatCount: 1,
+      whatHappens: '',
+      failed: true,
+      beats: [],
+    })
+    expect(state.scenes[2].beats).toEqual(BEATS)
+    expect(state.scenes.map(isReadable)).toEqual([false, false, true])
+
+    // A resume starts over, then its cached re-emit brings the beats back.
+    const resumed = apply(state, SCENES, frame)
+    expect(resumed.scenes[2].beats).toEqual(BEATS)
+    expect(isReadable(resumed.scenes[0])).toBe(false)
+  })
+
+  it('reads a scene frame without beats as none (frames arrive unparsed)', () => {
+    const bare = {
+      kind: 'scene',
+      index: 1,
+      beatCount: 2,
+      whatHappens: 'x',
+      failed: false,
+    } as unknown as ProjectImportFound
+    const state = applyFound(scanned(), bare)
+    expect(state.scenes[1].beats).toEqual([])
+    expect(isReadable(state.scenes[1])).toBe(false)
   })
 
   it('fills scene readings out of order and marks a failed unit', () => {
@@ -362,7 +412,14 @@ describe('reconcileWithResult', () => {
                 location: 'EXT. ALLEY',
                 time: '',
                 whatHappens: 'Server reading two.',
-                beats: [{ scriptText: 'D' }],
+                beats: [
+                  {
+                    scriptText: 'D',
+                    whatHappens: 'Dev waits.',
+                    audienceLearns: 'He knows.',
+                    audienceFeels: 'Dread',
+                  },
+                ],
               },
               {
                 id: 'scene-3',
@@ -415,7 +472,7 @@ describe('reconcileWithResult', () => {
           beatCount: 5,
           whatHappens: 'Live reading.',
           failed: false,
-          beats: [],
+          beats: BEATS,
         },
         {
           kind: 'scene',
@@ -440,6 +497,7 @@ describe('reconcileWithResult', () => {
     expect(final.scenes[0]).toMatchObject({
       read: 'read',
       whatHappens: 'Live reading.',
+      beats: BEATS,
       beatCount: 2,
       act: 0,
       factCount: 2,
@@ -489,6 +547,14 @@ describe('reconcileWithResult', () => {
       read: 'read',
       beatCount: 1,
       whatHappens: 'Server reading two.',
+      // The saved beat's reading fields only, never its script text.
+      beats: [
+        {
+          whatHappens: 'Dev waits.',
+          audienceLearns: 'He knows.',
+          audienceFeels: 'Dread',
+        },
+      ],
       act: 1,
       castRead: true,
       factCount: 0,

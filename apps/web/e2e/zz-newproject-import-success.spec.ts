@@ -66,6 +66,27 @@ test('import a script → the board holds at the finale → Open your story show
   // Open your story (focused) lands on the Ledger's Story tab.
   const openStory = board.getByTestId('open-your-story')
   await expect(openStory).toBeFocused()
+
+  // A read card opens its beats beside the board (T9.17), the finale
+  // included, without moving a card; Esc closes it and focus returns.
+  const card = board.getByTestId('board-card-0')
+  const layout = () =>
+    card.evaluate((el: HTMLElement) => [el.offsetLeft, el.offsetTop])
+  const before = await layout()
+  const readCard = board.getByRole('button', { name: 'Read scene 1' })
+  await readCard.click()
+  const reading = board.getByTestId('board-reading')
+  await expect(reading).toContainText(
+    '~ Marta confronts Dan with the transfer record.',
+  )
+  await expect(reading).toContainText(
+    'Audience learns · Marta has proof of the transfer.',
+  )
+  expect(await layout()).toEqual(before)
+  await page.keyboard.press('Escape')
+  await expect(reading).toBeHidden()
+  await expect(readCard).toBeFocused()
+
   await openStory.click()
   await page.waitForURL(/\/ledger\?project=/)
   await expect(

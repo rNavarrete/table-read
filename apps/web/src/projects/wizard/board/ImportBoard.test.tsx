@@ -389,6 +389,141 @@ describe('ImportBoard', () => {
       expect(step.dataset.status).toBe('done')
   })
 
+  const READ: ProjectImportFound = {
+    kind: 'scene',
+    index: 1,
+    beatCount: 2,
+    whatHappens: 'Ruth smokes in the alley.',
+    failed: false,
+    beats: [
+      {
+        whatHappens: 'Ruth lights up.',
+        audienceLearns: 'She quit last year.',
+        audienceFeels: '',
+      },
+      {
+        whatHappens: 'Dev joins her.',
+        audienceLearns: '',
+        audienceFeels: 'Warmth',
+      },
+    ],
+  }
+  const FAILED: ProjectImportFound = {
+    kind: 'scene',
+    index: 2,
+    beatCount: 1,
+    whatHappens: '',
+    failed: true,
+    beats: [],
+  }
+
+  it("opens a read card's beats beside the board; Esc closes, focus returns", () => {
+    renderBoard({
+      state: board(scenesFrame(3), READ, FAILED),
+      progress: progressAt('parsing_scenes', 'segmenting_beats'),
+    })
+    // Still-reading and failed cards aren't buttons.
+    expect(screen.getAllByRole('button', { name: /^Read scene/ })).toHaveLength(
+      1,
+    )
+    const button = screen.getByRole('button', { name: 'Read scene 2' })
+    fireEvent.click(button)
+
+    const reading = screen.getByRole('dialog', {
+      name: 'Scene 2, INT. ROOM 2',
+    })
+    expect(document.activeElement).toBe(reading)
+    expect(button.getAttribute('aria-expanded')).toBe('true')
+    expect(
+      within(reading)
+        .getAllByRole('listitem')
+        .map((beat) => beat.textContent),
+    ).toEqual([
+      '~ Ruth lights up.Audience learns · She quit last year.',
+      '~ Dev joins her.Audience feels · Warmth',
+    ])
+    // Out of the grid: the cards never reflow around it.
+    const order = screen.getByRole('list', { name: 'In script order' })
+    expect(order.contains(reading)).toBe(false)
+
+    fireEvent.keyDown(reading, { key: 'Escape' })
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(document.activeElement).toBe(button)
+    expect(button.getAttribute('aria-expanded')).toBe('false')
+  })
+
+  it('closes from the card again or from Close, focus back on the card', () => {
+    renderBoard({
+      state: board(scenesFrame(3), READ),
+      progress: progressAt('parsing_scenes', 'segmenting_beats'),
+    })
+    const button = screen.getByRole('button', { name: 'Read scene 2' })
+    fireEvent.click(button)
+    fireEvent.click(button)
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(document.activeElement).toBe(button)
+
+    fireEvent.click(button)
+    fireEvent.click(screen.getByRole('button', { name: 'Close scene 2' }))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(document.activeElement).toBe(button)
+  })
+
+  it('stays open into the finale, which still focuses Open your story', () => {
+    const props = {
+      title: 'x',
+      animate: false,
+      nowMs: 0,
+      approxSceneCount: 3,
+      onOpenStory: () => {},
+      onSeeInPlan: () => {},
+    }
+    const { rerender } = render(
+      <ImportBoard
+        {...props}
+        board={board(scenesFrame(3), READ)}
+        progress={progressAt('parsing_scenes', 'segmenting_beats')}
+        phase="streaming"
+      />,
+    )
+    const button = screen.getByRole('button', { name: 'Read scene 2' })
+    fireEvent.click(button)
+
+    rerender(
+      <ImportBoard
+        {...props}
+        board={board(scenesFrame(3), READ, ACTS)}
+        progress={advanceImportProgress(
+          progressAt('saving'),
+          { type: 'complete' },
+          1,
+        )}
+        phase="done"
+      />,
+    )
+    const open = screen.getByTestId('open-your-story')
+    expect(document.activeElement).toBe(open)
+    expect(screen.getByRole('dialog')).not.toBeNull()
+    // Esc closes it from anywhere, focus back on its card.
+    fireEvent.keyDown(open, { key: 'Escape' })
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(document.activeElement).toBe(button)
+  })
+
+  it('reads a card in the Stopped state too', () => {
+    renderBoard({
+      state: board(scenesFrame(3), READ),
+      progress: advanceImportProgress(
+        progressAt('parsing_scenes', 'segmenting_beats', 'inferring_acts'),
+        { type: 'failed' },
+        5_000,
+      ),
+      phase: 'failed',
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Read scene 2' }))
+    expect(screen.getByRole('dialog').textContent).toContain('~ Dev joins her.')
+  })
+
   it('deals the cards when animated, and not for a burst', () => {
     vi.stubGlobal('matchMedia', () => ({ matches: false }))
     const animate = vi.fn()

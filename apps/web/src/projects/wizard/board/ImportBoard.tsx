@@ -1,6 +1,12 @@
-import { useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { flushSync } from 'react-dom'
 import type { ProjectImportStageName } from 'contract'
-import { actGroups, type BoardScene, type BoardState } from '../importBoard'
+import {
+  actGroups,
+  type BoardScene,
+  type BoardState,
+  isReadable,
+} from '../importBoard'
 import {
   etaRange,
   formatElapsed,
@@ -22,6 +28,7 @@ import {
 } from './boardMotion'
 import { plural } from './boardText'
 import { IndexCard } from './IndexCard'
+import { SceneReading } from './SceneReading'
 import { StepSpine } from './StepSpine'
 
 // "Breaking the Board" (UI spec §2a, prototype 2026-10-12): while the import
@@ -108,6 +115,33 @@ function layoutFrames(desk: HTMLElement) {
   })
 }
 
+/** The reading view hangs beside its card (right of it when it fits, else
+ * left), measured from laid-out positions like the strings. */
+function placeReading(board: HTMLElement) {
+  const panel = board.querySelector<HTMLElement>('#board-reading')
+  const card = panel
+    ? board.querySelector<HTMLElement>(
+        `[data-card][data-index="${panel.dataset.index}"]`,
+      )
+    : null
+  if (!panel || !card) return
+  const gap = 12
+  const { x, y } = offsetIn(card, board)
+  const right = x + card.offsetWidth + gap
+  panel.style.left = `${
+    right + panel.offsetWidth <= board.clientWidth
+      ? right
+      : Math.max(0, x - gap - panel.offsetWidth)
+  }px`
+  panel.style.top = `${y}px`
+}
+
+function readButton(desk: HTMLElement | null, index: number) {
+  return desk?.querySelector<HTMLElement>(
+    `[data-index="${index}"] [data-read-card]`,
+  )
+}
+
 function cardRects(desk: HTMLElement): Map<number, DOMRect> {
   return new Map(
     [...desk.querySelectorAll<HTMLElement>('[data-card]')].map((card) => [
@@ -153,6 +187,7 @@ export function ImportBoard({
   onOpenStory: () => void
   onSeeInPlan: () => void
 }) {
+  const boardRef = useRef<HTMLElement>(null)
   const deskRef = useRef<HTMLDivElement>(null)
   const deckRef = useRef<HTMLDivElement>(null)
   const lampRef = useRef<HTMLDivElement>(null)
@@ -161,6 +196,7 @@ export function ImportBoard({
   const firstRects = useRef<Map<number, DOMRect> | null>(null)
   const drawn = useRef(false)
   const [focusedIndex, setFocusedIndex] = useState<number | null>(null)
+  const [readingIndex, setReadingIndex] = useState<number | null>(null)
 
   const { scenes } = board
   const sceneCount = scenes.length || approxSceneCount
@@ -269,6 +305,35 @@ export function ImportBoard({
         ? 'on'
         : 'idle'
   const focused = scenes.find((s) => s.index === focusedIndex) ?? null
+  const reading =
+    scenes.find((s) => s.index === readingIndex && isReadable(s)) ?? null
+  const openIndex = reading?.index ?? null
+
+  // The writer's click opens a card's reading view and moves focus into it;
+  // closing hands focus back to the card.
+  function openReading(index: number) {
+    flushSync(() => setReadingIndex(index))
+    boardRef.current
+      ?.querySelector<HTMLElement>('#board-reading')
+      ?.focus({ preventScroll: true })
+  }
+
+  function closeReading(index: number) {
+    setReadingIndex(null)
+    readButton(deskRef.current, index)?.focus()
+  }
+
+  // Esc closes it from anywhere: at the finale, focus is on Open your story.
+  useEffect(() => {
+    if (openIndex === null) return
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      setReadingIndex(null)
+      readButton(deskRef.current, openIndex)?.focus()
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [openIndex])
 
   // The deck deals the cards when the server's split lands.
   useLayoutEffect(() => {
@@ -314,6 +379,7 @@ export function ImportBoard({
     const draw = () => {
       layoutFrames(desk)
       layoutStrings(desk, svg)
+      if (boardRef.current) placeReading(boardRef.current)
     }
     draw()
     window.addEventListener('resize', draw)
@@ -341,6 +407,10 @@ export function ImportBoard({
       animate={animate}
       onFocus={setFocusedIndex}
       onBlur={() => setFocusedIndex(null)}
+      reading={scene.index === openIndex}
+      onRead={(index) =>
+        index === openIndex ? closeReading(index) : openReading(index)
+      }
     />
   )
   const byIndex = new Map(scenes.map((s) => [s.index, s]))
@@ -359,9 +429,10 @@ export function ImportBoard({
 
   return (
     <section
+      ref={boardRef}
       data-testid="import-board"
       aria-label="Import board"
-      className="tr-board grid gap-5"
+      className="tr-board relative grid gap-5"
     >
       <header className="flex items-end justify-between gap-6">
         <div className="min-w-0">
@@ -544,6 +615,15 @@ export function ImportBoard({
           )}
         </svg>
       </div>
+
+      {/* Out of flow, beside its card: the grid never reflows (T9.17). */}
+      {reading && (
+        <SceneReading
+          key={reading.index}
+          scene={reading}
+          onClose={() => closeReading(reading.index)}
+        />
+      )}
 
       {phase === 'streaming' && (
         <p className="-mt-2 text-12 text-tr-text-muted">
