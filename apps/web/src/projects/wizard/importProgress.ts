@@ -55,6 +55,20 @@ const INDETERMINATE_STAGES: ProjectImportStageName[] = [
   'saving',
 ]
 
+// The import runs one step at a time up to the cast, then threads, overview
+// and facts→continuity side by side. (TABLEREAD_IMPORT_OVERLAP=0 on the
+// server runs them in turn, and the ETA then reads short.)
+const SERIAL_STAGES: ProjectImportStageName[] = [
+  'segmenting_beats',
+  'inferring_acts',
+  'inferring_entities',
+]
+const LATE_BRANCHES: ProjectImportStageName[][] = [
+  ['inferring_promises'],
+  ['inferring_overview'],
+  ['extracting_facts', 'checking_consistency'],
+]
+
 const MAX_SAMPLES = 11
 // A resume replays saved units the instant a stage starts; that burst is not
 // the model's speed.
@@ -179,45 +193,80 @@ export function stageStatus(
   return 'waiting'
 }
 
-/** "about N–M min left": scene steps at the measured pace once there is one,
- * every other unfinished step at its prior (less the time the current one has
- * already run, given `nowMs`), ±40%. Null when nothing is left. */
+/** "about N–M min left" from `etaSeconds`, ±40%. Null when nothing is left. */
 export function etaRange(
   state: ImportProgressState,
   sceneCount: number,
   nowMs?: number,
 ): { lowMin: number; highMin: number } | null {
-  if (sceneCount <= 0) return null
-  const measuredMs = msPerSceneUnit(state)
-  let seconds = 0
-  for (const [stage, perScene] of Object.entries(STEP_SECONDS_PER_SCENE) as [
-    ProjectImportStageName,
-    number,
-  ][]) {
-    if (state.completedStages.includes(stage)) continue
-    if (!SCENE_UNIT_STAGES.includes(stage)) {
-      const startedAt =
-        stage === state.currentStage ? state.stageStartedAtMs[stage] : undefined
-      const spent =
-        nowMs === undefined || startedAt === undefined
-          ? 0
-          : (nowMs - startedAt) / 1_000
-      seconds += Math.max(0, usualSeconds(stage, sceneCount) - spent)
-      continue
-    }
-    const progress = state.stages[stage]
-    const left = Math.max(
-      0,
-      (progress?.total || sceneCount) - (progress?.done ?? 0),
-    )
-    seconds += left * (measuredMs === null ? perScene : measuredMs / 1_000)
-  }
+  const seconds = etaSeconds(state, sceneCount, nowMs)
   if (seconds <= 0) return null
   const lowMin = Math.max(1, Math.floor((seconds * (1 - USUAL_BAND)) / 60))
   return {
     lowMin,
     highMin: Math.max(lowMin, Math.ceil((seconds * (1 + USUAL_BAND)) / 60)),
   }
+}
+
+/** Typical seconds left: scene steps at the measured pace once there is one,
+ * every other unfinished step at its prior less the time it has already run
+ * (given `nowMs`). The steps up to the cast add up; after them only the
+ * longest late branch counts. */
+export function etaSeconds(
+  state: ImportProgressState,
+  sceneCount: number,
+  nowMs?: number,
+): number {
+  if (sceneCount <= 0) return 0
+  const measuredMs = msPerSceneUnit(state)
+  const done = (stage: ProjectImportStageName) =>
+    state.completedStages.includes(stage)
+  const secondsSince = (startMs: number | undefined) =>
+    nowMs === undefined || startMs === undefined
+      ? 0
+      : Math.max(0, (nowMs - startMs) / 1_000)
+  const prior = (stage: ProjectImportStageName): number => {
+    if (done(stage)) return 0
+    if (!SCENE_UNIT_STAGES.includes(stage))
+      return usualSeconds(stage, sceneCount)
+    const progress = state.stages[stage]
+    const left = Math.max(
+      0,
+      (progress?.total || sceneCount) - (progress?.done ?? 0),
+    )
+    const perScene = STEP_SECONDS_PER_SCENE[stage] ?? 0
+    return left * (measuredMs === null ? perScene : measuredMs / 1_000)
+  }
+  // A scene step's counted units already show its progress; a running
+  // single-call step has used up part of its prior.
+  const ranFor = (stage: ProjectImportStageName) =>
+    stage === state.currentStage && !SCENE_UNIT_STAGES.includes(stage)
+      ? secondsSince(state.stageStartedAtMs[stage])
+      : 0
+
+  const serial = SERIAL_STAGES.reduce(
+    (sum, stage) => sum + Math.max(0, prior(stage) - ranFor(stage)),
+    0,
+  )
+  // Every late branch starts when threads does, even though the server
+  // reports overview and facts only after threads ends.
+  const lateRunning =
+    state.currentStage !== null &&
+    LATE_BRANCHES.flat().includes(state.currentStage)
+  const lateSpent = lateRunning
+    ? secondsSince(state.stageStartedAtMs.inferring_promises)
+    : 0
+  const branches = LATE_BRANCHES.map((branch) => {
+    const head = branch.find((stage) => !done(stage))
+    if (head === undefined) return 0
+    const seen =
+      SCENE_UNIT_STAGES.includes(head) &&
+      (head === state.currentStage || state.stages[head] !== undefined)
+    const spent = seen ? 0 : head === branch[0] ? lateSpent : ranFor(head)
+    const left = branch.reduce((sum, stage) => sum + prior(stage), 0)
+    return Math.max(0, left - spent)
+  })
+  return serial + Math.max(...branches)
 }
 
 export function formatElapsed(ms: number): string {

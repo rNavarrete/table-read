@@ -1,17 +1,21 @@
 import type { ProjectImportStageName } from 'contract'
 
+// The scene steps now run 8 calls at once, not 4. An estimate, not a
+// measurement: refit it once the server's `elapsed_ms` logs exist.
+const CONCURRENCY_SPEEDUP = 1.8
+
 // Typical seconds per scene for each import step, measured on real runs
 // (import board spec, "ETA"). Parsing and saving are near-instant and have
 // no entry. These are what usually happens, never a promise.
 export const STEP_SECONDS_PER_SCENE: Partial<
   Record<ProjectImportStageName, number>
 > = {
-  segmenting_beats: 1.97,
+  segmenting_beats: 1.97 / CONCURRENCY_SPEEDUP,
   inferring_acts: 0.19,
   inferring_entities: 1.04,
   inferring_promises: 1.55,
   inferring_overview: 0.88,
-  extracting_facts: 1.97,
+  extracting_facts: 1.97 / CONCURRENCY_SPEEDUP,
   checking_consistency: 0.64,
 }
 
