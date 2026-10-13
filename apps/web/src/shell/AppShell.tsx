@@ -236,7 +236,7 @@ export function AppShell({
   const exportEnabled = Boolean(projectId) && !busy
 
   return (
-    <div className="min-h-screen bg-tr-surface-page">
+    <div className="flex h-screen flex-col bg-tr-surface-page">
       {llmMode === 'mock' ? (
         <div
           role="status"
@@ -367,7 +367,7 @@ export function AppShell({
           </button>
         </div>
       </header>
-      <main>{children}</main>
+      <main className="min-h-0 flex-1 overflow-y-auto">{children}</main>
       <SettingsPanel
         open={settingsOpen}
         onClose={() => setSettingsOpen(false)}

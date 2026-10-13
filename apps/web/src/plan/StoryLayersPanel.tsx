@@ -64,7 +64,7 @@ export function StoryLayersPanel({
 
   return (
     <nav
-      className="w-panel-story-layers shrink-0 bg-tr-surface-sunken p-4"
+      className="w-panel-story-layers shrink-0 overflow-y-auto bg-tr-surface-sunken p-4"
       aria-label="Story Layers"
       data-testid="story-layers-panel"
     >

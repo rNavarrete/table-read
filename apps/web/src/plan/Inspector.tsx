@@ -344,7 +344,7 @@ export function Inspector({
   if (selection === null) {
     return (
       <aside
-        className="w-panel-inspector shrink-0 rounded-card bg-tr-surface-raised p-4"
+        className="w-panel-inspector shrink-0 overflow-y-auto rounded-card bg-tr-surface-raised p-4"
         aria-label="Inspector"
         data-testid="inspector"
       >
@@ -386,7 +386,7 @@ export function Inspector({
 
     return (
       <aside
-        className="w-panel-inspector shrink-0 rounded-card bg-tr-surface-raised p-4"
+        className="w-panel-inspector shrink-0 overflow-y-auto rounded-card bg-tr-surface-raised p-4"
         aria-label="Inspector"
         data-testid="inspector"
       >
@@ -508,7 +508,7 @@ export function Inspector({
 
   return (
     <aside
-      className="w-panel-inspector shrink-0 rounded-card bg-tr-surface-raised p-4"
+      className="w-panel-inspector shrink-0 overflow-y-auto rounded-card bg-tr-surface-raised p-4"
       aria-label="Inspector"
       data-testid="inspector"
     >

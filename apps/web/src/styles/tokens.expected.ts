@@ -113,6 +113,7 @@ export const EXPECTED_TOKENS: Record<string, string> = {
   '--tr-panel-story-layers': '232px',
   '--tr-panel-inspector': '296px',
   '--tr-card-scene': '214px',
+  '--tr-panel-plan': '400px',
   '--tr-panel-ledger-filters': '236px',
 
   '--tr-outline-selected': '2px',
