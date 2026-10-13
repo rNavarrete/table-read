@@ -11,7 +11,7 @@ test('scene-3: Next Beat streams 3 actionable cards; Accept inserts the beat and
   await page.goto('/?project=proj-longpour&scene=scene-3')
 
   // The scene's existing beat (fixture: beat-3-1) is already on the page.
-  await expect(page.getByTestId('beat-beat-3-1')).toBeVisible()
+  await expect(page.getByTestId('beat-row-beat-3-1')).toBeVisible()
 
   const ledgerBadge = page.getByRole('tab', { name: /Ledger/ })
   // UI spec §2 / T5.1: badge is pending_review count (fixture: fact-06 only).
@@ -38,10 +38,10 @@ test('scene-3: Next Beat streams 3 actionable cards; Accept inserts the beat and
 
   await firstCard.getByRole('button', { name: 'Accept' }).click()
 
-  // The accepted beat's script text appears in the canvas as a new beat row.
-  await expect(page.getByTestId('beat-beat-3-2')).toBeVisible()
-  await expect(page.getByTestId('beat-beat-3-2')).toHaveValue(
-    /Marta slides a folded printout/,
+  // The accepted beat's script text appears in the canvas as a new beat row
+  // (formatted read view — UI spec §4).
+  await expect(page.getByTestId('beat-row-beat-3-2')).toContainText(
+    'Marta slides a folded printout',
   )
 
   // The accepted card is gone from the dock (2 remain, re-keyed to 0/1).
@@ -60,7 +60,7 @@ test('keyboard: Q generates, Tab cycles, Enter accepts; typing in script ignores
   page,
 }) => {
   await page.goto('/?project=proj-longpour&scene=scene-3')
-  await expect(page.getByTestId('beat-beat-3-1')).toBeVisible()
+  await expect(page.getByTestId('beat-row-beat-3-1')).toBeVisible()
 
   await page.keyboard.press('q')
   for (const index of [0, 1, 2]) {
@@ -77,12 +77,16 @@ test('keyboard: Q generates, Tab cycles, Enter accepts; typing in script ignores
     'true',
   )
   await page.keyboard.press('Enter')
-  await expect(page.getByTestId('beat-beat-3-2')).toBeVisible()
+  await expect(page.getByTestId('beat-row-beat-3-2')).toBeVisible()
 
   // Reload a fresh write surface and prove script typing does not fire Q.
   await page.goto('/?project=proj-longpour&scene=scene-3')
+  await page
+    .getByTestId('beat-row-beat-3-1')
+    .getByRole('button', { name: /click to edit/ })
+    .click()
   const script = page.getByTestId('beat-beat-3-1')
-  await script.click()
+  await expect(script).toBeFocused()
   await script.press('q')
   await expect(page.getByTestId('candidate-card-0')).toHaveCount(0)
 })
