@@ -225,16 +225,19 @@ def log_llm_unavailable(
     where: str,
     op: str | None = None,
     model: str | None = None,
+    attempt: int | None = None,
+    wait_ms: int | None = None,
 ) -> None:
     """Log structured metadata when mapping a transport/timeout failure to
     `LLM_UNAVAILABLE`. Logs class name, HTTP status, Anthropic error type,
     request id, op, and a privacy-safe reason classification — never raw
-    exception messages, body dumps, or prompts."""
+    exception messages, body dumps, or prompts. An overload that will be
+    retried also logs which attempt failed and how long the wait is."""
     resolved_op = op if op is not None else getattr(exc, "op", None)
     reason_class, reason = classify_llm_unavailable_reason(exc)
     logger.warning(
         "llm_unavailable run_id=%s where=%s cause=%s op=%s model=%s status=%s error_type=%s "
-        "request_id=%s timeout_seconds=%s reason_class=%s reason=%s",
+        "request_id=%s timeout_seconds=%s reason_class=%s reason=%s attempt=%s wait_ms=%s",
         current_import_run_id(),
         where,
         type(exc).__name__,
@@ -246,4 +249,6 @@ def log_llm_unavailable(
         getattr(exc, "timeout_seconds", None),
         reason_class,
         reason,
+        attempt,
+        wait_ms,
     )

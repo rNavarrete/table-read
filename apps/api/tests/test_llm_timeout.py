@@ -197,17 +197,20 @@ def test_grader_calibration_timeout_fails_closed_without_fabricating_verdict():
 
 # ---------------------------------------------------------------------------
 # T9.4: the SDK never retries on its own (`max_retries=0`), so a timed-out call
-# is never silently re-sent and billed twice. The helpers retry exactly once,
-# after a backoff, and only on 429/529/5xx: those requests were rejected
-# unbilled. Each attempt carries the op's own timeout to the SDK.
+# is never silently re-sent and billed twice. The helpers retry only on
+# 429/529/5xx-but-504 (those requests were rejected unbilled): up to 4
+# attempts, honoring `retry-after` or backing off 2/4/8 s with jitter, never
+# waiting more than 60 s in total. Each attempt carries the op's own timeout.
 # ---------------------------------------------------------------------------
 
 _REQUEST = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
 _HANG = object()
 
 
-def _status_error(cls: type, status: int) -> Exception:
-    return cls(message="x", response=httpx.Response(status, request=_REQUEST), body=None)
+def _status_error(cls: type, status: int, retry_after: str | None = None) -> Exception:
+    headers = {"retry-after": retry_after} if retry_after is not None else None
+    response = httpx.Response(status, request=_REQUEST, headers=headers)
+    return cls(message="x", response=response, body=None)
 
 
 class _ScriptedSdk:
@@ -233,7 +236,17 @@ class _ScriptedSdk:
 
     def stream(self, **kwargs: Any) -> Any:
         reply = self._next(kwargs)
-        return contextlib.nullcontext(SimpleNamespace(get_final_message=lambda: reply))
+        return contextlib.nullcontext(_FakeStream(reply))
+
+
+class _FakeStream:
+    """An SDK message stream with no events: TTFT stays unknown."""
+
+    def __init__(self, reply: Any) -> None:
+        self.get_final_message = lambda: reply
+
+    def __next__(self) -> Any:
+        raise StopIteration
 
 
 _EACH_HELPER = pytest.mark.parametrize(
@@ -242,8 +255,19 @@ _EACH_HELPER = pytest.mark.parametrize(
 
 
 @pytest.fixture()
-def no_backoff(monkeypatch):
-    monkeypatch.setattr("llm.anthropic_client._OVERLOAD_BACKOFF_SECONDS", 0)
+def sleeps(monkeypatch) -> list[float]:
+    """Swap the backoff clock for a recorder, so no test really waits."""
+    recorded: list[float] = []
+    monkeypatch.setattr("llm.anthropic_client._sleep", recorded.append)
+    return recorded
+
+
+@pytest.fixture()
+def no_backoff(sleeps):
+    return sleeps
+
+
+_OVERLOADED = _status_error(anthropic.OverloadedError, 529)
 
 
 @_EACH_HELPER
@@ -257,25 +281,95 @@ def no_backoff(monkeypatch):
     ],
     ids=["529", "429", "500", "503"],
 )
-def test_an_overload_is_retried_once_after_a_backoff(helper, error, monkeypatch):
-    monkeypatch.setattr("llm.anthropic_client._OVERLOAD_BACKOFF_SECONDS", 0.05)
+def test_an_overload_is_retried_after_a_backoff(helper, error, sleeps):
     sdk = _ScriptedSdk(_status_error(*error), "reply")
 
-    t0 = time.monotonic()
     assert helper(sdk, 180.0, "segment_scene", model="m") == "reply"
 
     assert len(sdk.calls) == 2
-    assert time.monotonic() - t0 >= 0.05, "the retry waits out a backoff first"
+    assert len(sleeps) == 1
+    assert 2.0 * 0.8 <= sleeps[0] <= 2.0 * 1.2, "first backoff is 2 s, plus or minus 20%"
 
 
 @_EACH_HELPER
-def test_a_second_overload_surfaces_without_a_third_attempt(helper, no_backoff):
-    overloaded = _status_error(anthropic.OverloadedError, 529)
-    sdk = _ScriptedSdk(overloaded, overloaded, "unused")
+def test_success_on_the_third_attempt_backs_off_exponentially(helper, sleeps):
+    sdk = _ScriptedSdk(_OVERLOADED, _OVERLOADED, "reply")
+
+    assert helper(sdk, 180.0, "segment_scene", model="m") == "reply"
+
+    assert len(sdk.calls) == 3
+    assert len(sleeps) == 2
+    assert 1.6 <= sleeps[0] <= 2.4
+    assert 3.2 <= sleeps[1] <= 4.8
+
+
+@_EACH_HELPER
+def test_retry_after_is_honored_over_the_backoff(helper, sleeps):
+    sdk = _ScriptedSdk(_status_error(anthropic.RateLimitError, 429, retry_after="7"), "reply")
+
+    assert helper(sdk, 180.0, "segment_scene", model="m") == "reply"
+
+    assert sleeps == [7.0]
+
+
+def test_an_unreadable_retry_after_falls_back_to_the_backoff(sleeps):
+    sdk = _ScriptedSdk(_status_error(anthropic.RateLimitError, 429, retry_after="soon"), "reply")
+
+    assert _create_with_timeout(sdk, 180.0, "segment_scene", model="m") == "reply"
+
+    assert len(sleeps) == 1
+    assert 1.6 <= sleeps[0] <= 2.4
+
+
+@_EACH_HELPER
+def test_attempts_are_capped_at_four(helper, sleeps):
+    sdk = _ScriptedSdk(_OVERLOADED, _OVERLOADED, _OVERLOADED, _OVERLOADED, "unused")
 
     with pytest.raises(anthropic.OverloadedError):
         helper(sdk, 180.0, "segment_scene", model="m")
+
+    assert len(sdk.calls) == 4
+    assert len(sleeps) == 3
+    assert 6.4 <= sleeps[2] <= 9.6, "the third backoff is 8 s, plus or minus 20%"
+
+
+@_EACH_HELPER
+def test_the_total_wait_never_exceeds_sixty_seconds(helper, sleeps):
+    """A retry-after that would push the total past 60 s is not waited out:
+    the overload surfaces instead, and no retry ever comes earlier than the
+    API asked for."""
+    limited = _status_error(anthropic.RateLimitError, 429, retry_after="40")
+    sdk = _ScriptedSdk(limited, limited, "unused")
+
+    with pytest.raises(anthropic.RateLimitError):
+        helper(sdk, 180.0, "segment_scene", model="m")
+
+    assert sleeps == [40.0]
     assert len(sdk.calls) == 2
+
+
+def test_a_retry_after_above_the_cap_surfaces_at_once(sleeps):
+    sdk = _ScriptedSdk(_status_error(anthropic.RateLimitError, 429, retry_after="61"), "unused")
+
+    with pytest.raises(anthropic.RateLimitError):
+        _create_with_timeout(sdk, 180.0, "segment_scene", model="m")
+
+    assert sleeps == []
+    assert len(sdk.calls) == 1
+
+
+def test_each_wait_is_logged_with_numbers_only(sleeps, caplog):
+    sdk = _ScriptedSdk(_status_error(anthropic.RateLimitError, 429, retry_after="3"), "reply")
+
+    with caplog.at_level(logging.WARNING, logger="llm.anthropic_client"):
+        _create_with_timeout(sdk, 180.0, "segment_scene", model="m")
+
+    [line] = [r.getMessage() for r in caplog.records]
+    assert "llm_unavailable" in line
+    assert "op=segment_scene" in line
+    assert "status=429" in line
+    assert "attempt=1" in line
+    assert "wait_ms=3000" in line
 
 
 @_EACH_HELPER
@@ -297,6 +391,7 @@ def test_other_failures_are_not_retried(helper, error, no_backoff):
     with pytest.raises(type(error)):
         helper(sdk, 180.0, "segment_scene", model="m")
     assert len(sdk.calls) == 1
+    assert no_backoff == []
 
 
 @_EACH_HELPER

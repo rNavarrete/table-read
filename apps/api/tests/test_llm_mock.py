@@ -180,3 +180,28 @@ def test_mock_client_never_imports_the_anthropic_sdk():
     import llm.mock as mock_module
 
     assert "anthropic" not in inspect.getsource(mock_module)
+
+
+def test_prewarm_cache_is_recorded_and_returns_nothing():
+    client = MockLlmClient()
+
+    assert (
+        client.prewarm_cache("segment_scene", system="s", user_message="u", cache_prefix="p")
+        is None
+    )
+    client.prewarm_cache("segment_scene", system="s", user_message="u")
+
+    assert client.invocation_count("prewarm_cache:segment_scene") == 2
+    assert client._invocations["prewarm_cache:segment_scene"] == 2
+    assert client.invocation_count("segment_scene") == 0, "a prewarm is not a generation call"
+    assert client.invocation_count("prewarm_cache:extract_ledger_facts") == 0
+    assert client.cache_prefixes_by_op == {}
+
+
+def test_prewarm_cache_rejects_an_unknown_op():
+    client = MockLlmClient()
+
+    with pytest.raises(KeyError):
+        client.prewarm_cache("segment_scenes", system="s", user_message="u")
+    with pytest.raises(KeyError):
+        client.invocation_count("prewarm_cache:segment_scenes")

@@ -801,10 +801,11 @@ class MockLlmClient:
         )
 
     def invocation_count(self, op: str) -> int:
-        if op not in OP_REGISTRY:
+        """Calls to `op` so far; `"prewarm_cache:" + op` counts its prewarms."""
+        if op.removeprefix("prewarm_cache:") not in OP_REGISTRY:
             raise KeyError(f"unknown LLM operation {op!r}")
         with self._lock:
-            return self._invocations[op]
+            return self._invocations.get(op, 0)
 
     def total_invocations(self) -> int:
         with self._lock:
@@ -839,6 +840,22 @@ class MockLlmClient:
             if queue:
                 return queue.pop(0)
             return self._responses[op]
+
+    def prewarm_cache(
+        self,
+        op: str,
+        *,
+        system: str,
+        user_message: str,
+        cache_prefix: str | None = None,
+    ) -> None:
+        """Records the prewarm under `"prewarm_cache:" + op`; makes no call."""
+        del system, user_message, cache_prefix  # mock never inspects prompt content
+        if op not in OP_REGISTRY:
+            raise KeyError(f"unknown LLM operation {op!r}")
+        key = f"prewarm_cache:{op}"
+        with self._lock:
+            self._invocations[key] = self._invocations.get(key, 0) + 1
 
     def set_candidate_streams(self, streams: list[list[str]]) -> None:
         """Queue raw-fragment streams for `stream_beat_candidate`, one list of
