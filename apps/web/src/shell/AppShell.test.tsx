@@ -3,6 +3,7 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AppShell } from './AppShell'
+import { setLeaveGuard } from './modeNavigation'
 
 const { listProjectSnapshotsMock, restoreProjectMock, undoProjectMock } =
   vi.hoisted(() => ({
@@ -139,5 +140,39 @@ describe('AppShell', () => {
     // The undo request ran inside the runner, not beside it.
     expect(undoProjectMock).toHaveBeenCalledWith('proj-1')
     expect(runHistoryChange).toHaveBeenCalledTimes(2)
+  })
+
+  it('the project title asks the leave guard before going to the project list', async () => {
+    const user = userEvent.setup()
+    const assignMock = vi.fn()
+    window.location.assign = assignMock
+    let allow = false
+    const guard = vi.fn(() => Promise.resolve(allow))
+    setLeaveGuard(guard)
+    try {
+      render(
+        <AppShell
+          activeMode="Plan"
+          ledgerCount={0}
+          projectTitle="Long Pour"
+          projectId="proj-1"
+        >
+          <p>Mode content</p>
+        </AppShell>,
+      )
+      const title = screen.getByRole('link', { name: 'Long Pour' })
+      expect(title.getAttribute('href')).toBe('/projects')
+
+      await user.click(title)
+      expect(guard).toHaveBeenCalledOnce()
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      expect(assignMock).not.toHaveBeenCalled()
+
+      allow = true
+      await user.click(title)
+      await waitFor(() => expect(assignMock).toHaveBeenCalledWith('/projects'))
+    } finally {
+      setLeaveGuard(null)
+    }
   })
 })

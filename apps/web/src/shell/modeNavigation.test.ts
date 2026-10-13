@@ -1,11 +1,13 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
+  navigateToLedgerFact,
   navigateToMode,
   navigateToWriteBeat,
   navigateToWriteScene,
   MODE_SWITCH_SAVE_WAIT_MS,
   setBeforeModeSwitch,
+  setLeaveGuard,
 } from './modeNavigation'
 
 afterEach(() => {
@@ -151,5 +153,82 @@ describe('navigateToMode wait bound', () => {
       value: original,
       writable: true,
     })
+  })
+})
+
+function stubLocation(href: string) {
+  const assignSpy = vi.fn()
+  const original = window.location
+  Object.defineProperty(window, 'location', {
+    value: { ...original, href, assign: assignSpy },
+    writable: true,
+  })
+  return {
+    assignSpy,
+    restore: () =>
+      Object.defineProperty(window, 'location', {
+        value: original,
+        writable: true,
+      }),
+  }
+}
+
+describe('navigateToLedgerFact', () => {
+  it('opens the fact in Ledger, keeping the project', () => {
+    const { assignSpy, restore } = stubLocation(
+      'http://localhost/plan?project=proj-1&scene=scene-2',
+    )
+    try {
+      navigateToLedgerFact('fact-02')
+      expect(assignSpy).toHaveBeenCalledOnce()
+      const url = new URL(String(assignSpy.mock.calls[0][0]))
+      expect(url.pathname).toBe('/ledger')
+      expect(url.searchParams.get('fact')).toBe('fact-02')
+      expect(url.searchParams.get('project')).toBe('proj-1')
+    } finally {
+      restore()
+    }
+  })
+})
+
+describe('leave guard (Plan drafts)', () => {
+  afterEach(() => setLeaveGuard(null))
+
+  it('a guard that answers no stops every way out', async () => {
+    const { assignSpy, restore } = stubLocation(
+      'http://localhost/plan?project=proj-1',
+    )
+    const guard = vi.fn(() => Promise.resolve(false))
+    setLeaveGuard(guard)
+    try {
+      navigateToMode('Write')
+      navigateToWriteScene('scene-3')
+      navigateToWriteBeat('scene-2', 'beat-2-1')
+      navigateToLedgerFact('fact-02')
+      expect(guard).toHaveBeenCalledTimes(4)
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      expect(assignSpy).not.toHaveBeenCalled()
+    } finally {
+      restore()
+    }
+  })
+
+  it('a guard that answers yes navigates once it resolves', async () => {
+    const { assignSpy, restore } = stubLocation(
+      'http://localhost/plan?project=proj-1',
+    )
+    let answer!: (ok: boolean) => void
+    setLeaveGuard(() => new Promise<boolean>((resolve) => (answer = resolve)))
+    try {
+      navigateToWriteScene('scene-3')
+      expect(assignSpy).not.toHaveBeenCalled()
+      answer(true)
+      await vi.waitFor(() => expect(assignSpy).toHaveBeenCalledOnce())
+      const url = new URL(String(assignSpy.mock.calls[0][0]))
+      expect(url.pathname).toBe('/')
+      expect(url.searchParams.get('scene')).toBe('scene-3')
+    } finally {
+      restore()
+    }
   })
 })

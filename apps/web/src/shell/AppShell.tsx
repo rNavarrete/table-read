@@ -9,7 +9,7 @@ import {
 import { ApiError } from '../api/errors'
 import { hasDraftChangeSet } from '../review/changeSetSession'
 import { ModeSwitcher, type Mode } from './ModeSwitcher'
-import { navigateToMode } from './modeNavigation'
+import { navigateToMode, navigateToProjects } from './modeNavigation'
 import { SettingsPanel } from './SettingsPanel'
 import { Toast } from './Toast'
 
@@ -254,6 +254,13 @@ export function AppShell({
         {projectId ? (
           <a
             href="/projects"
+            onClick={(event) => {
+              // A plain click leaves this page, so ask Plan's leave guard
+              // first; a modified click (new tab/window) leaves nothing.
+              if (event.metaKey || event.ctrlKey || event.shiftKey) return
+              event.preventDefault()
+              navigateToProjects()
+            }}
             className="font-script text-[14px] font-medium text-tr-text-primary"
           >
             {projectTitle}
