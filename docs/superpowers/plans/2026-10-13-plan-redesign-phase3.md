@@ -103,6 +103,7 @@ Each is built as written unless the owner says otherwise; none blocks the work.
 |---|---|---|---|
 | `src/plan/planTree.ts` (+ `.test.ts`) | modify | 1 | `SceneMove`, `applySceneMove` (ops + optimistic twin) |
 | `src/plan/story.ts` (+ `.test.ts`) | modify | 1 | `orderIssues`, `newOrderIssues`, `predictMove`, `predictionTape`, Order notes on `SceneSignals`, `issues`/`secrets` on `BoardModel`, `short` on `ActSummary`; order in relation tape, Continuity, None's matches, announcement |
+| `src/plan/ActHeader.test.tsx` | modify | 1 | `short` in the `summary()` builder (the type change breaks `tsc -b` otherwise) |
 | `src/plan/useProjectPatch.ts` (+ `.test.ts`) | modify | 2 | Optional `onSaved(project)` on `patch` |
 | `src/plan/useUndoMove.ts` (+ `.test.ts`) | new | 2 | The last move, whether Undo the move is on offer, the undo request |
 | `src/plan/EpisodeChart.tsx` (+ `.test.tsx`) | new | 3 | The SVG chart, `chartLayout`, `chartMarks`, `chartSummary` |
@@ -136,7 +137,7 @@ One PR, **T3.7 Episode chart and live order check**, on `feat/plan-chart` (this 
 
 **Depends on:** none · **e2e:** no
 
-**Files:** modify `apps/web/src/plan/planTree.ts`, `planTree.test.ts`, `story.ts`, `story.test.ts`.
+**Files:** modify `apps/web/src/plan/planTree.ts`, `planTree.test.ts`, `story.ts`, `story.test.ts`, `ActHeader.test.tsx`.
 
 **Interfaces:**
 
@@ -309,8 +310,9 @@ export function orderIssues(episode: Episode): OrderIssue[] {
 - `predictionTape` verbs: `would pay off before`, `would reveal the secret before`, `would keep the secret after`, `would keep the secret before`; the first number is the issue's `sceneId`, the second its `otherSceneId`, both from `model.signals` (fallback `?`).
 - `ActSummary.short`: `project.format.coldOpen && act === 0 ? 'CO' : String(project.format.coldOpen ? act : act + 1)` (the chart's narrow-band label; `actLabel`'s ordinal rule).
 - Existing tests that `toEqual` a whole `BoardModel`/`ActSummary`/`SceneSignals` gain the new keys; use `toMatchObject` where the test is about something else.
+- `ActHeader.test.tsx`'s `summary()` builder returns a full `ActSummary` and is typechecked (`tsconfig.app.json` includes `src`): add `short: '1'` to it. `ActHeader.tsx` stays untouched.
 
-**Commands:** `(cd apps/web && npx vitest run src/plan/story.test.ts src/plan/planTree.test.ts src/plan)`, `(cd apps/web && npx tsc -b)`, eslint + prettier on the four files.
+**Commands:** `(cd apps/web && npx vitest run src/plan/story.test.ts src/plan/planTree.test.ts src/plan)`, `(cd apps/web && npx tsc -b)`, eslint + prettier on the five files.
 
 **Commit:** `plan: check scene order and predict moves in story.ts`
 
@@ -564,7 +566,7 @@ export function chartLayout(model: BoardModel, width: number): ChartLayout {
 
 - `chartSummary`: `Episode chart of {plural(scenes, 'scene')} in {plural(bands, 'act')}`, then — only for the parts that exist — `{plural(arcs, 'setup-payoff thread')}` with ` ({open} open)` when any arc is open, `{plural(lanes, 'secret')}`, `{plural(model.issues.length, 'order problem')}`, joined as ", with a, b and c"; it ends `; the board below lists every scene.` Counts come from `chartLayout`/`chartMarks` at any width (the counts don't depend on it).
 - Literal class maps, like `BoardCard`'s `TONE_BG`: `TONE_FILL: Record<TapeTone, string>` (`fill-tr-sky`, `fill-tr-amber`, `fill-tr-ledger-secret-ink`, `fill-tr-accent-ink`) and the stroke equivalents.
-- Legend (aria-hidden, entries only when they apply): a sky line "setup → payoff" (`model.hasThreads`), a dashed amber line "? open thread" (an open arc exists), "◆ set · • kept · ◇ out" (a lane exists), an amber-topped swatch "has a note" (a block has a note).
+- Legend (aria-hidden, entries only when they apply; its marks are styled `<span>`s, never inline `<svg>`, so the chart holds exactly one `<svg>` for the tests' `svg` locators): a sky line "setup → payoff" (`model.hasThreads`), a dashed amber line "? open thread" (an open arc exists), "◆ set · • kept · ◇ out" (a lane exists), an amber-topped swatch "has a note" (a block has a note).
 - No transition or animation classes anywhere in the chart.
 
 **Commands:** `(cd apps/web && npx vitest run src/plan/EpisodeChart.test.tsx)`, `npx tsc -b`, eslint + prettier on both files.
@@ -748,7 +750,18 @@ const freshHere = orderNotes.filter((n) => fresh.includes(n.issue.id)).map((n) =
 
 A new problem on the selected scene re-keys the strip, which remounts open (spec: "a new order problem opens the strip"); returning to the scene while that move is still the last one opens it again.
 
-**Tests** (`PlanScreen.test.tsx`; a project builder variant with `threads: [thread setup 'scene-2' → payoff 'scene-5']`, scene-5 in act 3; `patchProjectMock` resolves `{ project: { ...next, headSnapshotId: 'snap-moved' }, consistencyFlags: [] }`):
+**Tests** (`PlanScreen.test.tsx`; `patchProjectMock` resolves `{ project: { ...next, headSnapshotId: 'snap-moved' }, consistencyFlags: [] }`). Add one builder, `orderProject()`: `project()` with exactly these scenes, in this array order (array position = `index`, so scene-5 is `scenes/4`), and one thread:
+
+| scene | `act` | `index` |
+|---|---|---|
+| scene-1 | 0 | 0 |
+| scene-2 | 1 | 1 |
+| scene-3 | 1 | 2 |
+| scene-4 | 2 | 3 |
+| scene-5 | 3 | 4 |
+
+`threads`: `storyProject()`'s thread literal with `id: 'thread-1'`, `label: 'The spare key'`, `setupSceneId: 'scene-2'`, `payoffSceneId: 'scene-5'`, `status: 'paid_off'`. scene-2 must sit after the cold open: with scene-2 in act 0 (the `scene()` default), moving scene-5 to act 0 still plays it after its setup and the order tests below find no problem.
+
 - "an act change that plays a payoff first shows the Order note at once and opens the strip" — select scene-5, Act → `0` with a deferred PATCH: before it resolves, `notes-strip` is expanded and reads `Pays off “…” before its setup in scene 2.`; no Undo the move yet; `plan-live` reads `Moved. 1 new order problem.`; after it resolves, Undo the move appears.
 - "an act change sends one PATCH; the prediction and the chart send nothing" — `patchProjectMock` called once with exactly `[{ op: 'replace', path: '/seasons/0/episodes/0/scenes/4/act', value: 0 }]`; a `dragStart`/`dragOver` prediction and a chart block click add no call; `suggestInstructionsMock`, `createChangeSetMock`, `dismissConsistencyFlagMock` never called.
 - "Undo the move posts /undo with If-Match = the move's head and clears the Order note" — click it → `undoProjectMock` called with `('proj-longpour', { expectedHeadSnapshotId: 'snap-moved' })`; it resolves the pre-move project → the Order note is gone, scene-5 is back in `act-frame-3`, `plan-live` reads `Move undone.`; `getProjectMock` still called once (no reload, no refetch).
