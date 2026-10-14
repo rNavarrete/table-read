@@ -1,7 +1,12 @@
 import { useState } from 'react'
 import type { LedgerFact, Scene } from 'contract'
 import { plural } from '../../projects/wizard/board/boardText'
-import { importNoteText, linkifyNote, type PlanNote } from '../story'
+import {
+  importNoteText,
+  linkifyNote,
+  type OrderNote,
+  type PlanNote,
+} from '../story'
 
 export interface NotesStripProps {
   scene: Scene
@@ -22,7 +27,16 @@ export interface NotesStripProps {
   onOpenFact: (factId: string) => void
   onDismiss: (flagId: string) => void
   onChangeAct: () => void
+  /** This scene's computed Order notes (spec §4.8): shown first, never dismissable. */
+  orderNotes?: OrderNote[]
+  /** Issue ids whose note offers Undo the move. */
+  undoableIssueIds?: ReadonlySet<string>
+  onUndoMove?: () => void
+  /** Start open: a new order problem just landed on this scene (PlanScreen re-keys the strip). */
+  defaultExpanded?: boolean
 }
+
+const NO_IDS: ReadonlySet<string> = new Set()
 
 const FOCUS =
   'focus-visible:outline focus-visible:outline-selected focus-visible:outline-offset-2 focus-visible:outline-tr-sky'
@@ -34,10 +48,12 @@ function beatLabel(scene: Scene, note: PlanNote): string | null {
 }
 
 /** The scene's notes (redesign spec §4.6): collapsed to a count and a peek
- * at the first story note; expanded to one card per story note with its
- * verbs, then the import notes in a closed "From the import" group. Severity
- * is not shown: all live flags are 'tension'. PlanScreen keys the strip by
- * scene id, so it starts collapsed on every scene. */
+ * at the first story note; expanded to the computed Order notes (§4.8, no
+ * Dismiss: they clear when the order is fixed), one card per story note with
+ * its verbs, then the import notes in a closed "From the import" group.
+ * Order notes count as story notes. Severity is not shown: all live flags are
+ * 'tension'. PlanScreen keys the strip by scene id, so it starts collapsed on
+ * every scene unless `defaultExpanded`. */
 export function NotesStrip({
   scene,
   notes,
@@ -51,15 +67,20 @@ export function NotesStrip({
   onOpenFact,
   onDismiss,
   onChangeAct,
+  orderNotes = [],
+  undoableIssueIds = NO_IDS,
+  onUndoMove,
+  defaultExpanded = false,
 }: NotesStripProps) {
-  const [expanded, setExpanded] = useState(false)
-  if (notes.length === 0) return null
+  const [expanded, setExpanded] = useState(defaultExpanded)
+  if (notes.length === 0 && orderNotes.length === 0) return null
 
   const story = notes.filter((note) => note.kind !== 'import')
   const imported = notes.filter((note) => note.kind === 'import')
+  const storyCount = story.length + orderNotes.length
   const summary =
-    story.length > 0
-      ? `⚑ ${plural(story.length, 'note')}${imported.length > 0 ? ` · ${imported.length} from the import` : ''}`
+    storyCount > 0
+      ? `⚑ ${plural(storyCount, 'note')}${imported.length > 0 ? ` · ${imported.length} from the import` : ''}`
       : `${plural(imported.length, 'note')} from the import`
   const linkify = (text: string) => linkifyNote(text, scenes, ledger)
   const dismissButton = (note: PlanNote, label: string) => (
@@ -93,19 +114,55 @@ export function NotesStrip({
         </button>
       </div>
 
-      {!expanded && story.length > 0 && (
+      {!expanded && storyCount > 0 && (
         <p
           data-testid="notes-peek"
           className="mt-1 line-clamp-2 text-13 text-tr-text-primary"
         >
-          {linkify(story[0].flag.explanation)
-            .map((segment) => segment.text)
-            .join('')}
+          {orderNotes[0]?.text ??
+            linkify(story[0].flag.explanation)
+              .map((segment) => segment.text)
+              .join('')}
         </p>
       )}
 
       {expanded && (
         <div className="mt-3 flex flex-col gap-2">
+          {orderNotes.map((note) => (
+            <article
+              key={note.issue.id}
+              data-testid={`order-note-${note.issue.id}`}
+              className="rounded-card border border-tr-amber bg-tr-surface-raised p-3 text-13 text-tr-text-primary"
+            >
+              <p className="mb-1 flex items-center gap-2 text-12">
+                <span className="rounded-chip bg-tr-amber-soft px-2 font-semibold text-tr-amber">
+                  Order
+                </span>
+                from the board order · clears when fixed
+              </p>
+              <p>{note.text}</p>
+              <div className="mt-2 flex flex-wrap gap-1">
+                <button
+                  type="button"
+                  onClick={() => onSelectScene(note.otherSceneId)}
+                  className={VERB}
+                >
+                  Go to scene {note.otherNumber}
+                </button>
+                {undoableIssueIds.has(note.issue.id) && (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={onUndoMove}
+                    className={VERB}
+                  >
+                    Undo the move
+                  </button>
+                )}
+              </div>
+            </article>
+          ))}
+
           {story.map((note) => {
             const label = beatLabel(scene, note)
             const beatId = note.beat?.id ?? null

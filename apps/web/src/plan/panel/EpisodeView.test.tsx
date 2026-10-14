@@ -445,6 +445,45 @@ describe('EpisodeView', () => {
     expect(notes.textContent).not.toContain('fact-04')
   })
 
+  it("an order problem is a note on its out-of-order scene, first in that scene's row", () => {
+    // Scene 3 (act 1) pays off a thread set up in scene 4 (act 2).
+    const keyThread = thread(
+      'thread-key',
+      'The spare key',
+      'scene-4',
+      'scene-3',
+    )
+    const ep = episode({
+      threads: [...(episode().threads ?? []), keyThread],
+    })
+    const order = 'Order: Pays off “The spare key” before its setup in scene 4.'
+
+    render(
+      <EpisodeView
+        {...props(ep, [flag({ id: 'flag-story', objectId: 'scene-3' })])}
+      />,
+      { wrapper: WithDrafts },
+    )
+    let notes = section('ep-notes')
+    const row = within(notes).getByRole('button', { name: /^3 · / })
+    expect(row.textContent).toContain(order)
+    expect(row.textContent?.indexOf(order)).toBeLessThan(
+      row.textContent?.indexOf('Marta already knows') ?? -1,
+    )
+    // Listed once, on the out-of-order scene: the setup scene has no row.
+    expect(notes.textContent?.split('Order:')).toHaveLength(2)
+    expect(within(notes).queryByRole('button', { name: /^4 · / })).toBeNull()
+    cleanup()
+
+    render(<EpisodeView {...props(ep, [])} />, { wrapper: WithDrafts })
+    notes = section('ep-notes')
+    expect(notes.querySelector('summary')?.textContent).toContain('Notes (1)')
+    expect(within(notes).queryByText('No open notes.')).toBeNull()
+    expect(
+      within(notes).getByRole('button', { name: /^3 · / }).textContent,
+    ).toContain(order)
+  })
+
   it("Who's in it chips switch the board highlight", async () => {
     const user = userEvent.setup()
     const p = props()
