@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type {
   Beat,
   ConsistencyFlag,
@@ -18,6 +18,7 @@ import { loadResume, saveResume } from '../projects/resumeContext'
 import { navigateToReview, stashChangeSet } from '../review/changeSetSession'
 import { AppShell } from '../shell/AppShell'
 import {
+  navigateToLedgerFact,
   navigateToMode,
   navigateToWriteBeat,
   navigateToWriteScene,
@@ -28,8 +29,16 @@ import { Board } from './Board'
 import { GuidedSetup } from './GuidedSetup'
 import { needsGuidedSetup } from './needsGuidedSetup'
 import { EpisodePanel } from './panel/EpisodePanel'
+import { LeavePlanDialog } from './panel/LeavePlanDialog'
+import { NotesStrip } from './panel/NotesStrip'
 import { ScenePanel } from './panel/ScenePanel'
-import { PlanDraftsContext, usePlanDraftStore } from './panel/usePlanDrafts'
+import { useDismissNote } from './panel/useDismissNote'
+import { useLeaveGuard } from './panel/useLeaveGuard'
+import {
+  draftKey,
+  PlanDraftsContext,
+  usePlanDraftStore,
+} from './panel/usePlanDrafts'
 import type { PlanSelection } from './SceneCard'
 import { StoryLayersPanel } from './StoryLayersPanel'
 import { sceneIdsWithOpenFlags } from './flaggedScenes'
@@ -45,6 +54,7 @@ import {
   withProjectField,
   withSceneField,
 } from './planTree'
+import { notesForScene } from './story'
 import { useProjectPatch } from './useProjectPatch'
 import { allScenes, findScene } from '../write/projectTree'
 
@@ -148,6 +158,33 @@ export function PlanScreen() {
     setProject,
     mergeNewFlags,
   )
+  const dismissal = useDismissNote({
+    projectId: activeProjectId,
+    headSnapshotId: project?.headSnapshotId ?? null,
+    onProject: setProject,
+    onFlags: setOpenFlags,
+  })
+  const leave = useLeaveGuard(drafts)
+  // One "a write is in flight" flag for every control: a field save, a lock,
+  // a reorder, a dismiss or its undo, and an Open Review (no draft may appear
+  // while it runs, or it would block the way to Review).
+  const busy = patcher.pending || dismissal.busy || openingReview
+  // Dismiss and its Undo unmount the focused button (the note, the strip,
+  // the toast): once they finish, focus goes to the strip's Show/Hide, else
+  // the toast's Undo — never <body>.
+  const refocusNotes = useRef(false)
+  const undoDismissRef = useRef<HTMLButtonElement>(null)
+
+  useEffect(() => {
+    if (dismissal.busy || !refocusNotes.current) return
+    refocusNotes.current = false
+    if (document.activeElement && document.activeElement !== document.body)
+      return
+    const toggle = document.querySelector<HTMLElement>(
+      '#plan-section-notes button[aria-expanded]',
+    )
+    ;(toggle ?? undoDismissRef.current)?.focus()
+  }, [dismissal.busy])
 
   const flaggedSceneIds = useMemo(
     () =>
@@ -221,19 +258,15 @@ export function PlanScreen() {
     )
   }
 
+  // Ask before saving the Write resume point, so "Stay in Plan" leaves
+  // Plan's resume untouched; the navigation then passes the (now empty) guard.
   function openInWrite(sceneId: string, beatId?: string) {
-    saveResume(activeProjectId, { mode: 'Write', sceneId })
-    if (beatId) navigateToWriteBeat(sceneId, beatId)
-    else navigateToWriteScene(sceneId)
-  }
-
-  /** Ledger deep link to one fact (moved from the old inspector's
-   * AffectedFacts; T3.4 swaps it for navigateToLedgerFact). */
-  function openFact(factId: string) {
-    const url = new URL(window.location.href)
-    url.pathname = '/ledger'
-    url.searchParams.set('fact', factId)
-    window.location.assign(url.toString())
+    void leave.confirmLeave().then((ok) => {
+      if (!ok) return
+      saveResume(activeProjectId, { mode: 'Write', sceneId })
+      if (beatId) navigateToWriteBeat(sceneId, beatId)
+      else navigateToWriteScene(sceneId)
+    })
   }
 
   /** A4 chips for an empty What happens — only on the writer's explicit
@@ -248,6 +281,15 @@ export function PlanScreen() {
   }
 
   async function handleOpenReview(targetObjectId: string, instruction: string) {
+    // The field being sent travels in the Change Set; any other draft would
+    // be lost on the way to Review, so ask first.
+    const key = draftKey(targetObjectId, 'whatHappens')
+    const others = drafts.size - (drafts.get(key) !== undefined ? 1 : 0)
+    if (others > 0) {
+      if (!(await leave.confirmLeave())) return
+      // Discard cleared it too: keep the text being sent on screen.
+      drafts.set(key, targetObjectId, instruction)
+    }
     setOpeningReview(true)
     setReviewError(null)
     try {
@@ -256,8 +298,13 @@ export function PlanScreen() {
         instruction,
       })
       stashChangeSet(changeSet)
+      // Its text now lives in the Change Set: clear it so beforeunload does
+      // not stop the navigation.
+      drafts.clear(key)
       navigateToReview(activeProjectId, changeSet.id)
     } catch (err: unknown) {
+      // Nothing left Plan: give back what "Discard and leave" cleared.
+      leave.undoDiscard()
       setReviewError(
         err instanceof Error ? err.message : 'failed to open Review',
       )
@@ -345,6 +392,9 @@ export function PlanScreen() {
   const selectedScene = effectiveSelection
     ? findScene(project, effectiveSelection.sceneId)
     : null
+  const sceneNotes = selectedScene
+    ? notesForScene(openFlags, selectedScene)
+    : []
 
   return (
     <PlanDraftsContext.Provider value={drafts}>
@@ -353,6 +403,22 @@ export function PlanScreen() {
         activeMode="Plan"
         ledgerCount={ledger.filter((f) => f.status === 'pending_review').length}
         projectId={projectId}
+        // The shell's Undo sends no If-Match: hold it while a Plan write is
+        // in flight, or it could revert that write's predecessor.
+        canUndo={!busy}
+        runHistoryChange={(request) =>
+          leave.confirmLeave().then((ok) =>
+            ok
+              ? request().then(
+                  () => true,
+                  (err: unknown) => {
+                    leave.undoDiscard()
+                    throw err
+                  },
+                )
+              : false,
+          )
+        }
       >
         {/* Fills the shell's main (whatever renders above it, e.g. the demo
             banner); the board and both panels scroll on their own. */}
@@ -371,6 +437,29 @@ export function PlanScreen() {
                   : patcher.error.message}
             </Toast>
           )}
+          {dismissal.error && (
+            <Toast tone="danger" onDismiss={dismissal.clearError}>
+              {dismissal.error}
+            </Toast>
+          )}
+          {dismissal.undoable && !dismissal.error && !patcher.error && (
+            <Toast onDismiss={dismissal.clearUndo}>
+              Note dismissed.{' '}
+              <button
+                ref={undoDismissRef}
+                type="button"
+                disabled={busy}
+                onClick={() => {
+                  refocusNotes.current = true
+                  void dismissal.undo()
+                }}
+                className="font-medium text-tr-sky underline disabled:opacity-50"
+              >
+                Undo
+              </button>
+            </Toast>
+          )}
+          <LeavePlanDialog {...leave.dialog} />
           <div className="flex min-h-0 flex-1 overflow-hidden">
             <StoryLayersPanel
               project={project}
@@ -386,8 +475,9 @@ export function PlanScreen() {
               episode={episode}
               selection={effectiveSelection}
               collapsedActs={collapsedActs}
-              pending={patcher.pending}
+              pending={busy}
               flaggedSceneIds={flaggedSceneIds}
+              draftSceneIds={drafts.dirtySceneIds}
               onSelectScene={selectScene}
               onOpenInWrite={(sceneId) => openInWrite(sceneId)}
               onReorder={handleReorder}
@@ -404,7 +494,7 @@ export function PlanScreen() {
                 }
                 ledger={ledger}
                 flags={openFlags}
-                pending={patcher.pending}
+                pending={busy}
                 openingReview={openingReview}
                 onBack={() => setSelection(null)}
                 onSelectScene={selectScene}
@@ -439,14 +529,43 @@ export function PlanScreen() {
                 onSuggest={suggest}
                 onOpenInWrite={(sceneId) => openInWrite(sceneId)}
                 onOpenBeatInWrite={openInWrite}
-                onOpenFact={openFact}
+                onOpenFact={navigateToLedgerFact}
+                noteCount={sceneNotes.length}
+                notes={(showBeat) => (
+                  <NotesStrip
+                    key={selectedScene.id}
+                    scene={selectedScene}
+                    notes={sceneNotes}
+                    scenes={episode.scenes}
+                    ledger={ledger}
+                    busy={busy}
+                    actLocked={episode.locked || selectedScene.locked || busy}
+                    onSelectScene={selectScene}
+                    onShowBeat={showBeat}
+                    onOpenInWrite={(beatId) =>
+                      openInWrite(selectedScene.id, beatId ?? undefined)
+                    }
+                    onOpenFact={navigateToLedgerFact}
+                    onDismiss={(flagId) => {
+                      refocusNotes.current = true
+                      void dismissal.dismiss(flagId)
+                    }}
+                    onChangeAct={() => {
+                      // Centred, or focus would scroll it under the sticky
+                      // panel header.
+                      const select = document.getElementById('plan-act-select')
+                      select?.scrollIntoView({ block: 'center' })
+                      select?.focus({ preventScroll: true })
+                    }}
+                  />
+                )}
                 onOpenLedger={() => navigateToMode('Ledger')}
               />
             ) : (
               <EpisodePanel
                 project={project}
                 episode={episode}
-                pending={patcher.pending}
+                pending={busy}
                 openingReview={openingReview}
                 onSaveEpisodePremise={(value) =>
                   saveEpisodePremise(episode.id, value)

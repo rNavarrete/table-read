@@ -195,6 +195,27 @@ describe('Board / SceneCard', () => {
     expect(screen.queryByTestId('consistency-flag-badge')).toBeNull()
   })
 
+  it('shows the coral unsaved dot only on cards with unsaved edits', () => {
+    const ep = episode([
+      scene({ id: 'scene-1' }),
+      scene({ id: 'scene-2', index: 1, location: 'INT. BACK ROOM' }),
+    ])
+    renderBoard({
+      project: project(ep),
+      episode: ep,
+      draftSceneIds: new Set(['scene-2']),
+    })
+    const dot = screen
+      .getByTestId('scene-card-scene-2')
+      .querySelector('[data-testid="unsaved-dot"]')
+    expect(dot?.getAttribute('aria-label')).toBe('Unsaved edits')
+    expect(
+      screen
+        .getByTestId('scene-card-scene-1')
+        .querySelector('[data-testid="unsaved-dot"]'),
+    ).toBeNull()
+  })
+
   it('clicking a scene card selects it', async () => {
     const user = userEvent.setup()
     const ep = episode([scene()])

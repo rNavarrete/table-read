@@ -7,38 +7,63 @@ import {
   within,
 } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import type { Episode, Project, Scene } from 'contract'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { ConsistencyFlag, Episode, Project, Scene } from 'contract'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { loadResume, saveResume } from '../projects/resumeContext'
 import { PlanScreen } from './PlanScreen'
 import { withBeatField } from './planTree'
 
 const {
   createChangeSetMock,
+  dismissConsistencyFlagMock,
   getConsistencyFlagsMock,
   getLedgerMock,
   getProjectMock,
+  navigateToReviewMock,
   patchProjectMock,
   suggestInstructionsMock,
+  undoProjectMock,
 } = vi.hoisted(() => ({
   createChangeSetMock: vi.fn(),
+  dismissConsistencyFlagMock: vi.fn(),
   getConsistencyFlagsMock: vi.fn(),
   getLedgerMock: vi.fn(),
   getProjectMock: vi.fn(),
+  navigateToReviewMock: vi.fn(),
   patchProjectMock: vi.fn(),
   suggestInstructionsMock: vi.fn(),
+  undoProjectMock: vi.fn(),
 }))
 
 vi.mock('../api/client', () => ({
   createChangeSet: createChangeSetMock,
+  dismissConsistencyFlag: dismissConsistencyFlagMock,
   exportFountain: vi.fn(),
   getConsistencyFlags: getConsistencyFlagsMock,
   getLedger: getLedgerMock,
   getProject: getProjectMock,
   patchProject: patchProjectMock,
   suggestInstructions: suggestInstructionsMock,
-  undoProject: vi.fn(),
+  undoProject: undoProjectMock,
 }))
+
+vi.mock('../review/changeSetSession', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../review/changeSetSession')>()),
+  navigateToReview: navigateToReviewMock,
+  stashChangeSet: vi.fn(),
+}))
+
+// jsdom 29 has no showModal/close (LeavePlanDialog).
+beforeEach(() => {
+  HTMLDialogElement.prototype.showModal = function showModal(
+    this: HTMLDialogElement,
+  ) {
+    this.open = true
+  }
+  HTMLDialogElement.prototype.close = function close(this: HTMLDialogElement) {
+    this.open = false
+  }
+})
 
 afterEach(() => {
   cleanup()
@@ -307,5 +332,456 @@ describe('PlanScreen', () => {
     expect(screen.getByTestId('inspector').className).toContain(
       'overflow-y-auto',
     )
+  })
+
+  const OPEN_FLAG: ConsistencyFlag = {
+    id: 'flag-1',
+    objectType: 'scene',
+    objectId: 'scene-1',
+    factId: null,
+    explanation: 'Scene 2 still has the money in the bar.',
+    severity: 'tension',
+    status: 'open',
+    sourceChange: 'snap-root',
+  }
+
+  function unloadPrevented(): boolean {
+    const event = new Event('beforeunload', { cancelable: true })
+    window.dispatchEvent(event)
+    return event.defaultPrevented
+  }
+
+  it('shows the scene note; Dismiss refetches the head and flags, and Undo brings the note back', async () => {
+    const user = userEvent.setup()
+    // Queued replies win over loadPlan's defaults: load, then the dismiss
+    // refetch, then the undo refetch.
+    getProjectMock
+      .mockResolvedValueOnce(project())
+      .mockResolvedValueOnce({ ...project(), headSnapshotId: 'snap-dismiss' })
+    getConsistencyFlagsMock
+      .mockResolvedValueOnce([OPEN_FLAG])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([OPEN_FLAG])
+    dismissConsistencyFlagMock.mockResolvedValue({
+      ...OPEN_FLAG,
+      status: 'dismissed',
+    })
+    undoProjectMock.mockResolvedValue(project())
+    await loadPlan()
+
+    const strip = await screen.findByTestId('notes-strip')
+    await user.click(within(strip).getByRole('button', { name: 'Show' }))
+    await user.click(
+      within(screen.getByTestId('note-flag-1')).getByRole('button', {
+        name: 'Dismiss',
+      }),
+    )
+
+    expect(dismissConsistencyFlagMock).toHaveBeenCalledWith('flag-1', {
+      expectedHeadSnapshotId: 'snap-root',
+    })
+    expect(await screen.findByText('Note dismissed.')).not.toBeNull()
+    expect(screen.queryByTestId('notes-strip')).toBeNull()
+
+    await user.click(
+      within(screen.getByTestId('toast')).getByRole('button', {
+        name: 'Undo',
+      }),
+    )
+    expect(undoProjectMock).toHaveBeenCalledWith('proj-longpour', {
+      expectedHeadSnapshotId: 'snap-dismiss',
+    })
+    expect(await screen.findByTestId('notes-strip')).not.toBeNull()
+    expect(screen.queryByText('Note dismissed.')).toBeNull()
+  })
+
+  it('a draft typed before a Dismiss is still there after its Undo', async () => {
+    const user = userEvent.setup()
+    getProjectMock
+      .mockResolvedValueOnce(project())
+      .mockResolvedValueOnce({ ...project(), headSnapshotId: 'snap-dismiss' })
+    getConsistencyFlagsMock
+      .mockResolvedValueOnce([OPEN_FLAG])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([OPEN_FLAG])
+    dismissConsistencyFlagMock.mockResolvedValue({
+      ...OPEN_FLAG,
+      status: 'dismissed',
+    })
+    undoProjectMock.mockResolvedValue(project())
+    const panel = await loadPlan()
+    await user.type(
+      within(panel).getByLabelText('Audience learns'),
+      'Dan has a second key.',
+    )
+
+    const strip = await screen.findByTestId('notes-strip')
+    await user.click(within(strip).getByRole('button', { name: 'Show' }))
+    await user.click(
+      within(screen.getByTestId('note-flag-1')).getByRole('button', {
+        name: 'Dismiss',
+      }),
+    )
+    await user.click(
+      within(await screen.findByTestId('toast')).getByRole('button', {
+        name: 'Undo',
+      }),
+    )
+
+    expect(await screen.findByTestId('notes-strip')).not.toBeNull()
+    expect(
+      (within(panel).getByLabelText('Audience learns') as HTMLTextAreaElement)
+        .value,
+    ).toBe('Dan has a second key.')
+    expect(within(panel).getByTestId('unsaved-chip')).not.toBeNull()
+  })
+
+  it('leaving Plan with an unsaved edit asks first, and Stay keeps the edit', async () => {
+    const user = userEvent.setup()
+    const panel = await loadPlan()
+    await user.type(
+      within(panel).getByLabelText('Audience learns'),
+      'Dan has a second key.',
+    )
+
+    await user.click(screen.getByRole('tab', { name: 'Write' }))
+    const dialog = screen.getByTestId('leave-plan-dialog') as HTMLDialogElement
+    expect(dialog.open).toBe(true)
+    expect(unloadPrevented()).toBe(true)
+
+    await user.click(
+      within(dialog).getByRole('button', { name: 'Stay in Plan' }),
+    )
+    expect(dialog.open).toBe(false)
+    expect(window.location.pathname).toBe('/plan')
+    expect(
+      (within(panel).getByLabelText('Audience learns') as HTMLTextAreaElement)
+        .value,
+    ).toBe('Dan has a second key.')
+  })
+
+  it('Open Review sends its own draft without asking and leaves no unload prompt behind', async () => {
+    const user = userEvent.setup()
+    createChangeSetMock.mockResolvedValue({ id: 'cs-1' })
+    const panel = await loadPlan()
+    const whatHappens = within(panel).getByLabelText('What happens')
+    await user.clear(whatHappens)
+    await user.type(whatHappens, 'Marta comes home for good.')
+
+    await user.click(within(panel).getByRole('button', { name: 'Open Review' }))
+
+    await waitFor(() =>
+      expect(navigateToReviewMock).toHaveBeenCalledWith(
+        'proj-longpour',
+        'cs-1',
+      ),
+    )
+    expect(createChangeSetMock).toHaveBeenCalledWith('proj-longpour', {
+      targetObjectId: 'scene-1',
+      instruction: 'Marta comes home for good.',
+    })
+    expect(
+      (screen.getByTestId('leave-plan-dialog') as HTMLDialogElement).open,
+    ).toBe(false)
+    expect(unloadPrevented()).toBe(false)
+  })
+
+  it('Open Review with another unsaved field asks first; Stay sends nothing', async () => {
+    const user = userEvent.setup()
+    const panel = await loadPlan()
+    await user.type(
+      within(panel).getByLabelText('Audience learns'),
+      'Dan has a second key.',
+    )
+    const whatHappens = within(panel).getByLabelText('What happens')
+    await user.clear(whatHappens)
+    await user.type(whatHappens, 'Marta comes home for good.')
+
+    await user.click(within(panel).getByRole('button', { name: 'Open Review' }))
+    const dialog = screen.getByTestId('leave-plan-dialog') as HTMLDialogElement
+    await waitFor(() => expect(dialog.open).toBe(true))
+    await user.click(
+      within(dialog).getByRole('button', { name: 'Stay in Plan' }),
+    )
+
+    expect(createChangeSetMock).not.toHaveBeenCalled()
+    expect(
+      (within(panel).getByLabelText('What happens') as HTMLTextAreaElement)
+        .value,
+    ).toBe('Marta comes home for good.')
+  })
+
+  it('a field save right after a dismiss sends the head the dismiss left, not the stale one', async () => {
+    const user = userEvent.setup()
+    getProjectMock
+      .mockResolvedValueOnce(project())
+      .mockResolvedValueOnce({ ...project(), headSnapshotId: 'snap-dismiss' })
+    getConsistencyFlagsMock
+      .mockResolvedValueOnce([OPEN_FLAG])
+      .mockResolvedValueOnce([])
+    dismissConsistencyFlagMock.mockResolvedValue({
+      ...OPEN_FLAG,
+      status: 'dismissed',
+    })
+    patchProjectMock.mockResolvedValue({
+      project: { ...project(), headSnapshotId: 'snap-save' },
+      consistencyFlags: [],
+    })
+    const panel = await loadPlan()
+
+    const strip = await screen.findByTestId('notes-strip')
+    await user.click(within(strip).getByRole('button', { name: 'Show' }))
+    await user.click(
+      within(screen.getByTestId('note-flag-1')).getByRole('button', {
+        name: 'Dismiss',
+      }),
+    )
+    expect(await screen.findByText('Note dismissed.')).not.toBeNull()
+
+    await user.type(
+      within(panel).getByLabelText('Audience learns'),
+      'Dan has a second key.',
+    )
+    await user.click(within(panel).getByRole('button', { name: 'Save' }))
+
+    await waitFor(() =>
+      expect(patchProjectMock).toHaveBeenCalledWith(
+        'proj-longpour',
+        expect.any(Array),
+        { expectedHeadSnapshotId: 'snap-dismiss' },
+      ),
+    )
+  })
+
+  it('a locked scene still shows its notes, and Dismiss stays available', async () => {
+    const user = userEvent.setup()
+    const p = project()
+    p.seasons[0].episodes[0].scenes[0].locked = true
+    getConsistencyFlagsMock.mockResolvedValueOnce([OPEN_FLAG])
+    const panel = await loadPlan(p)
+
+    expect(
+      within(panel).getByText(
+        'Locked — unlock to edit. Review will never change this scene.',
+      ),
+    ).not.toBeNull()
+    const strip = await screen.findByTestId('notes-strip')
+    await user.click(within(strip).getByRole('button', { name: 'Show' }))
+    const dismiss = within(screen.getByTestId('note-flag-1')).getByRole(
+      'button',
+      { name: 'Dismiss' },
+    ) as HTMLButtonElement
+    expect(dismiss.disabled).toBe(false)
+  })
+
+  it('double-clicking a card with an unsaved edit asks before opening Write', async () => {
+    const user = userEvent.setup()
+    const panel = await loadPlan()
+    await user.type(
+      within(panel).getByLabelText('Audience learns'),
+      'Dan has a second key.',
+    )
+
+    await user.dblClick(screen.getByTestId('scene-card-scene-2'))
+    const dialog = screen.getByTestId('leave-plan-dialog') as HTMLDialogElement
+    await waitFor(() => expect(dialog.open).toBe(true))
+    await user.click(
+      within(dialog).getByRole('button', { name: 'Stay in Plan' }),
+    )
+
+    expect(dialog.open).toBe(false)
+    expect(loadResume('proj-longpour').mode).toBe('Plan')
+  })
+
+  it('shell Undo with an unsaved edit asks first; Stay sends no undo', async () => {
+    const user = userEvent.setup()
+    const panel = await loadPlan()
+    await user.type(
+      within(panel).getByLabelText('Audience learns'),
+      'Dan has a second key.',
+    )
+
+    await user.click(screen.getByTestId('undo-button'))
+    const dialog = screen.getByTestId('leave-plan-dialog') as HTMLDialogElement
+    await waitFor(() => expect(dialog.open).toBe(true))
+    await user.click(
+      within(dialog).getByRole('button', { name: 'Stay in Plan' }),
+    )
+
+    expect(undoProjectMock).not.toHaveBeenCalled()
+    expect(
+      (within(panel).getByLabelText('Audience learns') as HTMLTextAreaElement)
+        .value,
+    ).toBe('Dan has a second key.')
+  })
+  function failing<T>() {
+    let reject!: (err: Error) => void
+    const promise = new Promise<T>((_, rej) => {
+      reject = rej
+    })
+    return { promise, reject }
+  }
+
+  const value = (panel: HTMLElement, label: string) =>
+    (within(panel).getByLabelText(label) as HTMLTextAreaElement).value
+
+  it('while Open Review is in flight the whole panel waits, so no new draft can block the way to Review', async () => {
+    const user = userEvent.setup()
+    const reply = deferred<{ id: string }>()
+    createChangeSetMock.mockReturnValue(reply.promise)
+    const panel = await loadPlan()
+    const whatHappens = within(panel).getByLabelText('What happens')
+    await user.clear(whatHappens)
+    await user.type(whatHappens, 'Marta comes home for good.')
+    await user.click(within(panel).getByRole('button', { name: 'Open Review' }))
+
+    expect(
+      (within(panel).getByLabelText('Audience learns') as HTMLTextAreaElement)
+        .disabled,
+    ).toBe(true)
+    expect(
+      (within(panel).getByTestId('lock-toggle') as HTMLButtonElement).disabled,
+    ).toBe(true)
+    // Opening, not saving.
+    expect(
+      within(panel).getByRole('button', { name: 'Save field only' }),
+    ).not.toBeNull()
+
+    reply.resolve({ id: 'cs-1' })
+    await waitFor(() => expect(navigateToReviewMock).toHaveBeenCalled())
+  })
+
+  it('Discard and leave, then a failed Open Review: every draft comes back, and the sent text never left the box', async () => {
+    const user = userEvent.setup()
+    const reply = failing<{ id: string }>()
+    createChangeSetMock.mockReturnValue(reply.promise)
+    const panel = await loadPlan()
+    await user.type(
+      within(panel).getByLabelText('Audience learns'),
+      'Dan has a second key.',
+    )
+    const whatHappens = within(panel).getByLabelText('What happens')
+    await user.clear(whatHappens)
+    await user.type(whatHappens, 'Marta comes home for good.')
+
+    await user.click(within(panel).getByRole('button', { name: 'Open Review' }))
+    const dialog = screen.getByTestId('leave-plan-dialog') as HTMLDialogElement
+    await waitFor(() => expect(dialog.open).toBe(true))
+    await user.click(
+      within(dialog).getByRole('button', { name: 'Discard and leave' }),
+    )
+    await waitFor(() => expect(createChangeSetMock).toHaveBeenCalled())
+    expect(value(panel, 'What happens')).toBe('Marta comes home for good.')
+
+    reply.reject(new Error('review is down'))
+    expect(await screen.findByText('review is down')).not.toBeNull()
+    expect(value(panel, 'Audience learns')).toBe('Dan has a second key.')
+    expect(value(panel, 'What happens')).toBe('Marta comes home for good.')
+  })
+
+  it('Discard and leave, then a failed shell Undo: the drafts come back', async () => {
+    const user = userEvent.setup()
+    undoProjectMock.mockRejectedValue(new Error('Nothing to undo'))
+    const panel = await loadPlan()
+    await user.type(
+      within(panel).getByLabelText('Audience learns'),
+      'Dan has a second key.',
+    )
+
+    await user.click(screen.getByTestId('undo-button'))
+    const dialog = screen.getByTestId('leave-plan-dialog') as HTMLDialogElement
+    await waitFor(() => expect(dialog.open).toBe(true))
+    await user.click(
+      within(dialog).getByRole('button', { name: 'Discard and leave' }),
+    )
+
+    expect(await screen.findByText('Nothing to undo')).not.toBeNull()
+    expect(value(panel, 'Audience learns')).toBe('Dan has a second key.')
+  })
+
+  it('the top-bar Undo waits while a dismiss is in flight', async () => {
+    const user = userEvent.setup()
+    const request = deferred<ConsistencyFlag>()
+    dismissConsistencyFlagMock.mockReturnValue(request.promise)
+    getConsistencyFlagsMock
+      .mockResolvedValueOnce([OPEN_FLAG])
+      .mockResolvedValueOnce([])
+    await loadPlan()
+    const undo = screen.getByTestId('undo-button') as HTMLButtonElement
+    expect(undo.disabled).toBe(false)
+
+    const strip = await screen.findByTestId('notes-strip')
+    await user.click(within(strip).getByRole('button', { name: 'Show' }))
+    await user.click(
+      within(screen.getByTestId('note-flag-1')).getByRole('button', {
+        name: 'Dismiss',
+      }),
+    )
+    expect(undo.disabled).toBe(true)
+
+    request.resolve({ ...OPEN_FLAG, status: 'dismissed' })
+    await waitFor(() => expect(undo.disabled).toBe(false))
+  })
+
+  it('Dismiss lands focus on the toast Undo when the strip goes; Undo lands it on the strip again', async () => {
+    const user = userEvent.setup()
+    getProjectMock
+      .mockResolvedValueOnce(project())
+      .mockResolvedValueOnce({ ...project(), headSnapshotId: 'snap-dismiss' })
+    getConsistencyFlagsMock
+      .mockResolvedValueOnce([OPEN_FLAG])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([OPEN_FLAG])
+    dismissConsistencyFlagMock.mockResolvedValue({
+      ...OPEN_FLAG,
+      status: 'dismissed',
+    })
+    undoProjectMock.mockResolvedValue(project())
+    await loadPlan()
+
+    const strip = await screen.findByTestId('notes-strip')
+    await user.click(within(strip).getByRole('button', { name: 'Show' }))
+    await user.click(
+      within(screen.getByTestId('note-flag-1')).getByRole('button', {
+        name: 'Dismiss',
+      }),
+    )
+    const undo = within(await screen.findByTestId('toast')).getByRole(
+      'button',
+      { name: 'Undo' },
+    )
+    await waitFor(() => expect(document.activeElement).toBe(undo))
+
+    await user.click(undo)
+    const back = await screen.findByTestId('notes-strip')
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        within(back).getByRole('button', { name: /^(Show|Hide)$/ }),
+      ),
+    )
+  })
+
+  it('Change the act scrolls the Act select clear of the sticky header, then focuses it', async () => {
+    const user = userEvent.setup()
+    getConsistencyFlagsMock.mockResolvedValueOnce([
+      {
+        ...OPEN_FLAG,
+        explanation: 'The act structure puts this scene in the wrong act.',
+      },
+    ])
+    const scrollIntoView = vi
+      .spyOn(Element.prototype, 'scrollIntoView')
+      .mockImplementation(() => {})
+    await loadPlan()
+    const strip = await screen.findByTestId('notes-strip')
+    await user.click(within(strip).getByRole('button', { name: 'Show' }))
+    const select = screen.getByRole('combobox', { name: 'Act' })
+    const focus = vi.spyOn(select, 'focus')
+
+    await user.click(screen.getByRole('button', { name: 'Change the act' }))
+
+    expect(scrollIntoView.mock.contexts).toContain(select)
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: 'center' })
+    expect(focus).toHaveBeenCalledWith({ preventScroll: true })
   })
 })
