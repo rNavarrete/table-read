@@ -4,13 +4,16 @@ import type {
   ConsistencyFlag,
   Episode,
   LedgerFact,
+  Project,
   Scene,
   Secret,
   StoryOverviewBeatItem,
   StoryThread,
 } from 'contract'
+import { tvActStages } from '../ledger/structure/tvActStructure'
+import { plural } from '../projects/wizard/board/boardText'
 import { parseFountainLines } from '../write/fountainFormat'
-import { affectedFacts } from './planTree'
+import { actLabel, actNumbersForBoard, affectedFacts } from './planTree'
 
 // Every pure derivation the Plan panel reads (redesign spec §6: one module,
 // unit-tested). Missing arrays read as empty everywhere: PATCH returns the
@@ -55,7 +58,7 @@ export interface PlanNote {
 
 /** Open flags on this scene or one of its beats: story notes first, then
  * import notes, each group in beat order (scene-level first). A flag on a beat
- * this scene doesn't have is dropped, as in flaggedScenes.ts. */
+ * this scene doesn't have is dropped. */
 export function notesForScene(
   flags: readonly ConsistencyFlag[],
   scene: Scene,
@@ -341,4 +344,290 @@ export function factsForScene(
     else retired.push(fact)
   }
   return { shown, retired }
+}
+
+// ── Board ───────────────────────────────────────────────────────────────
+
+export type TapeTone = 'sky' | 'amber' | 'secret' | 'accent'
+/** The one strip of tape above a card (spec §4.2). */
+export interface CardTape {
+  text: string
+  tone: TapeTone
+}
+export type BeatTick = 'story' | 'import' | 'plain'
+
+export interface SceneSignals {
+  scene: Scene
+  /** The card number: scene.index + 1. */
+  number: number
+  /** placeTitle(scene) */
+  place: string
+  /** notesForScene(...) split by kind, each in beat order */
+  storyNotes: PlanNote[]
+  importNotes: PlanNote[]
+  /** One per beat in index order, at most 12; a story note wins over an import note. */
+  ticks: BeatTick[]
+  /** Set up here and paid off in another scene, or never. Abandoned threads
+   * never count (here or anywhere below). */
+  setsUp: StoryThread[]
+  /** Paid off here, set up in another scene of this episode (a missing setup
+   * scene doesn't count). */
+  paysOff: StoryThread[]
+  /** One of setsUp has no payoff scene in this episode. */
+  neverPaidOff: boolean
+  /** The first secret touching this scene (secretsForScene order), or null. */
+  secret: SceneSecret['role'] | null
+  /** The marked (tvActStages 'hit') landmark label placed on this scene, e.g. "Act One Turn". */
+  landmark: string | null
+  /** The last scene of its act on the board. */
+  actOut: boolean
+  /** Character ids from dialogue cues or a recorded want, bible order. */
+  castIds: string[]
+  /** Character ids with a recorded want (scene.motivations), in that order. */
+  wantIds: string[]
+  /** Sum of the scene's beat scriptText lengths. */
+  scriptLength: number
+}
+
+export interface ActLandmark {
+  label: string
+  short: string
+  sceneId: string
+  number: number
+}
+export interface ActSplitNote {
+  sceneId: string
+  number: number
+  text: string
+}
+
+export interface ActSummary {
+  act: number
+  /** actLabel(act, format) */
+  label: string
+  /** board order */
+  scenes: Scene[]
+  /** This act's share of the episode's script text; null when the episode has none. */
+  share: number | null
+  /** Threads whose setup scene is in this act. */
+  setUp: number
+  /** Threads paid off in this act and set up in another scene of this episode. */
+  paidOff: number
+  /** Marked only; short = label without "Act One ". */
+  landmarks: ActLandmark[]
+  actOutSceneId: string | null
+  actSplitNotes: ActSplitNote[]
+}
+
+export interface BoardModel {
+  /** boardOrder(episode.scenes) */
+  order: Scene[]
+  signals: ReadonlyMap<string, SceneSignals>
+  /** One per actNumbersForBoard(format, scenes). */
+  acts: ActSummary[]
+  /** episode.threads ?? [] */
+  threads: StoryThread[]
+  /** project.seriesBible.characters */
+  characters: Character[]
+  hasScript: boolean
+  hasThreads: boolean
+}
+
+/** Beat-sheet landmarks tvActStages marks ('hit'), placed on a scene by the
+ * row's scene id, or through its beat when the scene id is missing or stale. */
+function markedLandmarks(
+  project: Project,
+  episode: Episode,
+): { label: string; sceneId: string }[] {
+  const ids = new Set(episode.scenes.map((s) => s.id))
+  const sceneOfBeat = new Map(
+    episode.scenes.flatMap((s) => s.beats.map((b) => [b.id, s.id] as const)),
+  )
+  return (tvActStages(project.format, episode.storyOverview) ?? []).flatMap(
+    (stage) => {
+      if (stage.status !== 'hit') return []
+      const sceneId =
+        stage.sceneId && ids.has(stage.sceneId)
+          ? stage.sceneId
+          : stage.beatId
+            ? sceneOfBeat.get(stage.beatId)
+            : undefined
+      return sceneId ? [{ label: stage.label, sceneId }] : []
+    },
+  )
+}
+
+/** Everything the board, act headers, highlight bar and Episode view read,
+ * derived once per project/flags change (PlanScreen memoizes it). */
+export function boardModel(
+  project: Project,
+  episode: Episode,
+  flags: readonly ConsistencyFlag[],
+): BoardModel {
+  const order = boardOrder(episode.scenes)
+  const ids = new Set(order.map((s) => s.id))
+  const characters = project.seriesBible.characters
+  const threads = episode.threads ?? []
+  const live = threads.filter((t) => t.status !== 'abandoned')
+  const marked = markedLandmarks(project, episode)
+
+  const list = order.map((scene, i): SceneSignals => {
+    const notes = notesForScene(flags, scene)
+    const storyNotes = notes.filter((n) => n.kind !== 'import')
+    const importNotes = notes.filter((n) => n.kind === 'import')
+    const onBeat = (group: PlanNote[], beatId: string) =>
+      group.some((n) => n.beat?.id === beatId)
+    const setsUp = live.filter(
+      (t) => t.setupSceneId === scene.id && t.payoffSceneId !== scene.id,
+    )
+    const wantIds = [...new Set(scene.motivations.map((m) => m.characterId))]
+    const cued = new Set(castFromDialogue(scene, characters).map((c) => c.id))
+    return {
+      scene,
+      number: scene.index + 1,
+      place: placeTitle(scene),
+      storyNotes,
+      importNotes,
+      ticks: [...scene.beats]
+        .sort((a, b) => a.index - b.index)
+        .slice(0, 12)
+        .map((b) =>
+          onBeat(storyNotes, b.id)
+            ? 'story'
+            : onBeat(importNotes, b.id)
+              ? 'import'
+              : 'plain',
+        ),
+      setsUp,
+      paysOff: live.filter(
+        (t) =>
+          t.payoffSceneId === scene.id &&
+          t.setupSceneId !== scene.id &&
+          ids.has(t.setupSceneId),
+      ),
+      neverPaidOff: setsUp.some((t) => !ids.has(t.payoffSceneId ?? '')),
+      secret: secretsForScene(episode, scene.id, new Set())[0]?.role ?? null,
+      landmark: marked.find((m) => m.sceneId === scene.id)?.label ?? null,
+      actOut: order[i + 1]?.act !== scene.act,
+      castIds: characters
+        .filter((c) => cued.has(c.id) || wantIds.includes(c.id))
+        .map((c) => c.id),
+      wantIds,
+      scriptLength: scene.beats.reduce(
+        (n, b) => n + (b.scriptText ?? '').length,
+        0,
+      ),
+    }
+  })
+
+  const sum = (rows: SceneSignals[], count: (s: SceneSignals) => number) =>
+    rows.reduce((n, s) => n + count(s), 0)
+  const total = sum(list, (s) => s.scriptLength)
+  const acts = actNumbersForBoard(project.format, order).map(
+    (act): ActSummary => {
+      const inAct = list.filter((s) => s.scene.act === act)
+      return {
+        act,
+        label: actLabel(act, project.format),
+        scenes: inAct.map((s) => s.scene),
+        share: total ? sum(inAct, (s) => s.scriptLength) / total : null,
+        setUp: sum(inAct, (s) => s.setsUp.length),
+        paidOff: sum(inAct, (s) => s.paysOff.length),
+        landmarks: inAct.flatMap((s) =>
+          marked
+            .filter((m) => m.sceneId === s.scene.id)
+            .map((m) => ({
+              ...m,
+              short: m.label.replace(/^Act \w+ /, ''),
+              number: s.number,
+            })),
+        ),
+        actOutSceneId: inAct.at(-1)?.scene.id ?? null,
+        actSplitNotes: inAct.flatMap((s) =>
+          s.storyNotes
+            .filter((n) => n.kind === 'act_split')
+            .map((n) => ({
+              sceneId: s.scene.id,
+              number: s.number,
+              text: noteSentence(n, s.scene, order),
+            })),
+        ),
+      }
+    },
+  )
+
+  return {
+    order,
+    signals: new Map(list.map((s) => [s.scene.id, s])),
+    acts,
+    threads,
+    characters,
+    hasScript: total > 0,
+    hasThreads: threads.length > 0,
+  }
+}
+
+/** "TURN" for a marked turn, else "ACT OUT" for an act's last scene, else null. */
+export function cardTag(signals: SceneSignals): 'TURN' | 'ACT OUT' | null {
+  return / Turn$/.test(signals.landmark ?? '')
+    ? 'TURN'
+    : signals.actOut
+      ? 'ACT OUT'
+      : null
+}
+
+/** How a card relates to the selected scene through a thread (spec §4.2):
+ * "↘ pays off n" / "↗ sets up n" (n = the selected scene's number), sky;
+ * null otherwise. */
+export function relationTape(
+  model: BoardModel,
+  selectedSceneId: string | null,
+  sceneId: string,
+): CardTape | null {
+  const selected = selectedSceneId
+    ? model.signals.get(selectedSceneId)
+    : undefined
+  if (!selected || sceneId === selectedSceneId) return null
+  if (selected.setsUp.some((t) => t.payoffSceneId === sceneId))
+    return { text: `↘ pays off ${selected.number}`, tone: 'sky' }
+  if (selected.paysOff.some((t) => t.setupSceneId === sceneId))
+    return { text: `↗ sets up ${selected.number}`, tone: 'sky' }
+  return null
+}
+
+/** One plain sentence for a note: an import note's importNoteText, else the
+ * first sentence of the explanation with scene/fact references as plain text. */
+export function noteSentence(
+  note: PlanNote,
+  scene: Scene,
+  scenes: readonly Scene[],
+): string {
+  if (note.kind === 'import')
+    return importNoteText(
+      note.flag,
+      note.beat ? `${scene.index + 1}.${note.beat.index + 1}` : null,
+    )
+  const text = linkifyNote(note.flag.explanation, scenes, [])
+    .map((s) => s.text)
+    .join('')
+    .trim()
+  // ponytail: first sentence = up to the first . ! or ? followed by a space or
+  // the end; abbreviations ("Mr.") cut early. Fine for a one-line summary; the
+  // full text is one click away.
+  return /^.*?[.!?](?=\s|$)/s.exec(text)?.[0] ?? text
+}
+
+/** "Scene 3, The Long Pour - Bar, locked. 2 notes, 1 from the import." (spec §4.10) */
+export function selectionAnnouncement(
+  signals: SceneSignals,
+  locked: boolean,
+): string {
+  const notes = signals.storyNotes.length + signals.importNotes.length
+  const imported = signals.importNotes.length
+  const noteText = !notes
+    ? 'No notes'
+    : imported
+      ? `${plural(notes, 'note')}, ${imported} from the import`
+      : plural(notes, 'note')
+  return `Scene ${signals.number}, ${signals.place}${locked ? ', locked' : ''}. ${noteText}.`
 }
