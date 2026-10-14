@@ -155,12 +155,13 @@ def _get_change_set_row(session, change_set_id: str) -> ChangeSetRow:
 
 
 def _compact_episode_plan(doc: dict) -> dict:
-    """Compact episode plan for §3: scene/beat plan fields only (no scriptText)."""
+    """Compact episode plan for §3: scene/beat plan fields only (no scriptText),
+    scenes in story order."""
     episodes = []
     for season in doc.get("seasons", []):
         for episode in season.get("episodes", []):
             scenes = []
-            for scene in episode.get("scenes", []):
+            for scene in locks.scenes_in_story_order(episode):
                 scenes.append(
                     {
                         "id": scene["id"],
@@ -773,19 +774,18 @@ def _resolve_approved_regenerate_targets(
 
 
 def _neighbor_scene_summaries(doc: dict, regenerate_ids: set[str]) -> list[dict]:
-    """Plan summaries of scenes that are *not* being regenerated (§4)."""
-    out: list[dict] = []
-    for _episode, scene in locks._iter_scenes(doc):
-        if scene["id"] in regenerate_ids:
-            continue
-        out.append(
-            {
-                "id": scene["id"],
-                "location": scene.get("location", ""),
-                "whatHappens": scene.get("whatHappens", ""),
-            }
-        )
-    return out
+    """Plan summaries of scenes that are *not* being regenerated (§4), in
+    story order."""
+    return [
+        {
+            "id": scene["id"],
+            "location": scene.get("location", ""),
+            "whatHappens": scene.get("whatHappens", ""),
+        }
+        for episode in locks._iter_episodes(doc)
+        for scene in locks.scenes_in_story_order(episode)
+        if scene["id"] not in regenerate_ids
+    ]
 
 
 def _locked_siblings_for_regenerate(doc: dict, regenerate_ids: set[str]) -> list[dict]:
@@ -1203,15 +1203,7 @@ def apply_change_set(
             ),
         )
     ]
-    untouched = [
-        {
-            "id": s["id"],
-            "location": s.get("location", ""),
-            "whatHappens": s.get("whatHappens", ""),
-        }
-        for _e, s in locks._iter_scenes(new_doc)
-        if s["id"] not in changed_ids
-    ]
+    untouched = scan.untouched_scene_plans(new_doc, changed_ids)
     change_summary = {
         "kind": "change_set_apply",
         "changeSetId": change_set_id,

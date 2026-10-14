@@ -185,10 +185,7 @@ def run_accept(
             new_ledger, RelevanceContext(scene_id=scene_id, characters_in_scene=all_character_ids)
         )
     ]
-    untouched = [
-        {"id": s["id"], "location": s.get("location", ""), "whatHappens": s.get("whatHappens", "")}
-        for _e, s in locks._iter_scenes(new_doc)
-    ]
+    untouched = scan.untouched_scene_plans(new_doc)
     change_summary = {
         "beatId": new_beat["id"],
         "sceneId": scene_id,

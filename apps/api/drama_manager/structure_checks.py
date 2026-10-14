@@ -13,7 +13,7 @@ import logging
 from collections import Counter
 from datetime import UTC, datetime
 
-from drama_manager import render
+from drama_manager import locks, render
 
 # ponytail: move with step 4's Story Map deletion
 from drama_manager.narrative_map import _evidence_quote
@@ -48,12 +48,9 @@ def _episode(doc: dict) -> dict | None:
 def _ordered_scenes(episode: dict) -> list[dict]:
     """Scenes by (act, index), beats by index: the order the writer sees. Plan's
     drag-reorder rewrites `index`/`act` and leaves the stored array alone."""
-    scenes = sorted(
-        episode.get("scenes") or [], key=lambda s: (s.get("act") or 0, s.get("index") or 0)
-    )
     return [
         {**s, "beats": sorted(s.get("beats") or [], key=lambda b: b.get("index") or 0)}
-        for s in scenes
+        for s in locks.scenes_in_story_order(episode)
     ]
 
 

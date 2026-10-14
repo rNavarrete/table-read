@@ -72,6 +72,18 @@ def build_consistency_flags(
     return out
 
 
+def untouched_scene_plans(doc: dict, skip: set[str] | frozenset[str] = frozenset()) -> list[dict]:
+    """The §8c `scene_plans` block: every scene not in `skip`, as
+    {id, location, whatHappens}, in story order (the scan reads "another
+    scene" in the order the episode plays)."""
+    return [
+        {"id": s["id"], "location": s.get("location", ""), "whatHappens": s.get("whatHappens", "")}
+        for e in locks._iter_episodes(doc)
+        for s in locks.scenes_in_story_order(e)
+        if s["id"] not in skip
+    ]
+
+
 def _structural_values(doc: dict) -> dict:
     """The §4 structural plan fields, keyed for a cheap old-vs-new comparison:
     scene `whatHappens`, project + episode `premise`, and storyline summaries."""
@@ -150,10 +162,7 @@ def run_direct_edit_scan(
             RelevanceContext(scene_id=context_scene, characters_in_scene=all_character_ids),
         )
     ]
-    untouched = [
-        {"id": s["id"], "location": s.get("location", ""), "whatHappens": s.get("whatHappens", "")}
-        for _e, s in locks._iter_scenes(new_doc)
-    ]
+    untouched = untouched_scene_plans(new_doc)
     change_summary = {"kind": "direct structural edit", "sceneIds": sorted(changed_ids)}
     system, user = render.build_scan_prompt(
         new_doc, change_summary, untouched, scan_facts, characters, render.new_nonce()

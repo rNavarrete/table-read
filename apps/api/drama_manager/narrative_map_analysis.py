@@ -13,6 +13,7 @@ import json
 import re
 from dataclasses import dataclass
 
+from drama_manager.locks import scenes_in_story_order
 from drama_manager.narrative_map import is_usable_analysis_text, scene_has_no_source
 from schemas import (
     InferredNarrativeMap,
@@ -142,7 +143,7 @@ def _canonical_source_payload(doc: dict, episode: dict, known_cast: list[dict]) 
                     for beat in scene.get("beats") or []
                 ],
             }
-            for scene in episode.get("scenes") or []
+            for scene in scenes_in_story_order(episode)
         ],
     }
 
@@ -195,7 +196,7 @@ def prepare_narrative_map_source(doc: dict) -> NarrativeMapSource:
     semantic_fields = 0
     populated_semantic_fields = 0
     stub_scene_ids: list[str] = []
-    for scene in episode.get("scenes") or []:
+    for scene in scenes_in_story_order(episode):
         scene_id = scene.get("id")
         beats = scene.get("beats") or []
         if not scene_id:
