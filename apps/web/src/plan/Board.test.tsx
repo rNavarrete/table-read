@@ -408,6 +408,38 @@ describe('Board', () => {
     expect(onMoveToAct).not.toHaveBeenCalled()
   })
 
+  it('over a target whose insert would shift a locked scene: the amber reason, no bar, and the drop is refused', () => {
+    const onMove = vi.fn()
+    const predict = vi.fn(() => ({ blockedBy: 'scene-3' }))
+    const { container } = renderBoard({ predict, onMove })
+
+    fireEvent.dragStart(card('scene-2'), { dataTransfer: dt() })
+    const notPrevented = fireEvent.dragOver(card('scene-4'), {
+      dataTransfer: dt(),
+    })
+    const tape = card('scene-4').querySelector('[data-tape]')
+    expect(tape?.textContent).toBe("Can't move past scene 3: it's locked")
+    expect(tape?.className).toContain('bg-tr-amber')
+    expect(card('scene-4').className).toContain('ring-tr-amber')
+    expect(container.querySelector('[data-insert-bar]')).toBeNull()
+    // Not prevented: the browser shows "not allowed" and never drops.
+    expect(notPrevented).toBe(true)
+    fireEvent.drop(card('scene-4'), { dataTransfer: dt() })
+    expect(onMove).not.toHaveBeenCalled()
+
+    // An empty act: the same reason in its box, an amber frame, no drop.
+    const frame = screen.getByTestId('act-frame-4')
+    const empty = within(frame).getByText(/^No scenes yet/)
+    fireEvent.dragStart(card('scene-2'), { dataTransfer: dt() })
+    const emptyNotPrevented = fireEvent.dragOver(empty, { dataTransfer: dt() })
+    expect(empty.textContent).toBe("Can't move past scene 3: it's locked")
+    expect(empty.className).toContain('text-tr-amber')
+    expect(frame.className).toContain('inset-ring-tr-amber')
+    expect(emptyNotPrevented).toBe(true)
+    fireEvent.drop(empty, { dataTransfer: dt() })
+    expect(onMove).not.toHaveBeenCalled()
+  })
+
   it('exactly one card is a tab stop: the selected one, else the first', () => {
     const stops = (root: HTMLElement) =>
       [
