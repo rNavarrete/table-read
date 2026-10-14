@@ -869,6 +869,165 @@ describe('PlanScreen', () => {
     expect(value(panel, 'What happens')).toBe('Marta comes home for good.')
   })
 
+  const PREFILL =
+    'Fix this continuity note in scene 1 (The Long Pour): Scene 2 (Back Room) still has the money in the bar.'
+
+  /** Opens Draft a fix on OPEN_FLAG (scene-1); returns its note card. */
+  async function openFix(user: ReturnType<typeof userEvent.setup>) {
+    const strip = await screen.findByTestId('notes-strip')
+    await user.click(within(strip).getByRole('button', { name: 'Show' }))
+    const note = screen.getByTestId('note-flag-1')
+    await user.click(
+      within(note).getByRole('button', { name: 'Draft a fix in Review…' }),
+    )
+    return note
+  }
+
+  it('Draft a fix sends nothing until Open Review, then one create for the scene and Review', async () => {
+    const user = userEvent.setup()
+    createChangeSetMock.mockResolvedValue({ id: 'cs-1' })
+    getConsistencyFlagsMock.mockResolvedValueOnce([OPEN_FLAG])
+    await loadPlan()
+
+    const note = await openFix(user)
+    expect(value(note, 'Fix instruction')).toBe(PREFILL)
+    expect(createChangeSetMock).not.toHaveBeenCalled()
+    expect(suggestInstructionsMock).not.toHaveBeenCalled()
+
+    await user.type(
+      within(note).getByRole('textbox', { name: 'Fix instruction' }),
+      ' Keep the bar.',
+    )
+    await user.click(within(note).getByRole('button', { name: 'Open Review' }))
+
+    await waitFor(() =>
+      expect(navigateToReviewMock).toHaveBeenCalledWith(
+        'proj-longpour',
+        'cs-1',
+      ),
+    )
+    expect(createChangeSetMock).toHaveBeenCalledTimes(1)
+    expect(createChangeSetMock).toHaveBeenCalledWith('proj-longpour', {
+      targetObjectId: 'scene-1',
+      instruction: `${PREFILL} Keep the bar.`,
+    })
+    expect(
+      (screen.getByTestId('leave-plan-dialog') as HTMLDialogElement).open,
+    ).toBe(false)
+  })
+
+  it('while a drafted fix is on its way the strip waits: Opening…, Dismiss disabled', async () => {
+    const user = userEvent.setup()
+    const reply = deferred<{ id: string }>()
+    createChangeSetMock.mockReturnValue(reply.promise)
+    getConsistencyFlagsMock.mockResolvedValueOnce([OPEN_FLAG])
+    await loadPlan()
+
+    const note = await openFix(user)
+    await user.click(within(note).getByRole('button', { name: 'Open Review' }))
+
+    const button = (name: string) =>
+      within(note).getByRole('button', { name }) as HTMLButtonElement
+    expect(button('Opening…').disabled).toBe(true)
+    expect(button('Dismiss').disabled).toBe(true)
+
+    reply.resolve({ id: 'cs-1' })
+    await waitFor(() =>
+      expect(navigateToReviewMock).toHaveBeenCalledWith(
+        'proj-longpour',
+        'cs-1',
+      ),
+    )
+  })
+
+  it('a failed Draft a fix shows the error in the editor, keeps the edited text, and raises no toast', async () => {
+    const user = userEvent.setup()
+    const reply = failing<{ id: string }>()
+    createChangeSetMock.mockReturnValue(reply.promise)
+    getConsistencyFlagsMock.mockResolvedValueOnce([OPEN_FLAG])
+    await loadPlan()
+
+    const note = await openFix(user)
+    await user.type(
+      within(note).getByRole('textbox', { name: 'Fix instruction' }),
+      ' Keep the bar.',
+    )
+    await user.click(within(note).getByRole('button', { name: 'Open Review' }))
+    reply.reject(new Error('review is down'))
+
+    expect((await within(note).findByRole('alert')).textContent).toBe(
+      'review is down',
+    )
+    expect(value(note, 'Fix instruction')).toBe(`${PREFILL} Keep the bar.`)
+    expect(screen.queryByTestId('toast')).toBeNull()
+    expect(navigateToReviewMock).not.toHaveBeenCalled()
+  })
+
+  it('with an unsaved field, Draft a fix asks first; Stay sends nothing and keeps the editor', async () => {
+    const user = userEvent.setup()
+    getConsistencyFlagsMock.mockResolvedValueOnce([OPEN_FLAG])
+    const panel = await loadPlan()
+    await user.type(
+      within(panel).getByLabelText('Audience learns'),
+      'Dan has a second key.',
+    )
+
+    const note = await openFix(user)
+    await user.click(within(note).getByRole('button', { name: 'Open Review' }))
+    const dialog = screen.getByTestId('leave-plan-dialog') as HTMLDialogElement
+    await waitFor(() => expect(dialog.open).toBe(true))
+    await user.click(
+      within(dialog).getByRole('button', { name: 'Stay in Plan' }),
+    )
+
+    expect(createChangeSetMock).not.toHaveBeenCalled()
+    expect(value(note, 'Fix instruction')).toBe(PREFILL)
+    await waitFor(() =>
+      expect(
+        (
+          within(note).getByRole('button', {
+            name: 'Open Review',
+          }) as HTMLButtonElement
+        ).disabled,
+      ).toBe(false),
+    )
+    expect(value(panel, 'Audience learns')).toBe('Dan has a second key.')
+  })
+
+  it('Discard and leave, then a failed Draft a fix: the drafts come back and the error shows inline', async () => {
+    const user = userEvent.setup()
+    const reply = failing<{ id: string }>()
+    createChangeSetMock.mockReturnValue(reply.promise)
+    getConsistencyFlagsMock.mockResolvedValueOnce([OPEN_FLAG])
+    const panel = await loadPlan()
+    await user.type(
+      within(panel).getByLabelText('Audience learns'),
+      'Dan has a second key.',
+    )
+
+    const note = await openFix(user)
+    await user.click(within(note).getByRole('button', { name: 'Open Review' }))
+    const dialog = screen.getByTestId('leave-plan-dialog') as HTMLDialogElement
+    await waitFor(() => expect(dialog.open).toBe(true))
+    await user.click(
+      within(dialog).getByRole('button', { name: 'Discard and leave' }),
+    )
+    await waitFor(() =>
+      expect(createChangeSetMock).toHaveBeenCalledWith('proj-longpour', {
+        targetObjectId: 'scene-1',
+        instruction: PREFILL,
+      }),
+    )
+
+    reply.reject(new Error('review is down'))
+    expect((await within(note).findByRole('alert')).textContent).toBe(
+      'review is down',
+    )
+    expect(value(panel, 'Audience learns')).toBe('Dan has a second key.')
+    expect(value(note, 'Fix instruction')).toBe(PREFILL)
+    expect(screen.queryByTestId('toast')).toBeNull()
+  })
+
   it('Discard and leave, then a failed shell Undo: the drafts come back', async () => {
     const user = userEvent.setup()
     undoProjectMock.mockRejectedValue(new Error('Nothing to undo'))
