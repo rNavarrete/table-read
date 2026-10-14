@@ -1,9 +1,18 @@
 import { useRef, useState } from 'react'
-import type { KeyboardEvent } from 'react'
+import type { KeyboardEvent, ReactNode } from 'react'
+import type { Scene } from 'contract'
 import { plural } from '../projects/wizard/board/boardText'
 import { ActHeader } from './ActHeader'
 import { BoardCard } from './BoardCard'
-import { relationTape, type BoardModel } from './story'
+import {
+  HIGHLIGHT_TONE,
+  highlightTape,
+  matchesHighlight,
+  NO_HIGHLIGHT,
+  relationTape,
+  type BoardModel,
+  type Highlight,
+} from './story'
 
 export type PlanSelection =
   | { type: 'scene'; sceneId: string }
@@ -29,6 +38,15 @@ export interface BoardProps {
   onToggleAct: (act: number) => void
   /** Enter on the selected card: focus the panel heading. */
   onEnterPanel: () => void
+  /** Matches get a ring and a tape, the rest go quiet (spec §4.5). */
+  highlight?: Highlight
+  /** Fold the rest: each run of non-matches in an act becomes one stub. */
+  fold?: boolean
+  /** Run keys (first scene id) the writer opened. */
+  unfolded?: ReadonlySet<string>
+  onUnfold?: (key: string) => void
+  /** Rendered sticky at the top of the board's scroll area (the highlight bar). */
+  header?: ReactNode
 }
 
 type Box = Pick<DOMRect, 'top' | 'bottom' | 'left' | 'width'>
@@ -62,7 +80,40 @@ export function gridNeighbor(
     ).i
 }
 
-const NO_DRAFTS: ReadonlySet<string> = new Set()
+const EMPTY: ReadonlySet<string> = new Set()
+
+const FOCUS =
+  'focus-visible:outline focus-visible:outline-selected focus-visible:outline-offset-2 focus-visible:outline-tr-sky'
+
+type BoardItem =
+  | { type: 'card'; scene: Scene }
+  | { type: 'stub'; key: string; scenes: Scene[] }
+
+/** Each run of scenes `keep` rejects becomes one stub keyed by its first
+ * scene, unless the writer opened it. */
+function foldRuns(
+  scenes: readonly Scene[],
+  keep: (sceneId: string) => boolean,
+  unfolded: ReadonlySet<string>,
+): BoardItem[] {
+  const items: BoardItem[] = []
+  let run: Scene[] = []
+  const flush = () => {
+    if (run.length === 0) return
+    if (unfolded.has(run[0].id))
+      items.push(...run.map((scene) => ({ type: 'card' as const, scene })))
+    else items.push({ type: 'stub', key: run[0].id, scenes: run })
+    run = []
+  }
+  for (const scene of scenes) {
+    if (keep(scene.id)) {
+      flush()
+      items.push({ type: 'card', scene })
+    } else run.push(scene)
+  }
+  flush()
+  return items
+}
 
 /**
  * The Plan board (redesign spec §4.2–4.3): an act frame per board act with
@@ -79,13 +130,18 @@ export function Board({
   selection,
   collapsedActs,
   pending,
-  draftSceneIds = NO_DRAFTS,
+  draftSceneIds = EMPTY,
   onSelectScene,
   onOpenInWrite = () => {},
   onReorder,
   onMoveToAct,
   onToggleAct,
   onEnterPanel,
+  highlight = NO_HIGHLIGHT,
+  fold = false,
+  unfolded = EMPTY,
+  onUnfold = () => {},
+  header,
 }: BoardProps) {
   const rootRef = useRef<HTMLDivElement>(null)
   const [dragSourceId, setDragSourceId] = useState<string | null>(null)
@@ -94,10 +150,18 @@ export function Board({
   const [focusedId, setFocusedId] = useState<string | null>(null)
 
   const selectedId = selection?.sceneId ?? null
-  // DOM order of the visible cards.
-  const rendered = model.acts
-    .filter((a) => !collapsedActs.has(a.act))
-    .flatMap((a) => a.scenes.map((s) => s.id))
+  const keep = (id: string) =>
+    !fold || id === selectedId || matchesHighlight(model, id, highlight)
+  const itemsByAct = new Map(
+    model.acts.map((a) => [
+      a.act,
+      collapsedActs.has(a.act) ? [] : foldRuns(a.scenes, keep, unfolded),
+    ]),
+  )
+  // DOM order of the visible cards (folded scenes are not in it).
+  const rendered = [...itemsByAct.values()].flatMap((items) =>
+    items.flatMap((item) => (item.type === 'card' ? [item.scene.id] : [])),
+  )
   const tabStop =
     [selectedId, focusedId].find(
       (id) => id !== null && rendered.includes(id),
@@ -165,6 +229,11 @@ export function Board({
       className="min-w-0 flex-1 overflow-y-auto p-5"
       aria-label="Plan board"
     >
+      {header && (
+        <div className="sticky top-0 z-10 -mx-5 -mt-5 mb-4 bg-tr-surface-page px-5 py-2">
+          {header}
+        </div>
+      )}
       <div className="flex flex-col gap-3">
         {model.acts.map((summary) => {
           const { act, scenes } = summary
@@ -213,10 +282,30 @@ export function Board({
                 </p>
               ) : (
                 <div className="mt-4 flex flex-wrap gap-x-3 gap-y-4">
-                  {scenes.map(({ id }) => {
+                  {(itemsByAct.get(act) ?? []).map((item) => {
+                    if (item.type === 'stub') {
+                      const first = item.scenes[0].index + 1
+                      const last = item.scenes[item.scenes.length - 1].index + 1
+                      const n = item.scenes.length
+                      return (
+                        <button
+                          key={`stub-${item.key}`}
+                          type="button"
+                          aria-label={`Show ${plural(n, 'folded scene')}, ${n > 1 ? `${first} to ${last}` : first}`}
+                          onClick={() => onUnfold(item.key)}
+                          className={`flex h-card-board-h w-10 shrink-0 items-center justify-center rounded-[4px] border border-dashed border-tr-border-strong p-1 text-11 text-tr-text-primary hover:bg-tr-surface-sunken ${FOCUS}`}
+                        >
+                          <b className="rotate-180 font-semibold tabular-nums [writing-mode:vertical-rl]">
+                            {n > 1 ? `${first}–${last}` : first}
+                          </b>
+                        </button>
+                      )
+                    }
+                    const { id } = item.scene
                     const signals = model.signals.get(id)
                     if (!signals) return null
-                    const tape = relationTape(model, selectedId, id)
+                    const relation = relationTape(model, selectedId, id)
+                    const match = highlightTape(model, id, highlight)
                     return (
                       <BoardCard
                         key={id}
@@ -226,8 +315,18 @@ export function Board({
                         tabIndex={id === tabStop ? 0 : -1}
                         pending={pending}
                         unsaved={draftSceneIds.has(id)}
-                        tape={tape}
-                        related={tape !== null}
+                        tape={relation ?? match}
+                        related={relation !== null}
+                        ring={
+                          match && highlight.kind !== 'none'
+                            ? HIGHLIGHT_TONE[highlight.kind]
+                            : null
+                        }
+                        quiet={
+                          highlight.kind !== 'none' &&
+                          !match &&
+                          id !== selectedId
+                        }
                         dragging={id === dragSourceId}
                         dropTarget={id === dropTargetId && id !== dragSourceId}
                         onSelect={() => onSelectScene(id)}

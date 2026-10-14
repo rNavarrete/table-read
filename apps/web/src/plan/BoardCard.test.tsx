@@ -403,6 +403,38 @@ describe('BoardCard', () => {
     )
   })
 
+  it('a match wears a 2px ring in its hue and says data-match', () => {
+    const match = renderCard({ ring: 'secret' })
+    expectClasses(match, 'ring-2 ring-tr-ledger-secret-ink')
+    expect(match.dataset.match).toBe('true')
+    // The ruled paper stays: a match is not quiet.
+    expect(match.style.backgroundImage).toBe(RULED.backgroundImage)
+    cleanup()
+
+    // Selected and matching: the inset coral ring and the hue ring compose.
+    const both = renderCard({ ring: 'sky', selected: true })
+    expectClasses(both, 'inset-ring-2 inset-ring-tr-coral ring-2 ring-tr-sky')
+    cleanup()
+
+    const plain = renderCard()
+    expect(plain.hasAttribute('data-match')).toBe(false)
+    expect(plain.className).not.toMatch(/(^|\s)ring-/)
+  })
+
+  it('a quiet card is flat but keeps full opacity and primary text', () => {
+    const card = renderCard({ quiet: true })
+    expect(card.style.backgroundImage).toBe('')
+    expectClasses(card, 'bg-tr-surface-sunken shadow-none')
+    expect(card.className).not.toContain('shadow-card-board')
+    expect(card.className).not.toContain('bg-tr-board-paper')
+    expect(card.className).not.toMatch(/opacity-/)
+    expect(card.hasAttribute('data-match')).toBe(false)
+    expect(screen.getByText(READING).className).toContain(
+      'text-tr-text-primary',
+    )
+    expect(card.className).toContain('text-tr-text-primary')
+  })
+
   it('its accessible name reads number, place, lock, notes, threads, secret, tag, draft and tape', () => {
     const card = renderCard({
       signals: signalsFor('scene-3', [
