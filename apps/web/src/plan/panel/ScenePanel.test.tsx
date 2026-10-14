@@ -404,6 +404,42 @@ describe('ScenePanel', () => {
     ).toBe(true)
   })
 
+  it('Esc in the panel goes back to the card', async () => {
+    const user = userEvent.setup()
+    render(
+      <>
+        <div data-testid="scene-card-scene-1" tabIndex={-1} />
+        <ScenePanel {...props()} />
+      </>,
+      { wrapper: WithDrafts },
+    )
+    screen.getByRole('button', { name: 'Next scene' }).focus()
+
+    await user.keyboard('{Escape}')
+
+    expect(document.activeElement).toBe(
+      screen.getByTestId('scene-card-scene-1'),
+    )
+  })
+
+  it('Esc in a text field stays in the field', async () => {
+    const user = userEvent.setup()
+    render(
+      <>
+        <div data-testid="scene-card-scene-1" tabIndex={-1} />
+        <ScenePanel {...props()} />
+      </>,
+      { wrapper: WithDrafts },
+    )
+    const field = screen.getByLabelText('What happens')
+    await user.type(field, '!')
+
+    await user.keyboard('{Escape}')
+
+    expect(document.activeElement).toBe(field)
+    expect((field as HTMLTextAreaElement).value).toBe('Marta walks back in.!')
+  })
+
   it('← Episode goes back to the nothing-selected view', async () => {
     const user = userEvent.setup()
     const { props: p } = renderPanel()

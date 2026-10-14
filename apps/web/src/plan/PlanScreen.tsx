@@ -52,7 +52,7 @@ import {
   withProjectField,
   withSceneField,
 } from './planTree'
-import { boardModel, notesForScene } from './story'
+import { boardModel, notesForScene, selectionAnnouncement } from './story'
 import { useCollapsedActs } from './useCollapsedActs'
 import { useProjectPatch } from './useProjectPatch'
 import { allScenes, findScene } from '../write/projectTree'
@@ -80,6 +80,8 @@ export function PlanScreen() {
   const acts = useCollapsedActs(activeProjectId)
   const [openingReview, setOpeningReview] = useState(false)
   const [reviewError, setReviewError] = useState<string | null>(null)
+  // The board's live region (plan-live): empty until the writer selects.
+  const [live, setLive] = useState('')
   // One draft per field for the whole screen (spec §4.9): survives scene
   // switches and failed saves. In memory only.
   const drafts = usePlanDraftStore()
@@ -375,11 +377,17 @@ export function PlanScreen() {
     )
   }
 
+  const announce = (message: string) => setLive(message)
   // Selecting a scene inside a collapsed act opens it (and saves that).
   const selectScene = (sceneId: string) => {
     const act = findScene(project, sceneId)?.act
     if (act !== undefined) acts.expand(act)
     setSelection({ type: 'scene', sceneId })
+    const signals = model.signals.get(sceneId)
+    if (signals)
+      announce(
+        selectionAnnouncement(signals, signals.scene.locked || episode.locked),
+      )
   }
   // A stale ?scene= id resolves to no scene: show the episode view.
   const selectedScene = effectiveSelection
@@ -416,6 +424,14 @@ export function PlanScreen() {
         {/* Fills the shell's main (whatever renders above it, e.g. the demo
             banner); the board and both panels scroll on their own. */}
         <div className="flex h-full flex-col">
+          <p
+            role="status"
+            aria-live="polite"
+            data-testid="plan-live"
+            className="sr-only"
+          >
+            {live}
+          </p>
           {reviewError && (
             <Toast tone="danger" onDismiss={() => setReviewError(null)}>
               {reviewError}

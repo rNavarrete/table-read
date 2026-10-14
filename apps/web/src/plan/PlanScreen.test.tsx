@@ -881,4 +881,37 @@ describe('PlanScreen', () => {
     expect(scrollIntoView).toHaveBeenCalledWith({ block: 'center' })
     expect(focus).toHaveBeenCalledWith({ preventScroll: true })
   })
+
+  it('nothing is announced on first load', async () => {
+    await loadPlan()
+    expect(screen.getByTestId('plan-live').textContent).toBe('')
+  })
+
+  it('the live region announces a selection from the board and from ‹ ›', async () => {
+    const user = userEvent.setup()
+    const panel = await loadPlan()
+    const live = screen.getByTestId('plan-live')
+    expect(live.getAttribute('role')).toBe('status')
+    expect(live.getAttribute('aria-live')).toBe('polite')
+
+    await user.click(screen.getByTestId('scene-card-scene-2'))
+    expect(live.textContent).toBe('Scene 2, Back Room. No notes.')
+
+    await user.click(
+      within(panel).getByRole('button', { name: 'Previous scene' }),
+    )
+    expect(live.textContent).toBe('Scene 1, The Long Pour. No notes.')
+  })
+
+  it('a note on the scene is part of the announcement', async () => {
+    const user = userEvent.setup()
+    getConsistencyFlagsMock.mockResolvedValueOnce([OPEN_FLAG])
+    await loadPlan()
+
+    await user.click(screen.getByTestId('scene-card-scene-1'))
+
+    expect(screen.getByTestId('plan-live').textContent).toBe(
+      'Scene 1, The Long Pour. 1 note.',
+    )
+  })
 })

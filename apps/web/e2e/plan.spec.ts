@@ -91,6 +91,56 @@ test('correcting a scene act in the inspector persists after reload', async ({
   ).toHaveCount(0)
 })
 
+test('an empty act takes a dropped card as an act change, and it persists (T3.5)', async ({
+  page,
+}) => {
+  await page.goto('/plan?project=proj-longpour')
+  // scene-5 is Act Three's only scene in the fixture: park it in Act Two
+  // (a no-op if an earlier test already did) so Act Three is empty.
+  const card = page.getByTestId('scene-card-scene-5')
+  await card.click()
+  await page
+    .getByTestId('inspector')
+    .getByRole('combobox', { name: 'Act' })
+    .selectOption('2')
+  await expect(card).toHaveAttribute('draggable', 'true') // the PATCH has settled
+  const empty = page.getByTestId('act-frame-3').getByText('No scenes yet')
+  await expect(empty).toBeVisible()
+
+  await card.dragTo(empty)
+  await expect(
+    page.getByTestId('act-frame-3').getByTestId('scene-card-scene-5'),
+  ).toBeVisible()
+  await expect(card).toHaveAttribute('draggable', 'true') // saved, not just optimistic
+
+  await page.reload()
+  await expect(
+    page.getByTestId('act-frame-3').getByTestId('scene-card-scene-5'),
+  ).toBeVisible()
+})
+
+test('the board is one tab stop: arrows select, Enter reaches the panel, Esc comes back (T3.5)', async ({
+  page,
+}) => {
+  await page.goto('/plan?project=proj-longpour')
+  await page.getByTestId('scene-card-scene-1').click()
+  const stop = page.locator('[data-scene-card][tabindex="0"]')
+  await expect(stop).toHaveCount(1)
+
+  await page.keyboard.press('ArrowRight')
+  await expect(stop).toBeFocused()
+  await expect(stop).toHaveAttribute('aria-pressed', 'true')
+  await expect(stop).not.toHaveAttribute('data-testid', 'scene-card-scene-1')
+  await expect(page.getByTestId('plan-live')).toContainText('Scene ')
+
+  await page.keyboard.press('Enter')
+  await expect(
+    page.getByTestId('inspector').locator('h2').first(),
+  ).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(stop).toBeFocused()
+})
+
 test('lock icon renders on beat-1-2 (locked in fixture); beat-1-1 has none', async ({
   page,
 }) => {

@@ -227,6 +227,17 @@ export function ScenePanel({
       data-testid="inspector"
       aria-label="Inspector"
       onScroll={spy}
+      // Esc outside a field goes back to this scene's card on the board.
+      onKeyDown={(event) => {
+        if (
+          event.key !== 'Escape' ||
+          (event.target as HTMLElement).closest('input, textarea, select')
+        )
+          return
+        document
+          .querySelector<HTMLElement>(`[data-testid="scene-card-${scene.id}"]`)
+          ?.focus()
+      }}
       className="relative w-panel-plan shrink-0 overflow-y-auto bg-tr-surface-raised"
     >
       <div
