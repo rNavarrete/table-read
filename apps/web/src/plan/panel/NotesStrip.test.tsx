@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen, within } from '@testing-library/react'
+import { act, cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ComponentProps } from 'react'
 import type { Beat, ConsistencyFlag, LedgerFact, Scene } from 'contract'
-import { notesForScene, type OrderNote } from '../story'
+import { fixInstruction, notesForScene, type OrderNote } from '../story'
 import { NotesStrip } from './NotesStrip'
 
 afterEach(cleanup)
@@ -127,6 +127,14 @@ const ORDER_NOTE: OrderNote = {
   text: 'Pays off “The spare key” before its setup in scene 4.',
 }
 
+const DRAFT_FIX = { name: 'Draft a fix in Review…' }
+
+function fixArea() {
+  return screen.getByRole('textbox', {
+    name: 'Fix instruction',
+  }) as HTMLTextAreaElement
+}
+
 function renderStrip(
   overrides: Partial<ComponentProps<typeof NotesStrip>> = {},
 ) {
@@ -137,6 +145,7 @@ function renderStrip(
     ledger: [FACT_02],
     busy: false,
     actLocked: false,
+    locked: false,
     onSelectScene: vi.fn(),
     onShowBeat: vi.fn(),
     onOpenInWrite: vi.fn(),
@@ -390,5 +399,177 @@ describe('NotesStrip', () => {
       screen.getByTestId(`order-note-${ORDER_NOTE.issue.id}`),
     ).not.toBeNull()
     expect(screen.queryByTestId('notes-peek')).toBeNull()
+  })
+
+  // ── Draft a fix in Review… (T3.9) ──
+
+  it('Draft a fix in Review… only on continuity notes: not on act-split, import or Order notes', async () => {
+    const user = userEvent.setup()
+    renderStrip({
+      onDraftFix: vi.fn(() => Promise.resolve()),
+      orderNotes: [ORDER_NOTE],
+    })
+    await user.click(screen.getByRole('button', { name: 'Show' }))
+    await user.click(screen.getByText('From the import · 2'))
+
+    for (const id of ['note-flag-scene', 'note-flag-beat']) {
+      expect(
+        within(screen.getByTestId(id)).queryByRole('button', DRAFT_FIX),
+      ).not.toBeNull()
+    }
+    for (const id of [
+      'note-flag-act',
+      'notes-import-group',
+      `order-note-${ORDER_NOTE.issue.id}`,
+    ]) {
+      expect(
+        within(screen.getByTestId(id)).queryByRole('button', DRAFT_FIX),
+      ).toBeNull()
+    }
+    expect(screen.getAllByRole('button', DRAFT_FIX)).toHaveLength(2)
+    cleanup()
+
+    renderStrip({ orderNotes: [ORDER_NOTE], defaultExpanded: true })
+    expect(screen.queryByRole('button', DRAFT_FIX)).toBeNull()
+  })
+
+  it('hidden while locked; an open editor goes when the scene locks and comes back with its text', async () => {
+    const user = userEvent.setup()
+    const { rerender, ...props } = renderStrip({
+      onDraftFix: vi.fn(() => Promise.resolve()),
+      defaultExpanded: true,
+      locked: true,
+    })
+    expect(screen.queryByRole('button', DRAFT_FIX)).toBeNull()
+
+    rerender(<NotesStrip {...props} locked={false} />)
+    await user.click(
+      within(screen.getByTestId('note-flag-scene')).getByRole(
+        'button',
+        DRAFT_FIX,
+      ),
+    )
+    const area = fixArea()
+    await user.type(area, ' Keep the fight.')
+    const typed = area.value
+    expect(typed).toMatch(/ Keep the fight\.$/)
+
+    rerender(<NotesStrip {...props} locked />)
+    expect(screen.queryByTestId('fix-editor')).toBeNull()
+    expect(screen.queryByRole('button', DRAFT_FIX)).toBeNull()
+
+    rerender(<NotesStrip {...props} locked={false} />)
+    expect(screen.getByTestId('fix-editor')).not.toBeNull()
+    expect(fixArea().value).toBe(typed)
+  })
+
+  it('opening the editor sends nothing; it is prefilled in words with the explainer', async () => {
+    const user = userEvent.setup()
+    const onDraftFix = vi.fn(() => Promise.resolve())
+    const props = renderStrip({ onDraftFix, defaultExpanded: true })
+    const card = screen.getByTestId('note-flag-scene')
+    const verb = within(card).getByRole('button', DRAFT_FIX)
+    expect(verb.getAttribute('aria-expanded')).toBe('false')
+
+    await user.click(verb)
+    expect(onDraftFix).not.toHaveBeenCalled()
+    expect(within(card).getByTestId('fix-editor')).not.toBeNull()
+    const area = fixArea()
+    expect(document.activeElement).toBe(area)
+    expect(area.value).toBe(
+      fixInstruction(props.notes[0], SCENE_5, SCENES, [FACT_02]),
+    )
+    expect(area.value).not.toMatch(/scene-|fact-|\[/)
+    const explainer = document.getElementById(
+      area.getAttribute('aria-describedby') ?? '',
+    )
+    expect(explainer?.textContent).toBe(
+      'Nothing changes until you apply it in Review. Locked scenes are never changed.',
+    )
+    expect(verb.getAttribute('aria-expanded')).toBe('true')
+  })
+
+  it('Open Review sends the edited, trimmed text; it reads Opening… and waits; Cancel closes and refocuses the verb', async () => {
+    const user = userEvent.setup()
+    let resolve = () => {}
+    const onDraftFix = vi.fn(
+      () =>
+        new Promise<void>((done) => {
+          resolve = done
+        }),
+    )
+    renderStrip({ onDraftFix, defaultExpanded: true })
+    const verb = within(screen.getByTestId('note-flag-scene')).getByRole(
+      'button',
+      DRAFT_FIX,
+    )
+    await user.click(verb)
+    const editor = screen.getByTestId('fix-editor')
+    const open = within(editor).getByRole('button', {
+      name: 'Open Review',
+    }) as HTMLButtonElement
+    const cancel = within(editor).getByRole('button', {
+      name: 'Cancel',
+    }) as HTMLButtonElement
+
+    await user.clear(fixArea())
+    expect(open.disabled).toBe(true)
+    await user.type(fixArea(), '  Move the money talk to the marina.  ')
+    await user.click(open)
+    expect(onDraftFix).toHaveBeenCalledOnce()
+    expect(onDraftFix).toHaveBeenCalledWith(
+      'Move the money talk to the marina.',
+    )
+    expect(open.textContent).toBe('Opening…')
+    expect(open.disabled).toBe(true)
+    expect(cancel.disabled).toBe(true)
+
+    await act(async () => resolve())
+    expect(open.textContent).toBe('Open Review')
+    expect(open.disabled).toBe(false)
+
+    await user.click(cancel)
+    expect(screen.queryByTestId('fix-editor')).toBeNull()
+    expect(document.activeElement).toBe(verb)
+  })
+
+  it('a failed send shows the error inline, keeps the edited text and focuses it', async () => {
+    const user = userEvent.setup()
+    renderStrip({
+      onDraftFix: vi.fn(() => Promise.reject(new Error('review is down'))),
+      defaultExpanded: true,
+    })
+    await user.click(
+      within(screen.getByTestId('note-flag-scene')).getByRole(
+        'button',
+        DRAFT_FIX,
+      ),
+    )
+    await user.type(fixArea(), ' Keep the fight.')
+    const edited = fixArea().value
+    const open = screen.getByRole('button', {
+      name: 'Open Review',
+    }) as HTMLButtonElement
+    await user.click(open)
+
+    expect((await screen.findByRole('alert')).textContent).toBe(
+      'review is down',
+    )
+    expect(fixArea().value).toBe(edited)
+    expect(document.activeElement).toBe(fixArea())
+    expect(open.disabled).toBe(false)
+  })
+
+  it('the verb is disabled while a write is in flight', () => {
+    renderStrip({
+      onDraftFix: vi.fn(() => Promise.resolve()),
+      defaultExpanded: true,
+      busy: true,
+    })
+    const verbs = screen.getAllByRole('button', DRAFT_FIX)
+    expect(verbs).toHaveLength(2)
+    for (const verb of verbs) {
+      expect((verb as HTMLButtonElement).disabled).toBe(true)
+    }
   })
 })

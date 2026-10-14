@@ -795,6 +795,7 @@ export function PlanScreen() {
                     ledger={ledger}
                     busy={busy}
                     actLocked={episode.locked || selectedScene.locked || busy}
+                    locked={episode.locked || selectedScene.locked}
                     onSelectScene={selectScene}
                     onShowBeat={showBeat}
                     onOpenInWrite={(beatId) =>
