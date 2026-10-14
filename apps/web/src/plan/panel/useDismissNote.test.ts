@@ -181,6 +181,23 @@ describe('useDismissNote', () => {
     expect(result.current.undoable).toBe(false)
   })
 
+  it('a dismiss that lands but whose refetch fails drops the note and asks for a reload', async () => {
+    dismissMock.mockResolvedValue({ ...FLAG, status: 'dismissed' })
+    getProjectMock.mockRejectedValue(new Error('offline'))
+    getFlagsMock.mockResolvedValue([])
+    const { result, onFlags } = setup()
+
+    await act(() => result.current.dismiss('flag-1'))
+
+    const other = { ...FLAG, id: 'flag-2' }
+    const update = onFlags.mock.calls[0][0] as (
+      prev: ConsistencyFlag[],
+    ) => ConsistencyFlag[]
+    expect(update([FLAG, other])).toEqual([other])
+    expect(result.current.error).toMatch(/^Note dismissed.*Reload/)
+    expect(result.current).toMatchObject({ busy: false, undoable: false })
+  })
+
   it('clearUndo and clearError reset the toast state', async () => {
     dismissSucceeds()
     const { result } = setup()

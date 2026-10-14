@@ -614,4 +614,174 @@ describe('PlanScreen', () => {
         .value,
     ).toBe('Dan has a second key.')
   })
+  function failing<T>() {
+    let reject!: (err: Error) => void
+    const promise = new Promise<T>((_, rej) => {
+      reject = rej
+    })
+    return { promise, reject }
+  }
+
+  const value = (panel: HTMLElement, label: string) =>
+    (within(panel).getByLabelText(label) as HTMLTextAreaElement).value
+
+  it('while Open Review is in flight the whole panel waits, so no new draft can block the way to Review', async () => {
+    const user = userEvent.setup()
+    const reply = deferred<{ id: string }>()
+    createChangeSetMock.mockReturnValue(reply.promise)
+    const panel = await loadPlan()
+    const whatHappens = within(panel).getByLabelText('What happens')
+    await user.clear(whatHappens)
+    await user.type(whatHappens, 'Marta comes home for good.')
+    await user.click(within(panel).getByRole('button', { name: 'Open Review' }))
+
+    expect(
+      (within(panel).getByLabelText('Audience learns') as HTMLTextAreaElement)
+        .disabled,
+    ).toBe(true)
+    expect(
+      (within(panel).getByTestId('lock-toggle') as HTMLButtonElement).disabled,
+    ).toBe(true)
+    // Opening, not saving.
+    expect(
+      within(panel).getByRole('button', { name: 'Save field only' }),
+    ).not.toBeNull()
+
+    reply.resolve({ id: 'cs-1' })
+    await waitFor(() => expect(navigateToReviewMock).toHaveBeenCalled())
+  })
+
+  it('Discard and leave, then a failed Open Review: every draft comes back, and the sent text never left the box', async () => {
+    const user = userEvent.setup()
+    const reply = failing<{ id: string }>()
+    createChangeSetMock.mockReturnValue(reply.promise)
+    const panel = await loadPlan()
+    await user.type(
+      within(panel).getByLabelText('Audience learns'),
+      'Dan has a second key.',
+    )
+    const whatHappens = within(panel).getByLabelText('What happens')
+    await user.clear(whatHappens)
+    await user.type(whatHappens, 'Marta comes home for good.')
+
+    await user.click(within(panel).getByRole('button', { name: 'Open Review' }))
+    const dialog = screen.getByTestId('leave-plan-dialog') as HTMLDialogElement
+    await waitFor(() => expect(dialog.open).toBe(true))
+    await user.click(
+      within(dialog).getByRole('button', { name: 'Discard and leave' }),
+    )
+    await waitFor(() => expect(createChangeSetMock).toHaveBeenCalled())
+    expect(value(panel, 'What happens')).toBe('Marta comes home for good.')
+
+    reply.reject(new Error('review is down'))
+    expect(await screen.findByText('review is down')).not.toBeNull()
+    expect(value(panel, 'Audience learns')).toBe('Dan has a second key.')
+    expect(value(panel, 'What happens')).toBe('Marta comes home for good.')
+  })
+
+  it('Discard and leave, then a failed shell Undo: the drafts come back', async () => {
+    const user = userEvent.setup()
+    undoProjectMock.mockRejectedValue(new Error('Nothing to undo'))
+    const panel = await loadPlan()
+    await user.type(
+      within(panel).getByLabelText('Audience learns'),
+      'Dan has a second key.',
+    )
+
+    await user.click(screen.getByTestId('undo-button'))
+    const dialog = screen.getByTestId('leave-plan-dialog') as HTMLDialogElement
+    await waitFor(() => expect(dialog.open).toBe(true))
+    await user.click(
+      within(dialog).getByRole('button', { name: 'Discard and leave' }),
+    )
+
+    expect(await screen.findByText('Nothing to undo')).not.toBeNull()
+    expect(value(panel, 'Audience learns')).toBe('Dan has a second key.')
+  })
+
+  it('the top-bar Undo waits while a dismiss is in flight', async () => {
+    const user = userEvent.setup()
+    const request = deferred<ConsistencyFlag>()
+    dismissConsistencyFlagMock.mockReturnValue(request.promise)
+    getConsistencyFlagsMock
+      .mockResolvedValueOnce([OPEN_FLAG])
+      .mockResolvedValueOnce([])
+    await loadPlan()
+    const undo = screen.getByTestId('undo-button') as HTMLButtonElement
+    expect(undo.disabled).toBe(false)
+
+    const strip = await screen.findByTestId('notes-strip')
+    await user.click(within(strip).getByRole('button', { name: 'Show' }))
+    await user.click(
+      within(screen.getByTestId('note-flag-1')).getByRole('button', {
+        name: 'Dismiss',
+      }),
+    )
+    expect(undo.disabled).toBe(true)
+
+    request.resolve({ ...OPEN_FLAG, status: 'dismissed' })
+    await waitFor(() => expect(undo.disabled).toBe(false))
+  })
+
+  it('Dismiss lands focus on the toast Undo when the strip goes; Undo lands it on the strip again', async () => {
+    const user = userEvent.setup()
+    getProjectMock
+      .mockResolvedValueOnce(project())
+      .mockResolvedValueOnce({ ...project(), headSnapshotId: 'snap-dismiss' })
+    getConsistencyFlagsMock
+      .mockResolvedValueOnce([OPEN_FLAG])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([OPEN_FLAG])
+    dismissConsistencyFlagMock.mockResolvedValue({
+      ...OPEN_FLAG,
+      status: 'dismissed',
+    })
+    undoProjectMock.mockResolvedValue(project())
+    await loadPlan()
+
+    const strip = await screen.findByTestId('notes-strip')
+    await user.click(within(strip).getByRole('button', { name: 'Show' }))
+    await user.click(
+      within(screen.getByTestId('note-flag-1')).getByRole('button', {
+        name: 'Dismiss',
+      }),
+    )
+    const undo = within(await screen.findByTestId('toast')).getByRole(
+      'button',
+      { name: 'Undo' },
+    )
+    await waitFor(() => expect(document.activeElement).toBe(undo))
+
+    await user.click(undo)
+    const back = await screen.findByTestId('notes-strip')
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        within(back).getByRole('button', { name: /^(Show|Hide)$/ }),
+      ),
+    )
+  })
+
+  it('Change the act scrolls the Act select clear of the sticky header, then focuses it', async () => {
+    const user = userEvent.setup()
+    getConsistencyFlagsMock.mockResolvedValueOnce([
+      {
+        ...OPEN_FLAG,
+        explanation: 'The act structure puts this scene in the wrong act.',
+      },
+    ])
+    const scrollIntoView = vi
+      .spyOn(Element.prototype, 'scrollIntoView')
+      .mockImplementation(() => {})
+    await loadPlan()
+    const strip = await screen.findByTestId('notes-strip')
+    await user.click(within(strip).getByRole('button', { name: 'Show' }))
+    const select = screen.getByRole('combobox', { name: 'Act' })
+    const focus = vi.spyOn(select, 'focus')
+
+    await user.click(screen.getByRole('button', { name: 'Change the act' }))
+
+    expect(scrollIntoView.mock.contexts).toContain(select)
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: 'center' })
+    expect(focus).toHaveBeenCalledWith({ preventScroll: true })
+  })
 })

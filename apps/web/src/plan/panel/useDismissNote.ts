@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type Dispatch, type SetStateAction } from 'react'
 import type { ConsistencyFlag, Project } from 'contract'
 import {
   dismissConsistencyFlag,
@@ -9,6 +9,8 @@ import {
 import { ApiError } from '../../api/errors'
 import { staleHeadMessage } from '../../shell/toastCopy'
 
+const REFRESH_FAILED =
+  "Note dismissed, but Plan couldn't refresh. Reload to keep editing."
 const UNDO_STALE =
   "Can't undo the dismiss — Plan changed since. Use Undo in the top bar."
 
@@ -29,7 +31,7 @@ export function useDismissNote({
   projectId: string
   headSnapshotId: string | null
   onProject: (project: Project) => void
-  onFlags: (flags: ConsistencyFlag[]) => void
+  onFlags: Dispatch<SetStateAction<ConsistencyFlag[]>>
 }) {
   const [busy, setBusy] = useState(false)
   // The head the dismiss left behind; set = "Undo" is on offer.
@@ -44,6 +46,14 @@ export function useDismissNote({
       await dismissConsistencyFlag(flagId, {
         expectedHeadSnapshotId: headSnapshotId,
       })
+    } catch (err) {
+      setError(messageFor(err))
+      setBusy(false)
+      return
+    }
+    // Committed: the note goes now, whatever the refetch below does.
+    onFlags((prev) => prev.filter((f) => f.id !== flagId))
+    try {
       // The dismiss made a snapshot and moved the head but returns only the
       // flag: refetch, or the next field save 409s on a stale If-Match.
       const [next, flags] = await Promise.all([
@@ -53,8 +63,9 @@ export function useDismissNote({
       onProject(next)
       onFlags(flags)
       setHeadAfter(next.headSnapshotId)
-    } catch (err) {
-      setError(messageFor(err))
+    } catch {
+      // Plan still holds the old head: every later write would 409.
+      setError(REFRESH_FAILED)
     } finally {
       setBusy(false)
     }

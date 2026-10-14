@@ -13,7 +13,8 @@ export interface PlanDrafts {
   /** sceneId null = not a scene field (premises): counts for leaving, no card dot */
   set(key: string, sceneId: string | null, text: string): void
   clear(key: string): void
-  clearAll(): void
+  /** Returns a restore: puts the cleared drafts back (one typed since wins). */
+  clearAll(): () => void
   /** Live: current even before React re-renders (beforeunload, leave guard). */
   readonly size: number
   readonly dirtySceneIds: ReadonlySet<string>
@@ -60,7 +61,9 @@ function createDraftStore() {
         commit(next)
       },
       clearAll: () => {
+        const cleared = entries
         if (entries.size > 0) commit(new Map())
+        return () => commit(new Map([...cleared, ...entries]))
       },
       get size() {
         return entries.size

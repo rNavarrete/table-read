@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type {
   Beat,
   ConsistencyFlag,
@@ -166,8 +166,25 @@ export function PlanScreen() {
   })
   const leave = useLeaveGuard(drafts)
   // One "a write is in flight" flag for every control: a field save, a lock,
-  // a reorder, a dismiss or its undo.
-  const busy = patcher.pending || dismissal.busy
+  // a reorder, a dismiss or its undo, and an Open Review (no draft may appear
+  // while it runs, or it would block the way to Review).
+  const busy = patcher.pending || dismissal.busy || openingReview
+  // Dismiss and its Undo unmount the focused button (the note, the strip,
+  // the toast): once they finish, focus goes to the strip's Show/Hide, else
+  // the toast's Undo — never <body>.
+  const refocusNotes = useRef(false)
+  const undoDismissRef = useRef<HTMLButtonElement>(null)
+
+  useEffect(() => {
+    if (dismissal.busy || !refocusNotes.current) return
+    refocusNotes.current = false
+    if (document.activeElement && document.activeElement !== document.body)
+      return
+    const toggle = document.querySelector<HTMLElement>(
+      '#plan-section-notes button[aria-expanded]',
+    )
+    ;(toggle ?? undoDismissRef.current)?.focus()
+  }, [dismissal.busy])
 
   const flaggedSceneIds = useMemo(
     () =>
@@ -268,7 +285,11 @@ export function PlanScreen() {
     // be lost on the way to Review, so ask first.
     const key = draftKey(targetObjectId, 'whatHappens')
     const others = drafts.size - (drafts.get(key) !== undefined ? 1 : 0)
-    if (others > 0 && !(await leave.confirmLeave())) return
+    if (others > 0) {
+      if (!(await leave.confirmLeave())) return
+      // Discard cleared it too: keep the text being sent on screen.
+      drafts.set(key, targetObjectId, instruction)
+    }
     setOpeningReview(true)
     setReviewError(null)
     try {
@@ -282,8 +303,8 @@ export function PlanScreen() {
       drafts.clear(key)
       navigateToReview(activeProjectId, changeSet.id)
     } catch (err: unknown) {
-      // "Discard and leave" may have cleared it: give the writer the text back.
-      drafts.set(key, targetObjectId, instruction)
+      // Nothing left Plan: give back what "Discard and leave" cleared.
+      leave.undoDiscard()
       setReviewError(
         err instanceof Error ? err.message : 'failed to open Review',
       )
@@ -382,10 +403,21 @@ export function PlanScreen() {
         activeMode="Plan"
         ledgerCount={ledger.filter((f) => f.status === 'pending_review').length}
         projectId={projectId}
+        // The shell's Undo sends no If-Match: hold it while a Plan write is
+        // in flight, or it could revert that write's predecessor.
+        canUndo={!busy}
         runHistoryChange={(request) =>
-          leave
-            .confirmLeave()
-            .then((ok) => (ok ? request().then(() => true) : false))
+          leave.confirmLeave().then((ok) =>
+            ok
+              ? request().then(
+                  () => true,
+                  (err: unknown) => {
+                    leave.undoDiscard()
+                    throw err
+                  },
+                )
+              : false,
+          )
         }
       >
         {/* Fills the shell's main (whatever renders above it, e.g. the demo
@@ -414,9 +446,13 @@ export function PlanScreen() {
             <Toast onDismiss={dismissal.clearUndo}>
               Note dismissed.{' '}
               <button
+                ref={undoDismissRef}
                 type="button"
                 disabled={busy}
-                onClick={() => void dismissal.undo()}
+                onClick={() => {
+                  refocusNotes.current = true
+                  void dismissal.undo()
+                }}
                 className="font-medium text-tr-sky underline disabled:opacity-50"
               >
                 Undo
@@ -495,7 +531,7 @@ export function PlanScreen() {
                 onOpenBeatInWrite={openInWrite}
                 onOpenFact={navigateToLedgerFact}
                 noteCount={sceneNotes.length}
-                notes={
+                notes={(showBeat) => (
                   <NotesStrip
                     key={selectedScene.id}
                     scene={selectedScene}
@@ -505,23 +541,24 @@ export function PlanScreen() {
                     busy={busy}
                     actLocked={episode.locked || selectedScene.locked || busy}
                     onSelectScene={selectScene}
-                    onShowBeat={(beatId) =>
-                      setSelection({
-                        type: 'beat',
-                        sceneId: selectedScene.id,
-                        beatId,
-                      })
-                    }
+                    onShowBeat={showBeat}
                     onOpenInWrite={(beatId) =>
                       openInWrite(selectedScene.id, beatId ?? undefined)
                     }
                     onOpenFact={navigateToLedgerFact}
-                    onDismiss={(flagId) => void dismissal.dismiss(flagId)}
-                    onChangeAct={() =>
-                      document.getElementById('plan-act-select')?.focus()
-                    }
+                    onDismiss={(flagId) => {
+                      refocusNotes.current = true
+                      void dismissal.dismiss(flagId)
+                    }}
+                    onChangeAct={() => {
+                      // Centred, or focus would scroll it under the sticky
+                      // panel header.
+                      const select = document.getElementById('plan-act-select')
+                      select?.scrollIntoView({ block: 'center' })
+                      select?.focus({ preventScroll: true })
+                    }}
                   />
-                }
+                )}
                 onOpenLedger={() => navigateToMode('Ledger')}
               />
             ) : (
