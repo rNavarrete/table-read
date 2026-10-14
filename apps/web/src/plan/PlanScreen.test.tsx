@@ -1287,9 +1287,52 @@ describe('PlanScreen order check (T3.7)', () => {
     effectAllowed: 'move',
   } as unknown as DataTransfer
   const strip = () => screen.getByTestId('notes-strip')
+  const card = (id: string) => screen.getByTestId(`scene-card-${id}`)
   const undoButton = () =>
     screen.queryByRole('button', { name: 'Undo the move' })
   const NOTE = 'Pays off “The spare key” before its setup in scene 3.'
+
+  // Rule 2: the lock-violation tests come before the move feature tests.
+  it('a drop that would shift a locked scene sends no PATCH and says why (rule 2)', async () => {
+    const p = orderProject()
+    p.seasons[0].episodes[0].scenes[2].locked = true
+    await loadPlan(p)
+
+    // jsdom rects are all zero: the drop lands on scene-1's left half.
+    fireEvent.dragStart(card('scene-5'), { dataTransfer })
+    fireEvent.dragOver(card('scene-1'), { dataTransfer })
+    expect(card('scene-1').querySelector('[data-tape]')?.textContent).toBe(
+      "Can't move past scene 3: it's locked",
+    )
+    expect(document.querySelector('[data-insert-bar]')).toBeNull()
+    fireEvent.drop(card('scene-1'), { dataTransfer })
+
+    expect(patchProjectMock).not.toHaveBeenCalled()
+    const ids = (act: number) =>
+      [
+        ...screen
+          .getByTestId(`act-frame-${act}`)
+          .querySelectorAll('[data-scene-card]'),
+      ].map((el) => el.getAttribute('data-scene-id'))
+    expect(ids(0)).toEqual(['scene-1'])
+    expect(ids(3)).toEqual(['scene-5'])
+  })
+
+  it('⌥→ on a locked card sends no PATCH and says why', async () => {
+    const p = orderProject()
+    p.seasons[0].episodes[0].scenes[1].locked = true
+    await loadPlan(p)
+
+    fireEvent.keyDown(card('scene-2'), { key: 'ArrowRight', altKey: true })
+
+    expect(patchProjectMock).not.toHaveBeenCalled()
+    expect((await screen.findByTestId('toast')).textContent).toContain(
+      "Can't move scene 2: it's locked",
+    )
+    expect(screen.getByTestId('plan-live').textContent).toBe(
+      "Can't move scene 2: it's locked",
+    )
+  })
 
   /** Loads orderProject(), selects scene-5 and moves it to the cold open. */
   async function moveScene5ToColdOpen(
