@@ -18,12 +18,19 @@ import {
   boardModel,
   boardOrder,
   cardTag,
+  castCounts,
   castFromDialogue,
   factsForScene,
   flagKind,
+  highlightAnnouncement,
+  highlightCount,
+  highlightTape,
   importNoteText,
   landmarksForScene,
   linkifyNote,
+  matchesHighlight,
+  nextMatchId,
+  NO_HIGHLIGHT,
   noteSentence,
   notesForScene,
   placeTitle,
@@ -31,6 +38,8 @@ import {
   secretsForScene,
   selectionAnnouncement,
   threadsForScene,
+  type Highlight,
+  type HighlightKind,
 } from './story'
 
 function beat(id: string, index: number, overrides: Partial<Beat> = {}): Beat {
@@ -1070,6 +1079,227 @@ describe('selectionAnnouncement', () => {
   })
 })
 
+describe('highlights', () => {
+  const characters = [
+    character('char-marta', 'Marta Vega'),
+    character('char-dan', 'Dan Vega'),
+    character('char-reyes', 'Detective Ana Reyes'),
+    character('char-luz', 'Luz Vega'),
+  ]
+  const lines = (id: string, cue: string) => [
+    beat(id, 0, { scriptText: `${cue}\nLast call.` }),
+  ]
+  const baseThreads: StoryThread[] = [
+    thread('thread-money', 'scene-2', 'scene-5'),
+    thread('thread-keys', 'scene-3', null),
+    thread('thread-orphan', 'scene-99', 'scene-4'),
+    { ...thread('thread-dropped', 'scene-6', null), status: 'abandoned' },
+  ]
+  // Acts: 0 scene-1 · 1 scene-2, scene-3 · 2 scene-4, scene-5 · 3 scene-6 · 4 empty.
+  function build(threads = baseThreads) {
+    const ep = episode(
+      [
+        scene('scene-1', 0, { act: 0, beats: lines('beat-1-1', 'DAN') }),
+        scene('scene-2', 1, { act: 1, motivations: [want('char-marta')] }),
+        scene('scene-3', 2, { act: 1, beats: lines('beat-3-1', 'DAN') }),
+        scene('scene-4', 3, { act: 2, motivations: [want('char-luz')] }),
+        scene('scene-5', 4, {
+          act: 2,
+          motivations: [want('char-dan')],
+          beats: lines('beat-5-1', 'MARTA'),
+        }),
+        scene('scene-6', 5, {
+          act: 3,
+          motivations: [want('char-luz')],
+          beats: [beat('beat-6-1', 0)],
+        }),
+      ],
+      {
+        threads,
+        secrets: [
+          secret({
+            establishedSceneId: 'scene-1',
+            concealmentSceneIds: ['scene-4'],
+            revealedSceneId: 'scene-5',
+          }),
+        ],
+        storyOverview: overview([landmark('beat-3-1', 'Act One Turn', null)]),
+      },
+    )
+    return boardModel(project(ep, {}, characters), ep, [
+      flag({ id: 'continuity', objectId: 'scene-3' }),
+      flag({
+        id: 'act-split',
+        objectId: 'scene-4',
+        explanation: 'The episode has no act two break before this scene.',
+      }),
+      flag({
+        id: 'import',
+        objectType: 'beat',
+        objectId: 'beat-6-1',
+        explanation: '[empty_beat_fields] The beat came back empty.',
+      }),
+    ])
+  }
+  const model = build()
+  const hl = (kind: HighlightKind, who: string | null = null): Highlight => ({
+    kind,
+    who,
+  })
+  const tapes = (h: Highlight) =>
+    model.order.map((s) => highlightTape(model, s.id, h))
+  const texts = (h: Highlight) => tapes(h).map((t) => t?.text ?? null)
+  const none = Array<null>(6).fill(null)
+
+  describe('highlightTape', () => {
+    it('Setups & payoffs: ↗ sets up n, ↘ pays off n, amber ↗ never paid off, +k for more', () => {
+      expect(tapes(hl('threads'))).toEqual([
+        null,
+        { text: '↗ sets up 5', tone: 'sky' },
+        { text: '↗ never paid off', tone: 'amber' },
+        null,
+        { text: '↘ pays off 2', tone: 'sky' },
+        null,
+      ])
+      const two = build([
+        ...baseThreads,
+        thread('thread-bar', 'scene-2', 'scene-6'),
+      ])
+      expect(highlightTape(two, 'scene-2', hl('threads'))?.text).toBe(
+        '↗ sets up 5 +1',
+      )
+    })
+
+    it('The secret: ◆ set, ◆ kept, ◇ out in the secret hue', () => {
+      const secretTape = (text: string) => ({ text, tone: 'secret' })
+      expect(tapes(hl('secret'))).toEqual([
+        secretTape('◆ set'),
+        null,
+        null,
+        secretTape('◆ kept'),
+        secretTape('◇ out'),
+        null,
+      ])
+    })
+
+    it('Continuity: story continuity notes only', () => {
+      // scene-4 has only an act-split note, scene-6 only an import note.
+      expect(tapes(hl('continuity'))).toEqual([
+        null,
+        null,
+        { text: '⚑ continuity', tone: 'amber' },
+        null,
+        null,
+        null,
+      ])
+    })
+
+    it('Act shape: the landmark name, else ACT OUT, else ACT SPLIT?', () => {
+      expect(tapes(hl('acts')).every((t) => !t || t.tone === 'accent')).toBe(
+        true,
+      )
+      expect(texts(hl('acts'))).toEqual([
+        'ACT OUT',
+        null,
+        'ACT ONE TURN',
+        'ACT SPLIT?',
+        'ACT OUT',
+        'ACT OUT',
+      ])
+    })
+
+    it('Who’s in it: NAME · wants for a recorded want, NAME for a dialogue cue only', () => {
+      expect(texts(hl('who', 'char-marta'))).toEqual([
+        null,
+        'MARTA VEGA · wants',
+        null,
+        null,
+        'MARTA VEGA',
+        null,
+      ])
+      expect(texts(hl('who', 'char-dan'))).toEqual([
+        'DAN VEGA',
+        null,
+        'DAN VEGA',
+        null,
+        'DAN VEGA · wants',
+        null,
+      ])
+      expect(highlightTape(model, 'scene-1', hl('who', 'char-dan'))?.tone).toBe(
+        'sky',
+      )
+      expect(tapes(hl('who'))).toEqual(none)
+    })
+
+    it('None never tapes', () => {
+      expect(tapes(NO_HIGHLIGHT)).toEqual(none)
+    })
+  })
+
+  it('matchesHighlight with None means a story note', () => {
+    expect(
+      model.order
+        .filter((s) => matchesHighlight(model, s.id, NO_HIGHLIGHT))
+        .map((s) => s.id),
+    ).toEqual(['scene-3', 'scene-4'])
+  })
+
+  it('highlightCount counts scenes that match', () => {
+    const kinds = ['none', 'threads', 'secret', 'continuity', 'acts'] as const
+    expect(kinds.map((kind) => highlightCount(model, hl(kind)))).toEqual([
+      2, 3, 3, 1, 5,
+    ])
+    expect(
+      ['char-marta', 'char-dan', 'char-reyes', null].map((who) =>
+        highlightCount(model, hl('who', who)),
+      ),
+    ).toEqual([2, 3, 0, 0])
+  })
+
+  it('castCounts orders by scenes, then bible order, and leaves out the absent', () => {
+    expect(
+      castCounts(model).map(({ character, scenes }) => [character.id, scenes]),
+    ).toEqual([
+      ['char-dan', 3],
+      ['char-marta', 2],
+      ['char-luz', 2],
+    ])
+  })
+
+  it('highlightAnnouncement', () => {
+    expect(highlightAnnouncement(model, hl('threads'))).toBe(
+      'Highlight: Setups and payoffs. 3 scenes match.',
+    )
+    expect(highlightAnnouncement(model, hl('continuity'))).toBe(
+      'Highlight: Continuity. 1 scene matches.',
+    )
+    expect(highlightAnnouncement(model, hl('who', 'char-marta'))).toBe(
+      'Highlight: Marta Vega. 2 scenes match.',
+    )
+    expect(highlightAnnouncement(model, NO_HIGHLIGHT)).toBe('Highlight off.')
+  })
+
+  it('nextMatchId wraps both ways, starts from the ends with no selection, and is null when nothing matches', () => {
+    // Setups & payoffs match scene-2, scene-3 and scene-5.
+    const next = (from: string | null, dir: 1 | -1, h = hl('threads')) =>
+      nextMatchId(model, from, dir, h)
+    expect([next(null, 1), next(null, -1)]).toEqual(['scene-2', 'scene-5'])
+    expect([next('scene-3', 1), next('scene-3', -1)]).toEqual([
+      'scene-5',
+      'scene-2',
+    ])
+    expect([next('scene-5', 1), next('scene-2', -1)]).toEqual([
+      'scene-2',
+      'scene-5',
+    ])
+    expect(next('scene-4', -1)).toBe('scene-3')
+    expect(next('scene-99', 1)).toBe('scene-2')
+    // None steps through story notes (scene-3, scene-4).
+    expect(next('scene-1', -1, NO_HIGHLIGHT)).toBe('scene-4')
+    expect(next(null, 1, hl('who', 'char-reyes'))).toBeNull()
+  })
+})
+
 describe('missing story data', () => {
   it('reads a doc whose defaulted keys are missing as empty (raw PATCH reply, idea-born project)', () => {
     const s = scene('scene-6', 5, {
@@ -1111,14 +1341,20 @@ describe('missing story data', () => {
   it('boardModel reads a doc with no threads, secrets, overview or script', () => {
     const raw = episode([
       scene('scene-1', 0, { act: 0, beats: [beat('beat-1-1', 0)] }),
-      scene('scene-2', 1, { act: 1, beats: [beat('beat-2-1', 0)] }),
+      scene('scene-2', 1, {
+        act: 1,
+        motivations: [want('char-marta')],
+        beats: [beat('beat-2-1', 0)],
+      }),
     ]) as unknown as Record<string, unknown>
     for (const key of ['threads', 'secrets', 'storyOverview']) delete raw[key]
     for (const s of raw.scenes as Scene[])
       for (const b of s.beats) delete (b as Partial<Beat>).scriptText
     const ep = raw as unknown as Episode
 
-    const model = boardModel(project(ep), ep, [])
+    const marta = character('char-marta', 'Marta Vega')
+    const dan = character('char-dan', 'Dan Vega')
+    const model = boardModel(project(ep, {}, [marta, dan]), ep, [])
     expect(model.hasScript).toBe(false)
     expect(model.hasThreads).toBe(false)
     expect(model.threads).toEqual([])
@@ -1134,5 +1370,12 @@ describe('missing story data', () => {
       ])
       expect(s.scriptLength).toBe(0)
     }
+
+    for (const kind of ['none', 'threads', 'secret', 'continuity'] as const)
+      expect(highlightCount(model, { kind, who: null })).toBe(0)
+    expect(highlightCount(model, { kind: 'who', who: null })).toBe(0)
+    // Act shape still rings each act's last scene: position, not story data.
+    expect(highlightCount(model, { kind: 'acts', who: null })).toBe(2)
+    expect(castCounts(model)).toEqual([{ character: marta, scenes: 1 }])
   })
 })
