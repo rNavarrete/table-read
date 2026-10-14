@@ -22,7 +22,9 @@ client = TestClient(app)
 PROJECT_ID = "proj-longpour"
 
 # JSON Pointers into the seeded fixture's single season/episode.
+EPISODE = "/seasons/0/episodes/0"
 SCENE_1 = "/seasons/0/episodes/0/scenes/0"
+SCENE_2 = "/seasons/0/episodes/0/scenes/1"
 SCENE_3 = "/seasons/0/episodes/0/scenes/2"
 BEAT_1_2 = f"{SCENE_1}/beats/1"  # locked + scriptLocked in the fixture
 
@@ -101,6 +103,47 @@ def test_patch_locked_scene_act_is_rejected_without_snapshot(
     assert resp.status_code == 409
     assert resp.json()["error"]["code"] == "LOCKED_OBJECT"
     assert _snap_count(db_session) == snaps_after_lock
+
+
+def test_patch_shifting_a_locked_scene_index_is_rejected_without_snapshot(
+    seeded_project, db_session
+):
+    # Insert scene-2 after scene-3: locked scene-3 would shift from index 2 to 1.
+    lock = _patch([{"op": "replace", "path": f"{SCENE_3}/locked", "value": True}])
+    assert lock.status_code == 200
+    before = client.get(f"/api/v1/projects/{PROJECT_ID}").json()
+    snaps = _snap_count(db_session)
+
+    resp = _patch(
+        [
+            {"op": "replace", "path": f"{SCENE_2}/index", "value": 2},
+            {"op": "replace", "path": f"{SCENE_3}/index", "value": 1},
+        ]
+    )
+
+    assert resp.status_code == 409
+    assert resp.json()["error"]["code"] == "LOCKED_OBJECT"
+    assert client.get(f"/api/v1/projects/{PROJECT_ID}").json() == before
+    assert _snap_count(db_session) == snaps
+
+
+def test_patch_shifting_a_scene_index_in_a_locked_episode_is_rejected(
+    seeded_project, db_session
+):
+    lock = _patch([{"op": "replace", "path": f"{EPISODE}/locked", "value": True}])
+    assert lock.status_code == 200
+    snaps = _snap_count(db_session)
+
+    resp = _patch(
+        [
+            {"op": "replace", "path": f"{SCENE_1}/index", "value": 1},
+            {"op": "replace", "path": f"{SCENE_2}/index", "value": 0},
+        ]
+    )
+
+    assert resp.status_code == 409
+    assert resp.json()["error"]["code"] == "LOCKED_OBJECT"
+    assert _snap_count(db_session) == snaps
 
 
 def test_patch_removing_a_locked_beat_is_rejected(seeded_project):

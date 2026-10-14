@@ -283,6 +283,45 @@ describe('applySceneMove', () => {
   })
 })
 
+describe('applySceneMove refuses moves that shift a locked scene (rule 2)', () => {
+  const locked = (...ids: string[]) =>
+    fixtureLikeScenes().map((s) => ({ ...s, locked: ids.includes(s.id) }))
+
+  it('refuses an insert that would shift a locked scene: blockedBy, no ops', () => {
+    // scene-2 after scene-4: locked scene-3 would move from index 2 to 1.
+    const p = project(locked('scene-3'))
+    const insert = {
+      type: 'insert',
+      sceneId: 'scene-2',
+      targetSceneId: 'scene-4',
+      after: true,
+    } as const
+    // @ts-expect-error -- the insert move joins SceneMove with the move model (T3.8)
+    expect(applySceneMove(p, insert)).toEqual({ blockedBy: 'scene-3' })
+  })
+
+  it('refuses an Act move past a locked scene', () => {
+    // scene-2 (act 1) to the start of act 3 passes locked scene-4 (act 2).
+    const p = project(locked('scene-4'))
+    expect(
+      applySceneMove(p, { type: 'act', sceneId: 'scene-2', act: 3 }),
+    ).toEqual({ blockedBy: 'scene-4' })
+  })
+
+  it('refuses moving a locked scene, and any move in a locked episode', () => {
+    const step = { type: 'step', sceneId: 'scene-3', dir: -1 } as const
+    // @ts-expect-error -- the step move joins SceneMove with the move model (T3.8)
+    expect(applySceneMove(project(locked('scene-3')), step)).toEqual({
+      blockedBy: 'scene-3',
+    })
+    const p = project(fixtureLikeScenes())
+    p.seasons[0].episodes[0].locked = true
+    expect(
+      applySceneMove(p, { type: 'act', sceneId: 'scene-5', act: 4 }),
+    ).toEqual({ blockedBy: 'scene-5' })
+  })
+})
+
 describe('buildScenePatch / buildBeatPatch (lock toggles, field saves)', () => {
   it('builds a single replace op for a scene field', () => {
     const p = project(fixtureLikeScenes())
