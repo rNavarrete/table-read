@@ -12,6 +12,7 @@ import { FactDetailDrawer } from './FactDetailDrawer'
 import { SceneStrip } from './SceneStrip'
 import { formatSourceSpanLabel } from './sourceSpanLabel'
 import { assignCharacterAvatars } from './characterAvatar'
+import { allScenes, sceneNumber } from '../write/projectTree'
 
 export interface StoryAtlasProps {
   facts: LedgerFact[]
@@ -44,18 +45,6 @@ function sceneForFact(project: Project, fact: LedgerFact) {
     .find((scene) => scene.id === fact.sourceSpan.sceneId)
 }
 
-function sceneNumber(project: Project, fact: LedgerFact): number {
-  return (sceneForFact(project, fact)?.index ?? Number.MAX_SAFE_INTEGER) + 1
-}
-
-function sceneNumberForId(project: Project, sceneId: string): number {
-  const scene = project.seasons
-    .flatMap((season) => season.episodes)
-    .flatMap((episode) => episode.scenes)
-    .find((candidate) => candidate.id === sceneId)
-  return (scene?.index ?? 0) + 1
-}
-
 function beatNumber(project: Project, fact: LedgerFact): number {
   const scene = sceneForFact(project, fact)
   return (
@@ -64,12 +53,17 @@ function beatNumber(project: Project, fact: LedgerFact): number {
   )
 }
 
+/** Facts by their scene's story position (`scenePosition`: scene id → its
+ * place in allScenes), then beat, then id. */
 function compareStoryOrder(
   project: Project,
+  scenePosition: ReadonlyMap<string, number>,
   left: LedgerFact,
   right: LedgerFact,
 ): number {
-  const sceneDiff = sceneNumber(project, left) - sceneNumber(project, right)
+  const at = (fact: LedgerFact) =>
+    scenePosition.get(fact.sourceSpan.sceneId) ?? Number.MAX_SAFE_INTEGER
+  const sceneDiff = at(left) - at(right)
   if (sceneDiff !== 0) return sceneDiff
   const beatDiff = beatNumber(project, left) - beatNumber(project, right)
   if (beatDiff !== 0) return beatDiff
@@ -116,7 +110,9 @@ function groupedFacts(
       const scene = sceneForFact(project, fact)
       sceneId = fact.sourceSpan.sceneId
       key = `scene-${sceneId}`
-      label = scene ? `Scene ${scene.index + 1}` : 'Unplaced scene'
+      label = scene
+        ? `Scene ${sceneNumber(project, scene.id)}`
+        : 'Unplaced scene'
       detail = (scene as { location?: string } | undefined)?.location ?? null
     } else if (preferences.groupBy === 'character') {
       label = ownerName(project, fact)
@@ -201,14 +197,17 @@ export function StoryAtlas({
 
   const orderedFacts = useMemo(() => {
     const next = [...searchedFacts]
+    const position = new Map(allScenes(project).map((s, i) => [s.id, i]))
     if (preferences.sortBy === 'fewest_knowers') {
       next.sort(
         (left, right) =>
           left.knownBy.length - right.knownBy.length ||
-          compareStoryOrder(project, left, right),
+          compareStoryOrder(project, position, left, right),
       )
     } else {
-      next.sort((left, right) => compareStoryOrder(project, left, right))
+      next.sort((left, right) =>
+        compareStoryOrder(project, position, left, right),
+      )
     }
     return next
   }, [preferences.sortBy, project, searchedFacts])
@@ -327,7 +326,7 @@ export function StoryAtlas({
       ? [
           {
             kind: 'scene',
-            label: `Scene ${sceneNumberForId(project, selectedSceneId)}`,
+            label: `Scene ${sceneNumber(project, selectedSceneId) ?? '?'}`,
             onClear: () => {
               setSelectedSceneId(null)
               setPage(0)

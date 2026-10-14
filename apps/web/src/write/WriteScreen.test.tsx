@@ -193,6 +193,59 @@ describe('WriteScreen script home', () => {
   })
 })
 
+describe('WriteScreen story order', () => {
+  it('outline, canvas, scene numbers and ] follow (act, index), not the array', async () => {
+    const user = userEvent.setup()
+    // A Plan move rewrote act / index and left the array alone: story order
+    // is scene-c, scene-a, scene-b.
+    vi.mocked(getProject).mockResolvedValue(
+      project([
+        makeScene({ id: 'scene-b', act: 1, index: 2, location: 'B' }),
+        makeScene({ id: 'scene-a', act: 1, index: 1, location: 'A' }),
+        makeScene({ id: 'scene-c', act: 0, index: 3, location: 'C' }),
+      ]),
+    )
+    vi.mocked(getLedger).mockResolvedValue([])
+    window.history.pushState({}, '', '/?project=proj-1')
+
+    render(<WriteScreen />)
+
+    const outline = await screen.findByTestId('write-scene-outline')
+    const rows = Array.from(
+      outline.querySelectorAll<HTMLElement>('[data-testid^="write-outline-"]'),
+    )
+    expect(rows.map((r) => r.dataset.testid)).toEqual([
+      'write-outline-scene-c',
+      'write-outline-scene-a',
+      'write-outline-scene-b',
+    ])
+    expect(rows.map((r) => r.textContent?.match(/^\d+/)?.[0])).toEqual([
+      '1',
+      '2',
+      '3',
+    ])
+    const sections = Array.from(
+      screen
+        .getByTestId('script-canvas')
+        .querySelectorAll<HTMLElement>('section[data-scene-id]'),
+    )
+    expect(sections.map((s) => s.dataset.sceneId)).toEqual([
+      'scene-c',
+      'scene-a',
+      'scene-b',
+    ])
+    expect(screen.getByTestId('script-scene-number-scene-b').textContent).toBe(
+      '3',
+    )
+    // Opens on the first scene in story order; ] steps to the next one.
+    expect(rows[0].getAttribute('aria-current')).toBe('true')
+    await user.keyboard(']')
+    expect(
+      screen.getByTestId('write-outline-scene-a').getAttribute('aria-current'),
+    ).toBe('true')
+  })
+})
+
 describe('WriteScreen autosave', () => {
   it('a failed save keeps the typed text and Retry saves it again', async () => {
     const user = userEvent.setup()

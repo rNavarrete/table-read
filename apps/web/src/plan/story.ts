@@ -13,6 +13,7 @@ import type {
 import { tvActStages } from '../ledger/structure/tvActStructure'
 import { plural } from '../projects/wizard/board/boardText'
 import { parseFountainLines } from '../write/fountainFormat'
+import { boardOrder } from '../write/projectTree'
 import {
   actLabel,
   actNumbersForBoard,
@@ -20,6 +21,10 @@ import {
   applySceneMove,
   type SceneMove,
 } from './planTree'
+
+// Board order (act, then index) lives with the shared project-tree helpers so
+// Write and Ledger use the same story order; re-exported for Plan's importers.
+export { boardOrder }
 
 // Every pure derivation the Plan panel reads (redesign spec §6: one module,
 // unit-tested). Missing arrays read as empty everywhere: PATCH returns the
@@ -244,11 +249,6 @@ export function placeTitle(scene: Scene): string {
   const place = parts.at(-1)
   if (!place) return `Scene ${scene.index + 1}`
   return place === place.toUpperCase() ? titleCase(place) : place
-}
-
-/** Board order: act, then index (Board's frames). Drives ‹ › and "of N". */
-export function boardOrder(scenes: readonly Scene[]): Scene[] {
-  return [...scenes].sort((a, b) => a.act - b.act || a.index - b.index)
 }
 
 /** Labelled beat-sheet rows that sit in this scene (by scene id or by one of

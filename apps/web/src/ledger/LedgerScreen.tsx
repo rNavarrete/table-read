@@ -22,6 +22,7 @@ import { ApiError } from '../api/errors'
 import { requireProjectId } from '../projects/projectRouting'
 import { loadResume, saveResume } from '../projects/resumeContext'
 import { AppShell } from '../shell/AppShell'
+import { allScenes } from '../write/projectTree'
 import {
   navigateToWriteBeat,
   navigateToWriteScene,
@@ -71,22 +72,14 @@ function sceneLabel(project: Project, sceneId: string): string {
   return sceneId
 }
 
-/** Episode scenes in doc order for the T7.18 As-of control — location, or
- * `Scene {n}` (1-based) when the scene has no location set yet. */
+/** Episode scenes in story order for the T7.18 As-of control — location,
+ * or `Scene {n}` (1-based story position) when the scene has no location set
+ * yet. */
 function episodeSceneOptions(project: Project): AsOfSceneOption[] {
-  const options: AsOfSceneOption[] = []
-  for (const season of project.seasons) {
-    for (const episode of season.episodes) {
-      for (const scene of episode.scenes) {
-        const location = (scene as { location?: string }).location
-        options.push({
-          id: scene.id,
-          label: location || `Scene ${scene.index + 1}`,
-        })
-      }
-    }
-  }
-  return options
+  return allScenes(project).map((scene, i) => ({
+    id: scene.id,
+    label: scene.location || `Scene ${i + 1}`,
+  }))
 }
 
 /** Threads live on the first (only) episode — design doc "Narrative Promises"

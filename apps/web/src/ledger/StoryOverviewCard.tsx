@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { Project, StoryOverview } from 'contract'
+import { allScenes, findScene, sceneNumber } from '../write/projectTree'
 import { beatModuleCue, summaryParagraphs } from './OverviewPanel'
 
 export interface StoryOverviewCardProps {
@@ -11,16 +12,14 @@ export interface StoryOverviewCardProps {
   onJumpToScene: (sceneId: string) => void
 }
 
+/** Scene numbers are 1-based story positions (projectTree.sceneNumber). */
 function sceneSlug(project: Project, sceneId: string): string {
-  for (const season of project.seasons) {
-    for (const episode of season.episodes) {
-      const scene = episode.scenes.find((s) => s.id === sceneId)
-      if (!scene) continue
-      const location = (scene as { location?: string }).location?.trim()
-      return location ? location.toUpperCase() : `SCENE ${scene.index + 1}`
-    }
-  }
-  return sceneId.toUpperCase()
+  const scene = findScene(project, sceneId)
+  if (!scene) return sceneId.toUpperCase()
+  const location = scene.location?.trim()
+  return location
+    ? location.toUpperCase()
+    : `SCENE ${sceneNumber(project, sceneId)}`
 }
 
 function outlineIndex(
@@ -28,13 +27,7 @@ function outlineIndex(
   sceneId: string,
   fallback: number,
 ): number {
-  for (const season of project.seasons) {
-    for (const episode of season.episodes) {
-      const scene = episode.scenes.find((s) => s.id === sceneId)
-      if (scene) return scene.index + 1
-    }
-  }
-  return fallback
+  return sceneNumber(project, sceneId) ?? fallback
 }
 
 function beatSceneId(project: Project, beatId: string): string | null {
@@ -66,6 +59,14 @@ export function StoryOverviewCard({
   const paragraphs = overview?.summary
     ? summaryParagraphs(overview.summary)
     : []
+  // The outline was written in import order; show it in today's story order
+  // (rows for a scene no longer in the project keep their place at the end).
+  const position = new Map(allScenes(project).map((s, i) => [s.id, i]))
+  const outline = [...(overview?.outline ?? [])].sort(
+    (a, b) =>
+      (position.get(a.sceneId) ?? Infinity) -
+      (position.get(b.sceneId) ?? Infinity),
+  )
 
   return (
     <section
@@ -185,7 +186,7 @@ export function StoryOverviewCard({
                 <p className="text-13 text-tr-text-muted">No outline scenes.</p>
               ) : (
                 <ul className="m-0 list-none p-0">
-                  {overview.outline.map((row, i) => (
+                  {outline.map((row, i) => (
                     <li
                       key={row.sceneId}
                       className="border-b border-tr-border last:border-b-0"

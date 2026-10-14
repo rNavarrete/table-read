@@ -24,11 +24,31 @@ export function findScene(project: Project, sceneId: string): Scene | null {
   return null
 }
 
-/** Every scene in the project, flattened, in document order. */
+/** Story order: act, then index — Plan's board order, which Write, Ledger
+ * and the "Scene n" numbers all follow. Never the scenes array's own order:
+ * Plan moves rewrite `act` / `index` and leave the array alone. Ties keep
+ * array order (stable sort). */
+export function boardOrder(scenes: readonly Scene[]): Scene[] {
+  return [...scenes].sort((a, b) => a.act - b.act || a.index - b.index)
+}
+
+/** Every scene in the project, flattened, each episode in story order. */
 export function allScenes(project: Project): Scene[] {
   return project.seasons.flatMap((season) =>
-    season.episodes.flatMap((episode) => episode.scenes),
+    season.episodes.flatMap((episode) => boardOrder(episode.scenes)),
   )
+}
+
+/** The number the writer reads for a scene: its 1-based position in its
+ * episode's story order. null when the scene isn't in the project. */
+export function sceneNumber(project: Project, sceneId: string): number | null {
+  for (const season of project.seasons) {
+    for (const episode of season.episodes) {
+      const at = boardOrder(episode.scenes).findIndex((s) => s.id === sceneId)
+      if (at >= 0) return at + 1
+    }
+  }
+  return null
 }
 
 const THIN_TOKENS = new Set(['placeholder', 'n/a', 'tbd', 'todo', 'none'])

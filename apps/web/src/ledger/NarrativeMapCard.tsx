@@ -1,5 +1,6 @@
 import type { NarrativeMap, NarrativeMapRun, Project } from 'contract'
 import { actLabel } from '../plan/planTree'
+import { findScene, sceneNumber } from '../write/projectTree'
 
 export interface NarrativeMapCardProps {
   project: Project
@@ -35,19 +36,12 @@ function sceneForBeat(project: Project, beatId: string): string | null {
   return null
 }
 
+/** "Scene n: LOCATION", n = the scene's story position. */
 function sceneName(project: Project, sceneId: string): string {
-  for (const season of project.seasons) {
-    for (const episode of season.episodes) {
-      const index = episode.scenes.findIndex((scene) => scene.id === sceneId)
-      if (index >= 0) {
-        const location = episode.scenes[index].location
-        return location
-          ? `Scene ${index + 1}: ${location}`
-          : `Scene ${index + 1}`
-      }
-    }
-  }
-  return sceneId
+  const scene = findScene(project, sceneId)
+  if (!scene) return sceneId
+  const n = sceneNumber(project, sceneId)
+  return scene.location ? `Scene ${n}: ${scene.location}` : `Scene ${n}`
 }
 
 function characterName(
