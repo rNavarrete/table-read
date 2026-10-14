@@ -147,6 +147,28 @@ def test_patch_shifting_a_scene_index_in_a_locked_episode_is_rejected(
     assert _snap_count(db_session) == snaps
 
 
+def test_patch_swapping_beat_indexes_in_a_locked_scene_is_rejected(
+    seeded_project, db_session
+):
+    # Same array order, swapped `index`: the beat ladder reads by index.
+    lock = _patch([{"op": "replace", "path": f"{SCENE_1}/locked", "value": True}])
+    assert lock.status_code == 200
+    before = client.get(f"/api/v1/projects/{PROJECT_ID}").json()
+    snaps = _snap_count(db_session)
+
+    resp = _patch(
+        [
+            {"op": "replace", "path": f"{SCENE_1}/beats/0/index", "value": 1},
+            {"op": "replace", "path": f"{SCENE_1}/beats/1/index", "value": 0},
+        ]
+    )
+
+    assert resp.status_code == 409
+    assert resp.json()["error"]["code"] == "LOCKED_OBJECT"
+    assert client.get(f"/api/v1/projects/{PROJECT_ID}").json() == before
+    assert _snap_count(db_session) == snaps
+
+
 def test_patch_removing_a_locked_beat_is_rejected(seeded_project):
     resp = _patch([{"op": "remove", "path": BEAT_1_2}])
     assert resp.status_code == 409
