@@ -85,8 +85,8 @@ async function patchJson<T>(
 /** One RFC 6902 JSON Patch operation (data contract §4 `PATCH /projects/{pid}`;
  * applier: `apps/api/storage/patching.py`). Only `add`/`replace`/`remove` are
  * supported server-side — `move`/`copy`/`test` are rejected as 400
- * `VALIDATION`, so Plan mode's reorder (an index/act swap, not an array
- * move) is expressed as two or three `replace` ops, never `move`. */
+ * `VALIDATION`, so Plan mode's reorder is expressed as index/act `replace`s
+ * for the scenes a move shifts, never an array `move`. */
 export interface JsonPatchOp {
   op: 'add' | 'replace' | 'remove'
   path: string

@@ -18,8 +18,14 @@ import {
   actNumbersForBoard,
   affectedFacts,
   applySceneMove,
+  boardOrder,
+  type MoveRefusal,
   type SceneMove,
 } from './planTree'
+
+// Moved to planTree (applySceneMove builds on it); re-exported so existing
+// importers keep working.
+export { boardOrder }
 
 // Every pure derivation the Plan panel reads (redesign spec §6: one module,
 // unit-tested). Missing arrays read as empty everywhere: PATCH returns the
@@ -298,11 +304,6 @@ export function placeTitle(scene: Scene): string {
   return place === place.toUpperCase() ? titleCase(place) : place
 }
 
-/** Board order: act, then index (Board's frames). Drives ‹ › and "of N". */
-export function boardOrder(scenes: readonly Scene[]): Scene[] {
-  return [...scenes].sort((a, b) => a.act - b.act || a.index - b.index)
-}
-
 /** Labelled beat-sheet rows that sit in this scene (by scene id or by one of
  * its beats). */
 export function landmarksForScene(
@@ -523,21 +524,43 @@ export function newOrderIssues(
   return after.filter((i) => !known.has(i.id))
 }
 
-/** The drag / Act prediction: the problems `move` would add, computed on
- * applySceneMove's optimistic twin, so it always matches the save. [] when
- * there is nothing to move. */
-export function predictMove(project: Project, move: SceneMove): OrderIssue[] {
+/** What a move would do: null when nothing would move, the locked scene in
+ * the way, or the order problems it would add — on applySceneMove's own
+ * result, so it always matches the save. */
+export type MovePrediction = MoveRefusal | { issues: OrderIssue[] } | null
+
+export function predictMove(project: Project, move: SceneMove): MovePrediction {
   const applied = applySceneMove(project, move)
-  if (!applied) return []
+  if (!applied || 'blockedBy' in applied) return applied
   const episodeOf = (p: Project) =>
     p.seasons
       .flatMap((s) => s.episodes)
       .find((e) => e.scenes.some((s) => s.id === move.sceneId))
   const before = episodeOf(project)
   const after = episodeOf(applied.next)
-  return before && after
-    ? newOrderIssues(orderIssues(before), orderIssues(after))
-    : []
+  return {
+    issues:
+      before && after
+        ? newOrderIssues(orderIssues(before), orderIssues(after))
+        : [],
+  }
+}
+
+/** "Can't move past scene n: it's locked", "Can't move scene n: it's
+ * locked" when the locked scene is the one being moved, or "Can't renumber
+ * scene n: it's locked" when the move only renumbers it (its index is out of
+ * board order); n = today's number. */
+export function lockedMoveText(
+  model: BoardModel,
+  sceneId: string,
+  { blockedBy, renumber }: MoveRefusal,
+): string {
+  const n = cardNumber(model, blockedBy)
+  return sceneId === blockedBy
+    ? `Can't move scene ${n}: it's locked`
+    : renumber
+      ? `Can't renumber scene ${n}: it's locked`
+      : `Can't move past scene ${n}: it's locked`
 }
 
 // ponytail: "the secret" names no secret; with two secrets the sentences don't

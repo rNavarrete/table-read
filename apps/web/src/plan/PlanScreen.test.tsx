@@ -20,7 +20,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiError } from '../api/errors'
 import { loadResume, saveResume } from '../projects/resumeContext'
 import { PlanScreen } from './PlanScreen'
-import { withBeatField, withSceneField } from './planTree'
+import {
+  applySceneMove,
+  withBeatField,
+  withSceneField,
+  type SceneMove,
+} from './planTree'
 import { UNDO_MOVE_STALE } from './useUndoMove'
 
 const {
@@ -375,7 +380,9 @@ describe('PlanScreen', () => {
   it('an empty-act drop sends one act PATCH and nothing else', async () => {
     const p = project()
     const moved = structuredClone(p)
-    moved.seasons[0].episodes[0].scenes[0].act = 4
+    // The end of act 4, renumbered: scene-2 is now first.
+    Object.assign(moved.seasons[0].episodes[0].scenes[0], { act: 4, index: 1 })
+    moved.seasons[0].episodes[0].scenes[1].index = 0
     patchProjectMock.mockResolvedValue({ project: moved, consistencyFlags: [] })
     await loadPlan(p)
     const dataTransfer = {
@@ -396,7 +403,7 @@ describe('PlanScreen', () => {
     expect(patchProjectMock).toHaveBeenCalledTimes(1)
     expect(patchProjectMock).toHaveBeenCalledWith(
       'proj-longpour',
-      [{ op: 'replace', path: '/seasons/0/episodes/0/scenes/0/act', value: 4 }],
+      sceneOps([0, 'index', 1], [0, 'act', 4], [1, 'index', 0]),
       { expectedHeadSnapshotId: 'snap-root' },
     )
     await waitFor(() =>
@@ -1419,6 +1426,22 @@ describe('PlanScreen', () => {
   })
 })
 
+const SCENES = '/seasons/0/episodes/0/scenes'
+/** `replace` ops on `scenes/<array position>/<field>`. */
+const sceneOps = (...ops: [number, 'index' | 'act', number][]) =>
+  ops.map(([at, field, value]) => ({
+    op: 'replace',
+    path: `${SCENES}/${at}/${field}`,
+    value,
+  }))
+
+/** The optimistic doc applySceneMove builds for `move` (the server's echo). */
+function nextOf(p: Project, move: SceneMove) {
+  const applied = applySceneMove(p, move)
+  if (!applied || 'blockedBy' in applied) throw new Error('no move')
+  return applied.next
+}
+
 /** Five scenes (array position = index): the cold open, two in act 1, one
  * each in acts 2 and 3; one thread set up in scene 2 and paid off in scene 5. */
 function orderProject(): Project {
@@ -1451,7 +1474,7 @@ describe('PlanScreen order check (T3.7)', () => {
   /** The server's reply to scene-5 → the cold open (act 0). */
   const moved = (p: Project, head = 'snap-moved'): Saved => ({
     project: {
-      ...withSceneField(p, 'scene-5', 'act', 0),
+      ...nextOf(p, { type: 'act', sceneId: 'scene-5', act: 0 }),
       headSnapshotId: head,
     },
     consistencyFlags: [],
@@ -1462,9 +1485,139 @@ describe('PlanScreen order check (T3.7)', () => {
     effectAllowed: 'move',
   } as unknown as DataTransfer
   const strip = () => screen.getByTestId('notes-strip')
+  const card = (id: string) => screen.getByTestId(`scene-card-${id}`)
+  /** An act frame's scene ids, in board order. */
+  const actIds = (n: number) =>
+    [
+      ...screen
+        .getByTestId(`act-frame-${n}`)
+        .querySelectorAll('[data-scene-card]'),
+    ].map((el) => el.getAttribute('data-scene-id'))
+  /** The server's echo of `move` on `p`. */
+  const echo = (p: Project, move: SceneMove): Saved => ({
+    project: { ...nextOf(p, move), headSnapshotId: 'snap-moved' },
+    consistencyFlags: [],
+  })
   const undoButton = () =>
     screen.queryByRole('button', { name: 'Undo the move' })
-  const NOTE = 'Pays off “The spare key” before its setup in scene 2.'
+  const NOTE = 'Pays off “The spare key” before its setup in scene 3.'
+
+  // Rule 2: the lock-violation tests come before the move feature tests.
+  it('a drop that would shift a locked scene sends no PATCH and says why (rule 2)', async () => {
+    const p = orderProject()
+    p.seasons[0].episodes[0].scenes[2].locked = true
+    await loadPlan(p)
+
+    // jsdom rects are all zero: the drop lands on scene-1's left half.
+    fireEvent.dragStart(card('scene-5'), { dataTransfer })
+    fireEvent.dragOver(card('scene-1'), { dataTransfer })
+    expect(card('scene-1').querySelector('[data-tape]')?.textContent).toBe(
+      "Can't move past scene 3: it's locked",
+    )
+    expect(document.querySelector('[data-insert-bar]')).toBeNull()
+    fireEvent.drop(card('scene-1'), { dataTransfer })
+
+    expect(patchProjectMock).not.toHaveBeenCalled()
+    expect(actIds(0)).toEqual(['scene-1'])
+    expect(actIds(3)).toEqual(['scene-5'])
+  })
+
+  it('⌥→ on a locked card sends no PATCH and says why', async () => {
+    const p = orderProject()
+    p.seasons[0].episodes[0].scenes[1].locked = true
+    await loadPlan(p)
+
+    fireEvent.keyDown(card('scene-2'), { key: 'ArrowRight', altKey: true })
+
+    expect(patchProjectMock).not.toHaveBeenCalled()
+    expect((await screen.findByTestId('toast')).textContent).toContain(
+      "Can't move scene 2: it's locked",
+    )
+    // The toast is an alert: plan-live doesn't say it a second time.
+    expect(screen.getByTestId('plan-live').textContent).not.toContain(
+      "Can't move",
+    )
+  })
+
+  it('a repeated refusal remounts its alert, so it is spoken again', async () => {
+    const p = orderProject()
+    p.seasons[0].episodes[0].scenes[1].locked = true
+    await loadPlan(p)
+
+    fireEvent.keyDown(card('scene-2'), { key: 'ArrowRight', altKey: true })
+    const first = await screen.findByTestId('toast')
+    fireEvent.keyDown(card('scene-2'), { key: 'ArrowRight', altKey: true })
+
+    const second = screen.getByTestId('toast')
+    expect(second.textContent).toContain("Can't move scene 2: it's locked")
+    expect(second).not.toBe(first)
+  })
+
+  it('a refusal shows on top of an open toast', async () => {
+    const user = userEvent.setup()
+    const p = orderProject()
+    p.seasons[0].episodes[0].scenes[1].locked = true
+    const flag: ConsistencyFlag = {
+      id: 'flag-1',
+      objectType: 'scene',
+      objectId: 'scene-1',
+      factId: null,
+      explanation: 'Scene 2 still has the money in the bar.',
+      severity: 'tension',
+      status: 'open',
+      sourceChange: 'snap-root',
+    }
+    getProjectMock
+      .mockResolvedValueOnce(p)
+      .mockResolvedValueOnce({ ...p, headSnapshotId: 'snap-dismiss' })
+    getConsistencyFlagsMock.mockResolvedValueOnce([flag])
+    dismissConsistencyFlagMock.mockResolvedValue({
+      ...flag,
+      status: 'dismissed',
+    })
+    await loadPlan(p)
+    await user.click(within(strip()).getByRole('button', { name: 'Show' }))
+    await user.click(
+      within(screen.getByTestId('note-flag-1')).getByRole('button', {
+        name: 'Dismiss',
+      }),
+    )
+    expect(await screen.findByText('Note dismissed.')).not.toBeNull()
+
+    fireEvent.keyDown(card('scene-2'), { key: 'ArrowRight', altKey: true })
+
+    // Same fixed spot: the last toast paints on top.
+    expect(screen.getAllByTestId('toast').at(-1)?.textContent).toContain(
+      "Can't move scene 2: it's locked",
+    )
+  })
+
+  it('a refusal goes once the head moves, e.g. its scene is unlocked', async () => {
+    const user = userEvent.setup()
+    const p = orderProject()
+    p.seasons[0].episodes[0].scenes[1].locked = true
+    patchProjectMock.mockResolvedValue({
+      project: {
+        ...withSceneField(p, 'scene-2', 'locked', false),
+        headSnapshotId: 'snap-unlocked',
+      },
+      consistencyFlags: [],
+    })
+    await loadPlan(p)
+    fireEvent.keyDown(card('scene-2'), { key: 'ArrowRight', altKey: true })
+    expect((await screen.findByTestId('toast')).textContent).toContain(
+      "Can't move scene 2: it's locked",
+    )
+
+    await user.click(card('scene-2'))
+    await user.click(
+      within(screen.getByTestId('inspector')).getByTestId('lock-toggle'),
+    )
+
+    await waitFor(() =>
+      expect(screen.queryByText("Can't move scene 2: it's locked")).toBeNull(),
+    )
+  })
 
   /** Loads orderProject(), selects scene-5 and moves it to the cold open. */
   async function moveScene5ToColdOpen(
@@ -1492,7 +1645,7 @@ describe('PlanScreen order check (T3.7)', () => {
     expect(strip().textContent).toContain(NOTE)
     expect(undoButton()).toBeNull()
     expect(screen.getByTestId('plan-live').textContent).toBe(
-      'Moved. 1 new order problem.',
+      'Moved to COLD OPEN, scene 2 of 5. 1 new order problem.',
     )
 
     await act(async () => save.resolve(moved(p)))
@@ -1520,9 +1673,16 @@ describe('PlanScreen order check (T3.7)', () => {
     await user.selectOptions(screen.getByRole('combobox', { name: 'Act' }), '0')
 
     expect(patchProjectMock).toHaveBeenCalledTimes(1)
+    // The start of act 1, renumbered: index = board position.
     expect(patchProjectMock).toHaveBeenCalledWith(
       'proj-longpour',
-      [{ op: 'replace', path: '/seasons/0/episodes/0/scenes/4/act', value: 0 }],
+      sceneOps(
+        [1, 'index', 2],
+        [2, 'index', 3],
+        [3, 'index', 4],
+        [4, 'index', 1],
+        [4, 'act', 0],
+      ),
       { expectedHeadSnapshotId: 'snap-root' },
     )
     expect(suggestInstructionsMock).not.toHaveBeenCalled()
@@ -1678,7 +1838,7 @@ describe('PlanScreen order check (T3.7)', () => {
     await waitFor(() => expect(undoButton()).toBeNull())
     expect(strip().textContent).toContain(NOTE)
     await user.click(
-      within(strip()).getByRole('button', { name: 'Go to scene 2' }),
+      within(strip()).getByRole('button', { name: 'Go to scene 3' }),
     )
     expect(
       screen.getByTestId('scene-card-scene-2').getAttribute('aria-pressed'),
@@ -1779,5 +1939,153 @@ describe('PlanScreen order check (T3.7)', () => {
     expect(
       screen.getByTestId('scene-card-scene-2').getAttribute('aria-pressed'),
     ).toBe('true')
+  })
+
+  it('a drop inserts before the card: one PATCH, and Undo the move restores the order', async () => {
+    const user = userEvent.setup()
+    const p = orderProject()
+    const save = deferred<Saved>()
+    patchProjectMock.mockReturnValue(save.promise)
+    undoProjectMock.mockResolvedValue(orderProject())
+    await loadPlan(p)
+    // Undo the move lives on the selected scene's Order note.
+    await user.click(card('scene-5'))
+
+    fireEvent.dragStart(card('scene-5'), { dataTransfer })
+    fireEvent.dragOver(card('scene-2'), { dataTransfer })
+    fireEvent.drop(card('scene-2'), { dataTransfer })
+
+    expect(patchProjectMock).toHaveBeenCalledTimes(1)
+    expect(patchProjectMock).toHaveBeenCalledWith(
+      'proj-longpour',
+      sceneOps(
+        [1, 'index', 2],
+        [2, 'index', 3],
+        [3, 'index', 4],
+        [4, 'index', 1],
+        [4, 'act', 1],
+      ),
+      { expectedHeadSnapshotId: 'snap-root' },
+    )
+    expect(actIds(1)).toEqual(['scene-5', 'scene-2', 'scene-3'])
+
+    await act(async () =>
+      save.resolve(
+        echo(p, {
+          type: 'insert',
+          sceneId: 'scene-5',
+          targetSceneId: 'scene-2',
+          after: false,
+        }),
+      ),
+    )
+    await user.click(
+      await within(strip()).findByRole('button', { name: 'Undo the move' }),
+    )
+
+    expect(undoProjectMock).toHaveBeenCalledWith('proj-longpour', {
+      expectedHeadSnapshotId: 'snap-moved',
+    })
+    await waitFor(() => expect(actIds(1)).toEqual(['scene-2', 'scene-3']))
+    expect(screen.getByTestId('plan-live').textContent).toBe('Move undone.')
+  })
+
+  it('⌥→ moves the focused card one slot and keeps focus on it', async () => {
+    const p = orderProject()
+    patchProjectMock.mockResolvedValue(
+      echo(p, { type: 'step', sceneId: 'scene-2', dir: 1 }),
+    )
+    await loadPlan(p)
+    act(() => card('scene-2').focus())
+
+    fireEvent.keyDown(card('scene-2'), { key: 'ArrowRight', altKey: true })
+
+    expect(patchProjectMock).toHaveBeenCalledWith(
+      'proj-longpour',
+      sceneOps([1, 'index', 2], [2, 'index', 1]),
+      { expectedHeadSnapshotId: 'snap-root' },
+    )
+    expect(actIds(1)).toEqual(['scene-3', 'scene-2'])
+    expect(screen.getByTestId('plan-live').textContent).toBe(
+      'Moved to ACT ONE, scene 3 of 5.',
+    )
+    await waitFor(() => expect(document.activeElement).toBe(card('scene-2')))
+  })
+
+  it('a move into a collapsed act opens it and scrolls the card into view', async () => {
+    const user = userEvent.setup()
+    const p = orderProject()
+    patchProjectMock.mockResolvedValue(
+      echo(p, { type: 'step', sceneId: 'scene-3', dir: 1 }),
+    )
+    await loadPlan(p)
+    const chevron = () =>
+      within(screen.getByTestId('act-frame-2')).getByRole('button', {
+        name: /ACT TWO$/,
+      })
+    await user.click(chevron())
+    expect(chevron().getAttribute('aria-expanded')).toBe('false')
+    await user.click(card('scene-3'))
+    const scrollIntoView = vi.spyOn(Element.prototype, 'scrollIntoView')
+
+    fireEvent.keyDown(card('scene-3'), { key: 'ArrowRight', altKey: true })
+
+    // The last card of act 1 crosses the break in place: only its act.
+    expect(patchProjectMock).toHaveBeenCalledTimes(1)
+    expect(patchProjectMock).toHaveBeenCalledWith(
+      'proj-longpour',
+      sceneOps([2, 'act', 2]),
+      { expectedHeadSnapshotId: 'snap-root' },
+    )
+    expect(actIds(2)).toEqual(['scene-3', 'scene-4'])
+    expect(chevron().getAttribute('aria-label')).toBe('Hide ACT TWO')
+    expect(chevron().getAttribute('aria-expanded')).toBe('true')
+    await waitFor(() => expect(document.activeElement).toBe(card('scene-3')))
+    expect(scrollIntoView.mock.contexts).toContain(card('scene-3'))
+  })
+
+  it('the Act select into a collapsed act opens it, and focus stays on the select', async () => {
+    const user = userEvent.setup()
+    const p = orderProject()
+    patchProjectMock.mockResolvedValue(
+      echo(p, { type: 'act', sceneId: 'scene-5', act: 2 }),
+    )
+    await loadPlan(p)
+    await user.click(
+      within(screen.getByTestId('act-frame-2')).getByRole('button', {
+        name: 'Hide ACT TWO',
+      }),
+    )
+    await user.click(card('scene-5'))
+    const select = screen.getByRole('combobox', { name: 'Act' })
+
+    await user.selectOptions(select, '2')
+
+    expect(actIds(2)).toEqual(['scene-4', 'scene-5'])
+    expect(
+      within(screen.getByTestId('act-frame-2'))
+        .getByRole('button', { name: 'Hide ACT TWO' })
+        .getAttribute('aria-expanded'),
+    ).toBe('true')
+    await act(() => new Promise((r) => requestAnimationFrame(r)))
+    expect(document.activeElement).toBe(select)
+  })
+
+  it('a refusal toast clears on the next move', async () => {
+    const p = orderProject()
+    p.seasons[0].episodes[0].scenes[1].locked = true
+    patchProjectMock.mockResolvedValue(
+      echo(p, { type: 'step', sceneId: 'scene-4', dir: 1 }),
+    )
+    await loadPlan(p)
+    fireEvent.keyDown(card('scene-2'), { key: 'ArrowRight', altKey: true })
+    expect((await screen.findByTestId('toast')).textContent).toContain(
+      "Can't move scene 2: it's locked",
+    )
+
+    fireEvent.keyDown(card('scene-4'), { key: 'ArrowRight', altKey: true })
+
+    expect(patchProjectMock).toHaveBeenCalledTimes(1)
+    expect(screen.queryByTestId('toast')).toBeNull()
   })
 })

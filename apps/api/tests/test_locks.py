@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import copy
 
+import pytest
+
 from drama_manager import locks
 from storage.seed import load_fixture
 
@@ -146,6 +148,42 @@ def test_no_locked_writes_allows_reordering_beats_in_unlocked_scene():
     scene["beats"] = list(reversed(scene["beats"]))
     for i, beat in enumerate(scene["beats"]):
         beat["index"] = i
+    locks.assert_no_locked_writes(doc, new)  # no raise
+
+
+def _scene(doc, scene_idx):
+    return doc["seasons"][0]["episodes"][0]["scenes"][scene_idx]
+
+
+def _swap_scene_index(doc, a, b):
+    sa, sb = _scene(doc, a), _scene(doc, b)
+    sa["index"], sb["index"] = sb["index"], sa["index"]
+
+
+def test_no_locked_writes_rejects_moving_a_locked_scene_index():
+    doc = _doc()
+    _scene(doc, 2)["locked"] = True  # scene-3
+    new = copy.deepcopy(doc)
+    _swap_scene_index(new, 1, 2)  # scene-2 <-> scene-3
+    with pytest.raises(locks.LockViolation, match="scene-3"):
+        locks.assert_no_locked_writes(doc, new)
+
+
+def test_no_locked_writes_rejects_moving_a_scene_index_in_a_locked_episode():
+    doc = _doc()
+    doc["seasons"][0]["episodes"][0]["locked"] = True
+    new = copy.deepcopy(doc)
+    _swap_scene_index(new, 0, 1)  # scene-1 <-> scene-2
+    # The scene loop runs in array order, so scene-1 trips first.
+    with pytest.raises(locks.LockViolation, match="scene-1"):
+        locks.assert_no_locked_writes(doc, new)
+
+
+def test_no_locked_writes_allows_reindexing_unlocked_scenes_beside_a_locked_one():
+    doc = _doc()
+    _scene(doc, 2)["locked"] = True  # scene-3
+    new = copy.deepcopy(doc)
+    _swap_scene_index(new, 0, 1)  # scene-1 <-> scene-2, both unlocked
     locks.assert_no_locked_writes(doc, new)  # no raise
 
 
