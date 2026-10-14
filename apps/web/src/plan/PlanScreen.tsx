@@ -44,6 +44,7 @@ import {
   usePlanDraftStore,
 } from './panel/usePlanDrafts'
 import {
+  actLabel,
   applySceneMove,
   buildBeatPatch,
   buildEpisodePatch,
@@ -59,9 +60,11 @@ import {
   boardModel,
   highlightAnnouncement,
   lockedMoveText,
+  newOrderIssues,
   NO_HIGHLIGHT,
   nextMatchId,
   notesForScene,
+  orderIssues,
   predictMove,
   selectionAnnouncement,
   type Highlight,
@@ -103,6 +106,8 @@ export function PlanScreen() {
   const [unfolded, setUnfolded] = useState<ReadonlySet<string>>(new Set())
   const [openingReview, setOpeningReview] = useState(false)
   const [reviewError, setReviewError] = useState<string | null>(null)
+  // Why the last keyboard or Act-select move was refused (a locked scene).
+  const [moveRefusal, setMoveRefusal] = useState<string | null>(null)
   // The board's live region (plan-live): empty until the writer selects.
   const [live, setLive] = useState('')
   // One draft per field for the whole screen (spec §4.9): survives scene
@@ -359,25 +364,43 @@ export function PlanScreen() {
     )
   }
 
-  /** A swap or an act change: one PATCH, one snapshot (rule 4). The problems
-   * it adds show at once from the optimistic doc; Undo the move is offered
+  /** A drop, an Act change or ⌥←/⌥→: one PATCH, one snapshot (rule 4). A
+   * move that would shift a locked scene sends nothing and says why. Its new
+   * problems show at once from the optimistic doc; Undo the move is offered
    * once the server has made this move the head. */
   function applyMove(move: SceneMove): Promise<boolean> {
-    if (!project) return Promise.resolve(false)
+    if (!project || !model) return Promise.resolve(false)
     const applied = applySceneMove(project, move)
     if (!applied) return Promise.resolve(false)
     if ('blockedBy' in applied) {
-      if (model)
-        announce(lockedMoveText(model, move.sceneId, applied.blockedBy))
+      const text = lockedMoveText(model, move.sceneId, applied.blockedBy)
+      setMoveRefusal(text)
+      announce(text)
       return Promise.resolve(false)
     }
-    const prediction = predictMove(project, move)
-    const fresh = prediction && 'issues' in prediction ? prediction.issues : []
+    const moved = findScene(applied.next, move.sceneId)
+    if (!moved) return Promise.resolve(false)
+    setMoveRefusal(null)
+    const fresh = newOrderIssues(
+      model.issues,
+      orderIssues(applied.next.seasons[0].episodes[0]),
+    )
+    // A move into a collapsed act opens it, as selecting into one does.
+    acts.expand(moved.act)
+    announce(
+      [
+        `Moved to ${actLabel(moved.act, project.format)}, scene ${moved.index + 1} of ${model.order.length}.`,
+        fresh.length > 0 && `${plural(fresh.length, 'new order problem')}.`,
+      ]
+        .filter(Boolean)
+        .join(' '),
+    )
+    // A card moved under focus (⌥←/⌥→, a drag) keeps it; the Act select
+    // keeps its own.
+    const fromCard = document.activeElement?.closest('[data-scene-card]')
     // A failed move leaves the previous one the head: give its offer back.
     const prev = undoMove.move
     undoMove.setMove({ issueIds: fresh.map((i) => i.id), head: null })
-    if (fresh.length)
-      announce(`Moved. ${plural(fresh.length, 'new order problem')}.`)
     const result = patcher
       .patch(applied.ops, applied.next, (saved) =>
         undoMove.setMove((m) => m && { ...m, head: saved.headSnapshotId }),
@@ -386,12 +409,13 @@ export function PlanScreen() {
         if (!ok) undoMove.setMove(prev)
         return ok
       })
-    // The optimistic doc is on screen by the next frame: bring the selected
-    // card back into view below the sticky header. Focus stays put.
-    if (selectedId)
-      requestAnimationFrame(() =>
-        cardEl(selectedId)?.scrollIntoView({ block: 'nearest' }),
-      )
+    // The optimistic doc is on screen by the next frame (the card may have
+    // remounted in another act): bring it into view below the sticky header.
+    requestAnimationFrame(() => {
+      const card = cardEl(move.sceneId)
+      card?.scrollIntoView({ block: 'nearest' })
+      if (fromCard) card?.focus()
+    })
     return result
   }
 
@@ -641,6 +665,11 @@ export function PlanScreen() {
           >
             {live}
           </p>
+          {moveRefusal && (
+            <Toast tone="danger" onDismiss={() => setMoveRefusal(null)}>
+              {moveRefusal}
+            </Toast>
+          )}
           {reviewError && (
             <Toast tone="danger" onDismiss={() => setReviewError(null)}>
               {reviewError}
