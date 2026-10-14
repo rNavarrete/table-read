@@ -210,7 +210,7 @@ export function PlanField({
             onClick={() => void save()}
             className="text-13 text-tr-text-primary underline disabled:opacity-50"
           >
-            {saving ? 'Saving…' : 'Save field only'}
+            {saving && !openingReview ? 'Saving…' : 'Save field only'}
           </button>
           <button
             type="button"
