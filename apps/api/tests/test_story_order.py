@@ -11,13 +11,16 @@ from __future__ import annotations
 
 import copy
 
+import pytest
 from fastapi.testclient import TestClient
 
 from drama_manager import change_sets, locks, render, scan, scene_skeleton
 from drama_manager.narrative_map_analysis import prepare_narrative_map_source
 from fountain.export import to_fountain
+from llm.dependency import get_llm_client, get_llm_client_provider
 from llm.mock import MockLlmClient
 from main import app
+from schemas import RegeneratedElements
 from storage.seed import load_fixture, seed_envelope
 
 # Plan's insert of scene-4 before scene-2 (index renumbered to board
@@ -129,3 +132,75 @@ def test_narrative_map_source_is_in_story_order_and_a_reorder_changes_its_hash()
         prepare_narrative_map_source(swapped).source_hash
         != prepare_narrative_map_source(unmoved).source_hash
     )
+
+
+_PLAN = {"whatHappens": "x", "audienceLearns": "x", "audienceFeels": "x"}
+
+
+def _post_accept(c: TestClient, _llm: MockLlmClient):
+    candidate = {
+        "label": "The arrest",
+        "beatPlan": _PLAN,
+        "scriptText": "DAN\nThis is a mistake.",
+        "continuityConflicts": [],
+    }
+    return c.post(
+        "/api/v1/projects/proj-longpour/scenes/scene-3/beats",
+        json={"candidate": candidate, "afterBeatId": "beat-3-1"},
+    )
+
+
+def _patch_structural(c: TestClient, _llm: MockLlmClient):
+    path = "/seasons/0/episodes/0/scenes/2/whatHappens"
+    return c.patch(
+        "/api/v1/projects/proj-longpour", json=[{"op": "replace", "path": path, "value": "x"}]
+    )
+
+
+def _apply_change_set(c: TestClient, llm: MockLlmClient):
+    llm.set_response(
+        "regenerate_elements",
+        RegeneratedElements.model_validate(
+            {
+                "beats": [{"beatId": "beat-4-2", "beatPlan": _PLAN, "scriptText": "x"}],
+                "scenes": [],
+                "continuityConflicts": [],
+            }
+        ),
+    )
+    cid = c.post(
+        "/api/v1/projects/proj-longpour/change-sets",
+        json={"targetObjectId": "scene-2", "instruction": "Dan hides the money at the marina"},
+    ).json()["id"]
+    approved = {"approvedObjectIds": ["beat-4-2"]}
+    assert c.post(f"/api/v1/change-sets/{cid}/preview", json=approved).status_code == 200
+    return c.post(f"/api/v1/change-sets/{cid}/apply", json=approved)
+
+
+@pytest.mark.parametrize(
+    "run",
+    [_post_accept, _patch_structural, _apply_change_set],
+    ids=["accept", "direct-edit", "change-set-apply"],
+)
+def test_consistency_scan_callers_send_scene_plans_in_story_order(db_session, monkeypatch, run):
+    envelope = copy.deepcopy(load_fixture())
+    envelope["project"] = _moved(envelope["project"])
+    seed_envelope(db_session, envelope)
+    seen: list[list[str]] = []
+    original = render.build_scan_prompt
+
+    def spy(doc, change_summary, untouched, *args):
+        seen.append([s["id"] for s in untouched])
+        return original(doc, change_summary, untouched, *args)
+
+    monkeypatch.setattr(render, "build_scan_prompt", spy)
+    llm = MockLlmClient()
+    app.dependency_overrides[get_llm_client] = lambda: llm
+    app.dependency_overrides[get_llm_client_provider] = lambda: (lambda: llm)
+    try:
+        assert run(TestClient(app), llm).status_code == 200
+    finally:
+        app.dependency_overrides.pop(get_llm_client, None)
+        app.dependency_overrides.pop(get_llm_client_provider, None)
+
+    assert seen == [STORY]

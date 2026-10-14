@@ -103,6 +103,28 @@ def test_patch_locked_scene_act_is_rejected_without_snapshot(
     assert _snap_count(db_session) == snaps_after_lock
 
 
+def test_index_swap_in_locked_episode_is_rejected_without_snapshot(seeded_project, db_session):
+    # Story order is (act, index), so swapping two scenes' `index` reorders a
+    # locked episode even though the scenes array is untouched (ruling 2).
+    episode = "/seasons/0/episodes/0"
+    lock = _patch([{"op": "replace", "path": f"{episode}/locked", "value": True}])
+    assert lock.status_code == 200
+    locked_state = client.get(f"/api/v1/projects/{PROJECT_ID}").json()
+    snaps_after_lock = _snap_count(db_session)
+
+    resp = _patch(
+        [
+            {"op": "replace", "path": f"{episode}/scenes/1/index", "value": 2},
+            {"op": "replace", "path": f"{episode}/scenes/2/index", "value": 1},
+        ]
+    )
+
+    assert resp.status_code == 409
+    assert resp.json()["error"]["code"] == "LOCKED_OBJECT"
+    assert client.get(f"/api/v1/projects/{PROJECT_ID}").json() == locked_state
+    assert _snap_count(db_session) == snaps_after_lock
+
+
 def test_patch_removing_a_locked_beat_is_rejected(seeded_project):
     resp = _patch([{"op": "remove", "path": BEAT_1_2}])
     assert resp.status_code == 409
