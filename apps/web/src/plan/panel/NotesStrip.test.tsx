@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ComponentProps } from 'react'
 import type { Beat, ConsistencyFlag, LedgerFact, Scene } from 'contract'
-import { notesForScene } from '../story'
+import { notesForScene, type OrderNote } from '../story'
 import { NotesStrip } from './NotesStrip'
 
 afterEach(cleanup)
@@ -111,6 +111,21 @@ const FLAGS = [
       '[extraction_failed] Fact extraction for this scene failed validation twice, so no continuity facts were recorded from it.',
   }),
 ]
+
+// A computed Order note on scene 5: it pays off a thread set up in scene 4.
+const ORDER_NOTE: OrderNote = {
+  issue: {
+    id: 'payoff_first:thread-key:scene-5',
+    kind: 'payoff_first',
+    sourceId: 'thread-key',
+    label: 'The spare key',
+    sceneId: 'scene-5',
+    otherSceneId: 'scene-4',
+  },
+  otherSceneId: 'scene-4',
+  otherNumber: 4,
+  text: 'Pays off “The spare key” before its setup in scene 4.',
+}
 
 function renderStrip(
   overrides: Partial<ComponentProps<typeof NotesStrip>> = {},
@@ -295,5 +310,85 @@ describe('NotesStrip', () => {
         }) as HTMLButtonElement
       ).disabled,
     ).toBe(true)
+  })
+  it('a scene with only an Order note shows the strip, counts it and peeks at it', () => {
+    renderStrip({ notes: [], orderNotes: [ORDER_NOTE] })
+    expect(
+      within(screen.getByTestId('notes-strip')).getByText('⚑ 1 note'),
+    ).not.toBeNull()
+    expect(screen.getByTestId('notes-peek').textContent).toBe(ORDER_NOTE.text)
+  })
+
+  it('an Order note comes first, says it is computed, and has no Dismiss', async () => {
+    const user = userEvent.setup()
+    renderStrip({ orderNotes: [ORDER_NOTE] })
+    expect(screen.getByText('⚑ 4 notes · 2 from the import')).not.toBeNull()
+    expect(screen.getByTestId('notes-peek').textContent).toBe(ORDER_NOTE.text)
+    await user.click(screen.getByRole('button', { name: 'Show' }))
+
+    const card = screen.getByTestId(`order-note-${ORDER_NOTE.issue.id}`)
+    expect(screen.getByTestId('notes-strip').querySelector('article')).toBe(
+      card,
+    )
+    expect(within(card).getByText('Order')).not.toBeNull()
+    expect(card.textContent).toContain(
+      'from the board order · clears when fixed',
+    )
+    expect(card.textContent).toContain(ORDER_NOTE.text)
+    expect(within(card).queryByRole('button', { name: /dismiss/i })).toBeNull()
+  })
+
+  it('Go to scene n selects the other scene', async () => {
+    const user = userEvent.setup()
+    const props = renderStrip({ orderNotes: [ORDER_NOTE] })
+    await user.click(screen.getByRole('button', { name: 'Show' }))
+    await user.click(screen.getByRole('button', { name: 'Go to scene 4' }))
+    expect(props.onSelectScene).toHaveBeenCalledWith('scene-4')
+  })
+
+  it('Undo the move only on an undoable note, disabled while busy', async () => {
+    const user = userEvent.setup()
+    const onUndoMove = vi.fn()
+    renderStrip({ orderNotes: [ORDER_NOTE], onUndoMove, defaultExpanded: true })
+    expect(screen.queryByRole('button', { name: 'Undo the move' })).toBeNull()
+    cleanup()
+
+    renderStrip({
+      orderNotes: [ORDER_NOTE],
+      undoableIssueIds: new Set([ORDER_NOTE.issue.id]),
+      onUndoMove,
+      defaultExpanded: true,
+    })
+    await user.click(screen.getByRole('button', { name: 'Undo the move' }))
+    expect(onUndoMove).toHaveBeenCalledOnce()
+    cleanup()
+
+    renderStrip({
+      orderNotes: [ORDER_NOTE],
+      undoableIssueIds: new Set([ORDER_NOTE.issue.id]),
+      onUndoMove,
+      defaultExpanded: true,
+      busy: true,
+    })
+    expect(
+      (
+        screen.getByRole('button', {
+          name: 'Undo the move',
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true)
+  })
+
+  it('defaultExpanded starts the strip open', () => {
+    renderStrip({ orderNotes: [ORDER_NOTE], defaultExpanded: true })
+    expect(
+      screen
+        .getByRole('button', { name: 'Hide' })
+        .getAttribute('aria-expanded'),
+    ).toBe('true')
+    expect(
+      screen.getByTestId(`order-note-${ORDER_NOTE.issue.id}`),
+    ).not.toBeNull()
+    expect(screen.queryByTestId('notes-peek')).toBeNull()
   })
 })
