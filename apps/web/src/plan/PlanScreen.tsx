@@ -516,18 +516,23 @@ export function PlanScreen() {
     }).then((result) => result.suggestions)
   }
 
-  async function handleOpenReview(targetObjectId: string, instruction: string) {
-    // The field being sent travels in the Change Set; any other draft would
-    // be lost on the way to Review, so ask first.
-    const key = draftKey(targetObjectId, 'whatHappens')
-    const others = drafts.size - (drafts.get(key) !== undefined ? 1 : 0)
-    if (others > 0) {
+  /** Open Review and Draft a fix (T3.9): create the Change Set — the explicit
+   * gesture (rule 8) — and go to Review. Any draft but `sending` (the field
+   * whose text travels in the Change Set) would be lost on the way, so ask
+   * first; Stay resolves without sending. Throws when the create fails:
+   * nothing left Plan, and what "Discard and leave" cleared is back. */
+  async function sendToReview(
+    targetObjectId: string,
+    instruction: string,
+    sending?: string,
+  ): Promise<void> {
+    const own = sending && drafts.get(sending) !== undefined ? 1 : 0
+    if (drafts.size - own > 0) {
       if (!(await leave.confirmLeave())) return
       // Discard cleared it too: keep the text being sent on screen.
-      drafts.set(key, targetObjectId, instruction)
+      if (sending) drafts.set(sending, targetObjectId, instruction)
     }
     setOpeningReview(true)
-    setReviewError(null)
     try {
       const changeSet = await createChangeSet(activeProjectId, {
         targetObjectId,
@@ -536,16 +541,26 @@ export function PlanScreen() {
       stashChangeSet(changeSet)
       // Its text now lives in the Change Set: clear it so beforeunload does
       // not stop the navigation.
-      drafts.clear(key)
+      if (sending) drafts.clear(sending)
       navigateToReview(activeProjectId, changeSet.id)
     } catch (err: unknown) {
-      // Nothing left Plan: give back what "Discard and leave" cleared.
       leave.undoDiscard()
+      setOpeningReview(false)
+      throw err
+    }
+  }
+
+  function handleOpenReview(targetObjectId: string, instruction: string) {
+    setReviewError(null)
+    sendToReview(
+      targetObjectId,
+      instruction,
+      draftKey(targetObjectId, 'whatHappens'),
+    ).catch((err: unknown) =>
       setReviewError(
         err instanceof Error ? err.message : 'failed to open Review',
-      )
-      setOpeningReview(false)
-    }
+      ),
+    )
   }
 
   if (loadError) {
@@ -630,8 +645,9 @@ export function PlanScreen() {
   const orderNotes = selectedScene
     ? (model.signals.get(selectedScene.id)?.orderNotes ?? [])
     : []
-  // The last move's new problems on this scene open the strip: the key
-  // remounts it open (and again on a return while that move is the last).
+  // The last move's new problems on this scene open the strip (freshKey;
+  // again on a return while that move is the last). The key is the scene
+  // alone: a move must not remount the strip and lose an open fix editor.
   const fresh = undoMove.move?.issueIds ?? []
   const freshHere = orderNotes
     .filter((n) => fresh.includes(n.issue.id))
@@ -817,7 +833,7 @@ export function PlanScreen() {
                   saveBeatField(sceneId, beatId, field, value)
                 }
                 onOpenReview={(sceneId, instruction) =>
-                  void handleOpenReview(sceneId, instruction)
+                  handleOpenReview(sceneId, instruction)
                 }
                 onSuggest={suggest}
                 onOpenInWrite={(sceneId) => openInWrite(sceneId)}
@@ -826,8 +842,8 @@ export function PlanScreen() {
                 noteCount={sceneNotes.length + orderNotes.length}
                 notes={(showBeat) => (
                   <NotesStrip
-                    key={`${selectedScene.id}:${freshHere.join(' ')}`}
-                    defaultExpanded={freshHere.length > 0}
+                    key={selectedScene.id}
+                    freshKey={freshHere.join(' ')}
                     scene={selectedScene}
                     notes={sceneNotes}
                     orderNotes={orderNotes}
@@ -839,6 +855,10 @@ export function PlanScreen() {
                     ledger={ledger}
                     busy={busy}
                     actLocked={episode.locked || selectedScene.locked || busy}
+                    locked={episode.locked || selectedScene.locked}
+                    onDraftFix={(instruction) =>
+                      sendToReview(selectedScene.id, instruction)
+                    }
                     onSelectScene={selectScene}
                     onShowBeat={showBeat}
                     onOpenInWrite={(beatId) =>

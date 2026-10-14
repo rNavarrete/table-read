@@ -746,6 +746,31 @@ describe('PlanScreen', () => {
     expect(dismiss.disabled).toBe(false)
   })
 
+  it.each(['scene', 'episode'] as const)(
+    'Draft a fix in Review… is never offered on a locked %s (rule 2)',
+    async (lock) => {
+      const user = userEvent.setup()
+      const p = project()
+      const ep = p.seasons[0].episodes[0]
+      if (lock === 'scene') ep.scenes[0].locked = true
+      else ep.locked = true
+      getConsistencyFlagsMock.mockResolvedValueOnce([OPEN_FLAG])
+      await loadPlan(p)
+
+      const strip = await screen.findByTestId('notes-strip')
+      await user.click(within(strip).getByRole('button', { name: 'Show' }))
+      const note = screen.getByTestId('note-flag-1')
+      // The card and its other verbs render: the absence below is the lock's doing.
+      expect(
+        within(note).getByRole('button', { name: 'Dismiss' }),
+      ).not.toBeNull()
+      expect(
+        within(note).queryByRole('button', { name: 'Draft a fix in Review…' }),
+      ).toBeNull()
+      expect(within(note).queryByLabelText('Fix instruction')).toBeNull()
+    },
+  )
+
   it('double-clicking a card with an unsaved edit asks before opening Write', async () => {
     const user = userEvent.setup()
     const panel = await loadPlan()
@@ -849,6 +874,165 @@ describe('PlanScreen', () => {
     expect(await screen.findByText('review is down')).not.toBeNull()
     expect(value(panel, 'Audience learns')).toBe('Dan has a second key.')
     expect(value(panel, 'What happens')).toBe('Marta comes home for good.')
+  })
+
+  const PREFILL =
+    'Fix this continuity note in the Long Pour scene (1st on the board): the Back Room scene (2nd on the board) still has the money in the bar.'
+
+  /** Opens Draft a fix on OPEN_FLAG (scene-1); returns its note card. */
+  async function openFix(user: ReturnType<typeof userEvent.setup>) {
+    const strip = await screen.findByTestId('notes-strip')
+    await user.click(within(strip).getByRole('button', { name: 'Show' }))
+    const note = screen.getByTestId('note-flag-1')
+    await user.click(
+      within(note).getByRole('button', { name: 'Draft a fix in Review…' }),
+    )
+    return note
+  }
+
+  it('Draft a fix sends nothing until Open Review, then one create for the scene and Review', async () => {
+    const user = userEvent.setup()
+    createChangeSetMock.mockResolvedValue({ id: 'cs-1' })
+    getConsistencyFlagsMock.mockResolvedValueOnce([OPEN_FLAG])
+    await loadPlan()
+
+    const note = await openFix(user)
+    expect(value(note, 'Fix instruction')).toBe(PREFILL)
+    expect(createChangeSetMock).not.toHaveBeenCalled()
+    expect(suggestInstructionsMock).not.toHaveBeenCalled()
+
+    await user.type(
+      within(note).getByRole('textbox', { name: 'Fix instruction' }),
+      ' Keep the bar.',
+    )
+    await user.click(within(note).getByRole('button', { name: 'Open Review' }))
+
+    await waitFor(() =>
+      expect(navigateToReviewMock).toHaveBeenCalledWith(
+        'proj-longpour',
+        'cs-1',
+      ),
+    )
+    expect(createChangeSetMock).toHaveBeenCalledTimes(1)
+    expect(createChangeSetMock).toHaveBeenCalledWith('proj-longpour', {
+      targetObjectId: 'scene-1',
+      instruction: `${PREFILL} Keep the bar.`,
+    })
+    expect(
+      (screen.getByTestId('leave-plan-dialog') as HTMLDialogElement).open,
+    ).toBe(false)
+  })
+
+  it('while a drafted fix is on its way the strip waits: Opening…, Dismiss disabled', async () => {
+    const user = userEvent.setup()
+    const reply = deferred<{ id: string }>()
+    createChangeSetMock.mockReturnValue(reply.promise)
+    getConsistencyFlagsMock.mockResolvedValueOnce([OPEN_FLAG])
+    await loadPlan()
+
+    const note = await openFix(user)
+    await user.click(within(note).getByRole('button', { name: 'Open Review' }))
+
+    const button = (name: string) =>
+      within(note).getByRole('button', { name }) as HTMLButtonElement
+    expect(button('Opening…').disabled).toBe(true)
+    expect(button('Dismiss').disabled).toBe(true)
+
+    reply.resolve({ id: 'cs-1' })
+    await waitFor(() =>
+      expect(navigateToReviewMock).toHaveBeenCalledWith(
+        'proj-longpour',
+        'cs-1',
+      ),
+    )
+  })
+
+  it('a failed Draft a fix shows the error in the editor, keeps the edited text, and raises no toast', async () => {
+    const user = userEvent.setup()
+    const reply = failing<{ id: string }>()
+    createChangeSetMock.mockReturnValue(reply.promise)
+    getConsistencyFlagsMock.mockResolvedValueOnce([OPEN_FLAG])
+    await loadPlan()
+
+    const note = await openFix(user)
+    await user.type(
+      within(note).getByRole('textbox', { name: 'Fix instruction' }),
+      ' Keep the bar.',
+    )
+    await user.click(within(note).getByRole('button', { name: 'Open Review' }))
+    reply.reject(new Error('review is down'))
+
+    expect((await within(note).findByRole('alert')).textContent).toBe(
+      "Couldn't open Review. Nothing changed; try again.",
+    )
+    expect(value(note, 'Fix instruction')).toBe(`${PREFILL} Keep the bar.`)
+    expect(screen.queryByTestId('toast')).toBeNull()
+    expect(navigateToReviewMock).not.toHaveBeenCalled()
+  })
+
+  it('with an unsaved field, Draft a fix asks first; Stay sends nothing and keeps the editor', async () => {
+    const user = userEvent.setup()
+    getConsistencyFlagsMock.mockResolvedValueOnce([OPEN_FLAG])
+    const panel = await loadPlan()
+    await user.type(
+      within(panel).getByLabelText('Audience learns'),
+      'Dan has a second key.',
+    )
+
+    const note = await openFix(user)
+    await user.click(within(note).getByRole('button', { name: 'Open Review' }))
+    const dialog = screen.getByTestId('leave-plan-dialog') as HTMLDialogElement
+    await waitFor(() => expect(dialog.open).toBe(true))
+    await user.click(
+      within(dialog).getByRole('button', { name: 'Stay in Plan' }),
+    )
+
+    expect(createChangeSetMock).not.toHaveBeenCalled()
+    expect(value(note, 'Fix instruction')).toBe(PREFILL)
+    await waitFor(() =>
+      expect(
+        (
+          within(note).getByRole('button', {
+            name: 'Open Review',
+          }) as HTMLButtonElement
+        ).disabled,
+      ).toBe(false),
+    )
+    expect(value(panel, 'Audience learns')).toBe('Dan has a second key.')
+  })
+
+  it('Discard and leave, then a failed Draft a fix: the drafts come back and the error shows inline', async () => {
+    const user = userEvent.setup()
+    const reply = failing<{ id: string }>()
+    createChangeSetMock.mockReturnValue(reply.promise)
+    getConsistencyFlagsMock.mockResolvedValueOnce([OPEN_FLAG])
+    const panel = await loadPlan()
+    await user.type(
+      within(panel).getByLabelText('Audience learns'),
+      'Dan has a second key.',
+    )
+
+    const note = await openFix(user)
+    await user.click(within(note).getByRole('button', { name: 'Open Review' }))
+    const dialog = screen.getByTestId('leave-plan-dialog') as HTMLDialogElement
+    await waitFor(() => expect(dialog.open).toBe(true))
+    await user.click(
+      within(dialog).getByRole('button', { name: 'Discard and leave' }),
+    )
+    await waitFor(() =>
+      expect(createChangeSetMock).toHaveBeenCalledWith('proj-longpour', {
+        targetObjectId: 'scene-1',
+        instruction: PREFILL,
+      }),
+    )
+
+    reply.reject(new Error('review is down'))
+    expect((await within(note).findByRole('alert')).textContent).toBe(
+      "Couldn't open Review. Nothing changed; try again.",
+    )
+    expect(value(panel, 'Audience learns')).toBe('Dan has a second key.')
+    expect(value(note, 'Fix instruction')).toBe(PREFILL)
+    expect(screen.queryByTestId('toast')).toBeNull()
   })
 
   it('Discard and leave, then a failed shell Undo: the drafts come back', async () => {
@@ -1553,6 +1737,47 @@ describe('PlanScreen order check (T3.7)', () => {
         screen.getByTestId('inspector').contains(document.activeElement),
       ).toBe(true),
     )
+  })
+
+  it('Undo the move keeps an open fix editor and its edited text (the strip is keyed by scene only)', async () => {
+    const user = userEvent.setup()
+    patchProjectMock.mockResolvedValue(moved(orderProject()))
+    undoProjectMock.mockResolvedValue(orderProject())
+    getConsistencyFlagsMock.mockResolvedValueOnce([
+      {
+        id: 'flag-5',
+        objectType: 'scene',
+        objectId: 'scene-5',
+        factId: null,
+        explanation: 'The key turns up before anyone loses it.',
+        severity: 'tension',
+        status: 'open',
+        sourceChange: 'snap-root',
+      },
+    ])
+    await moveScene5ToColdOpen(user)
+    const undo = await within(strip()).findByRole('button', {
+      name: 'Undo the move',
+    })
+    const note = screen.getByTestId('note-flag-5')
+    await user.click(
+      within(note).getByRole('button', { name: 'Draft a fix in Review…' }),
+    )
+    const box = within(note).getByRole('textbox', { name: 'Fix instruction' })
+    await user.type(box, ' Keep the key.')
+    const typed = (box as HTMLTextAreaElement).value
+
+    await user.click(undo)
+    await waitFor(() => expect(screen.queryByTestId(/^order-note-/)).toBeNull())
+
+    expect(
+      (
+        within(screen.getByTestId('note-flag-5')).getByRole('textbox', {
+          name: 'Fix instruction',
+        }) as HTMLTextAreaElement
+      ).value,
+    ).toBe(typed)
+    expect(typed).toMatch(/ Keep the key\.$/)
   })
 
   it('Undo the move leaves focus where the writer put it while it ran', async () => {

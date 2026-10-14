@@ -21,6 +21,7 @@ import {
   castCounts,
   castFromDialogue,
   factsForScene,
+  fixInstruction,
   flagKind,
   highlightAnnouncement,
   highlightCount,
@@ -1422,6 +1423,111 @@ describe('noteSentence', () => {
     const text = noteSentence(notesForScene([f], s)[0], s, scenes)
     expect(text).toBe(importNoteText(f, '5.2'))
     expect(text).toContain('beat 5.2')
+  })
+})
+
+describe('fixInstruction', () => {
+  const s5 = scene('scene-5', 4, {
+    location: 'INT. THE LONG POUR - KITCHEN - NIGHT',
+    beats: [beat('beat-5-1', 0)],
+  })
+  // index 2: scene-2 now plays third
+  const s2 = scene('scene-2', 2, {
+    location: 'INT. THE LONG POUR - BASEMENT - NIGHT',
+  })
+  const cash = {
+    ...fact('fact-02', 'scene-2', 'active'),
+    fact: 'The cash is in the ice machine',
+  }
+  const scenes = [s2, s5]
+  const fix = (
+    overrides: Partial<ConsistencyFlag>,
+    all: readonly Scene[] = scenes,
+  ) => {
+    const text = fixInstruction(
+      notesForScene([flag(overrides)], s5)[0],
+      s5,
+      all,
+      [cash],
+    )
+    expect(text).not.toMatch(/scene-|fact-|\[/)
+    // The model reads "scene 3" / "beat 3.1" as ids (linkifyNote).
+    expect(text).not.toMatch(/\bscenes? \d|\bbeat \d/i)
+    return text
+  }
+
+  it('says where the note is, then the note with other scenes by place and board position (never "scene n") and the fact quoted', () => {
+    expect(
+      fix({
+        explanation:
+          'Scene 2 moved the money, so the stakes here rest on fact-02, which is no longer true.',
+      }),
+    ).toBe(
+      'Fix this continuity note in the Kitchen scene (5th on the board): the Basement scene (3rd on the board) moved the money, so the stakes here rest on the Ledger fact “The cash is in the ice machine”, which is no longer true.',
+    )
+  })
+
+  it('names a beat note by its place in the scene, never "beat n.m"', () => {
+    expect(
+      fix({
+        objectType: 'beat',
+        objectId: 'beat-5-1',
+        explanation: 'The cover story here contradicts scene 2.',
+      }),
+    ).toBe(
+      'Fix this continuity note in the 1st beat of the Kitchen scene (5th on the board): The cover story here contradicts the Basement scene (3rd on the board).',
+    )
+  })
+
+  it('never shows a raw scene or fact id: a gone scene reads "a deleted scene", an unknown fact "a Ledger fact"', () => {
+    expect(
+      fix({ explanation: 'scene-a1b2c3 and fact-zz9 disagree with Scene 40.' }),
+    ).toBe(
+      'Fix this continuity note in the Kitchen scene (5th on the board): a deleted scene and a Ledger fact disagree with a deleted scene.',
+    )
+  })
+
+  it('resolves an existing hex scene id by its card', () => {
+    const hex = scene('scene-9f3c2a', 1, {
+      location: 'INT. THE LONG POUR - BACK ROOM - DAY',
+    })
+    expect(
+      fix({ explanation: 'This contradicts scene-9f3c2a.' }, [hex, ...scenes]),
+    ).toBe(
+      'Fix this continuity note in the Kitchen scene (5th on the board): This contradicts the Back Room scene (2nd on the board).',
+    )
+  })
+
+  it('drops a leading "The" from the place, and names a place-less scene by position only', () => {
+    const pour = scene('scene-1', 10, {
+      location: 'INT. THE LONG POUR - NIGHT',
+    })
+    const bare = scene('scene-7', 12, { location: '' })
+    expect(
+      fix({ explanation: 'Scene 1 and scene 7 disagree.' }, [
+        pour,
+        bare,
+        ...scenes,
+      ]),
+    ).toBe(
+      'Fix this continuity note in the Kitchen scene (5th on the board): the Long Pour scene (11th on the board) and the 13th scene on the board disagree.',
+    )
+  })
+
+  it('leaves hyphenated prose like "scene-level" alone', () => {
+    expect(
+      fixInstruction(
+        notesForScene(
+          [flag({ explanation: 'The scene-level stakes slip.' })],
+          s5,
+        )[0],
+        s5,
+        scenes,
+        [],
+      ),
+    ).toBe(
+      'Fix this continuity note in the Kitchen scene (5th on the board): The scene-level stakes slip.',
+    )
   })
 })
 
