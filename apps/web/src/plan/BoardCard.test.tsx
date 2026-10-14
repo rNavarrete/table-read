@@ -250,7 +250,7 @@ describe('BoardCard', () => {
   it('shows the index card face: number, INT/EXT dot, cleaned place title, a 4-line reading, the full slug in the tooltip', () => {
     const card = renderCard()
     expect(screen.getByText('3')).toBeTruthy()
-    expect(screen.getByText('The Long Pour - Bar')).toBeTruthy()
+    expect(screen.getByText('Bar')).toBeTruthy()
     expect(card.querySelector('.bg-tr-write-dot-int')).not.toBeNull()
     expect(card.title).toContain('INT. THE LONG POUR - BAR - DAY')
     expect(card.title).toContain(READING)
@@ -299,6 +299,16 @@ describe('BoardCard', () => {
     expect(card.querySelectorAll('[data-tick="story"]')).toHaveLength(1)
     expect(card.querySelectorAll('[data-tick="import"]')).toHaveLength(1)
     expect(card.querySelectorAll('[data-tick="plain"]')).toHaveLength(1)
+    // A native tooltip says what the ticks mean.
+    expect(card.querySelector<HTMLElement>('[data-ticks]')?.title).toBe(
+      '3 beats · 1 with a story note · 1 with an import note',
+    )
+    cleanup()
+
+    const bare = renderCard({ signals: signalsFor('scene-3', [], []) })
+    expect(bare.querySelector<HTMLElement>('[data-ticks]')?.title).toBe(
+      '3 beats',
+    )
   })
 
   it('shows ↗/↘ counts, ◆ or ◇ for the secret and the TURN / ACT OUT tag', () => {
@@ -381,6 +391,26 @@ describe('BoardCard', () => {
     expect(bare.querySelector('[data-tape]')).toBeNull()
   })
 
+  it("no tape when it would repeat the card's own tag; the ring still marks the match", () => {
+    // Scene 3 is its act's last card: its tag already reads ACT OUT.
+    const out = renderCard({
+      tape: { text: 'ACT OUT', tone: 'accent' },
+      ring: 'accent',
+    })
+    expect(out.querySelector('[data-tape]')).toBeNull()
+    expect(out.dataset.match).toBe('true')
+    expect(screen.getAllByText('ACT OUT')).toHaveLength(1)
+    expect(out.getAttribute('aria-label')).toMatch(/, act out$/)
+    cleanup()
+
+    // A tape that says something else stays.
+    for (const text of ['ACT ONE TURN', 'ACT SPLIT?']) {
+      const card = renderCard({ tape: { text, tone: 'accent' } })
+      expect(card.querySelector('[data-tape]')?.textContent).toBe(text)
+      cleanup()
+    }
+  })
+
   it('selected: aria-pressed, coral-soft fill and an inset coral ring; related: a dashed sky outline; the focus ring is a separate 2px sky outline offset 4px', () => {
     const selected = renderCard({ selected: true })
     expect(selected.getAttribute('aria-pressed')).toBe('true')
@@ -435,7 +465,7 @@ describe('BoardCard', () => {
     expect(card.className).toContain('text-tr-text-primary')
   })
 
-  it('its accessible name reads number, place, lock, notes, threads, secret, tag, draft and tape', () => {
+  it('its accessible name reads number, place, lock, notes, beats, threads, secret, tag, draft and tape', () => {
     const card = renderCard({
       signals: signalsFor('scene-3', [
         flag('story-beat', 'beat', 'beat-3-1'),
@@ -445,13 +475,13 @@ describe('BoardCard', () => {
       unsaved: true,
     })
     expect(card.getAttribute('aria-label')).toBe(
-      'Scene 3, The Long Pour - Bar, locked, 2 notes, 1 from the import, sets up 1, pays off 1, secret kept, act out, unsaved draft',
+      'Scene 3, Bar, locked, 2 notes, 1 from the import, 3 beats, 1 with a story note, 1 with an import note, sets up 1, pays off 1, secret kept, act out, unsaved draft',
     )
     cleanup()
 
     const plain = renderCard({ signals: signalsFor('scene-3', [], []) })
     expect(plain.getAttribute('aria-label')).toBe(
-      'Scene 3, The Long Pour - Bar, secret kept, act out',
+      'Scene 3, Bar, 3 beats, secret kept, act out',
     )
   })
 

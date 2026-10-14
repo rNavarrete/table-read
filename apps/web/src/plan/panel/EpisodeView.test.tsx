@@ -341,7 +341,7 @@ describe('EpisodeView', () => {
     expect(acts.getAllByText('1 scene')).toHaveLength(4)
 
     const out = acts.getByRole('button', {
-      name: /^Act out · 3 The Long Pour - Bar/,
+      name: /^Act out · scene 3 · Bar/,
     })
     expect(out.textContent).toContain('two months from foreclosure')
     expect(out.textContent).toContain(
@@ -351,7 +351,7 @@ describe('EpisodeView', () => {
     expect(p.onSelectScene).toHaveBeenCalledWith('scene-3')
     // The cold open's act out records no learns/feels: no empty "Feels:".
     expect(
-      acts.getByRole('button', { name: /^Act out · 1 The Long Pour$/ })
+      acts.getByRole('button', { name: /^Act out · scene 1 · The Long Pour$/ })
         .textContent,
     ).not.toContain('Feels')
     expect(
@@ -423,7 +423,7 @@ describe('EpisodeView', () => {
     const notes = section('ep-notes')
     expect(notes.querySelector('summary')?.textContent).toContain('Notes (1)')
     const row = within(notes).getByRole('button', {
-      name: /^5 · The Long Pour - Kitchen/,
+      name: /^5 · Kitchen/,
     })
     expect(row.textContent).toContain(
       'Marta already knows about the safe from a Ledger fact.',
@@ -438,7 +438,7 @@ describe('EpisodeView', () => {
     expect(imports?.open).toBe(false)
     expect(
       within(imports as HTMLElement).getByRole('button', {
-        name: /^4 · The Long Pour - Various/,
+        name: /^4 · Various/,
       }).textContent,
     ).toContain("The import couldn't place script lines 12–14")
     expect(notes.textContent).not.toMatch(/\[[a-z_]+\]/)

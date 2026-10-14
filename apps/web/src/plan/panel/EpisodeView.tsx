@@ -211,7 +211,7 @@ export function EpisodeView({
                     className={`group mt-1.5 block w-full text-left text-12 text-tr-text-primary ${FOCUS}`}
                   >
                     <span className="block font-semibold group-hover:underline">
-                      Act out · {out.number} {out.place}
+                      Act out · scene {out.number} · {out.place}
                     </span>
                     {out.scene.audienceLearns && (
                       <span className="mt-0.5 block">

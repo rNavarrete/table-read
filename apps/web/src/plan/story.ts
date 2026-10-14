@@ -202,13 +202,26 @@ function titleCase(text: string): string {
     )
 }
 
-/** "INT. THE LONG POUR - NIGHT" → "The Long Pour": drops the INT./EXT./I/E.
- * prefix and, when there are two or more " - " parts, the last one (the
- * time); title-cases only an all-caps remainder. Empty → "Scene n". */
+// ponytail: the common slugline time / continuity words; an unlisted one
+// ("MAGIC HOUR", "3 AM") becomes the title. Add words as real scripts show them.
+const SLUG_TIME =
+  /^(?:(?:EARLY|LATE|NEXT|SAME|THAT|MOMENTS)\s+)?(?:DAY|NIGHT|MORNING|AFTERNOON|EVENING|DAWN|DUSK|SUNRISE|SUNSET|LATER|CONTINUOUS|SAME|SAME TIME)$/i
+
+/** The most specific part of the slug: "INT. THE LONG POUR - BAR - DAY" →
+ * "Bar". Drops the INT./EXT./I/E. prefix, then takes the last " - " part,
+ * skipping trailing time / continuity parts ("NIGHT", "LATER"); a slug with
+ * no " - " stays whole. Title-cases only an all-caps result. Empty →
+ * "Scene n". */
 export function placeTitle(scene: Scene): string {
-  const parts = scene.location.trim().replace(SLUG_PREFIX, '').split(' - ')
-  if (parts.length >= 2) parts.pop()
-  const place = parts.join(' - ').trim()
+  const parts = scene.location
+    .trim()
+    .replace(SLUG_PREFIX, '')
+    .split(' - ')
+    .map((p) => p.trim())
+    .filter(Boolean)
+  while (parts.length > 1 && SLUG_TIME.test(parts[parts.length - 1]))
+    parts.pop()
+  const place = parts.at(-1)
   if (!place) return `Scene ${scene.index + 1}`
   return place === place.toUpperCase() ? titleCase(place) : place
 }
@@ -617,7 +630,7 @@ export function noteSentence(
   return /^.*?[.!?](?=\s|$)/s.exec(text)?.[0] ?? text
 }
 
-/** "Scene 3, The Long Pour - Bar, locked. 2 notes, 1 from the import." (spec §4.10) */
+/** "Scene 3, Bar, locked. 2 notes, 1 from the import." (spec §4.10) */
 export function selectionAnnouncement(
   signals: SceneSignals,
   locked: boolean,

@@ -77,17 +77,17 @@ export function HighlightBar({
               disabled={count === 0}
               onClick={() => onHighlight(pick(kind))}
               className={
-                `flex items-center gap-1.5 whitespace-nowrap rounded-control px-2 py-0.5 text-13 text-tr-text-primary disabled:cursor-not-allowed ${FOCUS}` +
+                `flex items-center gap-1.5 whitespace-nowrap rounded-control px-2 py-0.5 text-13 text-tr-text-primary disabled:cursor-not-allowed disabled:text-tr-text-muted ${FOCUS}` +
                 (pressed
                   ? ' bg-tr-surface-raised font-semibold shadow-raised'
-                  : ' hover:bg-tr-surface-raised')
+                  : ' enabled:hover:bg-tr-surface-raised')
               }
             >
               {HIGHLIGHT_LABELS[kind]}
               {count !== null && (
                 <>
                   {' '}
-                  <span className="text-11 font-normal tabular-nums text-tr-text-primary">
+                  <span className="text-11 font-normal tabular-nums">
                     {count}
                   </span>
                 </>
@@ -105,7 +105,7 @@ export function HighlightBar({
           onChange={(event) =>
             onHighlight({ kind: 'who', who: event.target.value })
           }
-          className={`max-w-28 rounded-control bg-transparent px-1 py-0.5 text-13 font-medium text-tr-text-primary disabled:cursor-not-allowed ${FOCUS}`}
+          className={`max-w-28 rounded-control bg-transparent px-1 py-0.5 text-13 font-medium text-tr-text-primary disabled:cursor-not-allowed disabled:text-tr-text-muted ${FOCUS}`}
         >
           <option value="" disabled hidden>
             Character…

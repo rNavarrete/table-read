@@ -85,6 +85,19 @@ function LockGlyph() {
   )
 }
 
+/** "3 beats", "1 with a story note", "1 with an import note": what the ticks
+ * say, for their tooltip and the card's accessible name. None with no beats. */
+function beatParts(s: SceneSignals): string[] {
+  if (!s.scene.beats.length) return []
+  const story = s.ticks.filter((t) => t === 'story').length
+  const imported = s.ticks.filter((t) => t === 'import').length
+  return [
+    plural(s.scene.beats.length, 'beat'),
+    story > 0 ? `${story} with a story note` : '',
+    imported > 0 ? `${imported} with an import note` : '',
+  ].filter(Boolean)
+}
+
 function cardLabel(
   s: SceneSignals,
   locked: boolean,
@@ -99,6 +112,7 @@ function cardLabel(
     locked && 'locked',
     notes > 0 && plural(notes, 'note'),
     s.importNotes.length > 0 && `${s.importNotes.length} from the import`,
+    ...beatParts(s),
     s.setsUp.length > 0 && `sets up ${s.setsUp.length}`,
     s.paysOff.length > 0 && `pays off ${s.paysOff.length}`,
     s.secret && `secret ${s.secret}`,
@@ -143,6 +157,10 @@ export function BoardCard({
   const { scene, number, place } = signals
   const draggable = !locked && !pending
   const tag = cardTag(signals)
+  // Under Act shape an act-out card's tape would repeat its own ACT OUT tag:
+  // the ring marks the match, so no tape (a landmark or ACT SPLIT? tape stays).
+  const shownTape = tape && tape.text !== tag ? tape : null
+  const beats = beatParts(signals).join(' · ')
 
   function handleDoubleClick(event: MouseEvent) {
     event.preventDefault()
@@ -181,7 +199,7 @@ export function BoardCard({
     <div
       role="button"
       aria-pressed={selected}
-      aria-label={cardLabel(signals, locked, unsaved, tape)}
+      aria-label={cardLabel(signals, locked, unsaved, shownTape)}
       title={`${number}. ${scene.location}\n${scene.whatHappens}`}
       data-scene-card
       data-scene-id={scene.id}
@@ -215,13 +233,13 @@ export function BoardCard({
             : '')
       }
     >
-      {tape && (
+      {shownTape && (
         <span
           aria-hidden="true"
           data-tape
-          className={`absolute -top-2.5 left-2 z-[2] max-w-[134px] truncate rounded-[3px] px-1.5 text-11 font-semibold leading-4 text-tr-surface-raised shadow-raised ${TONE_BG[tape.tone]}`}
+          className={`absolute -top-2.5 left-2 z-[2] max-w-[134px] truncate rounded-[3px] px-1.5 text-11 font-semibold leading-4 text-tr-surface-raised shadow-raised ${TONE_BG[shownTape.tone]}`}
         >
-          {tape.text}
+          {shownTape.text}
         </span>
       )}
       <div
@@ -270,7 +288,11 @@ export function BoardCard({
         aria-hidden="true"
         className="flex h-3.5 items-center gap-1.5 text-11 leading-[14px] tabular-nums"
       >
-        <span className="flex shrink-0 items-end gap-0.5">
+        <span
+          data-ticks
+          title={beats || undefined}
+          className="flex shrink-0 items-end gap-0.5"
+        >
           {signals.ticks.map((tick, i) => (
             <i
               key={i}

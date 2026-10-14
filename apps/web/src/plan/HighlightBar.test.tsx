@@ -155,6 +155,20 @@ describe('HighlightBar', () => {
     ).toBe(false)
   })
 
+  it('a disabled highlight looks disabled: muted text, its count kept, no hover fill', () => {
+    renderBar()
+    const off = screen.getByRole('button', { name: /The secret/ })
+    expect(off.className).toContain('disabled:text-tr-text-muted')
+    expect(off.className).not.toMatch(/(^|\s)hover:/)
+    // The count inherits the muted text and stays visible.
+    expect(off.textContent).toBe('The secret 0')
+    expect(off.querySelector('span')?.className).not.toMatch(/text-tr-text/)
+    // An enabled one still fills on hover.
+    expect(
+      screen.getByRole('button', { name: /Act shape/ }).className,
+    ).toContain('enabled:hover:bg-tr-surface-raised')
+  })
+
   it('Fold the rest is a pressed toggle; Next note becomes Next match under a highlight and calls onNext', async () => {
     const user = userEvent.setup()
     const { onToggleFold, onNext } = renderBar()

@@ -555,11 +555,16 @@ describe('linkifyNote', () => {
 describe('placeTitle', () => {
   it.each([
     ['INT. THE LONG POUR - NIGHT', 'The Long Pour'],
-    ['INT. THE LONG POUR - BASEMENT - NIGHT', 'The Long Pour - Basement'],
+    ['INT. THE LONG POUR - BASEMENT - NIGHT', 'Basement'],
+    ['INT. THE LONG POUR - BAR', 'Bar'],
+    ["INT. SIMPSON HOUSE - BART'S ROOM - DAY", "Bart's Room"],
+    ['INT. THE LONG POUR - KITCHEN - MOMENTS LATER', 'Kitchen'],
+    ['INT. THE LONG POUR - CONTINUOUS', 'The Long Pour'],
     ['EXT. HARBOR ST', 'Harbor St'],
-    ["INT./EXT. MARTA'S CAR - MOVING - DAY", "Marta's Car - Moving"],
+    ['EXT. NIGHT', 'Night'],
+    ["INT./EXT. MARTA'S CAR - DAY", "Marta's Car"],
     ['I/E. DOCK - DAWN', 'Dock'],
-    ['Int. The Long Pour - Night', 'The Long Pour'],
+    ['Int. The Long Pour - Kitchen - Night', 'Kitchen'],
   ])('%s → %s', (location, title) => {
     expect(placeTitle(scene('scene-1', 0, { location }))).toBe(title)
   })
@@ -1071,7 +1076,7 @@ describe('selectionAnnouncement', () => {
       }),
     ])
     expect(selectionAnnouncement(model.signals.get('scene-3')!, true)).toBe(
-      'Scene 3, The Long Pour - Bar, locked. 2 notes, 1 from the import.',
+      'Scene 3, Bar, locked. 2 notes, 1 from the import.',
     )
     expect(selectionAnnouncement(model.signals.get('scene-1')!, false)).toBe(
       'Scene 1, The Long Pour. No notes.',

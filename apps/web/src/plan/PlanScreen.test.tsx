@@ -1011,7 +1011,7 @@ describe('PlanScreen', () => {
 
     await user.click(
       within(screen.getByTestId('inspector')).getByRole('button', {
-        name: /^Act out · 2/,
+        name: /^Act out · scene 2 ·/,
       }),
     )
 
