@@ -99,7 +99,11 @@ export function PanelHeader({
           ›
         </button>
       </div>
-      <h2 className="flex items-center gap-2 font-display text-17 text-tr-text-primary">
+      {/* Enter on the selected card lands here (redesign spec §4.10). */}
+      <h2
+        tabIndex={-1}
+        className={`flex items-center gap-2 font-display text-17 text-tr-text-primary ${FOCUS}`}
+      >
         <span className="min-w-0 truncate">
           {scene.index + 1} · {placeTitle(scene)}
         </span>

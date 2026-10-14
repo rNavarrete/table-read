@@ -159,7 +159,7 @@ The **script canvas is the hero**: a formatted teleplay page on a warm ivory sur
 
 An **infinite canvas** planning workspace — story structure as manipulable objects, borrowing interaction grammar from collaborative design tools:
 
-- **Story Layers panel (left):** the hierarchy as layers — series bible, season arc, episodes, storylines, scenes, beats. Selecting a layer focuses the canvas; visibility toggles declutter.
+- **Story Layers panel (left):** the hierarchy as layers — series bible, season arc, episodes, storylines, scenes, beats. Selecting a layer focuses the canvas; visibility toggles declutter. (Plan redesign 2026-10-13: retired; its jobs moved to the act headers, the Episode view and the highlight bar — `docs/superpowers/specs/2026-10-13-plan-redesign-design.md`)
 - **Acts and episodes as frames**; **scenes and beats as structured cards/components** placed inside them — selectable, draggable to reorder, color-coded by storyline (A/B/C).
 - **Connector lines** overlay relationships: setup → payoff, continuity dependencies (from ledger facts), character-arc threads across scenes. Toggleable per relationship type.
 - **Inspector panel (right):** properties of the selected scene/beat — storyline, act, location, the turn (what changes), audience learns/feels, per-character objective/stakes/obstacle, affected ledger facts, and lock state. Edits here are structural edits; anything requiring regeneration routes through Review.

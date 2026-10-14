@@ -119,9 +119,7 @@
   --tr-card-board-h: 106px;
 
   /* Layout: Plan mode board (§5) panel/card widths. */
-  --tr-panel-story-layers: 232px;
   --tr-panel-inspector: 296px;
-  --tr-card-scene: 214px;
   --tr-panel-plan: 400px; /* Plan scene panel (redesign 2026-10-13) */
 
   /* Layout: Ledger CAST rail (§7b). */
@@ -249,13 +247,11 @@
   --container-command-bar: var(--tr-command-bar);
 
   /* w-panel-* / h-shell-height — Tailwind v4 --spacing-* backs w-/h-/p-/m-/gap. */
-  --spacing-panel-story-layers: var(--tr-panel-story-layers);
   --spacing-panel-write-outline: var(--tr-panel-write-outline);
   --spacing-panel-candidate-dock: var(--tr-panel-candidate-dock);
   --spacing-panel-inspector: var(--tr-panel-inspector);
   --spacing-panel-plan: var(--tr-panel-plan);
   --spacing-panel-ledger-filters: var(--tr-panel-ledger-filters);
-  --spacing-card-scene: var(--tr-card-scene);
   --spacing-shell-height: var(--tr-shell-height);
 
   /* outline-selected (Tailwind v4's --outline-width-* namespace backs

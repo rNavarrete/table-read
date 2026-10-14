@@ -194,6 +194,7 @@ function props(overrides: Partial<ScenePanelProps> = {}): ScenePanelProps {
     pending: false,
     openingReview: false,
     onBack: vi.fn(),
+    onEscape: vi.fn(),
     onSelectScene: vi.fn(),
     onSelectBeat: vi.fn(),
     onToggleSceneLock: vi.fn(),
@@ -402,6 +403,29 @@ describe('ScenePanel', () => {
         }) as HTMLButtonElement
       ).disabled,
     ).toBe(true)
+  })
+
+  it('Esc in the panel asks to go back to the card', async () => {
+    const user = userEvent.setup()
+    const { props: p } = renderPanel()
+    screen.getByRole('button', { name: 'Next scene' }).focus()
+
+    await user.keyboard('{Escape}')
+
+    expect(p.onEscape).toHaveBeenCalledOnce()
+  })
+
+  it('Esc in a text field stays in the field', async () => {
+    const user = userEvent.setup()
+    const { props: p } = renderPanel()
+    const field = screen.getByLabelText('What happens')
+    await user.type(field, '!')
+
+    await user.keyboard('{Escape}')
+
+    expect(p.onEscape).not.toHaveBeenCalled()
+    expect(document.activeElement).toBe(field)
+    expect((field as HTMLTextAreaElement).value).toBe('Marta walks back in.!')
   })
 
   it('← Episode goes back to the nothing-selected view', async () => {

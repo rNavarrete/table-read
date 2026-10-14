@@ -91,6 +91,65 @@ test('correcting a scene act in the inspector persists after reload', async ({
   ).toHaveCount(0)
 })
 
+test('an empty act takes a dropped card as an act change, and it persists (T3.5)', async ({
+  page,
+}) => {
+  await page.goto('/plan?project=proj-longpour')
+  // scene-5 is Act Three's only scene in the fixture: park it in Act Two
+  // (a no-op if an earlier test already did) so Act Three is empty.
+  const card = page.getByTestId('scene-card-scene-5')
+  await card.click()
+  await page
+    .getByTestId('inspector')
+    .getByRole('combobox', { name: 'Act' })
+    .selectOption('2')
+  await expect(card).toHaveAttribute('draggable', 'true') // the PATCH has settled
+  const empty = page.getByTestId('act-frame-3').getByText('No scenes yet')
+  await expect(empty).toBeVisible()
+
+  await card.dragTo(empty)
+  await expect(
+    page.getByTestId('act-frame-3').getByTestId('scene-card-scene-5'),
+  ).toBeVisible()
+  await expect(card).toHaveAttribute('draggable', 'true') // saved, not just optimistic
+
+  await page.reload()
+  await expect(
+    page.getByTestId('act-frame-3').getByTestId('scene-card-scene-5'),
+  ).toBeVisible()
+})
+
+test('the board is one tab stop: arrows select, Enter reaches the panel, Esc comes back (T3.5)', async ({
+  page,
+}) => {
+  await page.goto('/plan?project=proj-longpour')
+  await page.getByTestId('scene-card-scene-1').click()
+  const stop = page.locator('[data-scene-card][tabindex="0"]')
+  await expect(stop).toHaveCount(1)
+
+  await page.keyboard.press('ArrowRight')
+  await expect(stop).toBeFocused()
+  await expect(stop).toHaveAttribute('aria-pressed', 'true')
+  await expect(stop).not.toHaveAttribute('data-testid', 'scene-card-scene-1')
+  // The focused card names its scene; the live region doesn't repeat it.
+  await expect(stop).toHaveAccessibleName(/^Scene 2,/)
+  await expect(page.getByTestId('plan-live')).toHaveText('')
+
+  await page.keyboard.press('Enter')
+  await expect(
+    page.getByTestId('inspector').locator('h2').first(),
+  ).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(stop).toBeFocused()
+
+  // A selection made away from a card is announced.
+  await page
+    .getByTestId('inspector')
+    .getByRole('button', { name: 'Next scene' })
+    .click()
+  await expect(page.getByTestId('plan-live')).toContainText('Scene 3,')
+})
+
 test('lock icon renders on beat-1-2 (locked in fixture); beat-1-1 has none', async ({
   page,
 }) => {
@@ -248,4 +307,55 @@ test('a Beat lock set in the panel persists after reload (T3.3)', async ({
   await reloadedLock.click()
   await expect(reloadedLock).toHaveAttribute('aria-checked', 'false')
   await expect(reloadedLock).toBeEnabled()
+})
+
+test("Who's in it rings the matching cards and N selects the next match (T3.6)", async ({
+  page,
+}) => {
+  await page.goto('/plan?project=proj-longpour')
+  const scene1 = page.getByTestId('scene-card-scene-1')
+  await scene1.click()
+  const bar = page.getByRole('group', { name: 'Highlight' })
+  await bar.getByRole('button', { name: /Who's in it/ }).click()
+  await page.getByLabel('Character to highlight').selectOption('char-marta')
+  await expect(page.getByTestId('plan-live')).toContainText(
+    'Highlight: Marta Vega.',
+  )
+  // scene-1 records Marta's want in the fixture.
+  await expect(scene1).toHaveAttribute('data-match', 'true')
+
+  await scene1.focus() // keys are ignored while the select has focus
+  await page.keyboard.press('n')
+  const selected = page.locator('[data-scene-card][aria-pressed="true"]')
+  await expect(selected).not.toHaveAttribute(
+    'data-testid',
+    'scene-card-scene-1',
+  )
+  await expect(selected).toHaveAttribute('data-match', 'true')
+})
+
+test('Esc shows the Episode view, and Story Layers is gone (T3.6)', async ({
+  page,
+}) => {
+  await page.goto('/plan?project=proj-longpour')
+  await expect(page.getByTestId('story-layers-panel')).toHaveCount(0)
+  await page.getByTestId('scene-card-scene-2').click()
+  await page.keyboard.press('Escape')
+
+  const panel = page.getByTestId('inspector')
+  await expect(panel.locator('h2').first()).toContainText('Last Call')
+  await expect(panel.getByTestId('lock-toggle')).toHaveCount(0)
+  await expect(page.getByTestId('scene-card-scene-2')).toHaveAttribute(
+    'aria-pressed',
+    'false',
+  )
+  await panel
+    .locator('#plan-section-ep-cast')
+    .getByRole('button', { name: /Dan Vega/ })
+    .click()
+  await expect(
+    page
+      .getByRole('group', { name: 'Highlight' })
+      .getByRole('button', { name: /Who's in it/ }),
+  ).toHaveAttribute('aria-pressed', 'true')
 })

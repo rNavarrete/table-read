@@ -1,6 +1,17 @@
 import { useCallback, useState } from 'react'
 
-export type PlanSectionId = 'scene' | 'wants' | 'touches' | 'beats' | 'details'
+export type PlanSectionId =
+  | 'scene'
+  | 'wants'
+  | 'touches'
+  | 'beats'
+  | 'details'
+  | 'ep-acts'
+  | 'ep-threads'
+  | 'ep-secret'
+  | 'ep-notes'
+  | 'ep-cast'
+  | 'ep-premise'
 
 const STORAGE_KEY = 'tr.plan.sections.v1'
 
@@ -10,6 +21,12 @@ const DEFAULT_OPEN: Record<PlanSectionId, boolean> = {
   touches: true,
   beats: true,
   details: false,
+  'ep-acts': true,
+  'ep-threads': true,
+  'ep-secret': true,
+  'ep-notes': true,
+  'ep-cast': true,
+  'ep-premise': false,
 }
 
 function loadOpen(): Record<PlanSectionId, boolean> {
@@ -31,8 +48,8 @@ function loadOpen(): Record<PlanSectionId, boolean> {
 }
 
 /**
- * Which scene-panel sections are open (spec §4.6: native `<details>`, open or
- * closed remembered per viewer). One setting per browser, not per project.
+ * Which scene-panel and Episode view sections are open (spec §4.6, §4.7:
+ * native `<details>`, open or closed remembered per viewer). One setting per browser, not per project.
  * Every storage access is guarded, so the in-memory state keeps working in a
  * private window or with site data blocked (pattern: ledger/viewPreference.ts).
  */

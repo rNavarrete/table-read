@@ -28,6 +28,11 @@ test('a story note can be read, dismissed and brought back with Undo; saving sti
   await page.getByTestId('scene-card-scene-5').click()
   const strip = inspector.getByTestId('notes-strip')
   await expect(strip).toContainText('⚑')
+  await expect(
+    page
+      .getByTestId('scene-card-scene-5')
+      .getByTestId('consistency-flag-badge'),
+  ).toContainText('⚑')
   await strip.getByRole('button', { name: 'Show', exact: true }).click()
   const notes = strip.locator('[data-testid^="note-"]')
   await expect(notes.first()).toContainText('stakes reference the bar')

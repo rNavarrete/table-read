@@ -334,11 +334,6 @@ const TOKEN_GROUPS: TokenGroup[] = [
         kind: 'width',
       },
       {
-        cssVar: '--tr-panel-story-layers',
-        description: 'Plan mode Story Layers panel width (UI spec §4)',
-        kind: 'width',
-      },
-      {
         cssVar: '--tr-panel-inspector',
         description:
           'Import board reading view; Ledger fact drawer and Story Atlas side column width',
@@ -352,11 +347,6 @@ const TOKEN_GROUPS: TokenGroup[] = [
       {
         cssVar: '--tr-panel-ledger-filters',
         description: 'Ledger mode filter rail width (UI spec §6)',
-        kind: 'width',
-      },
-      {
-        cssVar: '--tr-card-scene',
-        description: 'Plan mode scene card width (UI spec §4)',
         kind: 'width',
       },
       {

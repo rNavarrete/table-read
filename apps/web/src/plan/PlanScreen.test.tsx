@@ -1,13 +1,21 @@
 // @vitest-environment jsdom
 import {
+  act,
   cleanup,
+  fireEvent,
   render,
   screen,
   waitFor,
   within,
 } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import type { ConsistencyFlag, Episode, Project, Scene } from 'contract'
+import type {
+  Character,
+  ConsistencyFlag,
+  Episode,
+  Project,
+  Scene,
+} from 'contract'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { loadResume, saveResume } from '../projects/resumeContext'
 import { PlanScreen } from './PlanScreen'
@@ -178,6 +186,60 @@ function project(): Project {
   }
 }
 
+function character(id: string, name: string): Character {
+  return {
+    id,
+    name,
+    locked: false,
+    aliases: [],
+    embodiment: '',
+    presentation: '',
+    hiding: '',
+    traits: '',
+    seriesArc: '',
+    summary: '',
+    bio: '',
+  }
+}
+
+/** project() with a cast (Marta wants in scene 1, Dan in scene 2) and one
+ * thread set up in scene 1 and never paid off. */
+function storyProject(): Project {
+  const p = project()
+  p.seriesBible.characters = [
+    character('char-marta', 'Marta Vega'),
+    character('char-dan', 'Dan Vega'),
+  ]
+  const ep = p.seasons[0].episodes[0]
+  const want = (characterId: string) => ({
+    characterId,
+    objective: 'Keep the bar open',
+    stakes: '',
+    obstacle: '',
+    statedObjective: '',
+    concealed: false,
+  })
+  ep.scenes[0].motivations = [want('char-marta')]
+  ep.scenes[1].motivations = [want('char-dan')]
+  ep.threads = [
+    {
+      id: 'thread-1',
+      label: 'The missing money',
+      summary: '',
+      status: 'open',
+      ownerCharacterIds: [],
+      setupSceneId: 'scene-1',
+      payoffSceneId: null,
+      setupQuote: '',
+      payoffQuote: '',
+      setupBeatId: null,
+      payoffBeatId: null,
+      locked: false,
+    },
+  ]
+  return p
+}
+
 /** Loads Plan on scene-1 (no resume stored) and resolves to the panel. */
 function loadPlan(p: Project = project()) {
   getProjectMock.mockResolvedValue(p)
@@ -299,13 +361,111 @@ describe('PlanScreen', () => {
     expect(
       within(screen.getByTestId('inspector')).queryByTestId('lock-toggle'),
     ).toBeNull()
-    expect(screen.getByTestId('scene-card-scene-1').className).not.toContain(
-      'bg-tr-coral-soft',
+    expect(
+      screen.getByTestId('scene-card-scene-1').getAttribute('aria-pressed'),
+    ).toBe('false')
+    // Focus was in the panel: it lands on the Episode view's heading.
+    await waitFor(() =>
+      expect(document.activeElement?.textContent).toBe('Episode 1: Last Call'),
     )
   })
 
-  // Task 3's test, carried over unchanged.
-  it('fills the height the shell leaves and scrolls the board and both side panels on their own', async () => {
+  it('an empty-act drop sends one act PATCH and nothing else', async () => {
+    const p = project()
+    const moved = structuredClone(p)
+    moved.seasons[0].episodes[0].scenes[0].act = 4
+    patchProjectMock.mockResolvedValue({ project: moved, consistencyFlags: [] })
+    await loadPlan(p)
+    const dataTransfer = {
+      setData: () => {},
+      getData: () => '',
+      effectAllowed: 'move',
+    } as unknown as DataTransfer
+    const empty = within(screen.getByTestId('act-frame-4')).getByText(
+      /^No scenes yet/,
+    )
+
+    fireEvent.dragStart(screen.getByTestId('scene-card-scene-1'), {
+      dataTransfer,
+    })
+    fireEvent.dragOver(empty, { dataTransfer })
+    fireEvent.drop(empty, { dataTransfer })
+
+    expect(patchProjectMock).toHaveBeenCalledTimes(1)
+    expect(patchProjectMock).toHaveBeenCalledWith(
+      'proj-longpour',
+      [{ op: 'replace', path: '/seasons/0/episodes/0/scenes/0/act', value: 4 }],
+      { expectedHeadSnapshotId: 'snap-root' },
+    )
+    await waitFor(() =>
+      expect(
+        within(screen.getByTestId('act-frame-4')).getByTestId(
+          'scene-card-scene-1',
+        ),
+      ).not.toBeNull(),
+    )
+    expect(suggestInstructionsMock).not.toHaveBeenCalled()
+    expect(createChangeSetMock).not.toHaveBeenCalled()
+  })
+
+  it('act collapse survives a remount (per project)', async () => {
+    const user = userEvent.setup()
+    await loadPlan()
+    const coldOpen = () => screen.getByTestId('act-frame-0')
+    await user.click(
+      within(coldOpen()).getByRole('button', { name: 'Hide COLD OPEN' }),
+    )
+    expect(screen.queryByTestId('scene-card-scene-1')).toBeNull()
+
+    cleanup()
+    await loadPlan()
+    expect(within(coldOpen()).getByText('2 scenes hidden')).not.toBeNull()
+    expect(screen.queryByTestId('scene-card-scene-1')).toBeNull()
+
+    cleanup()
+    getProjectMock.mockResolvedValue({ ...project(), id: 'proj-other' })
+    window.history.pushState(null, '', '/plan?project=proj-other')
+    render(<PlanScreen />)
+    expect(await screen.findByTestId('scene-card-scene-1')).not.toBeNull()
+  })
+
+  it('selecting a scene in a collapsed act opens that act', async () => {
+    const user = userEvent.setup()
+    const p = project()
+    p.seasons[0].episodes[0].scenes[1].act = 1
+    const panel = await loadPlan(p)
+    await user.click(
+      within(screen.getByTestId('act-frame-1')).getByRole('button', {
+        name: 'Hide ACT ONE',
+      }),
+    )
+    expect(screen.queryByTestId('scene-card-scene-2')).toBeNull()
+
+    await user.click(within(panel).getByRole('button', { name: 'Next scene' }))
+
+    expect(
+      within(screen.getByTestId('act-frame-1')).getByTestId(
+        'scene-card-scene-2',
+      ),
+    ).not.toBeNull()
+    expect(localStorage.getItem('tr.plan.collapsedActs.v1.proj-longpour')).toBe(
+      '[]',
+    )
+  })
+
+  it('Enter on the selected card puts focus on the panel heading', async () => {
+    const user = userEvent.setup()
+    const panel = await loadPlan()
+    act(() => screen.getByTestId('scene-card-scene-1').focus())
+
+    await user.keyboard('{Enter}')
+
+    const heading = panel.querySelector('h2')
+    expect(heading?.textContent).toContain('1 · ')
+    expect(document.activeElement).toBe(heading)
+  })
+
+  it('fills the height the shell leaves; the board and the panel scroll on their own; Story Layers is gone', async () => {
     getProjectMock.mockResolvedValue(project())
     getLedgerMock.mockResolvedValue([])
     getConsistencyFlagsMock.mockResolvedValue([])
@@ -326,12 +486,15 @@ describe('PlanScreen', () => {
     expect(row.className).toContain('min-h-0 flex-1 overflow-hidden')
     expect(row.className).not.toContain('100vh')
     expect(row.parentElement?.className).toContain('h-full flex-col')
-    expect(screen.getByTestId('story-layers-panel').className).toContain(
-      'overflow-y-auto',
-    )
     expect(screen.getByTestId('inspector').className).toContain(
       'overflow-y-auto',
     )
+    // The row is the board and the panel, nothing else.
+    expect([...row.children]).toEqual([board, screen.getByTestId('inspector')])
+    expect(screen.queryByTestId('story-layers-panel')).toBeNull()
+    expect(
+      document.querySelector('.w-panel-story-layers, .w-card-scene'),
+    ).toBeNull()
   })
 
   const OPEN_FLAG: ConsistencyFlag = {
@@ -783,5 +946,289 @@ describe('PlanScreen', () => {
     expect(scrollIntoView.mock.contexts).toContain(select)
     expect(scrollIntoView).toHaveBeenCalledWith({ block: 'center' })
     expect(focus).toHaveBeenCalledWith({ preventScroll: true })
+  })
+
+  it('nothing is announced on first load', async () => {
+    await loadPlan()
+    expect(screen.getByTestId('plan-live').textContent).toBe('')
+  })
+
+  it('the live region announces a selection from ‹ ›, but not one on a focused card (its name says it)', async () => {
+    const user = userEvent.setup()
+    const panel = await loadPlan()
+    const live = screen.getByTestId('plan-live')
+    expect(live.getAttribute('role')).toBe('status')
+    expect(live.getAttribute('aria-live')).toBe('polite')
+
+    await user.click(within(panel).getByRole('button', { name: 'Next scene' }))
+    expect(live.textContent).toBe('Scene 2, Back Room. No notes.')
+
+    await user.click(screen.getByTestId('scene-card-scene-1'))
+    expect(
+      screen.getByTestId('scene-card-scene-1').getAttribute('aria-pressed'),
+    ).toBe('true')
+    expect(live.textContent).toBe('Scene 2, Back Room. No notes.')
+  })
+
+  it('a note on the scene is part of the announcement', async () => {
+    const user = userEvent.setup()
+    getConsistencyFlagsMock.mockResolvedValueOnce([
+      { ...OPEN_FLAG, objectId: 'scene-2' },
+    ])
+    const panel = await loadPlan()
+
+    await user.click(within(panel).getByRole('button', { name: 'Next scene' }))
+
+    expect(screen.getByTestId('plan-live').textContent).toBe(
+      'Scene 2, Back Room. 1 note.',
+    )
+  })
+
+  it('a ?scene= link into a collapsed act opens the act, so the card is there to scroll to', async () => {
+    localStorage.setItem('tr.plan.collapsedActs.v1.proj-longpour', '[0]')
+    getProjectMock.mockResolvedValue(project())
+    getLedgerMock.mockResolvedValue([])
+    getConsistencyFlagsMock.mockResolvedValue([])
+    window.history.pushState(
+      null,
+      '',
+      '/plan?project=proj-longpour&scene=scene-2',
+    )
+    render(<PlanScreen />)
+
+    const linked = await screen.findByTestId('scene-card-scene-2')
+    expect(linked.getAttribute('aria-pressed')).toBe('true')
+    expect(linked.className).toContain('outline-tr-coral')
+  })
+
+  it('choosing a scene in the Episode view puts focus on the scene panel heading', async () => {
+    const user = userEvent.setup()
+    const panel = await loadPlan()
+    await user.click(within(panel).getByRole('button', { name: '← Episode' }))
+    await waitFor(() =>
+      expect(document.activeElement?.textContent).toBe('Episode 1: Last Call'),
+    )
+
+    await user.click(
+      within(screen.getByTestId('inspector')).getByRole('button', {
+        name: /^Act out · scene 2 ·/,
+      }),
+    )
+
+    await waitFor(() => expect(document.activeElement?.tagName).toBe('H2'))
+    expect(document.activeElement?.textContent).toContain('2 · ')
+  })
+
+  it('Esc in the panel opens a collapsed act to get back to the card', async () => {
+    const user = userEvent.setup()
+    const panel = await loadPlan()
+    await user.click(
+      within(screen.getByTestId('act-frame-0')).getByRole('button', {
+        name: 'Hide COLD OPEN',
+      }),
+    )
+    within(panel).getByRole('button', { name: 'Next scene' }).focus()
+
+    await user.keyboard('{Escape}')
+
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        screen.getByTestId('scene-card-scene-1'),
+      ),
+    )
+  })
+
+  const focusCard = (id: string) =>
+    act(() => screen.getByTestId(`scene-card-${id}`).focus())
+
+  it('Esc from the board shows the Episode view and announces it', async () => {
+    const user = userEvent.setup()
+    await loadPlan()
+    focusCard('scene-1')
+
+    await user.keyboard('{Escape}')
+
+    const panel = screen.getByTestId('inspector')
+    expect(within(panel).getByRole('heading', { level: 2 }).textContent).toBe(
+      'Episode 1: Last Call',
+    )
+    expect(within(panel).queryByTestId('lock-toggle')).toBeNull()
+    expect(
+      screen.getByTestId('scene-card-scene-1').getAttribute('aria-pressed'),
+    ).toBe('false')
+    expect(screen.getByTestId('plan-live').textContent).toBe('Episode view')
+  })
+
+  it('choosing a highlight announces it; highlights, fold and keys make no request', async () => {
+    const user = userEvent.setup()
+    getConsistencyFlagsMock.mockResolvedValueOnce([OPEN_FLAG])
+    await loadPlan(storyProject())
+    const bar = screen.getByRole('group', { name: 'Highlight' })
+    const live = screen.getByTestId('plan-live')
+
+    await user.click(within(bar).getByRole('button', { name: /^Act shape/ }))
+    expect(live.textContent).toBe('Highlight: Act shape. 1 scene matches.')
+    for (const name of [
+      /^Setups & payoffs/,
+      /^Continuity/,
+      /^Who's in it/,
+      /^None/,
+    ])
+      await user.click(within(bar).getByRole('button', { name }))
+    expect(live.textContent).toBe('Highlight off.')
+    await user.click(screen.getByRole('button', { name: /Fold the rest/ }))
+    expect(live.textContent).toBe("Folded the scenes that don't match.")
+    await user.click(screen.getByRole('button', { name: /Fold the rest/ }))
+    expect(live.textContent).toBe('Unfolded.')
+    focusCard('scene-1')
+    await user.keyboard('nNjk{Escape}')
+
+    expect(suggestInstructionsMock).not.toHaveBeenCalled()
+    expect(createChangeSetMock).not.toHaveBeenCalled()
+    expect(patchProjectMock).not.toHaveBeenCalled()
+    expect(getProjectMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('N on a card selects and focuses the next match; the card speaks, the live region stays quiet', async () => {
+    const user = userEvent.setup()
+    getConsistencyFlagsMock.mockResolvedValueOnce([
+      { ...OPEN_FLAG, objectId: 'scene-2' },
+    ])
+    await loadPlan()
+    focusCard('scene-1')
+
+    await user.keyboard('n')
+
+    const next = screen.getByTestId('scene-card-scene-2')
+    expect(next.getAttribute('aria-pressed')).toBe('true')
+    await waitFor(() => expect(document.activeElement).toBe(next))
+    expect(screen.getByTestId('plan-live').textContent).toBe('')
+  })
+
+  it('Next note in the bar selects the next match, scrolls its card into view and announces it', async () => {
+    const user = userEvent.setup()
+    getConsistencyFlagsMock.mockResolvedValueOnce([
+      { ...OPEN_FLAG, objectId: 'scene-2' },
+    ])
+    await loadPlan()
+    const scrollIntoView = vi.spyOn(Element.prototype, 'scrollIntoView')
+    const button = screen.getByRole('button', { name: 'Next note' })
+
+    await user.click(button)
+
+    const next = screen.getByTestId('scene-card-scene-2')
+    expect(next.getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByTestId('plan-live').textContent).toBe(
+      'Scene 2, Back Room. 1 note.',
+    )
+    await waitFor(() => expect(scrollIntoView.mock.contexts).toContain(next))
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' })
+    expect(document.activeElement).toBe(button)
+  })
+
+  it('Esc on a card that then folds away keeps focus on the board', async () => {
+    const user = userEvent.setup()
+    await loadPlan(storyProject())
+    await user.click(screen.getByTestId('scene-card-scene-2'))
+    // Marta (bible order wins the tie) is in scene 1 only.
+    await user.click(screen.getByRole('button', { name: /^Who's in it/ }))
+    await user.click(screen.getByRole('button', { name: 'Fold the rest' }))
+    focusCard('scene-2')
+
+    await user.keyboard('{Escape}')
+
+    expect(screen.queryByTestId('scene-card-scene-2')).toBeNull()
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        screen.getByTestId('scene-card-scene-1'),
+      ),
+    )
+  })
+
+  it("a Who's in it chip in the Episode view switches the board highlight", async () => {
+    const user = userEvent.setup()
+    const panel = await loadPlan(storyProject())
+    await user.click(within(panel).getByRole('button', { name: '← Episode' }))
+
+    const cast = document.getElementById('plan-section-ep-cast') as HTMLElement
+    await user.click(within(cast).getByRole('button', { name: /^Dan Vega/ }))
+
+    const bar = screen.getByRole('group', { name: 'Highlight' })
+    expect(
+      within(bar)
+        .getByRole('button', { name: /^Who's in it/ })
+        .getAttribute('aria-pressed'),
+    ).toBe('true')
+    expect(
+      (screen.getByLabelText('Character to highlight') as HTMLSelectElement)
+        .value,
+    ).toBe('char-dan')
+    expect(
+      screen.getByTestId('scene-card-scene-2').getAttribute('data-match'),
+    ).toBe('true')
+  })
+
+  it('⌘↵ with unsaved edits asks before opening Write', async () => {
+    const user = userEvent.setup()
+    const panel = await loadPlan()
+    await user.type(
+      within(panel).getByLabelText('Audience learns'),
+      'Dan has a second key.',
+    )
+    focusCard('scene-1')
+
+    await user.keyboard('{Meta>}{Enter}{/Meta}')
+    const dialog = screen.getByTestId('leave-plan-dialog') as HTMLDialogElement
+    await waitFor(() => expect(dialog.open).toBe(true))
+    await user.click(
+      within(dialog).getByRole('button', { name: 'Stay in Plan' }),
+    )
+
+    expect(loadResume('proj-longpour').mode).toBe('Plan')
+  })
+
+  it('See all in Ledger → Threads asks first with drafts, then saves the Threads view', async () => {
+    const user = userEvent.setup()
+    const panel = await loadPlan(storyProject())
+    await user.type(
+      within(panel).getByLabelText('Audience learns'),
+      'Dan has a second key.',
+    )
+    await user.click(within(panel).getByRole('button', { name: '← Episode' }))
+    const seeAll = screen.getByRole('button', {
+      name: 'See all 1 in Ledger → Threads',
+    })
+    const dialog = screen.getByTestId('leave-plan-dialog') as HTMLDialogElement
+
+    await user.click(seeAll)
+    await waitFor(() => expect(dialog.open).toBe(true))
+    await user.click(
+      within(dialog).getByRole('button', { name: 'Stay in Plan' }),
+    )
+    expect(localStorage.getItem('tr.ledger.view.proj-longpour')).toBeNull()
+
+    const assign = vi.fn()
+    const original = window.location
+    Object.defineProperty(window, 'location', {
+      value: { ...original, href: original.href, assign },
+      writable: true,
+    })
+    try {
+      await user.click(seeAll)
+      await waitFor(() => expect(dialog.open).toBe(true))
+      await user.click(
+        within(dialog).getByRole('button', { name: 'Discard and leave' }),
+      )
+      await waitFor(() => expect(assign).toHaveBeenCalledTimes(1))
+      expect(new URL(String(assign.mock.calls[0][0])).pathname).toBe('/ledger')
+      expect(localStorage.getItem('tr.ledger.view.proj-longpour')).toBe(
+        'threads',
+      )
+    } finally {
+      Object.defineProperty(window, 'location', {
+        value: original,
+        writable: true,
+      })
+    }
   })
 })
