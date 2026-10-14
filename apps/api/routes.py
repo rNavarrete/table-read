@@ -428,7 +428,11 @@ def get_ledger(
     facts = session.query(LedgerFactRow).filter_by(project_id=pid).order_by(LedgerFactRow.id).all()
     fact_dicts = [f.to_wire_dict() for f in facts]
     if as_of_scene is not None:
-        scenes = [scene for _episode, scene in locks._iter_scenes(project.doc)]
+        scenes = [
+            scene
+            for episode in locks._iter_episodes(project.doc)
+            for scene in locks.scenes_in_story_order(episode)
+        ]
         try:
             fact_dicts = ledger_as_of.facts_as_of(scenes, fact_dicts, as_of_scene)
         except KeyError as exc:

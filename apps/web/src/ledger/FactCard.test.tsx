@@ -77,8 +77,9 @@ describe('FactCard', () => {
     expect(screen.getByText('pending_review')).toBeTruthy()
     expect(screen.getByTestId('confidence-bar')).toBeTruthy()
     expect(screen.getByText('DR')).toBeTruthy() // Detective Ana Reyes → D+R
+    // sc = story position: scene-4 is this episode's only scene.
     expect(screen.getByTestId('source-span-fact-06').textContent).toMatch(
-      /ep 1 · sc 4 · beat 1/,
+      /ep 1 · sc 1 · beat 1/,
     )
   })
 

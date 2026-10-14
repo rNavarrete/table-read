@@ -1,6 +1,9 @@
-import type { Character, LedgerFact, Motivation } from 'contract'
+import type { Character, LedgerFact, Motivation, Project } from 'contract'
 import { describe, expect, it } from 'vitest'
-import { resolveCharacterProfile } from './resolveCharacterProfile'
+import {
+  motivationsForCharacter,
+  resolveCharacterProfile,
+} from './resolveCharacterProfile'
 
 function character(overrides: Partial<Character> = {}): Character {
   return {
@@ -177,5 +180,46 @@ describe('bio derivation is biography, not plot', () => {
       [],
     )
     expect(profile.bio).toBe('')
+  })
+})
+
+describe('motivationsForCharacter', () => {
+  it('lists them in story order, not array order', () => {
+    const want = (objective: string): Motivation => ({
+      characterId: 'char-sam',
+      objective,
+      stakes: '',
+      obstacle: '',
+      statedObjective: '',
+      concealed: false,
+    })
+    // A Plan move left the array alone: story order is early, late.
+    const project = {
+      seasons: [
+        {
+          episodes: [
+            {
+              scenes: [
+                {
+                  id: 'scene-late',
+                  act: 2,
+                  index: 0,
+                  motivations: [want('late')],
+                },
+                {
+                  id: 'scene-early',
+                  act: 1,
+                  index: 1,
+                  motivations: [want('early')],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    } as unknown as Project
+    expect(
+      motivationsForCharacter(project, 'char-sam').map((m) => m.objective),
+    ).toEqual(['early', 'late'])
   })
 })

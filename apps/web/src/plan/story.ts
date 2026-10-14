@@ -13,18 +13,19 @@ import type {
 import { tvActStages } from '../ledger/structure/tvActStructure'
 import { plural } from '../projects/wizard/board/boardText'
 import { parseFountainLines } from '../write/fountainFormat'
+import { boardOrder } from '../write/projectTree'
 import {
   actLabel,
   actNumbersForBoard,
   affectedFacts,
   applySceneMove,
-  boardOrder,
   type MoveRefusal,
   type SceneMove,
 } from './planTree'
 
-// Moved to planTree (applySceneMove builds on it); re-exported so existing
-// importers keep working.
+// Board order (act, then index) lives with the shared project-tree helpers so
+// Write and Ledger use the same story order (planTree's applySceneMove builds
+// on it too); re-exported for Plan's importers.
 export { boardOrder }
 
 // Every pure derivation the Plan panel reads (redesign spec §6: one module,

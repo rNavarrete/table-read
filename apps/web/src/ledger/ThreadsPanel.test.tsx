@@ -128,6 +128,27 @@ describe('ThreadsPanel', () => {
     expect(onJumpToScene).toHaveBeenCalledWith('scene-11')
   })
 
+  it('numbers an unnamed scene by story position, not array position', () => {
+    const moved = project()
+    // A Plan move left the array alone: story order is scene-3, scene-11.
+    moved.seasons[0].episodes[0].scenes = [
+      { id: 'scene-11', act: 2, index: 10, location: '', beats: [] },
+      { id: 'scene-3', act: 1, index: 2, location: 'THE GARAGE', beats: [] },
+    ] as unknown as Project['seasons'][0]['episodes'][0]['scenes']
+    render(
+      <ThreadsPanel
+        project={moved}
+        threads={[thread({ status: 'paid_off', payoffSceneId: 'scene-11' })]}
+        onJumpToScene={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    )
+
+    expect(
+      screen.getByTestId('thread-payoff-scene-thread-a1').textContent,
+    ).toContain('Scene 2')
+  })
+
   it('groups threads under Open / Paid off / Abandoned headers', () => {
     render(
       <ThreadsPanel

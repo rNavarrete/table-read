@@ -103,6 +103,10 @@ export const Beat = z.object({
   scriptLocked: z.boolean().default(false),
 })
 
+// Story order is (act, index), ties in array order — never a scene's position
+// in `scenes`: Plan moves rewrite act/index and leave the array alone. Every
+// reader (Write, Ledger, export, prompts) follows it; a scene's number is its
+// 1-based position in it.
 export const Scene = z.object({
   id: Id,
   index: z.number().int().min(0),

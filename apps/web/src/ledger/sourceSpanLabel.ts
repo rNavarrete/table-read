@@ -1,4 +1,5 @@
 import type { LedgerFact, Project } from 'contract'
+import { boardOrder } from '../write/projectTree'
 
 function sourceSpanParts(
   fact: LedgerFact,
@@ -8,16 +9,17 @@ function sourceSpanParts(
   const episode = project.seasons
     .flatMap((s) => s.episodes)
     .find((e) => e.id === span.episodeId)
-  const scene = episode?.scenes.find((s) => s.id === span.sceneId)
-  const beat = scene?.beats.find((b) => b.id === span.beatId)
+  const scenes = boardOrder(episode?.scenes ?? [])
+  const at = scenes.findIndex((s) => s.id === span.sceneId)
+  const beat = scenes[at]?.beats.find((b) => b.id === span.beatId)
   return {
     epN: episode ? episode.index + 1 : '?',
-    scN: scene ? scene.index + 1 : '?',
+    scN: at >= 0 ? at + 1 : '?',
     beatN: beat ? beat.index + 1 : '?',
   }
 }
 
-/** "ep 1 · sc 3 · beat 2" — episode/scene/beat use 1-based display indices. */
+/** "ep 1 · sc 3 · beat 2" — 1-based; the scene number is its story position. */
 export function formatSourceSpanLabel(
   fact: LedgerFact,
   project: Project,

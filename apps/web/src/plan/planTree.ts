@@ -8,14 +8,14 @@ import type {
   ShowFormat,
 } from 'contract'
 import type { JsonPatchOp } from '../api/client'
-import { allScenes, findScene } from '../write/projectTree'
+import { allScenes, boardOrder, findScene } from '../write/projectTree'
 
 // Re-exported so Plan-mode components have one import surface for the
 // project-tree helpers (write/projectTree.ts already owns the generic
 // find/flatten logic — reused rather than re-implemented, per CLAUDE.md's
 // "don't refactor things that aren't broken" and the reuse/simplification
 // review lens).
-export { allScenes, findScene }
+export { allScenes, boardOrder, findScene }
 
 /** Where a scene lives in the doc's array nesting (data contract §1:
  * `Project.seasons[].episodes[].scenes[]`) — needed to build JSON Pointers
@@ -71,11 +71,6 @@ export type MoveRefusal = { blockedBy: string; renumber?: true }
 
 /** A move's one PATCH and its optimistic twin, or its refusal. */
 export type AppliedMove = { ops: JsonPatchOp[]; next: Project } | MoveRefusal
-
-/** Board order: act, then index (Board's frames). Drives ‹ › and "of N". */
-export function boardOrder(scenes: readonly Scene[]): Scene[] {
-  return [...scenes].sort((a, b) => a.act - b.act || a.index - b.index)
-}
 
 /**
  * Every board move (drop, Act select, ⌥←/⌥→) as one insert into board order

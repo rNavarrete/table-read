@@ -1,29 +1,12 @@
 import type { LedgerFact, Project } from 'contract'
 import { actLabel } from '../plan/planTree'
+import { allScenes } from '../write/projectTree'
 
 export interface SceneStripProps {
   project: Project
   facts: LedgerFact[]
   selectedSceneId: string | null
   onSelectScene: (sceneId: string) => void
-}
-
-interface StripScene {
-  id: string
-  index: number
-  act: number
-}
-
-function allScenes(project: Project): StripScene[] {
-  return project.seasons.flatMap((season) =>
-    season.episodes.flatMap((episode) =>
-      episode.scenes.map((scene) => ({
-        id: scene.id,
-        index: scene.index,
-        act: typeof scene.act === 'number' ? scene.act : 1,
-      })),
-    ),
-  )
 }
 
 /** A compact shared scene spine for finding fact-dense stretches of story. */
@@ -33,7 +16,12 @@ export function SceneStrip({
   selectedSceneId,
   onSelectScene,
 }: SceneStripProps) {
-  const scenes = allScenes(project)
+  // Story order (act, then index); a tick's number is its position in it.
+  const scenes = allScenes(project).map((scene, i) => ({
+    id: scene.id,
+    act: scene.act,
+    number: i + 1,
+  }))
   const counts = new Map<string, number>()
   for (const fact of facts) {
     const sceneId = fact.sourceSpan.sceneId
@@ -70,11 +58,11 @@ export function SceneStrip({
                     <button
                       key={scene.id}
                       type="button"
-                      title={`scene ${scene.index + 1} · ${count} facts`}
+                      title={`scene ${scene.number} · ${count} facts`}
                       onClick={() => onSelectScene(scene.id)}
                       className={`min-w-1 flex-1 rounded-t-sm ${color} focus-visible:outline focus-visible:outline-selected focus-visible:outline-offset-2 focus-visible:outline-tr-coral`}
                       style={{ height }}
-                      data-testid={`atlas-scene-tick-${scene.index + 1}`}
+                      data-testid={`atlas-scene-tick-${scene.number}`}
                     />
                   )
                 })}

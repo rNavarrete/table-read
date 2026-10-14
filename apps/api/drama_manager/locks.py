@@ -108,6 +108,16 @@ def _iter_scenes(doc: dict):
                 yield episode, scene
 
 
+def scenes_in_story_order(episode: dict) -> list[dict]:
+    """The episode's scenes in story order: (act, index), ties in array order.
+    Never the array's own order: Plan moves rewrite `act` / `index` and leave
+    the stored array alone. Anything that orders, numbers or slices scenes
+    for the writer or a prompt goes through here."""
+    return sorted(
+        episode.get("scenes") or [], key=lambda s: (s.get("act") or 0, s.get("index") or 0)
+    )
+
+
 def _iter_beats(doc: dict):
     """Yield (episode, scene, beat) for every beat in the project."""
     for episode, scene in _iter_scenes(doc):
@@ -326,6 +336,8 @@ def assert_no_locked_writes(old_doc: dict, new_doc: dict) -> None:
             raise LockViolation(
                 f"cannot add or remove scenes in locked episode {episode['id']!r}"
             )
+        # Story order (act, index) is frozen above: every scene of a locked
+        # episode counts as locked, so its `act` and `index` can't change.
         if _child_order(old_scenes) != _child_order(new_scene_list):
             raise LockViolation(
                 f"cannot reorder scenes in locked episode {episode['id']!r}"

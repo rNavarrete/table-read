@@ -44,17 +44,21 @@ function project(): Project {
           {
             id: 'ep-1',
             index: 0,
+            // Array order is not story order (a Plan move rewrites act /
+            // index only): story order is scene-3, then scene-11.
             scenes: [
               {
-                id: 'scene-3',
-                index: 2,
-                location: 'Kitchen',
+                id: 'scene-11',
+                act: 1,
+                index: 10,
+                location: '',
                 beats: [],
               },
               {
-                id: 'scene-11',
-                index: 10,
-                location: '',
+                id: 'scene-3',
+                act: 1,
+                index: 2,
+                location: 'Kitchen',
                 beats: [],
               },
             ],
@@ -93,7 +97,7 @@ function activeFact(id: string): LedgerFact {
 }
 
 describe('LedgerScreen As-of scene filter (T7.18)', () => {
-  it('lists Latest (all) plus every episode scene, in order', async () => {
+  it('lists Latest (all) plus every episode scene, in story order', async () => {
     vi.mocked(getProject).mockResolvedValue(project())
     vi.mocked(getLedger).mockResolvedValue([activeFact('fact-a')])
 
@@ -105,10 +109,9 @@ describe('LedgerScreen As-of scene filter (T7.18)', () => {
     const labels = Array.from(select.querySelectorAll('option')).map(
       (o) => o.textContent,
     )
-    expect(labels[0]).toBe('Latest (all)')
-    expect(labels).toContain('Kitchen')
-    // Scene with no location yet falls back to a 1-based "Scene N" label.
-    expect(labels).toContain('Scene 11')
+    // A scene with no location yet falls back to "Scene N", N its 1-based
+    // story position.
+    expect(labels).toEqual(['Latest (all)', 'Kitchen', 'Scene 2'])
   })
 
   it('selecting a scene calls the client with asOfScene', async () => {

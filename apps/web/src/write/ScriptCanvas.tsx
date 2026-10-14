@@ -356,7 +356,7 @@ function SceneBlock({
 }
 
 export interface ScriptCanvasProps {
-  /** Episode scenes in document order (Write script-home, T2.4). */
+  /** Episode scenes in story order (projectTree.allScenes; T2.4). */
   scenes: Scene[]
   canvasHandlers: QuietAiCanvasHandlers
   /** When set (Ledger source-span jump), highlight that beat for 2s. */

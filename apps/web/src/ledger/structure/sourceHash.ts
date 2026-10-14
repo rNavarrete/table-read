@@ -1,13 +1,11 @@
 import type { Scene } from 'contract'
+import { boardOrder } from '../../write/projectTree'
 
 /** Same fingerprint as structure_checks.structure_source_hash (spec: Source hash). */
 export async function structureSourceHash(scenes: Scene[]): Promise<string> {
-  // Scenes by (act, index), beats by index: Plan's drag-reorder rewrites those
+  // Scenes in story order, beats by index: Plan's drag-reorder rewrites those
   // and leaves the stored arrays alone. Matches structure_checks._ordered_scenes.
-  const text = [...scenes]
-    .sort(
-      (a, b) => (a.act ?? 0) - (b.act ?? 0) || (a.index ?? 0) - (b.index ?? 0),
-    )
+  const text = boardOrder(scenes)
     .flatMap((scene) =>
       [...(scene.beats ?? [])]
         .sort((a, b) => (a.index ?? 0) - (b.index ?? 0))

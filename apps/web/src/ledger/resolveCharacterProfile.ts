@@ -5,6 +5,7 @@ import type {
   Project,
   Secret,
 } from 'contract'
+import { allScenes } from '../write/projectTree'
 
 export type ProfileSource = 'stored' | 'bible' | 'derived' | 'empty'
 
@@ -80,22 +81,14 @@ function mentionsCharacter(fact: LedgerFact, character: Character): boolean {
   })
 }
 
-/** Motivations for a character across the project's scenes (doc order). */
+/** Motivations for a character across the project's scenes (story order). */
 export function motivationsForCharacter(
   project: Project,
   characterId: string,
 ): Motivation[] {
-  const out: Motivation[] = []
-  for (const season of project.seasons) {
-    for (const episode of season.episodes) {
-      for (const scene of episode.scenes) {
-        for (const m of scene.motivations ?? []) {
-          if (m.characterId === characterId) out.push(m)
-        }
-      }
-    }
-  }
-  return out
+  return allScenes(project).flatMap((scene) =>
+    (scene.motivations ?? []).filter((m) => m.characterId === characterId),
+  )
 }
 
 function bibleSummary(character: Character): string {

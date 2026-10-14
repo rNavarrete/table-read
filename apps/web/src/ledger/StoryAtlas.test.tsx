@@ -95,9 +95,82 @@ describe('StoryAtlas', () => {
     expect(screen.getByTestId('atlas-row-f-knowledge').textContent).toMatch(
       /Marta knows the ledger/,
     )
+    // sc = story position: scene-3 is this episode's only scene.
     expect(screen.getByTestId('atlas-ref-f-knowledge').textContent).toMatch(
-      /ep 1 · sc 3 · beat 2/,
+      /ep 1 · sc 1 · beat 2/,
     )
+  })
+
+  it('orders, groups, numbers and strips scenes in story order, not array order', async () => {
+    const user = userEvent.setup()
+    const moved = {
+      ...project(),
+      seasons: [
+        {
+          episodes: [
+            {
+              id: 'ep-1',
+              index: 0,
+              threads: [],
+              // A Plan move left the array alone: story order is early, late.
+              scenes: [
+                {
+                  id: 'scene-late',
+                  act: 2,
+                  index: 0,
+                  location: 'DOCK',
+                  beats: [{ id: 'beat-late', index: 0 }],
+                },
+                {
+                  id: 'scene-early',
+                  act: 1,
+                  index: 1,
+                  location: 'BAR',
+                  beats: [{ id: 'beat-early', index: 0 }],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    } as unknown as Project
+    const span = (sceneId: string, beatId: string) => ({
+      ...fact({ id: 'x', factType: 'event', fact: '' }).sourceSpan,
+      sceneId,
+      beatId,
+    })
+    const facts = [
+      fact({
+        id: 'f-late',
+        factType: 'event',
+        fact: 'Late.',
+        sourceSpan: span('scene-late', 'beat-late'),
+      }),
+      fact({
+        id: 'f-early',
+        factType: 'event',
+        fact: 'Early.',
+        sourceSpan: span('scene-early', 'beat-early'),
+      }),
+    ]
+    render(<StoryAtlas facts={facts} allFacts={facts} project={moved} />)
+
+    const rows = screen.getAllByTestId(/^atlas-row-/)
+    expect(rows.map((r) => r.dataset.testid)).toEqual([
+      'atlas-row-f-early',
+      'atlas-row-f-late',
+    ])
+    expect(
+      screen.getByTestId('atlas-group-header-scene-scene-late').textContent,
+    ).toContain('Scene 2')
+    expect(screen.getByTestId('atlas-ref-f-late').textContent).toMatch(/sc 2/)
+    // The strip's ticks run in story order; tick 1 is the early scene.
+    await user.click(screen.getByTestId('atlas-scene-tick-1'))
+    expect(screen.getByTestId('atlas-filter-chip-scene').textContent).toContain(
+      'Scene 1',
+    )
+    expect(screen.queryByTestId('atlas-row-f-late')).toBeNull()
+    expect(screen.getByTestId('atlas-row-f-early')).toBeTruthy()
   })
 
   it('marks a secret without hiding its source reference', () => {
