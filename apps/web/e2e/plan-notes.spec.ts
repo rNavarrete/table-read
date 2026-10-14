@@ -152,9 +152,10 @@ test('Draft a fix in Review… sends a note to Review as an editable instruction
   await draftFix.click()
   const box = note.getByLabel('Fix instruction')
   await expect(box).toHaveValue(
-    /^Fix this continuity note in scene 5 \(Kitchen\): .*stakes reference the bar/,
+    /^Fix this continuity note in the Kitchen scene \(5th on the board\): .*stakes reference the bar/,
   )
-  await expect(box).not.toHaveValue(/scene-|fact-|\[/)
+  // No raw id, and no "scene n" a model would read as an id.
+  await expect(box).not.toHaveValue(/scene-|fact-|\[|\bscenes? \d|\bbeat \d/i)
   await expect(note).toContainText(
     'Nothing changes until you apply it in Review. Locked scenes are never changed.',
   )

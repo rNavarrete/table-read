@@ -607,8 +607,9 @@ export function PlanScreen() {
   const orderNotes = selectedScene
     ? (model.signals.get(selectedScene.id)?.orderNotes ?? [])
     : []
-  // The last move's new problems on this scene open the strip: the key
-  // remounts it open (and again on a return while that move is the last).
+  // The last move's new problems on this scene open the strip (freshKey;
+  // again on a return while that move is the last). The key is the scene
+  // alone: a move must not remount the strip and lose an open fix editor.
   const fresh = undoMove.move?.issueIds ?? []
   const freshHere = orderNotes
     .filter((n) => fresh.includes(n.issue.id))
@@ -797,8 +798,8 @@ export function PlanScreen() {
                 noteCount={sceneNotes.length + orderNotes.length}
                 notes={(showBeat) => (
                   <NotesStrip
-                    key={`${selectedScene.id}:${freshHere.join(' ')}`}
-                    defaultExpanded={freshHere.length > 0}
+                    key={selectedScene.id}
+                    freshKey={freshHere.join(' ')}
                     scene={selectedScene}
                     notes={sceneNotes}
                     orderNotes={orderNotes}

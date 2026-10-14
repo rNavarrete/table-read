@@ -1,5 +1,6 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { LedgerFact, Scene } from 'contract'
+import { ApiError } from '../../api/errors'
 import { plural } from '../../projects/wizard/board/boardText'
 import {
   fixInstruction,
@@ -40,11 +41,23 @@ export interface NotesStripProps {
   /** Issue ids whose note offers Undo the move. */
   undoableIssueIds?: ReadonlySet<string>
   onUndoMove?: () => void
-  /** Start open: a new order problem just landed on this scene (PlanScreen re-keys the strip). */
-  defaultExpanded?: boolean
+  /** The last move's new Order issue ids on this scene, joined: non-empty
+   * opens the strip (on mount, and again when it changes). PlanScreen keys
+   * the strip by scene only, so a move never throws away an open fix editor. */
+  freshKey?: string
 }
 
 const NO_IDS: ReadonlySet<string> = new Set()
+
+// Data contract §4 codes → writer copy; never the server's message.
+const FIX_ERRORS: Record<string, string> = {
+  SCHEMA_INVALID_LLM:
+    "Review couldn't plan this fix (the AI's answer came back malformed twice). Nothing changed; try again.",
+  LLM_UNAVAILABLE: 'The AI service is unavailable right now. Nothing changed.',
+}
+const fixErrorText = (err: unknown) =>
+  (err instanceof ApiError && FIX_ERRORS[err.code]) ||
+  "Couldn't open Review. Nothing changed; try again."
 
 const FOCUS =
   'focus-visible:outline focus-visible:outline-selected focus-visible:outline-offset-2 focus-visible:outline-tr-sky'
@@ -65,7 +78,7 @@ function beatLabel(scene: Scene, note: PlanNote): string | null {
  * its verbs, then the import notes in a closed "From the import" group.
  * Order notes count as story notes. Severity is not shown: all live flags are
  * 'tension'. PlanScreen keys the strip by scene id, so it starts collapsed on
- * every scene unless `defaultExpanded`. */
+ * every scene unless `freshKey`. */
 export function NotesStrip({
   scene,
   notes,
@@ -84,9 +97,15 @@ export function NotesStrip({
   orderNotes = [],
   undoableIssueIds = NO_IDS,
   onUndoMove,
-  defaultExpanded = false,
+  freshKey = '',
 }: NotesStripProps) {
-  const [expanded, setExpanded] = useState(defaultExpanded)
+  const [expanded, setExpanded] = useState(freshKey !== '')
+  // A new fresh key opens the strip (state adjusted during render).
+  const [seenKey, setSeenKey] = useState(freshKey)
+  if (seenKey !== freshKey) {
+    setSeenKey(freshKey)
+    if (freshKey) setExpanded(true)
+  }
   // The one open fix editor (T3.9): its note and the writer's text. Lives
   // while this scene stays selected (PlanScreen keys the strip by scene).
   const [fix, setFix] = useState<{ flagId: string; text: string } | null>(null)
@@ -94,6 +113,12 @@ export function NotesStrip({
   const [fixError, setFixError] = useState<string | null>(null)
   const fixVerbRef = useRef<HTMLButtonElement>(null)
   const fixAreaRef = useRef<HTMLTextAreaElement>(null)
+  // Focus the box when an editor opens, not when a lock/unlock remounts it
+  // (that would pull focus off the Lock switch).
+  const fixId = fix?.flagId
+  useEffect(() => {
+    if (fixId) fixAreaRef.current?.focus()
+  }, [fixId])
 
   function toggleFix(note: PlanNote) {
     setFixError(null)
@@ -111,12 +136,15 @@ export function NotesStrip({
     setSending(true)
     setFixError(null)
     onDraftFix(fix.text.trim()).then(
-      () => setSending(false), // on the way to Review, or Stay in Plan
+      () => {
+        // On the way to Review, or Stay in Plan: the leave dialog gave focus
+        // back to a button that was disabled, so put it in the box.
+        setSending(false)
+        fixAreaRef.current?.focus()
+      },
       (err: unknown) => {
         setSending(false)
-        setFixError(
-          err instanceof Error ? err.message : "Couldn't open Review.",
-        )
+        setFixError(fixErrorText(err))
         fixAreaRef.current?.focus() // the text is kept; let the writer edit it
       },
     )
@@ -329,7 +357,6 @@ export function NotesStrip({
                       aria-label="Fix instruction"
                       aria-describedby="plan-fix-explainer"
                       rows={4}
-                      autoFocus
                       readOnly={sending}
                       value={fix.text}
                       onChange={(e) =>

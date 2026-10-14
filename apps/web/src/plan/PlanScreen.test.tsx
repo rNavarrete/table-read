@@ -870,7 +870,7 @@ describe('PlanScreen', () => {
   })
 
   const PREFILL =
-    'Fix this continuity note in scene 1 (The Long Pour): Scene 2 (Back Room) still has the money in the bar.'
+    'Fix this continuity note in the Long Pour scene (1st on the board): the Back Room scene (2nd on the board) still has the money in the bar.'
 
   /** Opens Draft a fix on OPEN_FLAG (scene-1); returns its note card. */
   async function openFix(user: ReturnType<typeof userEvent.setup>) {
@@ -956,7 +956,7 @@ describe('PlanScreen', () => {
     reply.reject(new Error('review is down'))
 
     expect((await within(note).findByRole('alert')).textContent).toBe(
-      'review is down',
+      "Couldn't open Review. Nothing changed; try again.",
     )
     expect(value(note, 'Fix instruction')).toBe(`${PREFILL} Keep the bar.`)
     expect(screen.queryByTestId('toast')).toBeNull()
@@ -1021,7 +1021,7 @@ describe('PlanScreen', () => {
 
     reply.reject(new Error('review is down'))
     expect((await within(note).findByRole('alert')).textContent).toBe(
-      'review is down',
+      "Couldn't open Review. Nothing changed; try again.",
     )
     expect(value(panel, 'Audience learns')).toBe('Dan has a second key.')
     expect(value(note, 'Fix instruction')).toBe(PREFILL)
@@ -1577,6 +1577,47 @@ describe('PlanScreen order check (T3.7)', () => {
         screen.getByTestId('inspector').contains(document.activeElement),
       ).toBe(true),
     )
+  })
+
+  it('Undo the move keeps an open fix editor and its edited text (the strip is keyed by scene only)', async () => {
+    const user = userEvent.setup()
+    patchProjectMock.mockResolvedValue(moved(orderProject()))
+    undoProjectMock.mockResolvedValue(orderProject())
+    getConsistencyFlagsMock.mockResolvedValueOnce([
+      {
+        id: 'flag-5',
+        objectType: 'scene',
+        objectId: 'scene-5',
+        factId: null,
+        explanation: 'The key turns up before anyone loses it.',
+        severity: 'tension',
+        status: 'open',
+        sourceChange: 'snap-root',
+      },
+    ])
+    await moveScene5ToColdOpen(user)
+    const undo = await within(strip()).findByRole('button', {
+      name: 'Undo the move',
+    })
+    const note = screen.getByTestId('note-flag-5')
+    await user.click(
+      within(note).getByRole('button', { name: 'Draft a fix in Review…' }),
+    )
+    const box = within(note).getByRole('textbox', { name: 'Fix instruction' })
+    await user.type(box, ' Keep the key.')
+    const typed = (box as HTMLTextAreaElement).value
+
+    await user.click(undo)
+    await waitFor(() => expect(screen.queryByTestId(/^order-note-/)).toBeNull())
+
+    expect(
+      (
+        within(screen.getByTestId('note-flag-5')).getByRole('textbox', {
+          name: 'Fix instruction',
+        }) as HTMLTextAreaElement
+      ).value,
+    ).toBe(typed)
+    expect(typed).toMatch(/ Keep the key\.$/)
   })
 
   it('Undo the move leaves focus where the writer put it while it ran', async () => {
