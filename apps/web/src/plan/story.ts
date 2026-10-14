@@ -197,7 +197,8 @@ export function linkifyNote(
 
 // ── Scene reading ───────────────────────────────────────────────────────
 
-const SLUG_PREFIX = /^(?:INT\.?\/EXT\.?|EXT\.?\/INT\.?|I\/E\.?|INT\.|EXT\.)\s*/i
+const SLUG_PREFIX =
+  /^(?:(?:INT|EXT)\.?\/(?:INT|EXT)\.?|I\/E\.?|(?:INT|EXT)(?:\.|\s))\s*/i
 
 function titleCase(text: string): string {
   return text
@@ -209,25 +210,37 @@ function titleCase(text: string): string {
 }
 
 // ponytail: the common slugline time / continuity words and shot descriptors
-// ("MOVING", "FLASHBACK"), none of which name a place; an unlisted one
-// ("MAGIC HOUR", "3 AM") becomes the title. Add words as real scripts show them.
-const SLUG_TIME =
-  /^(?:(?:(?:EARLY|LATE|NEXT|SAME|THAT|MOMENTS)\s+)?(?:DAY|NIGHT|MORNING|AFTERNOON|EVENING|DAWN|DUSK|SUNRISE|SUNSET|LATER|CONTINUOUS|SAME|SAME TIME)|MOVING|ESTABLISHING(?: SHOT)?|FLASHBACK|INTERCUT|POV|MONTAGE|(?:WIDE|AERIAL) SHOT)$/i
+// ("MOVING", "FLASHBACK"), none of which name a place. A part made only of
+// these ("MORNING", "LATER THAT MORNING", "NEXT DAY") is not the place; an
+// unlisted word ("MAGIC HOUR", "3 AM") makes it the title. Add words as real
+// scripts show them.
+const SLUG_TIME_WORDS = new Set(
+  (
+    'DAY NIGHT MORNING AFTERNOON EVENING DAWN DUSK SUNRISE SUNSET LATER ' +
+    'CONTINUOUS SAME TIME EARLY LATE NEXT THAT MOMENTS MOMENT MOVING ' +
+    'ESTABLISHING SHOT FLASHBACK INTERCUT POV MONTAGE WIDE AERIAL'
+  ).split(' '),
+)
+const isTimePart = (part: string) =>
+  part
+    .toUpperCase()
+    .split(/\s+/)
+    .every((word) => SLUG_TIME_WORDS.has(word.replace(/[^A-Z]/g, '')))
 
 /** The most specific part of the slug: "INT. THE LONG POUR - BAR - DAY" →
- * "Bar". Drops the INT./EXT./I/E. prefix, then takes the last " - " part,
- * skipping trailing time / continuity parts ("NIGHT", "LATER"); a slug with
- * no " - " stays whole. Title-cases only an all-caps result. Empty →
- * "Scene n". */
+ * "Bar". Drops the INT./EXT./I/E. prefix (period optional), splits on spaced
+ * " - ", " = " and " ~ ", then takes the last part, skipping trailing parts
+ * made only of time / continuity words ("NIGHT", "LATER THAT MORNING"); a
+ * slug with one part stays whole. Title-cases only an all-caps result.
+ * Empty → "Scene n". */
 export function placeTitle(scene: Scene): string {
   const parts = scene.location
     .trim()
     .replace(SLUG_PREFIX, '')
-    .split(' - ')
+    .split(/\s+[-–—=~]\s+/)
     .map((p) => p.trim())
     .filter(Boolean)
-  while (parts.length > 1 && SLUG_TIME.test(parts[parts.length - 1]))
-    parts.pop()
+  while (parts.length > 1 && isTimePart(parts[parts.length - 1])) parts.pop()
   const place = parts.at(-1)
   if (!place) return `Scene ${scene.index + 1}`
   return place === place.toUpperCase() ? titleCase(place) : place

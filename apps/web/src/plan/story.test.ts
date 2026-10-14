@@ -574,6 +574,13 @@ describe('placeTitle', () => {
     ['EXT. NIGHT', 'Night'],
     ["INT./EXT. MARTA'S CAR - DAY", "Marta's Car"],
     ['I/E. DOCK - DAWN', 'Dock'],
+    ['EXT. THE LONG POUR - PATIO - MORNING = NEXT DAY', 'Patio'],
+    ['INT. VEGA HOUSE - KITCHEN - LATER THAT MORNING', 'Kitchen'],
+    ['EXT THE LONG POUR - NIGHT', 'The Long Pour'],
+    ['INT VEGA HOUSE - BASEMENT', 'Basement'],
+    ['INT. VEGA HOUSE - LATE AFTERNOON ~ LIVING ROOM', 'Living Room'],
+    ["INT. DR. REYES' OFFICE - DAY", "Dr. Reyes' Office"],
+    ['EXT. HARBOR ST - MAGIC HOUR', 'Magic Hour'],
     ['Int. The Long Pour - Kitchen - Night', 'Kitchen'],
   ])('%s → %s', (location, title) => {
     expect(placeTitle(scene('scene-1', 0, { location }))).toBe(title)
