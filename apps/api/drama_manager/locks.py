@@ -45,8 +45,8 @@ Two changes are **exempt** even on a locked object, because they are not the
     "insertion before/after succeeds").
 **Not exempt:** reordering (child ORDER) of beats **inside a locked scene**
 (or scenes inside a locked episode) — the container's child order is frozen
-(ruling 2). Locked-scene drag-among-scenes (scene `index` among episode
-siblings) stays allowed server-side for MVP.
+(ruling 2). A locked scene's own `index` is frozen too (T3.8): a reorder may
+not shift a locked scene, or any scene of a locked episode.
 Inserting a beat *around* a locked beat in an *unlocked* scene is therefore
 allowed (the scene isn't a locked container; the locked beat's content is
 preserved, only its `index` moves). Undo is exempt: it does not route through
@@ -238,9 +238,10 @@ def insert_beat(
 
 
 # Fields a locked object may still have changed by a write (see "Write-side
-# lock rule"): its own lock pins (unlocking is the writer's gesture) and its
-# `index` when the parent container is unlocked (sibling reindex — T2.2).
-# Child ORDER inside a locked container is NOT exempt (ruling 2).
+# lock rule"): its own lock pins (unlocking is the writer's gesture) and, for a
+# beat, its `index` when the parent scene is unlocked (sibling reindex — T2.2).
+# A locked scene's `index` is checked explicitly in `assert_no_locked_writes`
+# (T3.8). Child ORDER inside a locked container is NOT exempt (ruling 2).
 _EXEMPT_ON_LOCKED = frozenset(("locked", "scriptLocked", "index"))
 
 
@@ -268,8 +269,9 @@ def assert_no_locked_writes(old_doc: dict, new_doc: dict) -> None:
 
     The lock/`scriptLocked` exemptions keep the writer's own unlock (T3.1
     toggle) working. ``index`` on locked beats remains exempt so sibling
-    reindex in unlocked scenes works (test plan line 19); child ORDER inside
-    a locked scene/episode is blocked (ruling 2)."""
+    reindex in unlocked scenes works (test plan line 19); a locked scene's own
+    ``index`` is frozen (T3.8), and child ORDER inside a locked scene/episode
+    is blocked (ruling 2)."""
     new_beats = {b["id"]: b for _e, _s, b in _iter_beats(new_doc)}
     new_scenes = {s["id"]: s for _e, s in _iter_scenes(new_doc)}
     new_episodes = {e["id"]: e for e in _iter_episodes(new_doc)}
@@ -295,6 +297,8 @@ def assert_no_locked_writes(old_doc: dict, new_doc: dict) -> None:
             after, children_key="beats"
         ):
             raise LockViolation(f"cannot edit the content of locked scene {scene['id']!r}")
+        if after.get("index") != scene.get("index"):
+            raise LockViolation(f"cannot move locked scene {scene['id']!r}")
         old_beats = scene.get("beats", [])
         new_beat_list = after.get("beats", [])
         if {b["id"] for b in old_beats} != {b["id"] for b in new_beat_list}:
