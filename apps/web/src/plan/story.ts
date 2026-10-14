@@ -19,6 +19,7 @@ import {
   affectedFacts,
   applySceneMove,
   boardOrder,
+  type MoveRefusal,
   type SceneMove,
 } from './planTree'
 
@@ -474,8 +475,7 @@ export function newOrderIssues(
 /** What a move would do: null when nothing would move, the locked scene in
  * the way, or the order problems it would add — on applySceneMove's own
  * result, so it always matches the save. */
-export type MovePrediction =
-  { blockedBy: string } | { issues: OrderIssue[] } | null
+export type MovePrediction = MoveRefusal | { issues: OrderIssue[] } | null
 
 export function predictMove(project: Project, move: SceneMove): MovePrediction {
   const applied = applySceneMove(project, move)
@@ -494,28 +494,21 @@ export function predictMove(project: Project, move: SceneMove): MovePrediction {
   }
 }
 
-// ponytail: a whole-card drop inserts on the far side of the target (after a
-// later card, before an earlier one) until the board drops by card half.
-export function dropsAfter(
-  model: BoardModel,
-  sceneId: string,
-  targetSceneId: string,
-): boolean {
-  const n = (id: string) => model.signals.get(id)?.number ?? 0
-  return n(sceneId) < n(targetSceneId)
-}
-
-/** "Can't move past scene n: it's locked", or "Can't move scene n: it's
- * locked" when the locked scene is the one being moved; n = today's number. */
+/** "Can't move past scene n: it's locked", "Can't move scene n: it's
+ * locked" when the locked scene is the one being moved, or "Can't renumber
+ * scene n: it's locked" when the move only renumbers it (its index is out of
+ * board order); n = today's number. */
 export function lockedMoveText(
   model: BoardModel,
   sceneId: string,
-  blockedBy: string,
+  { blockedBy, renumber }: MoveRefusal,
 ): string {
   const n = cardNumber(model, blockedBy)
   return sceneId === blockedBy
     ? `Can't move scene ${n}: it's locked`
-    : `Can't move past scene ${n}: it's locked`
+    : renumber
+      ? `Can't renumber scene ${n}: it's locked`
+      : `Can't move past scene ${n}: it's locked`
 }
 
 // ponytail: "the secret" names no secret; with two secrets the sentences don't

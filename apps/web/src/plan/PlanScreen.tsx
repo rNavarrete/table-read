@@ -106,8 +106,14 @@ export function PlanScreen() {
   const [unfolded, setUnfolded] = useState<ReadonlySet<string>>(new Set())
   const [openingReview, setOpeningReview] = useState(false)
   const [reviewError, setReviewError] = useState<string | null>(null)
-  // Why the last keyboard or Act-select move was refused (a locked scene).
-  const [moveRefusal, setMoveRefusal] = useState<string | null>(null)
+  // Why the last keyboard or Act-select move was refused (a locked scene),
+  // shown while the head it was refused on is the head; `n` remounts the
+  // alert so a repeat is spoken again.
+  const [moveRefusal, setMoveRefusal] = useState<{
+    text: string
+    head: string | null
+    n: number
+  } | null>(null)
   // The board's live region (plan-live): empty until the writer selects.
   const [live, setLive] = useState('')
   // One draft per field for the whole screen (spec §4.9): survives scene
@@ -373,9 +379,10 @@ export function PlanScreen() {
     const applied = applySceneMove(project, move)
     if (!applied) return Promise.resolve(false)
     if ('blockedBy' in applied) {
-      const text = lockedMoveText(model, move.sceneId, applied.blockedBy)
-      setMoveRefusal(text)
-      announce(text)
+      // The danger toast is an alert: it speaks for itself.
+      const text = lockedMoveText(model, move.sceneId, applied)
+      const head = project.headSnapshotId
+      setMoveRefusal((r) => ({ text, head, n: (r?.n ?? 0) + 1 }))
       return Promise.resolve(false)
     }
     const moved = findScene(applied.next, move.sceneId)
@@ -665,11 +672,6 @@ export function PlanScreen() {
           >
             {live}
           </p>
-          {moveRefusal && (
-            <Toast tone="danger" onDismiss={() => setMoveRefusal(null)}>
-              {moveRefusal}
-            </Toast>
-          )}
           {reviewError && (
             <Toast tone="danger" onDismiss={() => setReviewError(null)}>
               {reviewError}
@@ -709,6 +711,17 @@ export function PlanScreen() {
               >
                 Undo
               </button>
+            </Toast>
+          )}
+          {/* Last, so it paints over any open toast; gone once the head moves
+              (e.g. the scene is unlocked). */}
+          {moveRefusal && moveRefusal.head === project.headSnapshotId && (
+            <Toast
+              key={moveRefusal.n}
+              tone="danger"
+              onDismiss={() => setMoveRefusal(null)}
+            >
+              {moveRefusal.text}
             </Toast>
           )}
           <LeavePlanDialog {...leave.dialog} />

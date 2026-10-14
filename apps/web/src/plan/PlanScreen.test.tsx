@@ -1349,8 +1349,89 @@ describe('PlanScreen order check (T3.7)', () => {
     expect((await screen.findByTestId('toast')).textContent).toContain(
       "Can't move scene 2: it's locked",
     )
-    expect(screen.getByTestId('plan-live').textContent).toBe(
+    // The toast is an alert: plan-live doesn't say it a second time.
+    expect(screen.getByTestId('plan-live').textContent).not.toContain(
+      "Can't move",
+    )
+  })
+
+  it('a repeated refusal remounts its alert, so it is spoken again', async () => {
+    const p = orderProject()
+    p.seasons[0].episodes[0].scenes[1].locked = true
+    await loadPlan(p)
+
+    fireEvent.keyDown(card('scene-2'), { key: 'ArrowRight', altKey: true })
+    const first = await screen.findByTestId('toast')
+    fireEvent.keyDown(card('scene-2'), { key: 'ArrowRight', altKey: true })
+
+    const second = screen.getByTestId('toast')
+    expect(second.textContent).toContain("Can't move scene 2: it's locked")
+    expect(second).not.toBe(first)
+  })
+
+  it('a refusal shows on top of an open toast', async () => {
+    const user = userEvent.setup()
+    const p = orderProject()
+    p.seasons[0].episodes[0].scenes[1].locked = true
+    const flag: ConsistencyFlag = {
+      id: 'flag-1',
+      objectType: 'scene',
+      objectId: 'scene-1',
+      factId: null,
+      explanation: 'Scene 2 still has the money in the bar.',
+      severity: 'tension',
+      status: 'open',
+      sourceChange: 'snap-root',
+    }
+    getProjectMock
+      .mockResolvedValueOnce(p)
+      .mockResolvedValueOnce({ ...p, headSnapshotId: 'snap-dismiss' })
+    getConsistencyFlagsMock.mockResolvedValueOnce([flag])
+    dismissConsistencyFlagMock.mockResolvedValue({
+      ...flag,
+      status: 'dismissed',
+    })
+    await loadPlan(p)
+    await user.click(within(strip()).getByRole('button', { name: 'Show' }))
+    await user.click(
+      within(screen.getByTestId('note-flag-1')).getByRole('button', {
+        name: 'Dismiss',
+      }),
+    )
+    expect(await screen.findByText('Note dismissed.')).not.toBeNull()
+
+    fireEvent.keyDown(card('scene-2'), { key: 'ArrowRight', altKey: true })
+
+    // Same fixed spot: the last toast paints on top.
+    expect(screen.getAllByTestId('toast').at(-1)?.textContent).toContain(
       "Can't move scene 2: it's locked",
+    )
+  })
+
+  it('a refusal goes once the head moves, e.g. its scene is unlocked', async () => {
+    const user = userEvent.setup()
+    const p = orderProject()
+    p.seasons[0].episodes[0].scenes[1].locked = true
+    patchProjectMock.mockResolvedValue({
+      project: {
+        ...withSceneField(p, 'scene-2', 'locked', false),
+        headSnapshotId: 'snap-unlocked',
+      },
+      consistencyFlags: [],
+    })
+    await loadPlan(p)
+    fireEvent.keyDown(card('scene-2'), { key: 'ArrowRight', altKey: true })
+    expect((await screen.findByTestId('toast')).textContent).toContain(
+      "Can't move scene 2: it's locked",
+    )
+
+    await user.click(card('scene-2'))
+    await user.click(
+      within(screen.getByTestId('inspector')).getByTestId('lock-toggle'),
+    )
+
+    await waitFor(() =>
+      expect(screen.queryByText("Can't move scene 2: it's locked")).toBeNull(),
     )
   })
 

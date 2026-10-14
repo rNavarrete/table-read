@@ -220,7 +220,7 @@ export function Board({
   ): CardTape {
     if ('blockedBy' in p)
       return {
-        text: lockedMoveText(model, from.scene.id, p.blockedBy),
+        text: lockedMoveText(model, from.scene.id, p),
         tone: 'amber',
       }
     return predictionTape(model, p.issues) ?? { text: fallback, tone: 'sky' }

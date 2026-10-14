@@ -64,10 +64,13 @@ export type SceneMove =
    * previous / next board act in place (empty acts too). */
   | { type: 'step'; sceneId: string; dir: 1 | -1 }
 
-/** A move's one PATCH and its optimistic twin, or the locked scene that
- * refuses it (owner decision #2: nothing may shift a locked scene). */
-export type AppliedMove =
-  { ops: JsonPatchOp[]; next: Project } | { blockedBy: string }
+/** The locked scene that refuses a move (owner decision #2: nothing may
+ * shift a locked scene). `renumber`: the move leaves it in place, but its
+ * stored index is out of board order and the move would renumber it. */
+export type MoveRefusal = { blockedBy: string; renumber?: true }
+
+/** A move's one PATCH and its optimistic twin, or its refusal. */
+export type AppliedMove = { ops: JsonPatchOp[]; next: Project } | MoveRefusal
 
 /** Board order: act, then index (Board's frames). Drives ‹ › and "of N". */
 export function boardOrder(scenes: readonly Scene[]): Scene[] {
@@ -82,7 +85,8 @@ export function boardOrder(scenes: readonly Scene[]): Scene[] {
  * applier has no `move` op (see `JsonPatchOp`), and the scenes array order
  * never changes — plus its optimistic twin. A move that would change a locked
  * scene (or any scene in a locked episode) is refused with `{ blockedBy }`:
- * the moved scene itself, else the first locked scene in the new board order.
+ * the moved scene itself, else the first locked scene the move passes, else
+ * (`renumber`) the first locked scene only the renumbering would change.
  *
  * null when nothing would move (unknown scene or target, a drop beside
  * itself, the scene's own act, a step off the first / last act).
@@ -106,6 +110,7 @@ export function applySceneMove(
     act = rest[t].act
     to = t + (move.after ? 1 : 0)
   } else if (move.type === 'act') {
+    if (move.act === scene.act) return null
     act = move.act
     const edge = rest.findIndex((s) =>
       act > scene.act ? s.act >= act : s.act > act,
@@ -133,8 +138,10 @@ export function applySceneMove(
   })
   const locked = (s: Scene) => episode.locked || s.locked
   if (locked(scene)) return { blockedBy: scene.id }
-  const blocker = placed.find((s) => changes.has(s.id) && locked(s))
-  if (blocker) return { blockedBy: blocker.id }
+  const blockers = placed.filter((s) => changes.has(s.id) && locked(s))
+  const passed = blockers.find((s) => placed.indexOf(s) !== order.indexOf(s))
+  if (passed) return { blockedBy: passed.id }
+  if (blockers[0]) return { blockedBy: blockers[0].id, renumber: true }
 
   const ops: JsonPatchOp[] = episode.scenes.flatMap((s, sceneIdx) =>
     Object.entries(changes.get(s.id) ?? {}).map(([field, value]) => ({

@@ -219,6 +219,8 @@ export function BoardCard({
       role="button"
       aria-pressed={selected}
       aria-label={cardLabel(signals, locked, unsaved, shownTape)}
+      // ⌥←/⌥→ move it (Board's keys): the only keyboard reorder in an act.
+      aria-keyshortcuts={draggable ? 'Alt+ArrowLeft Alt+ArrowRight' : undefined}
       title={`${number}. ${scene.location}\n${scene.whatHappens}`}
       data-scene-card
       data-scene-id={scene.id}
@@ -257,7 +259,9 @@ export function BoardCard({
         <span
           aria-hidden="true"
           data-tape
-          className={`absolute -top-2.5 left-2 z-[2] line-clamp-2 max-w-[134px] rounded-[3px] px-1.5 text-11 font-semibold leading-4 text-tr-surface-raised shadow-raised ${TONE_BG[shownTape.tone]}`}
+          // Only the drop tape wraps (its reason must read whole); a second
+          // line on any other tape would cover the number and place row.
+          className={`absolute -top-2.5 left-2 z-[2] ${dropTarget ? 'line-clamp-2' : 'truncate'} max-w-[134px] rounded-[3px] px-1.5 text-11 font-semibold leading-4 text-tr-surface-raised shadow-raised ${TONE_BG[shownTape.tone]}`}
         >
           {shownTape.text}
         </span>

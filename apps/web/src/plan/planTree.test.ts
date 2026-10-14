@@ -257,6 +257,7 @@ describe('applySceneMove (insert model: index = board position)', () => {
     // The end of act 2 is where scene-5 already is.
     expect(applied(p, act('scene-5', 2)).ops).toEqual([rep(4, 'act', 2)])
     expect(applySceneMove(p, act('scene-3', 1))).toBeNull()
+    expect(applySceneMove(p, act('scene-2', 1))).toBeNull()
     expect(applySceneMove(p, act('scene-nope', 0))).toBeNull()
   })
 
@@ -353,6 +354,30 @@ describe('applySceneMove refuses moves that shift a locked scene (rule 2)', () =
     expect(
       applySceneMove(p, { type: 'act', sceneId: 'scene-2', act: 3 }),
     ).toEqual({ blockedBy: 'scene-4' })
+  })
+
+  it('a locked scene left in place but out of board order refuses with renumber', () => {
+    // Phase 3's act-only change: scene-2 to act 3 kept index 1. Board:
+    // s1 0/0 · s3 1/2 · s4 2/3 · s2 3/1 · s5 3/4 · s6 4/5 (position/index).
+    const p = project(
+      locked('scene-3').map((s) => (s.id === 'scene-2' ? { ...s, act: 3 } : s)),
+    )
+    const renumber = { blockedBy: 'scene-3', renumber: true }
+    expect(
+      applySceneMove(p, { type: 'step', sceneId: 'scene-5', dir: 1 }),
+    ).toEqual(renumber)
+    expect(
+      applySceneMove(p, { type: 'step', sceneId: 'scene-6', dir: -1 }),
+    ).toEqual(renumber)
+    // A move that does pass it still says so.
+    expect(
+      applySceneMove(p, {
+        type: 'insert',
+        sceneId: 'scene-1',
+        targetSceneId: 'scene-3',
+        after: true,
+      }),
+    ).toEqual({ blockedBy: 'scene-3' })
   })
 
   it('refuses moving a locked scene, and any move in a locked episode', () => {

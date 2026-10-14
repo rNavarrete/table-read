@@ -546,7 +546,7 @@ test('a move past a locked scene is refused on the target and sends nothing (T3.
   await expect(scene5).toHaveAttribute('draggable', 'true')
   expect(patches).toBe(1)
 
-  // Past scene-6 is refused: the toast says why (plan-live has the same words).
+  // Past scene-6 is refused: the toast (an alert) says why.
   await page.keyboard.press('Alt+ArrowRight')
   await expect(page.getByTestId('toast')).toContainText(
     "Can't move past scene 6: it's locked",

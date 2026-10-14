@@ -600,14 +600,33 @@ describe('BoardCard', () => {
     expect(onDrop).toHaveBeenCalledWith(false)
   })
 
-  it('a two-line tape', () => {
-    const card = renderCard({
+  it('a drop tape may wrap to two lines; any other tape stays one line', () => {
+    const drop = renderCard({
+      dropTarget: true,
       tape: { text: "Can't move past scene 3: it's locked", tone: 'amber' },
     })
-    const tape = card.querySelector('[data-tape]')
+    const tape = drop.querySelector('[data-tape]')
     expect(tape?.className).toContain('line-clamp-2')
     expect(tape?.className).toContain('max-w-[134px]')
     expect(tape?.className).not.toContain('truncate')
+    cleanup()
+
+    // A second line would cover the card's number and place.
+    const highlight = renderCard({
+      tape: { text: 'INCITING INCIDENT', tone: 'accent' },
+    }).querySelector('[data-tape]')
+    expect(highlight?.className).toContain('truncate')
+    expect(highlight?.className).not.toContain('line-clamp-2')
+  })
+
+  it('a card that can move names its ⌥←/⌥→ keys; a locked one does not', () => {
+    expect(renderCard().getAttribute('aria-keyshortcuts')).toBe(
+      'Alt+ArrowLeft Alt+ArrowRight',
+    )
+    cleanup()
+    expect(
+      renderCard({ locked: true }).getAttribute('aria-keyshortcuts'),
+    ).toBeNull()
   })
 
   it('click selects, double-click opens Write', () => {

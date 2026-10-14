@@ -1251,19 +1251,22 @@ describe('predictMove', () => {
     ).toEqual({ blockedBy: 'scene-2' })
   })
 
-  it('lockedMoveText names the scene in the way, or the scene itself', () => {
+  it('lockedMoveText names the scene in the way, the scene itself, or the one it would renumber', () => {
     const ep = episode([
       scene('scene-1', 0),
       scene('scene-2', 1),
       scene('scene-3', 2, { locked: true }),
     ])
     const m = boardModel(project(ep), ep, [])
-    expect(lockedMoveText(m, 'scene-1', 'scene-3')).toBe(
+    expect(lockedMoveText(m, 'scene-1', { blockedBy: 'scene-3' })).toBe(
       "Can't move past scene 3: it's locked",
     )
-    expect(lockedMoveText(m, 'scene-3', 'scene-3')).toBe(
+    expect(lockedMoveText(m, 'scene-3', { blockedBy: 'scene-3' })).toBe(
       "Can't move scene 3: it's locked",
     )
+    expect(
+      lockedMoveText(m, 'scene-1', { blockedBy: 'scene-3', renumber: true }),
+    ).toBe("Can't renumber scene 3: it's locked")
   })
 })
 
