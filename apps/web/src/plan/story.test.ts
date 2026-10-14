@@ -28,6 +28,7 @@ import {
   importNoteText,
   landmarksForScene,
   linkifyNote,
+  lockedMoveText,
   matchesHighlight,
   newOrderIssues,
   nextMatchId,
@@ -1155,55 +1156,114 @@ describe('orderIssues', () => {
 })
 
 describe('predictMove', () => {
-  it('predictMove equals the new problems of the saved result', () => {
-    // setup scene-2 (act 1) → payoff scene-5 (act 3): moving scene-5 to the
-    // cold open, or swapping it with scene-1, plays the payoff first.
+  it('predictMove equals the new problems of the saved insert', () => {
+    // setup scene-2 (act 1) → payoff scene-5 (act 3).
     const p = project(
       episode(
         [
           scene('scene-1', 0, { act: 0 }),
           scene('scene-2', 1, { act: 1 }),
+          scene('scene-3', 2, { act: 1 }),
+          scene('scene-4', 3, { act: 2 }),
           scene('scene-5', 4, { act: 3 }),
+          scene('scene-6', 5, { act: 4 }),
         ],
         { threads: [thread('thread-1', 'scene-2', 'scene-5')] },
       ),
     )
     const moves: SceneMove[] = [
+      {
+        type: 'insert',
+        sceneId: 'scene-5',
+        targetSceneId: 'scene-2',
+        after: false,
+      },
+      {
+        type: 'insert',
+        sceneId: 'scene-2',
+        targetSceneId: 'scene-5',
+        after: true,
+      },
       { type: 'act', sceneId: 'scene-5', act: 0 },
-      { type: 'swap', sceneId: 'scene-5', targetSceneId: 'scene-1' },
+      { type: 'step', sceneId: 'scene-2', dir: 1 },
     ]
     for (const move of moves) {
-      const saved = applySceneMove(p, move)!.next.seasons[0].episodes[0]
-      const expected = newOrderIssues(
-        orderIssues(p.seasons[0].episodes[0]),
-        orderIssues(saved),
-      )
-      expect(expected).toHaveLength(1)
-      expect(predictMove(p, move)).toEqual(expected)
+      const applied = applySceneMove(p, move)
+      if (!applied || !('next' in applied)) throw new Error('expected a move')
+      expect(predictMove(p, move)).toEqual({
+        issues: newOrderIssues(
+          orderIssues(p.seasons[0].episodes[0]),
+          orderIssues(applied.next.seasons[0].episodes[0]),
+        ),
+      })
     }
+    expect(predictMove(p, moves[0])).toMatchObject({
+      issues: [{ kind: 'payoff_first', sceneId: 'scene-5' }],
+    })
   })
 
-  it('a move that keeps an existing problem predicts nothing new; nothing to move predicts []', () => {
+  it('predictMove is null when nothing would move and blockedBy when a locked scene is in the way', () => {
     // payoff scene-2 (act 1) already plays before its setup scene-5 (act 3).
-    const p = project(
-      episode(
-        [
-          scene('scene-1', 0, { act: 0 }),
-          scene('scene-2', 1, { act: 1 }),
-          scene('scene-5', 4, { act: 3 }),
-        ],
-        { threads: [thread('thread-1', 'scene-5', 'scene-2')] },
-      ),
-    )
+    const scenes = [
+      scene('scene-1', 0, { act: 0 }),
+      scene('scene-2', 1, { act: 1 }),
+      scene('scene-5', 4, { act: 3 }),
+    ]
+    const threads = [thread('thread-1', 'scene-5', 'scene-2')]
+    const p = project(episode(scenes, { threads }))
     expect(orderIssues(p.seasons[0].episodes[0])).toHaveLength(1)
-    const moves: SceneMove[] = [
-      { type: 'swap', sceneId: 'scene-2', targetSceneId: 'scene-1' },
+    // Keeping an existing problem adds nothing new.
+    const keeps: SceneMove[] = [
+      {
+        type: 'insert',
+        sceneId: 'scene-2',
+        targetSceneId: 'scene-1',
+        after: false,
+      },
       { type: 'act', sceneId: 'scene-1', act: 2 },
+    ]
+    for (const move of keeps)
+      expect(predictMove(p, move)).toEqual({ issues: [] })
+    const nothing: SceneMove[] = [
       { type: 'act', sceneId: 'scene-2', act: 1 },
       { type: 'act', sceneId: 'scene-99', act: 0 },
-      { type: 'swap', sceneId: 'scene-2', targetSceneId: 'scene-2' },
+      {
+        type: 'insert',
+        sceneId: 'scene-2',
+        targetSceneId: 'scene-2',
+        after: false,
+      },
     ]
-    for (const move of moves) expect(predictMove(p, move)).toEqual([])
+    for (const move of nothing) expect(predictMove(p, move)).toBeNull()
+    const locked = project(
+      episode(
+        scenes.map((s) => (s.id === 'scene-2' ? { ...s, locked: true } : s)),
+        { threads },
+      ),
+    )
+    expect(
+      predictMove(locked, {
+        type: 'insert',
+        sceneId: 'scene-1',
+        targetSceneId: 'scene-5',
+        after: true,
+      }),
+    ).toEqual({ blockedBy: 'scene-2' })
+  })
+
+  it('lockedMoveText names the scene in the way, or the scene itself', () => {
+    const ep = episode([
+      scene('scene-1', 0),
+      scene('scene-2', 1),
+      scene('scene-3', 2, { locked: true }),
+    ])
+    const m = boardModel(project(ep), ep, [])
+    expect(lockedMoveText(m, 'scene-1', 'scene-3')).toBe(
+      "Can't move past scene 3: it's locked",
+    )
+    expect(lockedMoveText(m, 'scene-3', 'scene-3')).toBe(
+      "Can't move scene 3: it's locked",
+    )
   })
 })
 
@@ -1662,7 +1722,7 @@ describe('order problems in tapes, highlights and announcements', () => {
   })
 
   it('predictionTape', () => {
-    // Moving scene-2 (act 2) into act 1 would put its payoff before scene-4.
+    // Inserting scene-2 (act 2) before scene-4 would put its payoff first.
     const p = project(
       episode(
         [
@@ -1677,7 +1737,13 @@ describe('order problems in tapes, highlights and announcements', () => {
       ),
     )
     const m = boardModel(p, p.seasons[0].episodes[0], [])
-    const issues = predictMove(p, { type: 'act', sceneId: 'scene-2', act: 1 })
+    const prediction = predictMove(p, {
+      type: 'insert',
+      sceneId: 'scene-2',
+      targetSceneId: 'scene-4',
+      after: false,
+    })
+    const issues = prediction && 'issues' in prediction ? prediction.issues : []
     expect(predictionTape(m, issues)).toEqual({
       text: '⚠ 2 would pay off before 4',
       tone: 'amber',

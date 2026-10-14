@@ -53,134 +53,114 @@ function findBeatIndex(scene: Scene, beatId: string): number {
   return scene.beats.findIndex((b) => b.id === beatId)
 }
 
-/**
- * Builds the two-or-three-op JSON Patch for dragging `draggedId`'s scene
- * card onto `targetId`'s (UI spec §4 "drag to reorder... within/between
- * acts"; brief obligation 3: "index swap semantics").
- *
- * **Ambiguity resolved (documented per the "report NEEDS_CONTEXT if
- * ambiguous" instruction, but resolved rather than blocked — a coherent
- * reading exists): §4 doesn't spell out act-reassignment semantics for a
- * cross-act drag, and the brief's own "PATCH index swap" phrasing rules out
- * a full list-shift insert (the applier has no `move` op — see
- * `JsonPatchOp`'s doc comment — so any reorder must be expressed as
- * `replace`s on existing fields, never an array splice).**
- *
- * The rule this function implements: the **dragged** scene adopts the
- * **target**'s `act` (if different) and the two scenes swap `index` values.
- * The target's `act` never changes. Worked example (fixture): dragging
- * scene-4 (act 2, index 3) onto scene-3 (act 1, index 2) yields scene-4 →
- * {act 1, index 2}, scene-3 → {act 1, index 3} — scene-4 now renders inside
- * Act One's frame, immediately before scene-3 (Act One's other member,
- * scene-2, is index 1) — exactly the visually-observable "reorder scene-4
- * before scene-3" the acceptance criterion describes. This is symmetric
- * (dragging A onto B or B onto A both produce a valid swap) and always a
- * valid permutation of the project's index set (exchanging two of N unique
- * values never creates a duplicate or a gap), so it needs no renumbering of
- * any other scene.
- *
- * Returns `null` if either scene is missing, or dragging onto itself.
- */
-export function buildSceneSwapPatch(
-  project: Project,
-  draggedId: string,
-  targetId: string,
-): JsonPatchOp[] | null {
-  if (draggedId === targetId) return null
-  const dragged = findScene(project, draggedId)
-  const target = findScene(project, targetId)
-  const draggedPtr = findScenePointer(project, draggedId)
-  const targetPtr = findScenePointer(project, targetId)
-  if (!dragged || !target || !draggedPtr || !targetPtr) return null
-
-  const ops: JsonPatchOp[] = [
-    {
-      op: 'replace',
-      path: scenePointerPath(draggedPtr, 'index'),
-      value: target.index,
-    },
-    {
-      op: 'replace',
-      path: scenePointerPath(targetPtr, 'index'),
-      value: dragged.index,
-    },
-  ]
-  if (dragged.act !== target.act) {
-    ops.push({
-      op: 'replace',
-      path: scenePointerPath(draggedPtr, 'act'),
-      value: target.act,
-    })
-  }
-  return ops
-}
-
-/**
- * The optimistic, client-side twin of `buildSceneSwapPatch`: applies the
- * exact same transform to `project` in memory, immediately, before the PATCH
- * round-trips. Kept as a separate pure function (not derived from the ops
- * list) so the optimistic UI update never depends on interpreting JSON
- * Pointers — it's the same rule, expressed structurally.
- */
-export function swapScenesLocally(
-  project: Project,
-  draggedId: string,
-  targetId: string,
-): Project {
-  const dragged = findScene(project, draggedId)
-  const target = findScene(project, targetId)
-  if (!dragged || !target || draggedId === targetId) return project
-
-  const draggedIndex = dragged.index
-  const targetIndex = target.index
-  const targetAct = target.act
-
-  return {
-    ...project,
-    seasons: project.seasons.map((season) => ({
-      ...season,
-      episodes: season.episodes.map((episode) => ({
-        ...episode,
-        scenes: episode.scenes.map((scene) => {
-          if (scene.id === draggedId) {
-            return { ...scene, index: targetIndex, act: targetAct }
-          }
-          if (scene.id === targetId) {
-            return { ...scene, index: draggedIndex }
-          }
-          return scene
-        }),
-      })),
-    })),
-  }
-}
-
 export type SceneMove =
-  | { type: 'swap'; sceneId: string; targetSceneId: string }
+  /** A drop on a card: before it (left half) or after it (right half); the
+   * scene takes the target's act. */
+  | { type: 'insert'; sceneId: string; targetSceneId: string; after: boolean }
+  /** The Act select or a drop on an empty act: the chosen act's nearest
+   * edge — the start of a later act, the end of an earlier one. */
   | { type: 'act'; sceneId: string; act: number }
+  /** ⌥← / ⌥→: one slot in board order; at an act's edge, into the
+   * previous / next board act in place (empty acts too). */
+  | { type: 'step'; sceneId: string; dir: 1 | -1 }
 
-/** One board move as its single PATCH and the PATCH's optimistic twin
- * (rule 4): a swap is buildSceneSwapPatch + swapScenesLocally; an act change
- * is the Act select's one `replace …/act` + withSceneField. null when there is
- * nothing to move (unknown scene, a swap with itself, the scene's own act). */
+/** A move's one PATCH and its optimistic twin, or the locked scene that
+ * refuses it (owner decision #2: nothing may shift a locked scene). */
+export type AppliedMove =
+  { ops: JsonPatchOp[]; next: Project } | { blockedBy: string }
+
+/** Board order: act, then index (Board's frames). Drives ‹ › and "of N". */
+export function boardOrder(scenes: readonly Scene[]): Scene[] {
+  return [...scenes].sort((a, b) => a.act - b.act || a.index - b.index)
+}
+
+/**
+ * Every board move (drop, Act select, ⌥←/⌥→) as one insert into board order
+ * (owner decision #2: insert where dropped). The new order is renumbered so
+ * `index` = board position (0…N-1), and the result is one PATCH of `replace`
+ * ops on `…/index` and `…/act` for exactly the scenes that changed — the
+ * applier has no `move` op (see `JsonPatchOp`), and the scenes array order
+ * never changes — plus its optimistic twin. A move that would change a locked
+ * scene (or any scene in a locked episode) is refused with `{ blockedBy }`:
+ * the moved scene itself, else the first locked scene in the new board order.
+ *
+ * null when nothing would move (unknown scene or target, a drop beside
+ * itself, the scene's own act, a step off the first / last act).
+ */
 export function applySceneMove(
   project: Project,
   move: SceneMove,
-): { ops: JsonPatchOp[]; next: Project } | null {
-  if (move.type === 'swap') {
-    const ops = buildSceneSwapPatch(project, move.sceneId, move.targetSceneId)
-    return ops
-      ? {
-          ops,
-          next: swapScenesLocally(project, move.sceneId, move.targetSceneId),
-        }
-      : null
+): AppliedMove | null {
+  const ptr = findScenePointer(project, move.sceneId)
+  if (!ptr) return null
+  const episode = project.seasons[ptr.seasonIdx].episodes[ptr.episodeIdx]
+  const order = boardOrder(episode.scenes)
+  const at = order.findIndex((s) => s.id === move.sceneId)
+  const scene = order[at]
+  const rest = order.filter((s) => s !== scene)
+  let act = scene.act
+  let to = at // the scene's slot in `rest`
+  if (move.type === 'insert') {
+    const t = rest.findIndex((s) => s.id === move.targetSceneId)
+    if (t < 0) return null
+    act = rest[t].act
+    to = t + (move.after ? 1 : 0)
+  } else if (move.type === 'act') {
+    act = move.act
+    const edge = rest.findIndex((s) =>
+      act > scene.act ? s.act >= act : s.act > act,
+    )
+    to = edge < 0 ? rest.length : edge
+  } else if (order[at + move.dir]?.act === scene.act) {
+    to = at + move.dir // pass one neighbour
+  } else {
+    const acts = actNumbersForBoard(project.format, episode.scenes)
+    const next = acts[acts.indexOf(scene.act) + move.dir]
+    if (next === undefined) return null
+    act = next // cross the act break in place
   }
-  if (findScene(project, move.sceneId)?.act === move.act) return null
-  const ops = buildScenePatch(project, move.sceneId, 'act', move.act)
-  return ops
-    ? { ops, next: withSceneField(project, move.sceneId, 'act', move.act) }
-    : null
+  // Same slot, same act: nothing moves, so no renumber-only PATCH either.
+  if (to === at && act === scene.act) return null
+
+  // index = board position, so card numbers follow the board.
+  const placed = [...rest.slice(0, to), scene, ...rest.slice(to)]
+  const changes = new Map<string, Partial<Pick<Scene, 'index' | 'act'>>>()
+  placed.forEach((s, index) => {
+    const fields: Partial<Pick<Scene, 'index' | 'act'>> = {}
+    if (s.index !== index) fields.index = index
+    if (s === scene && act !== scene.act) fields.act = act
+    if (Object.keys(fields).length > 0) changes.set(s.id, fields)
+  })
+  const locked = (s: Scene) => episode.locked || s.locked
+  if (locked(scene)) return { blockedBy: scene.id }
+  const blocker = placed.find((s) => changes.has(s.id) && locked(s))
+  if (blocker) return { blockedBy: blocker.id }
+
+  const ops: JsonPatchOp[] = episode.scenes.flatMap((s, sceneIdx) =>
+    Object.entries(changes.get(s.id) ?? {}).map(([field, value]) => ({
+      op: 'replace' as const,
+      path: scenePointerPath({ ...ptr, sceneIdx }, field),
+      value,
+    })),
+  )
+  const next: Project = {
+    ...project,
+    seasons: project.seasons.map((season) => ({
+      ...season,
+      episodes: season.episodes.map((ep) =>
+        ep !== episode
+          ? ep
+          : {
+              ...ep,
+              scenes: ep.scenes.map((s) => {
+                const c = changes.get(s.id)
+                return c ? { ...s, ...c } : s
+              }),
+            },
+      ),
+    })),
+  }
+  return { ops, next }
 }
 
 /** Optimistic twin of `buildScenePatch`: sets one field on `sceneId`
