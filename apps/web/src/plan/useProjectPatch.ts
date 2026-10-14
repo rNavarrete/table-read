@@ -32,6 +32,7 @@ export interface PatchErrorState {
  *
  * Optional `onConsistencyFlags` receives any new flags a structural PATCH
  * returned (T4.4a amber badges). Silent (non-structural) edits pass `[]`.
+ * Optional per-call `onSaved` gets the server's project after a success only.
  */
 export function useProjectPatch(
   projectId: string,
@@ -44,7 +45,11 @@ export function useProjectPatch(
   const inFlightRef = useRef(false)
 
   const patch = useCallback(
-    async (ops: JsonPatchOp[], optimisticNext: Project): Promise<boolean> => {
+    async (
+      ops: JsonPatchOp[],
+      optimisticNext: Project,
+      onSaved?: (saved: Project) => void,
+    ): Promise<boolean> => {
       if (!project) return false
       if (inFlightRef.current) return false // concurrent-mutation guard
       inFlightRef.current = true
@@ -64,6 +69,7 @@ export function useProjectPatch(
           { expectedHeadSnapshotId: before.headSnapshotId },
         )
         setProject(next)
+        onSaved?.(next)
         onConsistencyFlags?.(consistencyFlags)
         setPending(false)
         return true
