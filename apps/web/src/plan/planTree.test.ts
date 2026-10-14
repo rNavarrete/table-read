@@ -315,7 +315,7 @@ describe('withSceneField / withBeatField (optimistic twins of the lock/save patc
       withSceneField(p, 'scene-1', 'act', '2')
       // @ts-expect-error A lock patch cannot carry a string.
       buildScenePatch(p, 'scene-1', 'locked', 'true')
-      // @ts-expect-error Inspector callbacks preserve the selected field's type.
+      // @ts-expect-error Panel callbacks preserve the selected field's type.
       saveSceneField('scene-1', 'act', '2')
     }
     void assertInvalidCallsFailToTypecheck
