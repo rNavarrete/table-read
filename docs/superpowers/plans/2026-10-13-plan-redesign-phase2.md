@@ -31,7 +31,7 @@
 1. **Locks on the board** — a locked card (scene or episode) never drags and never takes a swap; an empty act takes a drop only from a draggable card and sends exactly one `…/act` replace; nothing drags while `pending`. *Pinned by:* Task 4 (`Board.test` "a locked card neither drags nor takes a drop", "an empty act takes a drop as one act change"; `PlanScreen.test` "an empty-act drop sends one act PATCH and nothing else"), Task 5 e2e.
 2. **One tab stop, always** — exactly one card has `tabIndex=0` (the selected card if rendered, else the last focused, else the first) after collapse, fold and Esc; arrows/Home/End select and focus; Enter on the selected card reaches the panel heading; Esc in the panel returns to the card; document keys ignore text fields, selects, dialogs and modifier chords. *Pinned by:* Task 4 ("exactly one card is a tab stop"), Task 5 (ScenePanel "Esc in the panel goes back to the card"), Task 10 ("roving order skips folded scenes"), Task 11 (`usePlanKeys.test` "ignores fields, dialogs and modifier chords").
 3. **Highlights never dim and never call AI** — every count is "scenes that match"; None shows no ring, tape or quiet card; quiet cards carry no `opacity-*` class; choosing a highlight, Fold, N, J/K and Esc make no request. *Pinned by:* Task 7 (`highlightCount`), Task 10 ("non-matches go quiet at full opacity"), Task 11 (`PlanScreen.test` "highlights, fold and keys make no request").
-4. **Missing story data** — a raw PATCH doc or an idea-born project (no threads, secrets, storyOverview, scriptText, cast) renders: no share bar, no thread counts, no landmark chips, highlights read 0 and do nothing, each Episode view section shows one quiet line. *Pinned by:* Task 1 ("missing story data"), Task 3 ("no share bar without script, no counts without threads"), Task 7 ("missing data counts 0"), Task 9 ("an idea-born episode shows one quiet line per section").
+4. **Missing story data** — a raw PATCH doc or an idea-born project (no threads, secrets, storyOverview, scriptText, cast) renders: no share bar, no thread counts, no landmark chips, highlights read 0 and do nothing, each Episode view section shows one quiet line. *Pinned by:* Task 1 ("missing story data"), Task 3 ("no share bar without script, no counts without threads"), Task 7 ("missing data counts 0"), Task 8 ("a highlight with no matches does nothing"), Task 9 ("an idea-born episode shows one quiet line per section").
 5. **Story Layers leaves cleanly** — no `story-layers-panel`, no `w-panel-story-layers`/`w-card-scene` class anywhere, both tokens gone from every home, the act chevron replaces the eye toggle, recipes and `plan`, `plan-notes`, `review`, `newproject-resume` e2e pass. *Pinned by:* Task 11 (`tokens.test`, `TokensPage.test`, `PlanScreen.test` layout test, e2e run).
 
 ---
@@ -129,18 +129,18 @@ Untouched: `planTree.ts`, `useProjectPatch.ts`, `Card.tsx` (Ledger uses it), `Ch
 | PR | Branch | Tasks |
 |---|---|---|
 | **T3.5 Index cards and act headers** | `feat/plan-board` (this worktree, cut from `main`) | 1–6 |
-| **T3.6 Highlights, Episode view, Story Layers retirement** | `feat/plan-highlights`, cut from `feat/plan-board` after Task 1's commit | 7–12 |
+| **T3.6 Highlights, Episode view, Story Layers retirement** | `feat/plan-highlights`, cut from `feat/plan-board` after Task 1's commit, rebased as below | 7–12 |
 
 ```
 T3.5:  1 ─┬─► 2 ─┐
           ├─► 3 ─┴─► 4 ─► 5 ─► 6
 T3.6:     ├─► 7 ─┬─► 8 ────────────────┐
-          │      ├─► 9 (needs 3) ──────┼─► 11 (needs 5) ─► 12 (needs 6)
+          │      ├─► 9 (needs 3) ──────┼─► 11 (needs 5, 6) ─► 12
           │      └─► 10 (needs 4) ─────┘
 ```
 
 - After Task 1, Tasks 2, 3 and 7 run in parallel (disjoint files). Tasks 8 and 9 run in parallel with 4 and 5. Task 10 runs in parallel with 5 and 6.
-- `feat/plan-highlights` touches no T3.5 file until Task 10. Rebase it onto `feat/plan-board` (or onto `main` once T3.5 merges) before Task 10 starts.
+- Rebase `feat/plan-highlights` onto `feat/plan-board` (or `main` once T3.5 merges) before Task 9 (imports Task 3's `ShareBar`), before Task 10 (edits Task 4's files) and before Task 11 (needs Task 5's `announce`/`plan-live`, Esc handler and `plan.spec.ts` additions, and Task 6's docs for Task 12). A rebase that already holds those commits is a no-op.
 - Shared files, in order: `story.ts` (1, then 7); `BoardCard.tsx` (2, then 10); `Board.tsx` (4, then 10); `PlanScreen.tsx` (4, 5, then 11); `e2e/plan.spec.ts` (5, then 11); docs (6, then 12).
 
 ---
@@ -174,9 +174,9 @@ export interface SceneSignals {
   importNotes: PlanNote[]
   /** One per beat in index order, at most 12; a story note wins over an import note. */
   ticks: BeatTick[]
-  /** Set up here and paid off in another scene, or never. */
+  /** Set up here and paid off in another scene, or never. Abandoned threads never count (here or anywhere below). */
   setsUp: StoryThread[]
-  /** Paid off here, set up in another scene. */
+  /** Paid off here, set up in another scene of this episode (a missing setup scene doesn't count). */
   paysOff: StoryThread[]
   /** One of setsUp has no payoff scene in this episode. */
   neverPaidOff: boolean
@@ -205,7 +205,7 @@ export interface ActSummary {
   share: number | null
   /** Threads whose setup scene is in this act. */
   setUp: number
-  /** Threads paid off in this act and set up in another scene. */
+  /** Threads paid off in this act and set up in another scene of this episode. */
   paidOff: number
   landmarks: ActLandmark[] // marked only; short = label without "Act One "
   actOutSceneId: string | null
@@ -239,7 +239,7 @@ export function selectionAnnouncement(signals: SceneSignals, locked: boolean): s
 - `describe('boardModel')`
   - "orders scenes like the board and numbers them by index" — `order` ids by (act, index); `signals.get('scene-3').number === 3`; `place` is `placeTitle`.
   - "splits a scene's notes by kind and marks one tick per beat, story over import, at most 12" — a beat with both kinds reads `'story'`; 14 beats → 12 ticks; a flag on a missing beat adds nothing.
-  - "counts setups and payoffs across scenes, not a thread set up and paid off in one scene, and flags a setup never paid off" — thread A→B: A.setsUp 1, B.paysOff 1; A→A: neither; A→null and A→`scene-99`: `neverPaidOff`.
+  - "counts setups and payoffs across scenes, not a thread set up and paid off in one scene, and flags a setup never paid off" — thread A→B: A.setsUp 1, B.paysOff 1; A→A: neither; A→null and A→`scene-99`: `neverPaidOff`; `scene-99`→B: B.paysOff 0 and act `paidOff` 0; an `abandoned` A→null: no setsUp, no `neverPaidOff`.
   - "reads the secret role (set, kept, out) and null elsewhere".
   - "places only the beat-sheet landmarks tvActStages marks, by scene id or by beat; cardTag reads TURN for a turn and ACT OUT for an act's last scene" — a row labelled "Act One Turn" with `sceneId: null` and a beat of scene-2 lands on scene-2; an unlabelled or "Midpoint" row is ignored; the last scene of each non-empty act has `actOut`.
   - "summarises every board act, empty ones included" — fixture-like format (cold open + 4 acts) with acts 0–3 used: 5 summaries, act 4 `scenes: []`, `share 0` when the episode has script, `actOutSceneId null`; shares sum to 1; `setUp`/`paidOff` per the thread rule above; `landmarks[0]` `{ label: 'Act One Turn', short: 'Turn', number }`; an act-split note on a scene in act 2 appears in act 2's `actSplitNotes` as its first sentence, with no raw `fact-…` id.
@@ -273,6 +273,7 @@ function markedLandmarks(project: Project, episode: Episode): { label: string; s
 ```
 
 - `short`: `label.replace(/^Act \w+ /, '')` ("Turn", "Out"; "Cold Open", "Climax", "Tag" unchanged). `cardTag`: `/ Turn$/.test(landmark ?? '') ? 'TURN' : actOut ? 'ACT OUT' : null`.
+- Threads: `live = (episode.threads ?? []).filter((t) => t.status !== 'abandoned')`; a payoff counts only when `setupSceneId` is a scene in the episode. Tasks 7 and 9 reuse this rule.
 - `secret`: `secretsForScene(episode, id, new Set())[0]?.role ?? null`.
 - `castIds`: `const cued = new Set(castFromDialogue(scene, characters).map((c) => c.id))`, then `characters.filter((c) => cued.has(c.id) || wants.has(c.id)).map((c) => c.id)`.
 - `noteSentence` for story notes: `linkifyNote(text, scenes, []).map((s) => s.text).join('')`, then the first sentence. Mark the sentence split as a heuristic: `// ponytail: first sentence = up to the first . ! or ? followed by a space or the end; abbreviations ("Mr.") cut early. Fine for a one-line summary; the full text is one click away.`
@@ -333,7 +334,7 @@ export function BoardCard(props: BoardCardProps): JSX.Element
 - "a locked card shows the lock glyph, says data-locked=true and does not drag; a pending card does not drag" — `draggable="false"`; `fireEvent.dragStart` → `onDragStart` not called and the event is `defaultPrevented`.
 - "the coral unsaved dot only when unsaved" (`unsaved-dot`).
 - "at most one tape, hidden from assistive tech, its text in the accessible name".
-- "selected: aria-pressed, coral-soft fill and an inset coral ring; related: a dashed sky outline; the focus ring is a separate 2px sky outline offset 4px" — class assertions: `bg-tr-coral-soft`, `inset-ring-2 inset-ring-tr-coral`; `outline-dashed outline-tr-sky`; `focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-tr-sky`.
+- "selected: aria-pressed, coral-soft fill and an inset coral ring; related: a dashed sky outline; the focus ring is a separate 2px sky outline offset 4px" — class assertions: `bg-tr-coral-soft`, `inset-ring-2 inset-ring-tr-coral`; `outline-dashed outline-tr-sky`; `focus-visible:outline focus-visible:outline-selected focus-visible:outline-offset-4 focus-visible:outline-tr-sky` (PanelHeader's `FOCUS` pattern with offset 4; never `outline-none`, which in Tailwind 4 hides `outline-2`/`outline-selected` too).
 - "its accessible name reads number, place, lock, notes, threads, secret, tag, draft and tape" — e.g. `'Scene 3, The Long Pour - Bar, locked, 2 notes, 1 from the import, sets up 1, pays off 1, secret kept, act out, unsaved draft'`.
 - "click selects, double-click opens Write; a locked card refuses a drop (no preventDefault on dragover)".
 
@@ -465,7 +466,7 @@ export function gridNeighbor(
 ```
 
 - `PlanScreen` (inside the component): `const model = useMemo(…, [project, openFlags])` computed before the early returns from `project?.seasons[0]?.episodes[0]`; `const acts = useCollapsedActs(activeProjectId)` replaces `collapsedActs` state; `moveToAct(sceneId, act) = void saveSceneField(sceneId, 'act', act)`; `focusPanelHeading() = document.querySelector<HTMLElement>('[data-testid="inspector"] h2')?.focus()`; `selectScene` also calls `acts.expand(scene.act)` when that act is collapsed. Story Layers keeps working off the same `acts.collapsed` / `acts.toggle` until Task 11.
-- `PanelHeader`: the title `<h2>` gets `tabIndex={-1}` and `outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-tr-sky`.
+- `PanelHeader`: the title `<h2>` gets `tabIndex={-1}` and the file's existing `FOCUS` classes (no `outline-none`: in Tailwind 4 it sets `--tw-outline-style: none` and the ring never shows).
 
 **Tests:**
 - `Board.test.tsx` (keep the builders; render with `model={boardModel(project(ep), ep, flags)}`):
@@ -635,7 +636,7 @@ test('the board is one tab stop: arrows select, Enter reaches the panel, Esc com
 
 **Implementation notes:**
 - `ScenePanel` aside: `onKeyDown={(event) => { if (event.key !== 'Escape' || (event.target as HTMLElement).closest('input, textarea, select')) return; document.querySelector<HTMLElement>(`[data-testid="scene-card-${scene.id}"]`)?.focus() }}`.
-- `announce` just sets state; the same message twice in a row is not re-read (acceptable: it is the same scene).
+- `live` is a `useState` with the other hooks, above PlanScreen's early returns. `announce` just sets state; the same message twice in a row is not re-read (acceptable: it is the same scene).
 - Run the T3.5 e2e set: `plan.spec.ts plan-notes.spec.ts review.spec.ts recipes.spec.ts newproject-resume.spec.ts`. All must pass (the six Write-mode baseline failures are in other files).
 
 **Commands:** `(cd apps/web && npx vitest run src/plan)`, `npx tsc -b`, eslint + prettier on touched files, then the e2e block above.
@@ -711,7 +712,7 @@ export function nextMatchId(model: BoardModel, fromSceneId: string | null, dir: 
 - Extend "missing story data": every kind counts 0 on the raw doc; `castCounts` still lists characters with recorded wants.
 
 **Implementation notes:**
-- Scene numbers in tapes come from `model.signals.get(otherId)?.number`; a thread whose other scene is missing reads "never paid off" (setup) or is skipped (payoff), matching Task 1's counts.
+- Scene numbers in tapes come from `model.signals.get(otherId)?.number`. Threads follow Task 1's rule: abandoned threads never tape; a setup whose payoff scene is missing reads "never paid off"; a payoff whose setup scene is missing is skipped.
 - Who's in it tape: `name.toUpperCase()` plus ` · wants` when `wantIds.includes(who)`; the card truncates long names (its accessible name keeps the full tape).
 - Mark the who rule: `// ponytail: presence = a dialogue cue or a recorded want; a character who is in the scene but never speaks and wants nothing is missed. Labelled "from dialogue cues and recorded wants" wherever it shows.`
 
@@ -747,13 +748,15 @@ export function HighlightBar(props: HighlightBarProps): JSX.Element
 **Tests:**
 - "offers None, Setups & payoffs, The secret, Continuity, Act shape and Who's in it, with scene counts; the active one is pressed" — `getByRole('group', { name: 'Highlight' })`; each a button with `aria-pressed`; None has no count.
 - "a click picks a highlight; clicking the pressed one goes back to None".
-- "Who's in it starts on the most-present character; the select switches character" — click → `onHighlight({ kind: 'who', who: 'char-marta' })`; `selectOption('char-dan')` → `{ kind: 'who', who: 'char-dan' }`; the select is labelled "Character to highlight" with title "From dialogue cues and recorded wants".
+- "Who's in it starts on the most-present character; the select switches character" — on the fixture cast (Dan 5 scenes, Marta 4) click → `onHighlight({ kind: 'who', who: 'char-dan' })`; `selectOption('char-marta')` → `{ kind: 'who', who: 'char-marta' }`; the select is labelled "Character to highlight" with title "From dialogue cues and recorded wants".
 - "with no cast, Who's in it reads 0 and the select is disabled".
+- "a highlight with no matches does nothing" — a 0-count button is `disabled` and clicking it never calls `onHighlight`; None never is.
 - "Fold the rest is a pressed toggle; Next note becomes Next match under a highlight and calls onNext" — `aria-keyshortcuts="N"` / `"Shift+N"` documented in its title.
 
 **Implementation notes:**
 - Mockup `.seg`: `role="group" aria-label="Highlight"`, `flex flex-wrap items-center gap-0.5 rounded-control bg-tr-surface-sunken p-0.5`; pressed button `bg-tr-surface-raised font-semibold shadow-raised`; counts `text-11 tabular-nums text-tr-text-primary`; every label is `text-tr-text-primary` (AA). The select sits right of the Who's in it button, options `character.name` with value `character.id`.
-- Fold the rest and Next are plain buttons after the group; focus rings as elsewhere (`focus-visible:outline-2 focus-visible:outline-tr-sky`).
+- A highlight button whose count is 0 is `disabled` (None never is). Who's in it's count is for the active `who`, else the most-present character, so it is 0 only with no cast.
+- Fold the rest and Next are plain buttons after the group; focus rings use PanelHeader's `FOCUS` classes (copy the string; no `outline-none`).
 - No storage, no requests: the bar is pure props.
 
 **Commands:** `(cd apps/web && npx vitest run src/plan/HighlightBar.test.tsx)`, `npx tsc -b`, eslint + prettier.
@@ -804,13 +807,13 @@ export type PlanSectionId =
 - "Who's in it chips switch the board highlight" — chip `Marta Vega 4` → `onHighlight({ kind: 'who', who: 'char-marta' })`; labelled "from dialogue cues and recorded wants".
 - "Premise is closed by default and still saves through the structural footer; a locked episode makes its premise read-only" (ported).
 - "an idea-born episode shows one quiet line per empty section" — `No threads recorded.`, `No secret recorded.`, `No open notes.`, `No cast yet.`; no share bars.
-- `useSectionOpenState.test.ts`: "episode sections default open except Premise, and persist like the scene sections".
+- `useSectionOpenState.test.ts`: "episode sections default open except Premise, and persist like the scene sections"; also add the six `ep-*` keys (`'ep-premise': false`, the rest `true`) to the two exact `toEqual` expectations in "opens every section except Details by default" and "ignores a corrupt or partly invalid stored value".
 
 **Implementation notes:**
-- Root mirrors `ScenePanel`'s: `<aside data-testid="inspector" aria-label="Episode" className="w-panel-plan shrink-0 overflow-y-auto bg-tr-surface-raised">`; header block `p-4` with an "Episode" eyebrow, `<h2 tabIndex={-1}>` (same focus classes as `PanelHeader`), logline (`text-15`), format line (`text-12`). No jump bar (spec §4.7 lists none).
+- Root mirrors `ScenePanel`'s: `<aside data-testid="inspector" aria-label="Episode" className="w-panel-plan shrink-0 overflow-y-auto bg-tr-surface-raised">`; header block `p-4` with an "Episode" eyebrow, `<h2 tabIndex={-1}>` with PanelHeader's `FOCUS` classes (copy the string: Task 4 edits that file on the other branch; no `outline-none`), logline (`text-15`), format line (`text-12`). No jump bar (spec §4.7 lists none).
 - Sections are `PanelSection`s with ids `ep-acts` ("Acts, side by side"), `ep-threads` ("Threads"), `ep-secret` ("The secret"), `ep-notes` ("Notes", count = scenes with story notes), `ep-cast` ("Who's in it"), `ep-premise` ("Premise"), each wired to `useSectionOpenState`.
 - Act rows: `ShareBar` with `even = 1 / model.acts.length` when `share !== null`; landmark chips `✓ {short} · {number}`; the act-out row is a button: `Act out · {number} {place}`, then `audienceLearns` and an italic "Feels: {audienceFeels}" (each only when non-empty); an empty act reads "No scenes yet.".
-- Threads: `model.threads.filter((t) => t.status !== 'abandoned' && !model.signals.has(t.payoffSceneId ?? ''))`; summary count "n open · m paid off".
+- Threads (Task 1's rule): `model.threads.filter((t) => t.status !== 'abandoned' && !model.signals.has(t.payoffSceneId ?? ''))`; summary count "n open · m paid off".
 - The secret: one callout per `episode.secrets ?? []` (`bg-tr-ledger-secret-surface border-tr-ledger-secret-border`, ◆ glyph): summary; "Set in n" button · "kept in k scenes" · "out in m" button or "never revealed"; "Hidden from {names}" via `characterName`; "Highlight on the board".
 - Notes: for each `model.order` scene with `storyNotes`, a button `{number} · {place}` followed by each `noteSentence`; then `<details>` "From the import · n" (closed) grouping import notes the same way.
 - Premise: Phase 1 `EpisodePanel`'s two `PlanField`s, unchanged.
@@ -905,7 +908,7 @@ function foldRuns(
 
 ### Task 11: Wire highlights, keys and the Episode view; retire Story Layers
 
-**PR:** T3.6 · **Depends on:** 5, 8, 9, 10 · **e2e:** yes
+**PR:** T3.6 · **Depends on:** 5, 6, 8, 9, 10 (6 only so the rebase before this task carries the T3.5 docs) · **e2e:** yes
 
 **Files:** create `apps/web/src/plan/usePlanKeys.ts`, `usePlanKeys.test.ts`; modify `PlanScreen.tsx`, `PlanScreen.test.tsx`, `apps/web/src/styles/tokens.css`, `apps/web/src/styles/tokens.expected.ts`, `apps/web/src/dev/TokensPage.tsx`, `apps/web/e2e/plan.spec.ts`; delete `StoryLayersPanel.tsx`, `StoryLayersPanel.test.tsx`, `panel/EpisodePanel.tsx`, `panel/EpisodePanel.test.tsx`.
 
@@ -935,6 +938,7 @@ export function usePlanKeys(handlers: PlanKeyHandlers): void
   - `showEpisode()` → `setSelection(null)`, `announce('Episode view')`; when focus was inside the inspector, focus the Episode view's `h2` next frame. ScenePanel's "← Episode" uses it too.
   - `openSelectedInWrite()` → `openInWrite(selectedId)` when a scene is selected (goes through the leave guard).
   - `openLedgerThreads()` → `leave.confirmLeave().then((ok) => { if (!ok) return; saveLedgerView(activeProjectId, 'threads'); navigateToMode('Ledger') })`. (`navigateToMode` passes the now-empty guard.)
+- Hook placement (rules of hooks): `usePlanKeys` and the `highlight`/`fold`/`unfolded` state go above PlanScreen's early returns, next to `model` and `useCollapsedActs`; move `selectScene` up there too (it reads only `model`, `acts` and setters). Every handler returns at once unless the board is on screen (`model` non-null and guided setup not showing), so keys on Loading, error or guided setup do nothing.
 - Layout: the row is `Board` + panel only. `Board` gets `header={<HighlightBar …/>}`, `highlight`, `fold`, `unfolded`, `onUnfold`. The nothing-selected panel is `<EpisodeView …/>`.
 
 **Tests:**
@@ -1041,7 +1045,7 @@ export function usePlanKeys(handlers: PlanKeyHandlers): void {
 
   `PlanScreen` passes a fresh object each render; re-subscribing a `document` listener per render is cheap and keeps the handlers current with no refs.
 - Story Layers out: delete the component and its test, drop its import and `<StoryLayersPanel>` from the row; `useCollapsedActs` now feeds only `Board`.
-- Tokens: in `tokens.css` delete `--tr-panel-story-layers: 232px;`, `--tr-card-scene: 214px;` and their `@theme` aliases `--spacing-panel-story-layers`, `--spacing-card-scene`; delete the two entries in `tokens.expected.ts` and the two `TokensPage.tsx` rows. Then `git grep -n "story-layers\|card-scene\|StoryLayers\|EpisodePanel" -- apps/web` must return only e2e `toHaveCount(0)` lines and this test's negative assertions.
+- Tokens: in `tokens.css` delete `--tr-panel-story-layers: 232px;`, `--tr-card-scene: 214px;` and their `@theme` aliases `--spacing-panel-story-layers`, `--spacing-card-scene`; delete the two entries in `tokens.expected.ts` and the two `TokensPage.tsx` rows. Then `git grep -n "panel-story-layers\|story-layers-panel\|w-card-scene\|tr-card-scene\|spacing-card-scene\|StoryLayers\|EpisodePanel" -- apps/web` must return only e2e `toHaveCount(0)` lines and this test's negative assertions (`card-scene` alone matches every `scene-card-scene-N` test id).
 - Run the T3.6 e2e set: `plan.spec.ts plan-notes.spec.ts review.spec.ts recipes.spec.ts newproject-resume.spec.ts`, then the whole suite once; only the six known Write-mode baseline failures may fail.
 
 **Commands:** `(cd apps/web && npx vitest run)`, `npx tsc -b`, `(cd apps/web && npx eslint .)`, `(cd apps/web && npx prettier --check .)`, then e2e.
