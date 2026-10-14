@@ -13,6 +13,7 @@ import {
   getProject,
   suggestInstructions,
 } from '../api/client'
+import { saveLedgerView } from '../ledger/viewPreference'
 import { requireProjectId } from '../projects/projectRouting'
 import { loadResume, saveResume } from '../projects/resumeContext'
 import { navigateToReview, stashChangeSet } from '../review/changeSetSession'
@@ -27,8 +28,9 @@ import { Toast } from '../shell/Toast'
 import { lockedObjectMessage, staleHeadMessage } from '../shell/toastCopy'
 import { Board, type PlanSelection } from './Board'
 import { GuidedSetup } from './GuidedSetup'
+import { HighlightBar } from './HighlightBar'
 import { needsGuidedSetup } from './needsGuidedSetup'
-import { EpisodePanel } from './panel/EpisodePanel'
+import { EpisodeView } from './panel/EpisodeView'
 import { LeavePlanDialog } from './panel/LeavePlanDialog'
 import { NotesStrip } from './panel/NotesStrip'
 import { ScenePanel } from './panel/ScenePanel'
@@ -39,7 +41,6 @@ import {
   PlanDraftsContext,
   usePlanDraftStore,
 } from './panel/usePlanDrafts'
-import { StoryLayersPanel } from './StoryLayersPanel'
 import {
   buildBeatPatch,
   buildEpisodePatch,
@@ -52,8 +53,17 @@ import {
   withProjectField,
   withSceneField,
 } from './planTree'
-import { boardModel, notesForScene, selectionAnnouncement } from './story'
+import {
+  boardModel,
+  highlightAnnouncement,
+  NO_HIGHLIGHT,
+  nextMatchId,
+  notesForScene,
+  selectionAnnouncement,
+  type Highlight,
+} from './story'
 import { useCollapsedActs } from './useCollapsedActs'
+import { usePlanKeys } from './usePlanKeys'
 import { useProjectPatch } from './useProjectPatch'
 import { allScenes, findScene } from '../write/projectTree'
 
@@ -78,6 +88,11 @@ export function PlanScreen() {
     focusSceneId ? { type: 'scene', sceneId: focusSceneId } : undefined,
   )
   const acts = useCollapsedActs(activeProjectId)
+  // Highlight and Fold the rest last for the visit (plan defaults 5).
+  const [highlight, setHighlight] = useState<Highlight>(NO_HIGHLIGHT)
+  const [fold, setFold] = useState(false)
+  // Fold stubs the writer opened; cleared on every highlight or fold change.
+  const [unfolded, setUnfolded] = useState<ReadonlySet<string>>(new Set())
   const [openingReview, setOpeningReview] = useState(false)
   const [reviewError, setReviewError] = useState<string | null>(null)
   // The board's live region (plan-live): empty until the writer selects.
@@ -188,10 +203,102 @@ export function PlanScreen() {
   }, [dismissal.busy])
 
   // MVP: exactly one season, one episode (data contract §1).
-  const model = useMemo(() => {
-    const ep = project?.seasons[0]?.episodes[0]
-    return project && ep ? boardModel(project, ep, openFlags) : null
-  }, [project, openFlags])
+  const episode = project?.seasons[0]?.episodes[0]
+  const model = useMemo(
+    () => (project && episode ? boardModel(project, episode, openFlags) : null),
+    [project, episode, openFlags],
+  )
+  // Keys and their handlers act only while the board is on screen (not on
+  // Loading, an error or guided setup).
+  const board =
+    project && !(needsGuidedSetup(project) && !skippedGuidedSetup)
+      ? model
+      : null
+  const selectedId = effectiveSelection?.sceneId ?? null
+
+  const announce = (message: string) => setLive(message)
+  // Selecting a scene inside a collapsed act opens it (and saves that).
+  const selectScene = (sceneId: string) => {
+    const signals = model?.signals.get(sceneId)
+    if (signals) acts.expand(signals.scene.act)
+    setSelection({ type: 'scene', sceneId })
+    if (signals)
+      announce(
+        selectionAnnouncement(
+          signals,
+          signals.scene.locked || !!episode?.locked,
+        ),
+      )
+  }
+  /** Select by keyboard; a card that had focus hands it to the new card. */
+  const selectFromKeys = (sceneId: string) => {
+    const fromCard = document.activeElement?.closest('[data-scene-card]')
+    selectScene(sceneId)
+    if (fromCard)
+      requestAnimationFrame(() =>
+        document
+          .querySelector<HTMLElement>(`[data-testid="scene-card-${sceneId}"]`)
+          ?.focus(),
+      )
+  }
+  function changeHighlight(next: Highlight) {
+    if (!board) return
+    setHighlight(next)
+    setUnfolded(new Set())
+    announce(highlightAnnouncement(board, next))
+  }
+  function toggleFold() {
+    if (!board) return
+    setFold(!fold)
+    setUnfolded(new Set())
+    announce(fold ? 'Unfolded.' : "Folded the scenes that don't match.")
+  }
+  function next(dir: 1 | -1) {
+    if (!board) return
+    const id = nextMatchId(board, selectedId, dir, highlight)
+    if (id) selectFromKeys(id)
+    else
+      announce(
+        highlight.kind === 'none'
+          ? 'No story notes left.'
+          : 'Nothing else matches.',
+      )
+  }
+  function step(dir: 1 | -1) {
+    if (!board?.order.length) return
+    const { order } = board
+    const at = order.findIndex((s) => s.id === selectedId)
+    const to =
+      at < 0
+        ? dir === 1
+          ? 0
+          : order.length - 1
+        : Math.min(Math.max(at + dir, 0), order.length - 1)
+    selectFromKeys(order[to].id)
+  }
+  function showEpisode() {
+    if (!board) return
+    const fromPanel = document.activeElement?.closest(
+      '[data-testid="inspector"]',
+    )
+    setSelection(null)
+    announce('Episode view')
+    if (fromPanel)
+      requestAnimationFrame(() =>
+        document
+          .querySelector<HTMLElement>('[data-testid="inspector"] h2')
+          ?.focus(),
+      )
+  }
+  usePlanKeys({
+    onStep: step,
+    onNext: next,
+    onEpisodeView: showEpisode,
+    onOpenInWrite: () => {
+      if (board && selectedId && board.signals.has(selectedId))
+        openInWrite(selectedId)
+    },
+  })
 
   function handleReorder(draggedId: string, targetId: string) {
     if (!project) return
@@ -258,6 +365,16 @@ export function PlanScreen() {
       saveResume(activeProjectId, { mode: 'Write', sceneId })
       if (beatId) navigateToWriteBeat(sceneId, beatId)
       else navigateToWriteScene(sceneId)
+    })
+  }
+
+  // Same order as openInWrite: ask, then save the Ledger view, then go
+  // (navigateToMode passes the now-empty guard).
+  function openLedgerThreads() {
+    void leave.confirmLeave().then((ok) => {
+      if (!ok) return
+      saveLedgerView(activeProjectId, 'threads')
+      navigateToMode('Ledger')
     })
   }
 
@@ -361,7 +478,6 @@ export function PlanScreen() {
     )
   }
 
-  const episode = project.seasons[0]?.episodes[0]
   if (!episode || !model) {
     return (
       <AppShell
@@ -377,18 +493,6 @@ export function PlanScreen() {
     )
   }
 
-  const announce = (message: string) => setLive(message)
-  // Selecting a scene inside a collapsed act opens it (and saves that).
-  const selectScene = (sceneId: string) => {
-    const act = findScene(project, sceneId)?.act
-    if (act !== undefined) acts.expand(act)
-    setSelection({ type: 'scene', sceneId })
-    const signals = model.signals.get(sceneId)
-    if (signals)
-      announce(
-        selectionAnnouncement(signals, signals.scene.locked || episode.locked),
-      )
-  }
   // A stale ?scene= id resolves to no scene: show the episode view.
   const selectedScene = effectiveSelection
     ? findScene(project, effectiveSelection.sceneId)
@@ -422,7 +526,7 @@ export function PlanScreen() {
         }
       >
         {/* Fills the shell's main (whatever renders above it, e.g. the demo
-            banner); the board and both panels scroll on their own. */}
+            banner); the board and the panel scroll on their own. */}
         <div className="flex h-full flex-col">
           <p
             role="status"
@@ -470,15 +574,6 @@ export function PlanScreen() {
           )}
           <LeavePlanDialog {...leave.dialog} />
           <div className="flex min-h-0 flex-1 overflow-hidden">
-            <StoryLayersPanel
-              project={project}
-              episode={episode}
-              selection={effectiveSelection}
-              collapsedActs={acts.collapsed}
-              onSelectNothing={() => setSelection(null)}
-              onSelectScene={selectScene}
-              onToggleActCollapse={acts.toggle}
-            />
             <Board
               model={model}
               episodeLocked={episode.locked}
@@ -498,6 +593,20 @@ export function PlanScreen() {
                   .querySelector<HTMLElement>('[data-testid="inspector"] h2')
                   ?.focus()
               }
+              header={
+                <HighlightBar
+                  model={model}
+                  highlight={highlight}
+                  fold={fold}
+                  onHighlight={changeHighlight}
+                  onToggleFold={toggleFold}
+                  onNext={() => next(1)}
+                />
+              }
+              highlight={highlight}
+              fold={fold}
+              unfolded={unfolded}
+              onUnfold={(key) => setUnfolded((prev) => new Set(prev).add(key))}
             />
             {selectedScene ? (
               <ScenePanel
@@ -513,7 +622,7 @@ export function PlanScreen() {
                 flags={openFlags}
                 pending={busy}
                 openingReview={openingReview}
-                onBack={() => setSelection(null)}
+                onBack={showEpisode}
                 onSelectScene={selectScene}
                 onSelectBeat={(sceneId, beatId) =>
                   setSelection(
@@ -579,11 +688,15 @@ export function PlanScreen() {
                 onOpenLedger={() => navigateToMode('Ledger')}
               />
             ) : (
-              <EpisodePanel
+              <EpisodeView
                 project={project}
                 episode={episode}
+                model={model}
                 pending={busy}
                 openingReview={openingReview}
+                onSelectScene={selectScene}
+                onHighlight={changeHighlight}
+                onOpenLedgerThreads={openLedgerThreads}
                 onSaveEpisodePremise={(value) =>
                   saveEpisodePremise(episode.id, value)
                 }

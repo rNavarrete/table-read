@@ -9,7 +9,13 @@ import {
   within,
 } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import type { ConsistencyFlag, Episode, Project, Scene } from 'contract'
+import type {
+  Character,
+  ConsistencyFlag,
+  Episode,
+  Project,
+  Scene,
+} from 'contract'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { loadResume, saveResume } from '../projects/resumeContext'
 import { PlanScreen } from './PlanScreen'
@@ -180,6 +186,60 @@ function project(): Project {
   }
 }
 
+function character(id: string, name: string): Character {
+  return {
+    id,
+    name,
+    locked: false,
+    aliases: [],
+    embodiment: '',
+    presentation: '',
+    hiding: '',
+    traits: '',
+    seriesArc: '',
+    summary: '',
+    bio: '',
+  }
+}
+
+/** project() with a cast (Marta wants in scene 1, Dan in scene 2) and one
+ * thread set up in scene 1 and never paid off. */
+function storyProject(): Project {
+  const p = project()
+  p.seriesBible.characters = [
+    character('char-marta', 'Marta Vega'),
+    character('char-dan', 'Dan Vega'),
+  ]
+  const ep = p.seasons[0].episodes[0]
+  const want = (characterId: string) => ({
+    characterId,
+    objective: 'Keep the bar open',
+    stakes: '',
+    obstacle: '',
+    statedObjective: '',
+    concealed: false,
+  })
+  ep.scenes[0].motivations = [want('char-marta')]
+  ep.scenes[1].motivations = [want('char-dan')]
+  ep.threads = [
+    {
+      id: 'thread-1',
+      label: 'The missing money',
+      summary: '',
+      status: 'open',
+      ownerCharacterIds: [],
+      setupSceneId: 'scene-1',
+      payoffSceneId: null,
+      setupQuote: '',
+      payoffQuote: '',
+      setupBeatId: null,
+      payoffBeatId: null,
+      locked: false,
+    },
+  ]
+  return p
+}
+
 /** Loads Plan on scene-1 (no resume stored) and resolves to the panel. */
 function loadPlan(p: Project = project()) {
   getProjectMock.mockResolvedValue(p)
@@ -304,6 +364,10 @@ describe('PlanScreen', () => {
     expect(
       screen.getByTestId('scene-card-scene-1').getAttribute('aria-pressed'),
     ).toBe('false')
+    // Focus was in the panel: it lands on the Episode view's heading.
+    await waitFor(() =>
+      expect(document.activeElement?.textContent).toBe('Episode 1: Last Call'),
+    )
   })
 
   it('an empty-act drop sends one act PATCH and nothing else', async () => {
@@ -401,8 +465,7 @@ describe('PlanScreen', () => {
     expect(document.activeElement).toBe(heading)
   })
 
-  // Task 3's test, carried over unchanged.
-  it('fills the height the shell leaves and scrolls the board and both side panels on their own', async () => {
+  it('fills the height the shell leaves; the board and the panel scroll on their own; Story Layers is gone', async () => {
     getProjectMock.mockResolvedValue(project())
     getLedgerMock.mockResolvedValue([])
     getConsistencyFlagsMock.mockResolvedValue([])
@@ -423,12 +486,15 @@ describe('PlanScreen', () => {
     expect(row.className).toContain('min-h-0 flex-1 overflow-hidden')
     expect(row.className).not.toContain('100vh')
     expect(row.parentElement?.className).toContain('h-full flex-col')
-    expect(screen.getByTestId('story-layers-panel').className).toContain(
-      'overflow-y-auto',
-    )
     expect(screen.getByTestId('inspector').className).toContain(
       'overflow-y-auto',
     )
+    // The row is the board and the panel, nothing else.
+    expect([...row.children]).toEqual([board, screen.getByTestId('inspector')])
+    expect(screen.queryByTestId('story-layers-panel')).toBeNull()
+    expect(
+      document.querySelector('.w-panel-story-layers, .w-card-scene'),
+    ).toBeNull()
   })
 
   const OPEN_FLAG: ConsistencyFlag = {
@@ -913,5 +979,161 @@ describe('PlanScreen', () => {
     expect(screen.getByTestId('plan-live').textContent).toBe(
       'Scene 1, The Long Pour. 1 note.',
     )
+  })
+
+  const focusCard = (id: string) =>
+    act(() => screen.getByTestId(`scene-card-${id}`).focus())
+
+  it('Esc from the board shows the Episode view and announces it', async () => {
+    const user = userEvent.setup()
+    await loadPlan()
+    focusCard('scene-1')
+
+    await user.keyboard('{Escape}')
+
+    const panel = screen.getByTestId('inspector')
+    expect(within(panel).getByRole('heading', { level: 2 }).textContent).toBe(
+      'Episode 1: Last Call',
+    )
+    expect(within(panel).queryByTestId('lock-toggle')).toBeNull()
+    expect(
+      screen.getByTestId('scene-card-scene-1').getAttribute('aria-pressed'),
+    ).toBe('false')
+    expect(screen.getByTestId('plan-live').textContent).toBe('Episode view')
+  })
+
+  it('choosing a highlight announces it; highlights, fold and keys make no request', async () => {
+    const user = userEvent.setup()
+    getConsistencyFlagsMock.mockResolvedValueOnce([OPEN_FLAG])
+    await loadPlan(storyProject())
+    const bar = screen.getByRole('group', { name: 'Highlight' })
+    const live = screen.getByTestId('plan-live')
+
+    await user.click(within(bar).getByRole('button', { name: /^Act shape/ }))
+    expect(live.textContent).toBe('Highlight: Act shape. 1 scene matches.')
+    for (const name of [
+      /^Setups & payoffs/,
+      /^Continuity/,
+      /^Who's in it/,
+      /^None/,
+    ])
+      await user.click(within(bar).getByRole('button', { name }))
+    expect(live.textContent).toBe('Highlight off.')
+    await user.click(screen.getByRole('button', { name: /Fold the rest/ }))
+    expect(live.textContent).toBe("Folded the scenes that don't match.")
+    await user.click(screen.getByRole('button', { name: /Fold the rest/ }))
+    expect(live.textContent).toBe('Unfolded.')
+    focusCard('scene-1')
+    await user.keyboard('nNjk{Escape}')
+
+    expect(suggestInstructionsMock).not.toHaveBeenCalled()
+    expect(createChangeSetMock).not.toHaveBeenCalled()
+    expect(patchProjectMock).not.toHaveBeenCalled()
+    expect(getProjectMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('N selects the next match and announces the scene', async () => {
+    const user = userEvent.setup()
+    getConsistencyFlagsMock.mockResolvedValueOnce([
+      { ...OPEN_FLAG, objectId: 'scene-2' },
+    ])
+    await loadPlan()
+    focusCard('scene-1')
+
+    await user.keyboard('n')
+
+    const next = screen.getByTestId('scene-card-scene-2')
+    expect(next.getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByTestId('plan-live').textContent).toBe(
+      'Scene 2, Back Room. 1 note.',
+    )
+    await waitFor(() => expect(document.activeElement).toBe(next))
+  })
+
+  it("a Who's in it chip in the Episode view switches the board highlight", async () => {
+    const user = userEvent.setup()
+    const panel = await loadPlan(storyProject())
+    await user.click(within(panel).getByRole('button', { name: '← Episode' }))
+
+    const cast = document.getElementById('plan-section-ep-cast') as HTMLElement
+    await user.click(within(cast).getByRole('button', { name: /^Dan Vega/ }))
+
+    const bar = screen.getByRole('group', { name: 'Highlight' })
+    expect(
+      within(bar)
+        .getByRole('button', { name: /^Who's in it/ })
+        .getAttribute('aria-pressed'),
+    ).toBe('true')
+    expect(
+      (screen.getByLabelText('Character to highlight') as HTMLSelectElement)
+        .value,
+    ).toBe('char-dan')
+    expect(
+      screen.getByTestId('scene-card-scene-2').getAttribute('data-match'),
+    ).toBe('true')
+  })
+
+  it('⌘↵ with unsaved edits asks before opening Write', async () => {
+    const user = userEvent.setup()
+    const panel = await loadPlan()
+    await user.type(
+      within(panel).getByLabelText('Audience learns'),
+      'Dan has a second key.',
+    )
+    focusCard('scene-1')
+
+    await user.keyboard('{Meta>}{Enter}{/Meta}')
+    const dialog = screen.getByTestId('leave-plan-dialog') as HTMLDialogElement
+    await waitFor(() => expect(dialog.open).toBe(true))
+    await user.click(
+      within(dialog).getByRole('button', { name: 'Stay in Plan' }),
+    )
+
+    expect(loadResume('proj-longpour').mode).toBe('Plan')
+  })
+
+  it('See all in Ledger → Threads asks first with drafts, then saves the Threads view', async () => {
+    const user = userEvent.setup()
+    const panel = await loadPlan(storyProject())
+    await user.type(
+      within(panel).getByLabelText('Audience learns'),
+      'Dan has a second key.',
+    )
+    await user.click(within(panel).getByRole('button', { name: '← Episode' }))
+    const seeAll = screen.getByRole('button', {
+      name: 'See all 1 in Ledger → Threads',
+    })
+    const dialog = screen.getByTestId('leave-plan-dialog') as HTMLDialogElement
+
+    await user.click(seeAll)
+    await waitFor(() => expect(dialog.open).toBe(true))
+    await user.click(
+      within(dialog).getByRole('button', { name: 'Stay in Plan' }),
+    )
+    expect(localStorage.getItem('tr.ledger.view.proj-longpour')).toBeNull()
+
+    const assign = vi.fn()
+    const original = window.location
+    Object.defineProperty(window, 'location', {
+      value: { ...original, href: original.href, assign },
+      writable: true,
+    })
+    try {
+      await user.click(seeAll)
+      await waitFor(() => expect(dialog.open).toBe(true))
+      await user.click(
+        within(dialog).getByRole('button', { name: 'Discard and leave' }),
+      )
+      await waitFor(() => expect(assign).toHaveBeenCalledTimes(1))
+      expect(new URL(String(assign.mock.calls[0][0])).pathname).toBe('/ledger')
+      expect(localStorage.getItem('tr.ledger.view.proj-longpour')).toBe(
+        'threads',
+      )
+    } finally {
+      Object.defineProperty(window, 'location', {
+        value: original,
+        writable: true,
+      })
+    }
   })
 })

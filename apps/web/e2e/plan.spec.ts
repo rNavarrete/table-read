@@ -299,3 +299,54 @@ test('a Beat lock set in the panel persists after reload (T3.3)', async ({
   await expect(reloadedLock).toHaveAttribute('aria-checked', 'false')
   await expect(reloadedLock).toBeEnabled()
 })
+
+test("Who's in it rings the matching cards and N selects the next match (T3.6)", async ({
+  page,
+}) => {
+  await page.goto('/plan?project=proj-longpour')
+  const scene1 = page.getByTestId('scene-card-scene-1')
+  await scene1.click()
+  const bar = page.getByRole('group', { name: 'Highlight' })
+  await bar.getByRole('button', { name: /Who's in it/ }).click()
+  await page.getByLabel('Character to highlight').selectOption('char-marta')
+  await expect(page.getByTestId('plan-live')).toContainText(
+    'Highlight: Marta Vega.',
+  )
+  // scene-1 records Marta's want in the fixture.
+  await expect(scene1).toHaveAttribute('data-match', 'true')
+
+  await scene1.focus() // keys are ignored while the select has focus
+  await page.keyboard.press('n')
+  const selected = page.locator('[data-scene-card][aria-pressed="true"]')
+  await expect(selected).not.toHaveAttribute(
+    'data-testid',
+    'scene-card-scene-1',
+  )
+  await expect(selected).toHaveAttribute('data-match', 'true')
+})
+
+test('Esc shows the Episode view, and Story Layers is gone (T3.6)', async ({
+  page,
+}) => {
+  await page.goto('/plan?project=proj-longpour')
+  await expect(page.getByTestId('story-layers-panel')).toHaveCount(0)
+  await page.getByTestId('scene-card-scene-2').click()
+  await page.keyboard.press('Escape')
+
+  const panel = page.getByTestId('inspector')
+  await expect(panel.locator('h2').first()).toContainText('Last Call')
+  await expect(panel.getByTestId('lock-toggle')).toHaveCount(0)
+  await expect(page.getByTestId('scene-card-scene-2')).toHaveAttribute(
+    'aria-pressed',
+    'false',
+  )
+  await panel
+    .locator('#plan-section-ep-cast')
+    .getByRole('button', { name: /Dan Vega/ })
+    .click()
+  await expect(
+    page
+      .getByRole('group', { name: 'Highlight' })
+      .getByRole('button', { name: /Who's in it/ }),
+  ).toHaveAttribute('aria-pressed', 'true')
+})
