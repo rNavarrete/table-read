@@ -17,9 +17,11 @@ import type {
   Scene,
 } from 'contract'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { ApiError } from '../api/errors'
 import { loadResume, saveResume } from '../projects/resumeContext'
 import { PlanScreen } from './PlanScreen'
-import { withBeatField } from './planTree'
+import { withBeatField, withSceneField } from './planTree'
+import { UNDO_MOVE_STALE } from './useUndoMove'
 
 const {
   createChangeSetMock,
@@ -1230,5 +1232,327 @@ describe('PlanScreen', () => {
         writable: true,
       })
     }
+  })
+})
+
+/** Five scenes (array position = index): the cold open, two in act 1, one
+ * each in acts 2 and 3; one thread set up in scene 2 and paid off in scene 5. */
+function orderProject(): Project {
+  const p = project()
+  const ep = p.seasons[0].episodes[0]
+  ep.scenes = [0, 1, 1, 2, 3].map((act, index) => {
+    const base = scene()
+    return scene({
+      id: `scene-${index + 1}`,
+      index,
+      act,
+      beats: [{ ...base.beats[0], id: `beat-${index + 1}-1` }],
+    })
+  })
+  ep.threads = [
+    {
+      ...storyProject().seasons[0].episodes[0].threads[0],
+      id: 'thread-1',
+      label: 'The spare key',
+      setupSceneId: 'scene-2',
+      payoffSceneId: 'scene-5',
+      status: 'paid_off',
+    },
+  ]
+  return p
+}
+
+describe('PlanScreen order check (T3.7)', () => {
+  type Saved = { project: Project; consistencyFlags: ConsistencyFlag[] }
+  /** The server's reply to scene-5 → the cold open (act 0). */
+  const moved = (p: Project, head = 'snap-moved'): Saved => ({
+    project: {
+      ...withSceneField(p, 'scene-5', 'act', 0),
+      headSnapshotId: head,
+    },
+    consistencyFlags: [],
+  })
+  const dataTransfer = {
+    setData: () => {},
+    getData: () => '',
+    effectAllowed: 'move',
+  } as unknown as DataTransfer
+  const strip = () => screen.getByTestId('notes-strip')
+  const undoButton = () =>
+    screen.queryByRole('button', { name: 'Undo the move' })
+  const NOTE = 'Pays off “The spare key” before its setup in scene 2.'
+
+  /** Loads orderProject(), selects scene-5 and moves it to the cold open. */
+  async function moveScene5ToColdOpen(
+    user: ReturnType<typeof userEvent.setup>,
+  ) {
+    const p = orderProject()
+    await loadPlan(p)
+    await user.click(screen.getByTestId('scene-card-scene-5'))
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Act' }), '0')
+    return p
+  }
+
+  it('an act change that plays a payoff first shows the Order note at once and opens the strip', async () => {
+    const user = userEvent.setup()
+    const save = deferred<Saved>()
+    patchProjectMock.mockReturnValue(save.promise)
+
+    const p = await moveScene5ToColdOpen(user)
+
+    expect(
+      within(strip())
+        .getByRole('button', { name: 'Hide' })
+        .getAttribute('aria-expanded'),
+    ).toBe('true')
+    expect(strip().textContent).toContain(NOTE)
+    expect(undoButton()).toBeNull()
+    expect(screen.getByTestId('plan-live').textContent).toBe(
+      'Moved. 1 new order problem.',
+    )
+
+    await act(async () => save.resolve(moved(p)))
+    expect(undoButton()).not.toBeNull()
+  })
+
+  it('an act change sends one PATCH; the prediction and the chart send nothing', async () => {
+    const user = userEvent.setup()
+    const p = orderProject()
+    patchProjectMock.mockResolvedValue(moved(p))
+    await loadPlan(p)
+
+    fireEvent.dragStart(screen.getByTestId('scene-card-scene-5'), {
+      dataTransfer,
+    })
+    fireEvent.dragOver(screen.getByTestId('scene-card-scene-1'), {
+      dataTransfer,
+    })
+    fireEvent.dragEnd(screen.getByTestId('scene-card-scene-5'), {
+      dataTransfer,
+    })
+    await user.click(screen.getByTestId('chart-block-scene-5'))
+    expect(patchProjectMock).not.toHaveBeenCalled()
+
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Act' }), '0')
+
+    expect(patchProjectMock).toHaveBeenCalledTimes(1)
+    expect(patchProjectMock).toHaveBeenCalledWith(
+      'proj-longpour',
+      [{ op: 'replace', path: '/seasons/0/episodes/0/scenes/4/act', value: 0 }],
+      { expectedHeadSnapshotId: 'snap-root' },
+    )
+    expect(suggestInstructionsMock).not.toHaveBeenCalled()
+    expect(createChangeSetMock).not.toHaveBeenCalled()
+    expect(dismissConsistencyFlagMock).not.toHaveBeenCalled()
+  })
+
+  it('an act change scrolls the moved card into view without moving focus', async () => {
+    const user = userEvent.setup()
+    const p = orderProject()
+    patchProjectMock.mockResolvedValue(moved(p))
+    await loadPlan(p)
+    await user.click(screen.getByTestId('scene-card-scene-5'))
+    const scrollIntoView = vi.spyOn(Element.prototype, 'scrollIntoView')
+    const select = screen.getByRole('combobox', { name: 'Act' })
+
+    await user.selectOptions(select, '0')
+
+    await waitFor(() =>
+      expect(scrollIntoView.mock.contexts).toContain(
+        screen.getByTestId('scene-card-scene-5'),
+      ),
+    )
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' })
+    expect(document.activeElement).toBe(select)
+  })
+
+  it("Undo the move posts /undo with If-Match = the move's head and clears the Order note", async () => {
+    const user = userEvent.setup()
+    patchProjectMock.mockResolvedValue(moved(orderProject()))
+    undoProjectMock.mockResolvedValue(orderProject())
+    await moveScene5ToColdOpen(user)
+
+    await user.click(
+      await within(strip()).findByRole('button', { name: 'Undo the move' }),
+    )
+
+    expect(undoProjectMock).toHaveBeenCalledWith('proj-longpour', {
+      expectedHeadSnapshotId: 'snap-moved',
+    })
+    await waitFor(() => expect(screen.queryByTestId(/^order-note-/)).toBeNull())
+    expect(
+      within(screen.getByTestId('act-frame-3')).getByTestId(
+        'scene-card-scene-5',
+      ),
+    ).not.toBeNull()
+    expect(screen.getByTestId('plan-live').textContent).toBe('Move undone.')
+    expect(getProjectMock).toHaveBeenCalledTimes(1)
+    // Its button is gone with the note: focus lands in the panel, not <body>.
+    await waitFor(() =>
+      expect(
+        screen.getByTestId('inspector').contains(document.activeElement),
+      ).toBe(true),
+    )
+  })
+
+  it('Undo the move leaves focus where the writer put it while it ran', async () => {
+    const user = userEvent.setup()
+    patchProjectMock.mockResolvedValue(moved(orderProject()))
+    const request = deferred<Project>()
+    undoProjectMock.mockReturnValue(request.promise)
+    await moveScene5ToColdOpen(user)
+
+    await user.click(
+      await within(strip()).findByRole('button', { name: 'Undo the move' }),
+    )
+    const card = screen.getByTestId('scene-card-scene-3')
+    act(() => card.focus())
+    await act(async () => request.resolve(orderProject()))
+    await act(() => new Promise((r) => requestAnimationFrame(r)))
+
+    expect(screen.getByTestId('plan-live').textContent).toBe('Move undone.')
+    expect(document.activeElement).toBe(card)
+  })
+
+  it('a failed move gives the previous move its Undo back', async () => {
+    const user = userEvent.setup()
+    patchProjectMock
+      .mockResolvedValueOnce(moved(orderProject()))
+      .mockRejectedValueOnce(new Error('network down'))
+    await moveScene5ToColdOpen(user)
+    await within(strip()).findByRole('button', { name: 'Undo the move' })
+
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Act' }), '2')
+
+    expect(await screen.findByText('save failed')).not.toBeNull()
+    expect(patchProjectMock).toHaveBeenCalledTimes(2)
+    expect(strip().textContent).toContain(NOTE)
+    expect(
+      await within(strip()).findByRole('button', { name: 'Undo the move' }),
+    ).not.toBeNull()
+  })
+
+  it('Undo the move is gone once another edit moves the head; Go to scene n still selects', async () => {
+    const user = userEvent.setup()
+    const p = orderProject()
+    const after = moved(p)
+    patchProjectMock.mockResolvedValueOnce(after).mockResolvedValueOnce({
+      project: {
+        ...withSceneField(after.project, 'scene-5', 'locked', true),
+        headSnapshotId: 'snap-later',
+      },
+      consistencyFlags: [],
+    })
+    await moveScene5ToColdOpen(user)
+    await within(strip()).findByRole('button', { name: 'Undo the move' })
+
+    await user.click(
+      within(screen.getByTestId('inspector')).getByTestId('lock-toggle'),
+    )
+
+    await waitFor(() => expect(undoButton()).toBeNull())
+    expect(strip().textContent).toContain(NOTE)
+    await user.click(
+      within(strip()).getByRole('button', { name: 'Go to scene 2' }),
+    )
+    expect(
+      screen.getByTestId('scene-card-scene-2').getAttribute('aria-pressed'),
+    ).toBe('true')
+  })
+
+  it('a failed move rolls back and offers nothing', async () => {
+    const user = userEvent.setup()
+    patchProjectMock.mockRejectedValue(new Error('network down'))
+
+    await moveScene5ToColdOpen(user)
+
+    await waitFor(() =>
+      expect(
+        within(screen.getByTestId('act-frame-3')).queryByTestId(
+          'scene-card-scene-5',
+        ),
+      ).not.toBeNull(),
+    )
+    expect(screen.queryByTestId(/^order-note-/)).toBeNull()
+    expect(undoButton()).toBeNull()
+  })
+
+  it("a drag predicts on the target with the save's own transform", async () => {
+    await loadPlan(orderProject())
+
+    fireEvent.dragStart(screen.getByTestId('scene-card-scene-5'), {
+      dataTransfer,
+    })
+    fireEvent.dragOver(screen.getByTestId('scene-card-scene-1'), {
+      dataTransfer,
+    })
+
+    expect(
+      screen.getByTestId('scene-card-scene-1').querySelector('[data-tape]')
+        ?.textContent,
+    ).toBe('⚠ 5 would pay off before 2')
+    expect(patchProjectMock).not.toHaveBeenCalled()
+  })
+
+  it('Undo the move 409 shows the stale copy and drops the offer', async () => {
+    const user = userEvent.setup()
+    patchProjectMock.mockResolvedValue(moved(orderProject()))
+    undoProjectMock.mockRejectedValue(
+      new ApiError(409, { code: 'CONFLICT_STALE_HEAD', message: 'stale' }),
+    )
+    await moveScene5ToColdOpen(user)
+
+    await user.click(
+      await within(strip()).findByRole('button', { name: 'Undo the move' }),
+    )
+
+    expect(await screen.findByText(UNDO_MOVE_STALE)).not.toBeNull()
+    expect(undoButton()).toBeNull()
+    // The focused button went with the offer: focus lands on the strip.
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        within(strip()).getByRole('button', { name: /^(Show|Hide)$/ }),
+      ),
+    )
+  })
+
+  it("the chart sits in the board's sticky header and a block click selects its scene", async () => {
+    const user = userEvent.setup()
+    await loadPlan(orderProject())
+    const chart = screen.getByTestId('episode-chart')
+    expect(
+      chart.closest('.sticky')?.closest('[aria-label="Plan board"]'),
+    ).not.toBeNull()
+
+    await user.click(screen.getByTestId('chart-block-scene-3'))
+
+    expect(
+      screen.getByTestId('scene-card-scene-3').getAttribute('aria-pressed'),
+    ).toBe('true')
+    expect(screen.getByTestId('plan-live').textContent).toMatch(/^Scene 3\b/)
+  })
+
+  it('a Continuity count and N include order problems', async () => {
+    const user = userEvent.setup()
+    patchProjectMock.mockResolvedValue(moved(orderProject()))
+    await moveScene5ToColdOpen(user)
+    await within(strip()).findByRole('button', { name: 'Undo the move' })
+
+    expect(
+      within(screen.getByRole('group', { name: 'Highlight' })).getByRole(
+        'button',
+        { name: /^Continuity/ },
+      ).textContent,
+    ).toBe('Continuity 2')
+    await user.click(screen.getByTestId('scene-card-scene-1'))
+    act(() => screen.getByTestId('scene-card-scene-1').focus())
+    await user.keyboard('n')
+    expect(
+      screen.getByTestId('scene-card-scene-5').getAttribute('aria-pressed'),
+    ).toBe('true')
+    await user.keyboard('n')
+    expect(
+      screen.getByTestId('scene-card-scene-2').getAttribute('aria-pressed'),
+    ).toBe('true')
   })
 })

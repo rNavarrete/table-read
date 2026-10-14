@@ -13,7 +13,13 @@ import type {
 import { tvActStages } from '../ledger/structure/tvActStructure'
 import { plural } from '../projects/wizard/board/boardText'
 import { parseFountainLines } from '../write/fountainFormat'
-import { actLabel, actNumbersForBoard, affectedFacts } from './planTree'
+import {
+  actLabel,
+  actNumbersForBoard,
+  affectedFacts,
+  applySceneMove,
+  type SceneMove,
+} from './planTree'
 
 // Every pure derivation the Plan panel reads (redesign spec §6: one module,
 // unit-tested). Missing arrays read as empty everywhere: PATCH returns the
@@ -373,6 +379,162 @@ export function factsForScene(
   return { shown, retired }
 }
 
+// ── Order check (spec §4.8) ─────────────────────────────────────────────
+
+export type OrderIssueKind =
+  | 'payoff_first' // a thread's payoff scene plays before its setup scene
+  | 'revealed_first' // the secret comes out before it is established
+  | 'kept_after' // the secret is kept after it is out
+  | 'kept_before' // the secret is kept before it is established
+
+export interface OrderIssue {
+  /** Stable across moves: `${kind}:${sourceId}:${sceneId}`. */
+  id: string
+  kind: OrderIssueKind
+  /** The thread or secret id. */
+  sourceId: string
+  /** The thread's label; null for a secret. */
+  label: string | null
+  /** The scene now out of order: the payoff, the reveal, or the scene keeping the secret. */
+  sceneId: string
+  /** The scene it is out of order with: the setup, the establishing scene, or the reveal. */
+  otherSceneId: string
+}
+
+/** An Order note as one side of a problem reads it. */
+export interface OrderNote {
+  issue: OrderIssue
+  /** The other side's scene, for "Go to scene n". */
+  otherSceneId: string
+  otherNumber: number
+  /** One sentence from this scene's side, e.g. 'Pays off “The spare key” before its setup in scene 2.' */
+  text: string
+}
+
+/** Problems in the episode's board order (act, then index). Abandoned
+ * threads, a payoff in its own setup scene, and scene ids not in the episode
+ * are skipped. Threads first (episode order), then secrets. */
+export function orderIssues(episode: Episode): OrderIssue[] {
+  const pos = new Map(boardOrder(episode.scenes).map((s, i) => [s.id, i]))
+  const out: OrderIssue[] = []
+  const add = (
+    kind: OrderIssueKind,
+    sourceId: string,
+    label: string | null,
+    sceneId: string,
+    otherSceneId: string,
+  ) =>
+    out.push({
+      id: `${kind}:${sourceId}:${sceneId}`,
+      kind,
+      sourceId,
+      label,
+      sceneId,
+      otherSceneId,
+    })
+  for (const t of episode.threads ?? []) {
+    if (t.status === 'abandoned' || !t.payoffSceneId) continue
+    const setup = pos.get(t.setupSceneId)
+    const payoff = pos.get(t.payoffSceneId)
+    if (setup !== undefined && payoff !== undefined && payoff < setup)
+      add('payoff_first', t.id, t.label, t.payoffSceneId, t.setupSceneId)
+  }
+  for (const x of episode.secrets ?? []) {
+    const set = pos.get(x.establishedSceneId)
+    if (set === undefined) continue
+    // No reveal, or a reveal scene off the board, reads as never revealed.
+    const reveal = x.revealedSceneId ?? ''
+    const revealed = pos.get(reveal)
+    if (revealed !== undefined && revealed < set)
+      add('revealed_first', x.id, null, reveal, x.establishedSceneId)
+    for (const kept of new Set(x.concealmentSceneIds ?? [])) {
+      // The endpoints are already covered by revealed_first (and are never
+      // out of order otherwise): one misplaced scene, one problem.
+      if (kept === x.establishedSceneId || kept === reveal) continue
+      const k = pos.get(kept)
+      if (k === undefined) continue
+      if (revealed !== undefined && k > revealed)
+        add('kept_after', x.id, null, kept, reveal)
+      else if (k < set)
+        add('kept_before', x.id, null, kept, x.establishedSceneId)
+    }
+  }
+  return out
+}
+
+/** What `after` has that `before` doesn't (by id): the problems a move adds. */
+export function newOrderIssues(
+  before: readonly OrderIssue[],
+  after: readonly OrderIssue[],
+): OrderIssue[] {
+  const known = new Set(before.map((i) => i.id))
+  return after.filter((i) => !known.has(i.id))
+}
+
+/** The drag / Act prediction: the problems `move` would add, computed on
+ * applySceneMove's optimistic twin, so it always matches the save. [] when
+ * there is nothing to move. */
+export function predictMove(project: Project, move: SceneMove): OrderIssue[] {
+  const applied = applySceneMove(project, move)
+  if (!applied) return []
+  const episodeOf = (p: Project) =>
+    p.seasons
+      .flatMap((s) => s.episodes)
+      .find((e) => e.scenes.some((s) => s.id === move.sceneId))
+  const before = episodeOf(project)
+  const after = episodeOf(applied.next)
+  return before && after
+    ? newOrderIssues(orderIssues(before), orderIssues(after))
+    : []
+}
+
+// ponytail: "the secret" names no secret; with two secrets the sentences don't
+// say which. Name it (secret.summary's first clause) if episodes start
+// carrying several.
+const ORDER_TEXT: Record<
+  OrderIssueKind,
+  (label: string, n: number) => [mine: string, other: string]
+> = {
+  payoff_first: (label, n) => [
+    `Pays off ${label} before its setup in scene ${n}.`,
+    `Sets up ${label}, but it now pays off earlier, in scene ${n}.`,
+  ],
+  revealed_first: (_, n) => [
+    `Reveals the secret before scene ${n} establishes it.`,
+    `Establishes the secret after it comes out in scene ${n}.`,
+  ],
+  kept_after: (_, n) => [
+    `Keeps the secret after it comes out in scene ${n}.`,
+    `Reveals the secret, but scene ${n} still keeps it afterwards.`,
+  ],
+  kept_before: (_, n) => [
+    `Keeps the secret before scene ${n} establishes it.`,
+    `Establishes the secret after scene ${n} already keeps it.`,
+  ],
+}
+
+const PREDICTION_VERB: Record<OrderIssueKind, string> = {
+  payoff_first: 'would pay off before',
+  revealed_first: 'would reveal the secret before',
+  kept_after: 'would keep the secret after',
+  kept_before: 'would keep the secret before',
+}
+
+/** The drop target's amber tape: "⚠ 5 would pay off before 2" (+k for more),
+ * with today's card numbers; null for []. */
+export function predictionTape(
+  model: BoardModel,
+  issues: readonly OrderIssue[],
+): CardTape | null {
+  const first = issues[0]
+  if (!first) return null
+  const more = issues.length > 1 ? ` +${issues.length - 1}` : ''
+  return {
+    text: `⚠ ${cardNumber(model, first.sceneId)} ${PREDICTION_VERB[first.kind]} ${cardNumber(model, first.otherSceneId)}${more}`,
+    tone: 'amber',
+  }
+}
+
 // ── Board ───────────────────────────────────────────────────────────────
 
 export type TapeTone = 'sky' | 'amber' | 'secret' | 'accent'
@@ -414,6 +576,8 @@ export interface SceneSignals {
   wantIds: string[]
   /** Sum of the scene's beat scriptText lengths. */
   scriptLength: number
+  /** Order notes for this scene on either side of a problem, issue order. */
+  orderNotes: OrderNote[]
 }
 
 export interface ActLandmark {
@@ -432,6 +596,8 @@ export interface ActSummary {
   act: number
   /** actLabel(act, format) */
   label: string
+  /** "CO" for a cold open, else the act's ordinal ("1", "2"…): the chart's narrow-band label. */
+  short: string
   /** board order */
   scenes: Scene[]
   /** This act's share of the episode's script text; null when the episode has none. */
@@ -458,6 +624,10 @@ export interface BoardModel {
   characters: Character[]
   hasScript: boolean
   hasThreads: boolean
+  /** orderIssues(episode) */
+  issues: OrderIssue[]
+  /** episode.secrets ?? [] */
+  secrets: Secret[]
 }
 
 /** Beat-sheet landmarks tvActStages marks ('hit'), placed on a scene by the
@@ -497,6 +667,8 @@ export function boardModel(
   const threads = episode.threads ?? []
   const live = threads.filter((t) => t.status !== 'abandoned')
   const marked = markedLandmarks(project, episode)
+  const issues = orderIssues(episode)
+  const numbers = new Map(order.map((s) => [s.id, s.index + 1]))
 
   const list = order.map((scene, i): SceneSignals => {
     const notes = notesForScene(flags, scene)
@@ -544,6 +716,25 @@ export function boardModel(
         (n, b) => n + (b.scriptText ?? '').length,
         0,
       ),
+      orderNotes: issues.flatMap((issue): OrderNote[] => {
+        const mine = issue.sceneId === scene.id
+        if (!mine && issue.otherSceneId !== scene.id) return []
+        const otherSceneId = mine ? issue.otherSceneId : issue.sceneId
+        // orderIssues only names scenes on this board.
+        const otherNumber = numbers.get(otherSceneId) ?? 0
+        const [mineText, otherText] = ORDER_TEXT[issue.kind](
+          `“${issue.label ?? ''}”`,
+          otherNumber,
+        )
+        return [
+          {
+            issue,
+            otherSceneId,
+            otherNumber,
+            text: mine ? mineText : otherText,
+          },
+        ]
+      }),
     }
   })
 
@@ -556,6 +747,10 @@ export function boardModel(
       return {
         act,
         label: actLabel(act, project.format),
+        short:
+          project.format.coldOpen && act === 0
+            ? 'CO'
+            : String(project.format.coldOpen ? act : act + 1),
         scenes: inAct.map((s) => s.scene),
         share: total ? sum(inAct, (s) => s.scriptLength) / total : null,
         setUp: sum(inAct, (s) => s.setsUp.length),
@@ -591,7 +786,17 @@ export function boardModel(
     characters,
     hasScript: total > 0,
     hasThreads: threads.length > 0,
+    issues,
+    secrets: episode.secrets ?? [],
   }
+}
+
+/** The card number on the board now, or "?" for a scene not on it. */
+function cardNumber(
+  model: BoardModel,
+  sceneId: string | null | undefined,
+): number | '?' {
+  return model.signals.get(sceneId ?? '')?.number ?? '?'
 }
 
 /** "TURN" for a marked turn, else "ACT OUT" for an act's last scene, else null. */
@@ -603,8 +808,9 @@ export function cardTag(signals: SceneSignals): 'TURN' | 'ACT OUT' | null {
       : null
 }
 
-/** How a card relates to the selected scene through a thread (spec §4.2):
- * "↘ pays off n" / "↗ sets up n" (n = the selected scene's number), sky;
+/** How a card relates to the selected scene (spec §4.2): "⚠ order with n"
+ * (amber) when the two share an order problem, else through a thread
+ * "↘ pays off n" / "↗ sets up n" (sky); n = the selected scene's number;
  * null otherwise. */
 export function relationTape(
   model: BoardModel,
@@ -615,6 +821,8 @@ export function relationTape(
     ? model.signals.get(selectedSceneId)
     : undefined
   if (!selected || sceneId === selectedSceneId) return null
+  if (selected.orderNotes.some((n) => n.otherSceneId === sceneId))
+    return { text: `⚠ order with ${selected.number}`, tone: 'amber' }
   if (selected.setsUp.some((t) => t.payoffSceneId === sceneId))
     return { text: `↘ pays off ${selected.number}`, tone: 'sky' }
   if (selected.paysOff.some((t) => t.setupSceneId === sceneId))
@@ -644,12 +852,16 @@ export function noteSentence(
   return /^.*?[.!?](?=\s|$)/s.exec(text)?.[0] ?? text
 }
 
-/** "Scene 3, Bar, locked. 2 notes, 1 from the import." (spec §4.10) */
+/** "Scene 3, Bar, locked. 2 notes, 1 from the import." (spec §4.10); Order
+ * notes count as notes. */
 export function selectionAnnouncement(
   signals: SceneSignals,
   locked: boolean,
 ): string {
-  const notes = signals.storyNotes.length + signals.importNotes.length
+  const notes =
+    signals.storyNotes.length +
+    signals.importNotes.length +
+    signals.orderNotes.length
   const imported = signals.importNotes.length
   const noteText = !notes
     ? 'No notes'
@@ -712,12 +924,11 @@ export function highlightTape(
       const more = total > 1 ? ` +${total - 1}` : ''
       if (s.neverPaidOff)
         return { text: `↗ never paid off${more}`, tone: 'amber' }
-      const num = (id: string | null | undefined) =>
-        model.signals.get(id ?? '')?.number ?? '?'
       return tape(
         (s.setsUp.length
-          ? `↗ sets up ${num(s.setsUp[0].payoffSceneId)}`
-          : `↘ pays off ${num(s.paysOff[0].setupSceneId)}`) + more,
+          ? `↗ sets up ${cardNumber(model, s.setsUp[0].payoffSceneId)}`
+          : `↘ pays off ${cardNumber(model, s.paysOff[0].setupSceneId)}`) +
+          more,
       )
     }
     case 'secret':
@@ -726,9 +937,11 @@ export function highlightTape(
       )
     case 'continuity':
       return tape(
-        s.storyNotes.some((n) => n.kind === 'continuity')
-          ? '⚑ continuity'
-          : null,
+        s.orderNotes.length
+          ? '⚠ order'
+          : s.storyNotes.some((n) => n.kind === 'continuity')
+            ? '⚑ continuity'
+            : null,
       )
     case 'acts':
       return tape(
@@ -757,15 +970,16 @@ export function highlightTape(
   }
 }
 
-/** Matches for N and Fold: 'none' → the scene has a story note; else
- * highlightTape !== null. */
+/** Matches for N and Fold: 'none' → the scene has a story note or an Order
+ * note; else highlightTape !== null. */
 export function matchesHighlight(
   model: BoardModel,
   sceneId: string,
   highlight: Highlight,
 ): boolean {
+  const s = model.signals.get(sceneId)
   return highlight.kind === 'none'
-    ? !!model.signals.get(sceneId)?.storyNotes.length
+    ? !!(s?.storyNotes.length || s?.orderNotes.length)
     : highlightTape(model, sceneId, highlight) !== null
 }
 

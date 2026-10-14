@@ -20,6 +20,9 @@ import { expect, test } from '@playwright/test'
 test('reorder scene-4 before scene-3 (cross-act drag) persists after reload', async ({
   page,
 }) => {
+  // Under the sticky bar and chart, 720px can't show both rows: dragTo then
+  // scrolls the target in after mousedown, and Chromium drops the drag.
+  await page.setViewportSize({ width: 1280, height: 900 })
   await page.goto('/plan?project=proj-longpour')
 
   const actOne = page.getByTestId('act-frame-1') // ACT ONE: scene-2, scene-3 in the seeded fixture
@@ -358,4 +361,84 @@ test('Esc shows the Episode view, and Story Layers is gone (T3.6)', async ({
       .getByRole('group', { name: 'Highlight' })
       .getByRole('button', { name: /Who's in it/ }),
   ).toHaveAttribute('aria-pressed', 'true')
+})
+
+test('an act change that plays a payoff first shows the Order note, and Undo the move restores the order (T3.7)', async ({
+  page,
+  request,
+}) => {
+  // The fixture has no threads: seed one (setup scene-2 → payoff scene-5) and
+  // clear it again whatever happens, so later specs see the fixture's [].
+  const threads = (value: unknown[]) =>
+    request.patch('/api/v1/projects/proj-longpour', {
+      data: [{ op: 'replace', path: '/seasons/0/episodes/0/threads', value }],
+    })
+  const seeded = await threads([
+    {
+      id: 'thread-e2e-cash',
+      label: 'The moved cash',
+      summary: 'Dan moves the cash; later the count comes up short.',
+      status: 'paid_off',
+      ownerCharacterIds: [],
+      setupSceneId: 'scene-2',
+      payoffSceneId: 'scene-5',
+      setupQuote: '',
+      payoffQuote: '',
+      setupBeatId: null,
+      payoffBeatId: null,
+      locked: false,
+    },
+  ])
+  expect(seeded.ok()).toBeTruthy()
+  try {
+    await page.goto('/plan?project=proj-longpour')
+    const arc = page.getByTestId('chart-arc-thread-e2e-cash')
+    await expect(arc).toHaveAttribute('data-tone', 'sky')
+    await page.getByTestId('scene-card-scene-5').click()
+    const inspector = page.getByTestId('inspector')
+
+    // The cold open plays before scene-2's act: the payoff now comes first.
+    await inspector.getByRole('combobox', { name: 'Act' }).selectOption('0')
+    await expect(
+      page.getByTestId('act-frame-0').getByTestId('scene-card-scene-5'),
+    ).toBeVisible()
+    // The strip opened itself (scene-5 also keeps plan-notes.spec's note).
+    const orderNote = inspector.getByText(/before its setup in scene 2/)
+    await expect(orderNote).toBeVisible()
+    await expect(arc).toHaveAttribute('data-tone', 'amber')
+    await expect(page.getByTestId('scene-card-scene-2')).toContainText(
+      '⚠ order with 5',
+    )
+
+    await inspector.getByRole('button', { name: 'Undo the move' }).click()
+    await expect(orderNote).toHaveCount(0)
+    await expect(
+      page.getByTestId('act-frame-0').getByTestId('scene-card-scene-5'),
+    ).toHaveCount(0)
+    await expect(arc).toHaveAttribute('data-tone', 'sky')
+    await expect(page.getByTestId('plan-live')).toContainText('Move undone.')
+
+    await page.reload() // undone on the server, not just on screen
+    await expect(
+      page.getByTestId('act-frame-0').getByTestId('scene-card-scene-5'),
+    ).toHaveCount(0)
+  } finally {
+    await threads([])
+  }
+})
+
+test('the episode chart draws a block per scene and a block selects its scene (T3.7)', async ({
+  page,
+}) => {
+  await page.goto('/plan?project=proj-longpour')
+  const chart = page.getByTestId('episode-chart')
+  await expect(chart.locator('[data-chart-block]')).toHaveCount(6)
+  await expect(chart.locator('svg')).toHaveAttribute('aria-hidden', 'true')
+  await expect(chart).toContainText('the board below lists every scene')
+
+  await chart.getByTestId('chart-block-scene-3').click()
+  await expect(page.getByTestId('scene-card-scene-3')).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  )
 })

@@ -14,6 +14,7 @@ import {
   suggestInstructions,
 } from '../api/client'
 import { saveLedgerView } from '../ledger/viewPreference'
+import { plural } from '../projects/wizard/board/boardText'
 import { requireProjectId } from '../projects/projectRouting'
 import { loadResume, saveResume } from '../projects/resumeContext'
 import { navigateToReview, stashChangeSet } from '../review/changeSetSession'
@@ -27,6 +28,7 @@ import {
 import { Toast } from '../shell/Toast'
 import { lockedObjectMessage, staleHeadMessage } from '../shell/toastCopy'
 import { Board, type PlanSelection } from './Board'
+import { EpisodeChart } from './EpisodeChart'
 import { GuidedSetup } from './GuidedSetup'
 import { HighlightBar } from './HighlightBar'
 import { needsGuidedSetup } from './needsGuidedSetup'
@@ -42,16 +44,16 @@ import {
   usePlanDraftStore,
 } from './panel/usePlanDrafts'
 import {
+  applySceneMove,
   buildBeatPatch,
   buildEpisodePatch,
   buildProjectFieldPatch,
-  buildSceneSwapPatch,
   buildScenePatch,
-  swapScenesLocally,
   withBeatField,
   withEpisodeField,
   withProjectField,
   withSceneField,
+  type SceneMove,
 } from './planTree'
 import {
   boardModel,
@@ -59,13 +61,17 @@ import {
   NO_HIGHLIGHT,
   nextMatchId,
   notesForScene,
+  predictMove,
   selectionAnnouncement,
   type Highlight,
 } from './story'
 import { useCollapsedActs } from './useCollapsedActs'
 import { usePlanKeys } from './usePlanKeys'
 import { useProjectPatch } from './useProjectPatch'
+import { useUndoMove } from './useUndoMove'
 import { allScenes, findScene } from '../write/projectTree'
+
+const NO_IDS: ReadonlySet<string> = new Set()
 
 function useUrlParam(name: string): string | null {
   return useMemo(
@@ -187,27 +193,39 @@ export function PlanScreen() {
     onProject: setProject,
     onFlags: setOpenFlags,
   })
+  const undoMove = useUndoMove({
+    projectId: activeProjectId,
+    headSnapshotId: project?.headSnapshotId ?? null,
+    onProject: setProject,
+  })
   const leave = useLeaveGuard(drafts)
   // One "a write is in flight" flag for every control: a field save, a lock,
-  // a reorder, a dismiss or its undo, and an Open Review (no draft may appear
-  // while it runs, or it would block the way to Review).
-  const busy = patcher.pending || dismissal.busy || openingReview
-  // Dismiss and its Undo unmount the focused button (the note, the strip,
-  // the toast): once they finish, focus goes to the strip's Show/Hide, else
-  // the toast's Undo — never <body>.
+  // a move or its undo, a dismiss or its undo, and an Open Review (no draft
+  // may appear while it runs, or it would block the way to Review).
+  const busy =
+    patcher.pending || dismissal.busy || undoMove.busy || openingReview
+  // Dismiss, its Undo and Undo the move unmount the focused button (the note,
+  // the strip, the toast), whether they succeed or fail: once they finish
+  // (after the commit), focus goes to the strip's Show/Hide, else the toast's
+  // Undo, else the panel heading — never <body>, and never away from
+  // something the writer focused meanwhile.
   const refocusNotes = useRef(false)
   const undoDismissRef = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
-    if (dismissal.busy || !refocusNotes.current) return
+    if (dismissal.busy || undoMove.busy || !refocusNotes.current) return
     refocusNotes.current = false
     if (document.activeElement && document.activeElement !== document.body)
       return
     const toggle = document.querySelector<HTMLElement>(
       '#plan-section-notes button[aria-expanded]',
     )
-    ;(toggle ?? undoDismissRef.current)?.focus()
-  }, [dismissal.busy])
+    ;(
+      toggle ??
+      undoDismissRef.current ??
+      document.querySelector<HTMLElement>('[data-testid="inspector"] h2')
+    )?.focus()
+  }, [dismissal.busy, undoMove.busy])
 
   // MVP: exactly one season, one episode (data contract §1).
   const episode = project?.seasons[0]?.episodes[0]
@@ -331,11 +349,49 @@ export function PlanScreen() {
     },
   })
 
-  function handleReorder(draggedId: string, targetId: string) {
-    if (!project) return
-    const ops = buildSceneSwapPatch(project, draggedId, targetId)
-    if (!ops) return
-    void patcher.patch(ops, swapScenesLocally(project, draggedId, targetId))
+  /** A chart block selects its scene and brings the card into view; focus
+   * stays where it was. */
+  const selectFromChart = (sceneId: string) => {
+    selectScene(sceneId)
+    requestAnimationFrame(() =>
+      cardEl(sceneId)?.scrollIntoView({ block: 'nearest' }),
+    )
+  }
+
+  /** A swap or an act change: one PATCH, one snapshot (rule 4). The problems
+   * it adds show at once from the optimistic doc; Undo the move is offered
+   * once the server has made this move the head. */
+  function applyMove(move: SceneMove): Promise<boolean> {
+    if (!project) return Promise.resolve(false)
+    const applied = applySceneMove(project, move)
+    if (!applied) return Promise.resolve(false)
+    const fresh = predictMove(project, move)
+    // A failed move leaves the previous one the head: give its offer back.
+    const prev = undoMove.move
+    undoMove.setMove({ issueIds: fresh.map((i) => i.id), head: null })
+    if (fresh.length)
+      announce(`Moved. ${plural(fresh.length, 'new order problem')}.`)
+    const result = patcher
+      .patch(applied.ops, applied.next, (saved) =>
+        undoMove.setMove((m) => m && { ...m, head: saved.headSnapshotId }),
+      )
+      .then((ok) => {
+        if (!ok) undoMove.setMove(prev)
+        return ok
+      })
+    // The optimistic doc is on screen by the next frame: bring the selected
+    // card back into view below the sticky header. Focus stays put.
+    if (selectedId)
+      requestAnimationFrame(() =>
+        cardEl(selectedId)?.scrollIntoView({ block: 'nearest' }),
+      )
+    return result
+  }
+
+  /** Undo the move unmounts its own button, done or not: refocusNotes. */
+  function undoTheMove() {
+    refocusNotes.current = true
+    void undoMove.undo().then((ok) => ok && announce('Move undone.'))
   }
 
   // Every Plan save and lock flip is one direct-edit PATCH and one snapshot
@@ -346,6 +402,8 @@ export function PlanScreen() {
     field: K,
     value: Scene[K],
   ): Promise<boolean> {
+    if (field === 'act')
+      return applyMove({ type: 'act', sceneId, act: Number(value) })
     if (!project) return Promise.resolve(false)
     const ops = buildScenePatch(project, sceneId, field, value)
     if (!ops) return Promise.resolve(false)
@@ -531,6 +589,15 @@ export function PlanScreen() {
   const sceneNotes = selectedScene
     ? notesForScene(openFlags, selectedScene)
     : []
+  const orderNotes = selectedScene
+    ? (model.signals.get(selectedScene.id)?.orderNotes ?? [])
+    : []
+  // The last move's new problems on this scene open the strip: the key
+  // remounts it open (and again on a return while that move is the last).
+  const fresh = undoMove.move?.issueIds ?? []
+  const freshHere = orderNotes
+    .filter((n) => fresh.includes(n.issue.id))
+    .map((n) => n.issue.id)
 
   return (
     <PlanDraftsContext.Provider value={drafts}>
@@ -586,6 +653,11 @@ export function PlanScreen() {
               {dismissal.error}
             </Toast>
           )}
+          {undoMove.error && (
+            <Toast tone="danger" onDismiss={undoMove.clearError}>
+              {undoMove.error}
+            </Toast>
+          )}
           {dismissal.undoable && !dismissal.error && !patcher.error && (
             <Toast onDismiss={dismissal.clearUndo}>
               Note dismissed.{' '}
@@ -614,7 +686,9 @@ export function PlanScreen() {
               draftSceneIds={drafts.dirtySceneIds}
               onSelectScene={selectScene}
               onOpenInWrite={(sceneId) => openInWrite(sceneId)}
-              onReorder={handleReorder}
+              onReorder={(sceneId, targetSceneId) =>
+                void applyMove({ type: 'swap', sceneId, targetSceneId })
+              }
               onMoveToAct={(sceneId, act) =>
                 void saveSceneField(sceneId, 'act', act)
               }
@@ -624,15 +698,26 @@ export function PlanScreen() {
                   .querySelector<HTMLElement>('[data-testid="inspector"] h2')
                   ?.focus()
               }
+              predict={(move) => predictMove(project, move)}
               header={
-                <HighlightBar
-                  model={model}
-                  highlight={highlight}
-                  fold={fold}
-                  onHighlight={changeHighlight}
-                  onToggleFold={toggleFold}
-                  onNext={() => next(1)}
-                />
+                <>
+                  <HighlightBar
+                    model={model}
+                    highlight={highlight}
+                    fold={fold}
+                    onHighlight={changeHighlight}
+                    onToggleFold={toggleFold}
+                    onNext={() => next(1)}
+                  />
+                  <EpisodeChart
+                    model={model}
+                    selectedId={selectedId}
+                    highlight={highlight}
+                    draftSceneIds={drafts.dirtySceneIds}
+                    episodeLocked={episode.locked}
+                    onSelectScene={selectFromChart}
+                  />
+                </>
               }
               highlight={highlight}
               fold={fold}
@@ -694,12 +779,18 @@ export function PlanScreen() {
                 onOpenInWrite={(sceneId) => openInWrite(sceneId)}
                 onOpenBeatInWrite={openInWrite}
                 onOpenFact={navigateToLedgerFact}
-                noteCount={sceneNotes.length}
+                noteCount={sceneNotes.length + orderNotes.length}
                 notes={(showBeat) => (
                   <NotesStrip
-                    key={selectedScene.id}
+                    key={`${selectedScene.id}:${freshHere.join(' ')}`}
+                    defaultExpanded={freshHere.length > 0}
                     scene={selectedScene}
                     notes={sceneNotes}
+                    orderNotes={orderNotes}
+                    undoableIssueIds={
+                      undoMove.undoable ? new Set(fresh) : NO_IDS
+                    }
+                    onUndoMove={undoTheMove}
                     scenes={episode.scenes}
                     ledger={ledger}
                     busy={busy}

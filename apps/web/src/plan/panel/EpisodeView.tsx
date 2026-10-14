@@ -9,7 +9,6 @@ import {
   noteSentence,
   type BoardModel,
   type Highlight,
-  type PlanNote,
   type SceneSignals,
 } from '../story'
 import { PanelSection } from './PanelSection'
@@ -72,26 +71,31 @@ function SceneRow({
   )
 }
 
+interface NoteLine {
+  key: string
+  text: string
+}
+
 function NoteRows({
   model,
   pick,
   onSelect,
 }: {
   model: BoardModel
-  pick: (s: SceneSignals) => PlanNote[]
+  pick: (s: SceneSignals) => NoteLine[]
   onSelect: (sceneId: string) => void
 }) {
   return (
     <>
       {model.order.map((scene) => {
         const s = model.signals.get(scene.id)
-        const notes = s ? pick(s) : []
-        if (!s || !notes.length) return null
+        const lines = s ? pick(s) : []
+        if (!s || !lines.length) return null
         return (
           <SceneRow key={scene.id} signals={s} onSelect={onSelect}>
-            {notes.map((note) => (
-              <span key={note.flag.id} className="block text-12">
-                {noteSentence(note, scene, model.order)}
+            {lines.map((line) => (
+              <span key={line.key} className="block text-12">
+                {line.text}
               </span>
             ))}
           </SceneRow>
@@ -131,7 +135,22 @@ export function EpisodeView({
   const secrets = episode.secrets ?? []
   const cast = castCounts(model)
   const signals = [...model.signals.values()]
-  const notedScenes = signals.filter((s) => s.storyNotes.length).length
+  const storyLines = (s: SceneSignals): NoteLine[] => [
+    // An Order note is listed once, on the scene that is out of order.
+    ...s.orderNotes
+      .filter((n) => n.issue.sceneId === s.scene.id)
+      .map((n) => ({ key: n.issue.id, text: `Order: ${n.text}` })),
+    ...s.storyNotes.map((note) => ({
+      key: note.flag.id,
+      text: noteSentence(note, s.scene, model.order),
+    })),
+  ]
+  const importLines = (s: SceneSignals): NoteLine[] =>
+    s.importNotes.map((note) => ({
+      key: note.flag.id,
+      text: noteSentence(note, s.scene, model.order),
+    }))
+  const notedScenes = signals.filter((s) => storyLines(s).length).length
   const importCount = signals.reduce((n, s) => n + s.importNotes.length, 0)
 
   const section = (
@@ -353,7 +372,7 @@ export function EpisodeView({
           <div className="flex flex-col items-start gap-1">
             <NoteRows
               model={model}
-              pick={(s) => s.storyNotes}
+              pick={storyLines}
               onSelect={onSelectScene}
             />
             {importCount > 0 && (
@@ -366,7 +385,7 @@ export function EpisodeView({
                 <div className="flex flex-col items-start gap-1 pl-2">
                   <NoteRows
                     model={model}
-                    pick={(s) => s.importNotes}
+                    pick={importLines}
                     onSelect={onSelectScene}
                   />
                 </div>

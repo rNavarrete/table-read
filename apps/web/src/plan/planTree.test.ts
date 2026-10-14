@@ -13,6 +13,7 @@ import {
   actNumbersForBoard,
   actNumbersForFormat,
   affectedFacts,
+  applySceneMove,
   buildBeatPatch,
   buildScenePatch,
   buildSceneSwapPatch,
@@ -227,6 +228,58 @@ describe('swapScenesLocally (optimistic twin of buildSceneSwapPatch)', () => {
   it('is a no-op (returns the same project) for a self-drop', () => {
     const p = project(fixtureLikeScenes())
     expect(swapScenesLocally(p, 'scene-3', 'scene-3')).toBe(p)
+  })
+})
+
+describe('applySceneMove', () => {
+  it("a swap is buildSceneSwapPatch's ops with swapScenesLocally's doc", () => {
+    const p = project(fixtureLikeScenes())
+    expect(
+      applySceneMove(p, {
+        type: 'swap',
+        sceneId: 'scene-4',
+        targetSceneId: 'scene-3',
+      }),
+    ).toEqual({
+      ops: buildSceneSwapPatch(p, 'scene-4', 'scene-3'),
+      next: swapScenesLocally(p, 'scene-4', 'scene-3'),
+    })
+  })
+
+  it("an act change is one replace of …/act with withSceneField's doc", () => {
+    const p = project(fixtureLikeScenes())
+    expect(
+      applySceneMove(p, { type: 'act', sceneId: 'scene-5', act: 0 }),
+    ).toEqual({
+      ops: [
+        { op: 'replace', path: '/seasons/0/episodes/0/scenes/4/act', value: 0 },
+      ],
+      next: withSceneField(p, 'scene-5', 'act', 0),
+    })
+  })
+
+  it('nothing to move is null', () => {
+    const p = project(fixtureLikeScenes())
+    expect(
+      applySceneMove(p, { type: 'act', sceneId: 'scene-nope', act: 0 }),
+    ).toBeNull()
+    expect(
+      applySceneMove(p, {
+        type: 'swap',
+        sceneId: 'scene-nope',
+        targetSceneId: 'scene-3',
+      }),
+    ).toBeNull()
+    expect(
+      applySceneMove(p, {
+        type: 'swap',
+        sceneId: 'scene-3',
+        targetSceneId: 'scene-3',
+      }),
+    ).toBeNull()
+    expect(
+      applySceneMove(p, { type: 'act', sceneId: 'scene-3', act: 1 }),
+    ).toBeNull()
   })
 })
 
