@@ -209,7 +209,7 @@ const nth = (n: number) => `${n}${SUFFIX[ORDINAL.select(n)] ?? 'th'}`
  * "scene 3" as the id scene-3 (linkifyNote). So a scene is never "scene n"
  * here, and a beat never "beat n.m": "the Basement scene (3rd on the board)",
  * "the 1st beat of …". After a reorder a card number and an id number differ.
- * DESIGN-GAP(T3.9): owner to confirm this wording (plan Default 1). */
+ * Wording confirmed by the owner on 2026-10-14. */
 export function fixInstruction(
   note: PlanNote,
   scene: Scene,
