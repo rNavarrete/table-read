@@ -631,3 +631,172 @@ export function selectionAnnouncement(
       : plural(notes, 'note')
   return `Scene ${signals.number}, ${signals.place}${locked ? ', locked' : ''}. ${noteText}.`
 }
+
+// ── Highlights ──────────────────────────────────────────────────────────
+
+export type HighlightKind =
+  'none' | 'threads' | 'secret' | 'continuity' | 'acts' | 'who'
+export interface Highlight {
+  kind: HighlightKind
+  /** Character id for Who's in it; null otherwise or before one is chosen. */
+  who: string | null
+}
+export const NO_HIGHLIGHT: Highlight = { kind: 'none', who: null }
+
+/** Bar order and labels. */
+export const HIGHLIGHT_LABELS: Record<HighlightKind, string> = {
+  none: 'None',
+  threads: 'Setups & payoffs',
+  secret: 'The secret',
+  continuity: 'Continuity',
+  acts: 'Act shape',
+  who: "Who's in it",
+}
+
+/** Ring hue per highlight; a matching card's tape wears it too (except the
+ * amber "never paid off"). */
+export const HIGHLIGHT_TONE: Record<
+  Exclude<HighlightKind, 'none'>,
+  TapeTone
+> = {
+  threads: 'sky',
+  secret: 'secret',
+  continuity: 'amber',
+  acts: 'accent',
+  who: 'sky',
+}
+
+/** The tape a matching card wears (spec §4.5 table); null = no match. Always
+ * null for 'none'. Threads follow boardModel's rule: abandoned threads never
+ * tape, a payoff whose setup scene is missing is skipped. */
+export function highlightTape(
+  model: BoardModel,
+  sceneId: string,
+  highlight: Highlight,
+): CardTape | null {
+  const s = model.signals.get(sceneId)
+  if (!s || highlight.kind === 'none') return null
+  const tone = HIGHLIGHT_TONE[highlight.kind]
+  const tape = (text: string | null) => (text ? { text, tone } : null)
+  switch (highlight.kind) {
+    case 'threads': {
+      const total = s.setsUp.length + s.paysOff.length
+      if (!total) return null
+      const more = total > 1 ? ` +${total - 1}` : ''
+      if (s.neverPaidOff)
+        return { text: `↗ never paid off${more}`, tone: 'amber' }
+      const num = (id: string | null | undefined) =>
+        model.signals.get(id ?? '')?.number ?? '?'
+      return tape(
+        (s.setsUp.length
+          ? `↗ sets up ${num(s.setsUp[0].payoffSceneId)}`
+          : `↘ pays off ${num(s.paysOff[0].setupSceneId)}`) + more,
+      )
+    }
+    case 'secret':
+      return tape(
+        s.secret === 'out' ? '◇ out' : s.secret ? `◆ ${s.secret}` : null,
+      )
+    case 'continuity':
+      return tape(
+        s.storyNotes.some((n) => n.kind === 'continuity')
+          ? '⚑ continuity'
+          : null,
+      )
+    case 'acts':
+      return tape(
+        s.landmark?.toUpperCase() ??
+          (s.actOut
+            ? 'ACT OUT'
+            : s.storyNotes.some((n) => n.kind === 'act_split')
+              ? 'ACT SPLIT?'
+              : null),
+      )
+    case 'who': {
+      // ponytail: presence = a dialogue cue or a recorded want; a character
+      // who is in the scene but never speaks and wants nothing is missed.
+      // Labelled "from dialogue cues and recorded wants" wherever it shows.
+      const who = highlight.who
+      const c =
+        who && s.castIds.includes(who)
+          ? model.characters.find((ch) => ch.id === who)
+          : undefined
+      return tape(
+        c
+          ? c.name.toUpperCase() + (s.wantIds.includes(c.id) ? ' · wants' : '')
+          : null,
+      )
+    }
+  }
+}
+
+/** Matches for N and Fold: 'none' → the scene has a story note; else
+ * highlightTape !== null. */
+export function matchesHighlight(
+  model: BoardModel,
+  sceneId: string,
+  highlight: Highlight,
+): boolean {
+  return highlight.kind === 'none'
+    ? !!model.signals.get(sceneId)?.storyNotes.length
+    : highlightTape(model, sceneId, highlight) !== null
+}
+
+/** Scenes that match ("every count means scenes that match"). */
+export function highlightCount(
+  model: BoardModel,
+  highlight: Highlight,
+): number {
+  return model.order.filter((s) => matchesHighlight(model, s.id, highlight))
+    .length
+}
+
+/** Characters in at least one scene (castIds), most scenes first, bible order
+ * on ties. */
+export function castCounts(
+  model: BoardModel,
+): { character: Character; scenes: number }[] {
+  const signals = [...model.signals.values()]
+  return model.characters
+    .map((character) => ({
+      character,
+      scenes: signals.filter((s) => s.castIds.includes(character.id)).length,
+    }))
+    .filter((row) => row.scenes > 0)
+    .sort((a, b) => b.scenes - a.scenes) // stable: ties keep bible order
+}
+
+/** "Highlight: Setups and payoffs. 19 scenes match." / "… 1 scene matches." /
+ * "Highlight off." (spec §4.10); Who's in it reads the character's name. */
+export function highlightAnnouncement(
+  model: BoardModel,
+  highlight: Highlight,
+): string {
+  if (highlight.kind === 'none') return 'Highlight off.'
+  const name =
+    (highlight.kind === 'who' &&
+      model.characters.find((c) => c.id === highlight.who)?.name) ||
+    HIGHLIGHT_LABELS[highlight.kind].replace('&', 'and')
+  const count = highlightCount(model, highlight)
+  return `Highlight: ${name}. ${count === 1 ? '1 scene matches' : `${count} scenes match`}.`
+}
+
+/** The next (dir 1) or previous (-1) scene in board order after
+ * `fromSceneId` that matches, wrapping; from nothing (or a scene not on the
+ * board), the first (or last). null when none. */
+export function nextMatchId(
+  model: BoardModel,
+  fromSceneId: string | null,
+  dir: 1 | -1,
+  highlight: Highlight,
+): string | null {
+  const { order } = model
+  const n = order.length
+  const at = order.findIndex((s) => s.id === fromSceneId)
+  const start = at >= 0 ? at : dir === 1 ? -1 : n
+  for (let k = 1; k <= n; k++) {
+    const id = order[(((start + dir * k) % n) + n) % n].id
+    if (matchesHighlight(model, id, highlight)) return id
+  }
+  return null
+}
