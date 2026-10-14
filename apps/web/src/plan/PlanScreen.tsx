@@ -204,22 +204,28 @@ export function PlanScreen() {
   // may appear while it runs, or it would block the way to Review).
   const busy =
     patcher.pending || dismissal.busy || undoMove.busy || openingReview
-  // Dismiss and its Undo unmount the focused button (the note, the strip,
-  // the toast): once they finish, focus goes to the strip's Show/Hide, else
-  // the toast's Undo — never <body>.
+  // Dismiss, its Undo and Undo the move unmount the focused button (the note,
+  // the strip, the toast), whether they succeed or fail: once they finish
+  // (after the commit), focus goes to the strip's Show/Hide, else the toast's
+  // Undo, else the panel heading — never <body>, and never away from
+  // something the writer focused meanwhile.
   const refocusNotes = useRef(false)
   const undoDismissRef = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
-    if (dismissal.busy || !refocusNotes.current) return
+    if (dismissal.busy || undoMove.busy || !refocusNotes.current) return
     refocusNotes.current = false
     if (document.activeElement && document.activeElement !== document.body)
       return
     const toggle = document.querySelector<HTMLElement>(
       '#plan-section-notes button[aria-expanded]',
     )
-    ;(toggle ?? undoDismissRef.current)?.focus()
-  }, [dismissal.busy])
+    ;(
+      toggle ??
+      undoDismissRef.current ??
+      document.querySelector<HTMLElement>('[data-testid="inspector"] h2')
+    )?.focus()
+  }, [dismissal.busy, undoMove.busy])
 
   // MVP: exactly one season, one episode (data contract §1).
   const episode = project?.seasons[0]?.episodes[0]
@@ -360,6 +366,8 @@ export function PlanScreen() {
     const applied = applySceneMove(project, move)
     if (!applied) return Promise.resolve(false)
     const fresh = predictMove(project, move)
+    // A failed move leaves the previous one the head: give its offer back.
+    const prev = undoMove.move
     undoMove.setMove({ issueIds: fresh.map((i) => i.id), head: null })
     if (fresh.length)
       announce(`Moved. ${plural(fresh.length, 'new order problem')}.`)
@@ -368,26 +376,15 @@ export function PlanScreen() {
         undoMove.setMove((m) => m && { ...m, head: saved.headSnapshotId }),
       )
       .then((ok) => {
-        if (!ok) undoMove.setMove(null)
+        if (!ok) undoMove.setMove(prev)
         return ok
       })
   }
 
-  /** Undo the move unmounts its own button (the note clears): focus goes to
-   * the strip's Show/Hide, else the panel heading. */
+  /** Undo the move unmounts its own button, done or not: refocusNotes. */
   function undoTheMove() {
-    void undoMove.undo().then((ok) => {
-      if (!ok) return
-      announce('Move undone.')
-      requestAnimationFrame(() =>
-        (
-          document.querySelector<HTMLElement>(
-            '#plan-section-notes button[aria-expanded]',
-          ) ??
-          document.querySelector<HTMLElement>('[data-testid="inspector"] h2')
-        )?.focus(),
-      )
-    })
+    refocusNotes.current = true
+    void undoMove.undo().then((ok) => ok && announce('Move undone.'))
   }
 
   // Every Plan save and lock flip is one direct-edit PATCH and one snapshot

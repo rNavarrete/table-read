@@ -435,6 +435,9 @@ export function orderIssues(episode: Episode): OrderIssue[] {
     if (revealed !== undefined && revealed < set)
       add('revealed_first', x.id, null, reveal, x.establishedSceneId)
     for (const kept of new Set(x.concealmentSceneIds ?? [])) {
+      // The endpoints are already covered by revealed_first (and are never
+      // out of order otherwise): one misplaced scene, one problem.
+      if (kept === x.establishedSceneId || kept === reveal) continue
       const k = pos.get(kept)
       if (k === undefined) continue
       if (revealed !== undefined && k > revealed)

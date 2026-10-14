@@ -270,6 +270,23 @@ describe('chartLayout', () => {
     expect(bands[1].x0).toBe(s2.x)
     expect(bands[1].x1).toBeCloseTo(s4.x + s4.w)
   })
+
+  it('a band over 170px adds its scene count and ≈ share after the label', () => {
+    const { bands } = chartLayout(
+      model(six([100, 100, 100, 100, 100, 100])),
+      960,
+    )
+    // Act One has two of the six (equal) scenes: ~305px; the others ~152px.
+    expect(bands.map((b) => b.detail)).toEqual([
+      null,
+      ' · 2 scenes · ≈33%',
+      null,
+      null,
+      null,
+    ])
+    // No script: no share.
+    expect(chartLayout(model(six()), 960).bands[1].detail).toBe(' · 2 scenes')
+  })
 })
 
 describe('chartMarks', () => {
@@ -442,12 +459,15 @@ describe('EpisodeChart', () => {
   it('draws one block per scene in board order inside act bands', () => {
     renderChart()
     expect(flagged('data-chart-block')).toEqual(SIX_IDS)
-    const bands = [...chart().querySelectorAll('[data-chart-band]')].map(
-      (el) => el.lastChild?.textContent,
+    const bands = [...chart().querySelectorAll('[data-chart-band]')].map((el) =>
+      [...el.childNodes]
+        .filter((n) => n.nodeName !== 'title')
+        .map((n) => n.textContent)
+        .join(''),
     )
     expect(bands).toEqual([
       'COLD OPEN',
-      'ACT ONE',
+      'ACT ONE · 2 scenes',
       'ACT TWO',
       'ACT THREE',
       'ACT FOUR',
@@ -545,6 +565,51 @@ describe('EpisodeChart', () => {
     expect(
       screen.getByTestId('chart-lane-secret-1').getAttribute('data-tone'),
     ).toBe('amber')
+  })
+
+  it('each secret gets its own lane, the chart grows to fit, and an amber lane paints last', () => {
+    renderChart({
+      model: model(six(), {
+        secrets: [
+          // Kept after it is out: amber.
+          secret({
+            id: 'secret-a',
+            establishedSceneId: 'scene-1',
+            revealedSceneId: 'scene-3',
+            concealmentSceneIds: ['scene-5'],
+          }),
+          secret({ id: 'secret-b', establishedSceneId: 'scene-2' }),
+        ],
+      }),
+    })
+    const y = (id: string) =>
+      screen
+        .getByTestId(`chart-lane-${id}`)
+        .querySelector('line')
+        ?.getAttribute('y1')
+    expect([y('secret-a'), y('secret-b')]).toEqual(['74', '82'])
+    const svg = chart().querySelector('svg')!
+    expect(svg.getAttribute('height')).toBe('92')
+    expect(svg.getAttribute('viewBox')).toBe('0 0 960 92')
+    expect(
+      [...svg.querySelectorAll('[data-testid^="chart-lane-"]')].map((el) =>
+        el.getAttribute('data-tone'),
+      ),
+    ).toEqual(['secret', 'amber'])
+  })
+
+  it('measures its width before the first paint', () => {
+    const spy = vi
+      .spyOn(HTMLElement.prototype, 'clientWidth', 'get')
+      .mockReturnValue(840)
+    try {
+      renderChart()
+      expect(chart().querySelector('svg')?.getAttribute('viewBox')).toBe(
+        '0 0 840 84',
+      )
+    } finally {
+      spy.mockRestore()
+    }
   })
 
   it('a story note or an order problem draws an amber top rule; a draft draws a coral dot; a locked scene is underlined', () => {

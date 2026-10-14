@@ -1367,6 +1367,49 @@ describe('PlanScreen order check (T3.7)', () => {
     ).not.toBeNull()
     expect(screen.getByTestId('plan-live').textContent).toBe('Move undone.')
     expect(getProjectMock).toHaveBeenCalledTimes(1)
+    // Its button is gone with the note: focus lands in the panel, not <body>.
+    await waitFor(() =>
+      expect(
+        screen.getByTestId('inspector').contains(document.activeElement),
+      ).toBe(true),
+    )
+  })
+
+  it('Undo the move leaves focus where the writer put it while it ran', async () => {
+    const user = userEvent.setup()
+    patchProjectMock.mockResolvedValue(moved(orderProject()))
+    const request = deferred<Project>()
+    undoProjectMock.mockReturnValue(request.promise)
+    await moveScene5ToColdOpen(user)
+
+    await user.click(
+      await within(strip()).findByRole('button', { name: 'Undo the move' }),
+    )
+    const card = screen.getByTestId('scene-card-scene-3')
+    act(() => card.focus())
+    await act(async () => request.resolve(orderProject()))
+    await act(() => new Promise((r) => requestAnimationFrame(r)))
+
+    expect(screen.getByTestId('plan-live').textContent).toBe('Move undone.')
+    expect(document.activeElement).toBe(card)
+  })
+
+  it('a failed move gives the previous move its Undo back', async () => {
+    const user = userEvent.setup()
+    patchProjectMock
+      .mockResolvedValueOnce(moved(orderProject()))
+      .mockRejectedValueOnce(new Error('network down'))
+    await moveScene5ToColdOpen(user)
+    await within(strip()).findByRole('button', { name: 'Undo the move' })
+
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Act' }), '2')
+
+    expect(await screen.findByText('save failed')).not.toBeNull()
+    expect(patchProjectMock).toHaveBeenCalledTimes(2)
+    expect(strip().textContent).toContain(NOTE)
+    expect(
+      await within(strip()).findByRole('button', { name: 'Undo the move' }),
+    ).not.toBeNull()
   })
 
   it('Undo the move is gone once another edit moves the head; Go to scene n still selects', async () => {
@@ -1445,6 +1488,12 @@ describe('PlanScreen order check (T3.7)', () => {
 
     expect(await screen.findByText(UNDO_MOVE_STALE)).not.toBeNull()
     expect(undoButton()).toBeNull()
+    // The focused button went with the offer: focus lands on the strip.
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        within(strip()).getByRole('button', { name: /^(Show|Hide)$/ }),
+      ),
+    )
   })
 
   it("the chart sits in the board's sticky header and a block click selects its scene", async () => {

@@ -1113,6 +1113,25 @@ describe('orderIssues', () => {
     ).toEqual([])
   })
 
+  it('a reveal before its establishing scene is one problem, even when either end also keeps the secret', () => {
+    for (const kept of ['scene-3', 'scene-2'])
+      expect(
+        brief(
+          orderIssues(
+            episode(scenes(), {
+              secrets: [
+                secret({
+                  establishedSceneId: 'scene-3',
+                  revealedSceneId: 'scene-2',
+                  concealmentSceneIds: [kept],
+                }),
+              ],
+            }),
+          ),
+        ),
+      ).toEqual([['revealed_first', 'scene-2', 'scene-3']])
+  })
+
   it('reads a raw doc with no threads or secrets', () => {
     const raw = episode(scenes()) as unknown as Record<string, unknown>
     delete raw.threads

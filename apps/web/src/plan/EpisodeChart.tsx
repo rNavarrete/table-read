@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { plural } from '../projects/wizard/board/boardText'
 import {
   HIGHLIGHT_TONE,
@@ -26,6 +26,8 @@ export interface ChartBand {
   text: string
   /** The full label, for the band's <title>. */
   title: string
+  /** " · n scenes · ≈x%" after the label on a band over 170px wide, else null. */
+  detail: string | null
   x0: number
   x1: number
 }
@@ -42,7 +44,8 @@ const ACT_GAP = 12
 const GAP = 2
 const HEIGHT = 84
 const BASE = 48 // block top
-const LANE = 74 // secret lane
+const LANE = 74 // the first secret's lane
+const LANE_GAP = 8 // each further secret gets its own lane below
 const FALLBACK_WIDTH = 960
 
 /** Spec §4.4: act gaps of 12, block gaps of 2, a minimum of 6–12px per block
@@ -87,6 +90,10 @@ export function chartLayout(model: BoardModel, width: number): ChartLayout {
         act: act.act,
         title: act.label,
         text: x1 - x0 >= 72 ? act.label : act.short,
+        detail:
+          x1 - x0 > 170
+            ? ` · ${plural(act.scenes.length, 'scene')}${act.share != null ? ` · ≈${Math.round(act.share * 100)}%` : ''}`
+            : null,
         x0,
         x1,
       })
@@ -232,11 +239,14 @@ export function EpisodeChart({
   const ref = useRef<HTMLDivElement>(null)
   const [width, setWidth] = useState(FALLBACK_WIDTH)
   const empty = model.order.length === 0
-  // Re-run on `empty`: the wrapper mounts only once there are scenes. Width
-  // changes only through the observer; nothing listens to scroll.
-  useEffect(() => {
+  // Re-run on `empty`: the wrapper mounts only once there are scenes. Measured
+  // before the first paint (no 960px frame), then only through the observer;
+  // nothing listens to scroll.
+  useLayoutEffect(() => {
     const el = ref.current
-    if (!el || typeof ResizeObserver === 'undefined') return
+    if (!el) return
+    if (el.clientWidth) setWidth(Math.round(el.clientWidth))
+    if (typeof ResizeObserver === 'undefined') return
     const observer = new ResizeObserver(([entry]) =>
       setWidth(Math.round(entry.contentRect.width) || FALLBACK_WIDTH),
     )
@@ -260,14 +270,20 @@ export function EpisodeChart({
   }
   const anyNote = layout.blocks.some((b) => noted(b.sceneId))
   const anyOpen = marks.arcs.some((a) => a.payoffSceneId === null)
+  // One lane per secret, in episode order; amber lanes paint last so an order
+  // problem is never covered.
+  const lanes = marks.lanes
+    .map((lane, i) => ({ lane, y: LANE + i * LANE_GAP }))
+    .sort((a, b) => Number(a.lane.amber) - Number(b.lane.amber))
+  const height = HEIGHT + Math.max(0, marks.lanes.length - 1) * LANE_GAP
 
   return (
     <div data-testid="episode-chart" ref={ref} className="mt-1.5">
       <svg
         aria-hidden="true"
         width="100%"
-        height={HEIGHT}
-        viewBox={`0 0 ${width} ${HEIGHT}`}
+        height={height}
+        viewBox={`0 0 ${width} ${height}`}
         className="block overflow-visible"
       >
         {layout.bands.map((band) => (
@@ -280,6 +296,11 @@ export function EpisodeChart({
             >
               <title>{band.title}</title>
               {band.text}
+              {band.detail && (
+                <tspan className="font-normal tracking-normal">
+                  {band.detail}
+                </tspan>
+              )}
             </text>
             <line
               x1={band.x0}
@@ -424,7 +445,7 @@ export function EpisodeChart({
           )
         })}
 
-        {marks.lanes.map((lane) => {
+        {lanes.map(({ lane, y }) => {
           const on =
             (!!selectedId && lane.sceneIds.includes(selectedId)) ||
             lane.amber ||
@@ -442,8 +463,8 @@ export function EpisodeChart({
               <line
                 x1={lane.x0}
                 x2={lane.x1}
-                y1={LANE}
-                y2={LANE}
+                y1={y}
+                y2={y}
                 strokeWidth={1.25}
                 strokeDasharray={lane.out === null ? '3 3' : undefined}
                 className={
@@ -452,19 +473,19 @@ export function EpisodeChart({
               />
               <text
                 x={lane.set}
-                y={LANE + 4}
+                y={y + 4}
                 textAnchor="middle"
                 className={`text-11 ${fill}`}
               >
                 ◆
               </text>
               {lane.kept.map((cx, i) => (
-                <circle key={i} cx={cx} cy={LANE} r={2.2} className={fill} />
+                <circle key={i} cx={cx} cy={y} r={2.2} className={fill} />
               ))}
               {lane.out !== null && (
                 <text
                   x={lane.out}
-                  y={LANE + 4}
+                  y={y + 4}
                   textAnchor="middle"
                   className={`text-11 ${fill}`}
                 >
