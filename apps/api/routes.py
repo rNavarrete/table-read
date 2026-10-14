@@ -344,8 +344,8 @@ def patch_project(
 
       - **Locks are sacred (rule 2):** a patch that writes into locked content
         or structure is rejected 409 `LOCKED_OBJECT` before anything persists
-        (`locks.assert_no_locked_writes`). Unlocking and reindexing stay
-        allowed — see that guard's rule.
+        (`locks.assert_no_locked_writes`). Unlocking, and reindexing beats
+        in an unlocked scene, stay allowed — see that guard's rule.
       - **Structural plan fields** (scene `whatHappens`, `premise`, storyline
         summaries) additionally trigger `scan_consistency` and return
         `{project, consistencyFlags}` — the "Save field only" path skips

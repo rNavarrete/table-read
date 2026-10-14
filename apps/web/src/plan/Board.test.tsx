@@ -2,6 +2,7 @@
 import {
   act,
   cleanup,
+  createEvent,
   fireEvent,
   render,
   screen,
@@ -240,8 +241,7 @@ function renderBoard(overrides: Partial<ComponentProps<typeof Board>> = {}) {
       pending={false}
       onSelectScene={noop}
       onOpenInWrite={noop}
-      onReorder={noop}
-      onMoveToAct={noop}
+      onMove={noop}
       onToggleAct={noop}
       onEnterPanel={noop}
       {...overrides}
@@ -262,6 +262,15 @@ function dt() {
     getData: () => '',
     effectAllowed: 'move',
   } as unknown as DataTransfer
+}
+
+/** jsdom has no DragEvent, so fireEvent drops clientX: set it by hand. Its
+ * rects are all zero, so 0 is a card's left half and any positive x its
+ * right half. */
+function dragAt(type: 'dragOver' | 'drop', el: HTMLElement, clientX: number) {
+  const event = createEvent[type](el, { dataTransfer: dt() })
+  Object.defineProperty(event, 'clientX', { value: clientX })
+  return fireEvent(el, event)
 }
 
 describe('Board', () => {
@@ -301,10 +310,9 @@ describe('Board', () => {
     expect(onToggleAct).toHaveBeenCalledWith(1)
   })
 
-  it('an empty act says so and takes a drop as one act change', () => {
-    const onMoveToAct = vi.fn()
-    const onReorder = vi.fn()
-    renderBoard({ onMoveToAct, onReorder })
+  it('an empty act says so and takes a drop as an act move', () => {
+    const onMove = vi.fn()
+    renderBoard({ onMove })
     const frame = screen.getByTestId('act-frame-4')
     const empty = within(frame).getByText(
       'No scenes yet. Drag a card here, or use the Act control.',
@@ -316,17 +324,20 @@ describe('Board', () => {
     expect(frame.className).toContain('inset-ring-tr-sky')
     fireEvent.drop(empty, { dataTransfer: dt() })
 
-    expect(onMoveToAct).toHaveBeenCalledTimes(1)
-    expect(onMoveToAct).toHaveBeenCalledWith('scene-1', 4)
-    expect(onReorder).not.toHaveBeenCalled()
+    expect(onMove).toHaveBeenCalledTimes(1)
+    expect(onMove).toHaveBeenCalledWith({
+      type: 'act',
+      sceneId: 'scene-1',
+      act: 4,
+    })
     expect(frame.className).not.toContain('inset-ring-tr-sky')
   })
 
   it('an empty act ignores a drag that never started (a locked card)', () => {
-    const onMoveToAct = vi.fn()
+    const onMove = vi.fn()
     const ep = fixtureEpisode()
     ep.scenes[0].locked = true
-    renderBoard({ model: model(ep), onMoveToAct })
+    renderBoard({ model: model(ep), onMove })
     const empty = within(screen.getByTestId('act-frame-4')).getByText(
       /^No scenes yet/,
     )
@@ -334,43 +345,27 @@ describe('Board', () => {
     fireEvent.dragStart(card('scene-1'), { dataTransfer: dt() })
     expect(fireEvent.dragOver(empty, { dataTransfer: dt() })).toBe(true)
     fireEvent.drop(empty, { dataTransfer: dt() })
-    expect(onMoveToAct).not.toHaveBeenCalled()
+    expect(onMove).not.toHaveBeenCalled()
   })
 
-  it('a locked card neither drags nor takes a drop; dragging one card onto another swaps', () => {
-    const onReorder = vi.fn()
+  it('a locked card never drags, and an episode lock locks every card', () => {
+    const onMove = vi.fn()
     const ep = fixtureEpisode()
     ep.scenes[1].locked = true // scene-3
-    const { rerender } = renderBoard({ model: model(ep), onReorder })
+    const { rerender } = renderBoard({ model: model(ep), onMove })
 
     expect(card('scene-3').getAttribute('draggable')).toBe('false')
     expect(card('scene-3').getAttribute('data-locked')).toBe('true')
     expect(card('scene-2').getAttribute('draggable')).toBe('true')
 
-    // A locked target: dragOver is not prevented (the browser never drops)
-    // and a drop that fires anyway does nothing.
-    fireEvent.dragStart(card('scene-2'), { dataTransfer: dt() })
-    expect(fireEvent.dragOver(card('scene-3'), { dataTransfer: dt() })).toBe(
+    // Even a synthetic dragStart on a locked card starts nothing.
+    fireEvent.dragStart(card('scene-3'), { dataTransfer: dt() })
+    expect(fireEvent.dragOver(card('scene-2'), { dataTransfer: dt() })).toBe(
       true,
     )
-    fireEvent.drop(card('scene-3'), { dataTransfer: dt() })
-    expect(onReorder).not.toHaveBeenCalled()
-    fireEvent.dragEnd(card('scene-2'), { dataTransfer: dt() })
-
-    // A locked source never starts a drag.
-    fireEvent.dragStart(card('scene-3'), { dataTransfer: dt() })
-    fireEvent.dragOver(card('scene-2'), { dataTransfer: dt() })
     fireEvent.drop(card('scene-2'), { dataTransfer: dt() })
-    expect(onReorder).not.toHaveBeenCalled()
+    expect(onMove).not.toHaveBeenCalled()
 
-    // Unlocked onto unlocked swaps.
-    fireEvent.dragStart(card('scene-2'), { dataTransfer: dt() })
-    fireEvent.dragOver(card('scene-4'), { dataTransfer: dt() })
-    fireEvent.drop(card('scene-4'), { dataTransfer: dt() })
-    expect(onReorder).toHaveBeenCalledTimes(1)
-    expect(onReorder).toHaveBeenCalledWith('scene-2', 'scene-4')
-
-    // An episode lock locks every card.
     rerender(
       <Board
         model={model(ep)}
@@ -379,8 +374,7 @@ describe('Board', () => {
         collapsedActs={new Set()}
         pending={false}
         onSelectScene={noop}
-        onReorder={onReorder}
-        onMoveToAct={noop}
+        onMove={onMove}
         onToggleAct={noop}
         onEnterPanel={noop}
       />,
@@ -389,10 +383,29 @@ describe('Board', () => {
     expect(card('scene-2').getAttribute('data-locked')).toBe('true')
   })
 
+  it('a locked card takes a drop that leaves it in place', () => {
+    const onMove = vi.fn()
+    const ep = fixtureEpisode()
+    ep.scenes[1].locked = true // scene-3
+    renderBoard({ model: model(ep), onMove, predict: () => ({ issues: [] }) })
+
+    fireEvent.dragStart(card('scene-5'), { dataTransfer: dt() })
+    expect(dragAt('dragOver', card('scene-3'), 1)).toBe(false)
+    const bar = card('scene-3').querySelector('[data-insert-bar]')
+    expect(bar?.getAttribute('data-side')).toBe('after')
+    dragAt('drop', card('scene-3'), 1)
+    expect(onMove).toHaveBeenCalledTimes(1)
+    expect(onMove).toHaveBeenCalledWith({
+      type: 'insert',
+      sceneId: 'scene-5',
+      targetSceneId: 'scene-3',
+      after: true,
+    })
+  })
+
   it('nothing drags while a write is in flight', () => {
-    const onReorder = vi.fn()
-    const onMoveToAct = vi.fn()
-    renderBoard({ pending: true, onReorder, onMoveToAct })
+    const onMove = vi.fn()
+    renderBoard({ pending: true, onMove })
     expect(card('scene-2').getAttribute('draggable')).toBe('false')
 
     // Even a synthetic dragStart (bypassing the attribute) starts nothing.
@@ -404,8 +417,39 @@ describe('Board', () => {
     )
     fireEvent.dragOver(empty, { dataTransfer: dt() })
     fireEvent.drop(empty, { dataTransfer: dt() })
-    expect(onReorder).not.toHaveBeenCalled()
-    expect(onMoveToAct).not.toHaveBeenCalled()
+    expect(onMove).not.toHaveBeenCalled()
+  })
+
+  it('over a target whose insert would shift a locked scene: the amber reason, no bar, and the drop is refused', () => {
+    const onMove = vi.fn()
+    const predict = vi.fn(() => ({ blockedBy: 'scene-3' }))
+    const { container } = renderBoard({ predict, onMove })
+
+    fireEvent.dragStart(card('scene-2'), { dataTransfer: dt() })
+    const notPrevented = fireEvent.dragOver(card('scene-4'), {
+      dataTransfer: dt(),
+    })
+    const tape = card('scene-4').querySelector('[data-tape]')
+    expect(tape?.textContent).toBe("Can't move past scene 3: it's locked")
+    expect(tape?.className).toContain('bg-tr-amber')
+    expect(card('scene-4').className).toContain('ring-tr-amber')
+    expect(container.querySelector('[data-insert-bar]')).toBeNull()
+    // Not prevented: the browser shows "not allowed" and never drops.
+    expect(notPrevented).toBe(true)
+    fireEvent.drop(card('scene-4'), { dataTransfer: dt() })
+    expect(onMove).not.toHaveBeenCalled()
+
+    // An empty act: the same reason in its box, an amber frame, no drop.
+    const frame = screen.getByTestId('act-frame-4')
+    const empty = within(frame).getByText(/^No scenes yet/)
+    fireEvent.dragStart(card('scene-2'), { dataTransfer: dt() })
+    const emptyNotPrevented = fireEvent.dragOver(empty, { dataTransfer: dt() })
+    expect(empty.textContent).toBe("Can't move past scene 3: it's locked")
+    expect(empty.className).toContain('text-tr-amber')
+    expect(frame.className).toContain('inset-ring-tr-amber')
+    expect(emptyNotPrevented).toBe(true)
+    fireEvent.drop(empty, { dataTransfer: dt() })
+    expect(onMove).not.toHaveBeenCalled()
   })
 
   it('exactly one card is a tab stop: the selected one, else the first', () => {
@@ -424,8 +468,7 @@ describe('Board', () => {
       episodeLocked: false,
       pending: false,
       onSelectScene: noop,
-      onReorder: noop,
-      onMoveToAct: noop,
+      onMove: noop,
       onToggleAct: noop,
       onEnterPanel: noop,
     }
@@ -470,7 +513,7 @@ describe('Board', () => {
     expect(onSelectScene).toHaveBeenLastCalledWith('scene-1')
     expect(document.activeElement).toBe(card('scene-1'))
 
-    // At the edge, and with a modifier (⌥← is Phase 4's insert move): nothing.
+    // At the edge, and with a modifier (⌥→ is a move, not a selection): nothing.
     onSelectScene.mockClear()
     await user.keyboard('{ArrowLeft}{Alt>}{ArrowRight}{/Alt}')
     expect(onSelectScene).not.toHaveBeenCalled()
@@ -536,19 +579,25 @@ describe('Board', () => {
     ).not.toBeNull()
   })
 
-  it('dragging over a card predicts the swap on it', () => {
+  it("over a card's left half: the coral bar before it and the insert's prediction", () => {
     const m = model()
-    const predict = vi.fn(() => [PAYS_OFF_FIRST])
-    const { unmount } = renderBoard({ model: m, predict })
+    const predict = vi.fn(() => ({ issues: [PAYS_OFF_FIRST] }))
+    const { container } = renderBoard({ model: m, predict })
     fireEvent.dragStart(card('scene-5'), { dataTransfer: dt() })
     expect(predict).not.toHaveBeenCalled()
-    fireEvent.dragOver(card('scene-1'), { dataTransfer: dt() })
+    expect(dragAt('dragOver', card('scene-1'), 0)).toBe(false)
 
     expect(predict).toHaveBeenCalledWith({
-      type: 'swap',
+      type: 'insert',
       sceneId: 'scene-5',
       targetSceneId: 'scene-1',
+      after: false,
     })
+    const bars = container.querySelectorAll('[data-insert-bar]')
+    expect(bars).toHaveLength(1)
+    expect(card('scene-1').contains(bars[0])).toBe(true)
+    expect(bars[0].getAttribute('data-side')).toBe('before')
+    expect(bars[0].className).toContain('bg-tr-coral')
     const tape = card('scene-1').querySelector('[data-tape]')
     expect(tape?.textContent).toBe(predictionTape(m, [PAYS_OFF_FIRST])?.text)
     expect(tape?.textContent).toBe('⚠ 5 would pay off before 2')
@@ -556,47 +605,77 @@ describe('Board', () => {
     expect(card('scene-1').className).toContain('ring-tr-amber')
     // The dragged card itself is never a target.
     expect(card('scene-5').querySelector('[data-tape]')).toBeNull()
-    unmount()
+  })
 
-    renderBoard({ predict: () => [] })
+  it("over a card's right half: the coral bar after it and the insert's prediction", () => {
+    const predict = vi.fn(() => ({ issues: [] }))
+    renderBoard({ predict })
     fireEvent.dragStart(card('scene-5'), { dataTransfer: dt() })
-    fireEvent.dragOver(card('scene-1'), { dataTransfer: dt() })
-    const swap = card('scene-1').querySelector('[data-tape]')
-    expect(swap?.textContent).toBe('Swap with 5')
-    expect(swap?.className).toContain('bg-tr-sky')
+    expect(dragAt('dragOver', card('scene-1'), 1)).toBe(false)
+
+    expect(predict).toHaveBeenLastCalledWith({
+      type: 'insert',
+      sceneId: 'scene-5',
+      targetSceneId: 'scene-1',
+      after: true,
+    })
+    const bar = card('scene-1').querySelector('[data-insert-bar]')
+    expect(bar?.getAttribute('data-side')).toBe('after')
+    const tape = card('scene-1').querySelector('[data-tape]')
+    expect(tape?.textContent).toBe('Move 5 here')
+    expect(tape?.className).toContain('bg-tr-sky')
     expect(card('scene-1').className).toContain('ring-tr-sky')
-    expect(card('scene-1').getAttribute('aria-label')).toContain('Swap with 5')
-
-    // Leaving the card or ending the drag takes the tape off.
-    fireEvent.dragLeave(card('scene-1'), { dataTransfer: dt() })
-    expect(card('scene-1').querySelector('[data-tape]')).toBeNull()
-    fireEvent.dragOver(card('scene-1'), { dataTransfer: dt() })
-    fireEvent.dragEnd(card('scene-5'), { dataTransfer: dt() })
-    expect(card('scene-1').querySelector('[data-tape]')).toBeNull()
-    expect(card('scene-1').className).not.toMatch(/(^|\s)ring-2/)
+    expect(card('scene-1').getAttribute('aria-label')).toContain('Move 5 here')
   })
 
-  it("a locked card says Locked — can't swap and refuses the drop", () => {
-    const onReorder = vi.fn()
-    const predict = vi.fn(() => [PAYS_OFF_FIRST])
-    const ep = fixtureEpisode()
-    ep.scenes[1].locked = true // scene-3
-    renderBoard({ model: model(ep), predict, onReorder })
-
+  it('a drop beside itself shows nothing and is refused', () => {
+    const onMove = vi.fn()
+    const { container } = renderBoard({ predict: () => null, onMove })
     fireEvent.dragStart(card('scene-2'), { dataTransfer: dt() })
-    fireEvent.dragOver(card('scene-3'), { dataTransfer: dt() })
-    const tape = card('scene-3').querySelector('[data-tape]')
-    expect(tape?.textContent).toBe("Locked — can't swap")
-    expect(tape?.className).toContain('bg-tr-amber')
-    expect(card('scene-3').className).toContain('ring-tr-amber')
-    expect(predict).not.toHaveBeenCalled()
-
-    fireEvent.drop(card('scene-3'), { dataTransfer: dt() })
-    expect(onReorder).not.toHaveBeenCalled()
+    expect(dragAt('dragOver', card('scene-3'), 0)).toBe(true)
+    expect(container.querySelector('[data-tape]')).toBeNull()
+    expect(container.querySelector('[data-insert-bar]')).toBeNull()
+    expect(card('scene-3').className).not.toMatch(/(^|\s)ring-2/)
+    dragAt('drop', card('scene-3'), 0)
+    expect(onMove).not.toHaveBeenCalled()
   })
 
-  it("an empty act shows the act change's prediction while a card is over it", () => {
-    const predict = vi.fn(() => [PAYS_OFF_FIRST])
+  it("a drop calls onMove with the insert on the pointer's side, then clears", () => {
+    const onMove = vi.fn()
+    const { container } = renderBoard({
+      predict: () => ({ issues: [] }),
+      onMove,
+    })
+    const clear = () => {
+      expect(container.querySelector('[data-tape]')).toBeNull()
+      expect(container.querySelector('[data-insert-bar]')).toBeNull()
+      expect(card('scene-1').className).not.toMatch(/(^|\s)ring-2/)
+    }
+
+    // Leaving the card or ending the drag takes the tape and bar off.
+    fireEvent.dragStart(card('scene-5'), { dataTransfer: dt() })
+    dragAt('dragOver', card('scene-1'), 1)
+    fireEvent.dragLeave(card('scene-1'), { dataTransfer: dt() })
+    clear()
+    dragAt('dragOver', card('scene-1'), 1)
+    fireEvent.dragEnd(card('scene-5'), { dataTransfer: dt() })
+    clear()
+
+    fireEvent.dragStart(card('scene-5'), { dataTransfer: dt() })
+    dragAt('dragOver', card('scene-1'), 1)
+    dragAt('drop', card('scene-1'), 1)
+    expect(onMove).toHaveBeenCalledTimes(1)
+    expect(onMove).toHaveBeenCalledWith({
+      type: 'insert',
+      sceneId: 'scene-5',
+      targetSceneId: 'scene-1',
+      after: true,
+    })
+    clear()
+  })
+
+  it("an empty act shows the act move's prediction while a card is over it", () => {
+    const predict = vi.fn(() => ({ issues: [PAYS_OFF_FIRST] }))
     const { unmount } = renderBoard({ predict })
     let frame = screen.getByTestId('act-frame-4')
     let empty = within(frame).getByText(/^No scenes yet/)
@@ -617,7 +696,7 @@ describe('Board', () => {
     expect(frame.className).not.toContain('inset-ring-tr-amber')
     unmount()
 
-    renderBoard({ predict: () => [] })
+    renderBoard({ predict: () => ({ issues: [] }) })
     frame = screen.getByTestId('act-frame-4')
     empty = within(frame).getByText(/^No scenes yet/)
     fireEvent.dragStart(card('scene-5'), { dataTransfer: dt() })
@@ -628,12 +707,81 @@ describe('Board', () => {
   })
 
   it('a dragover without a drag from this board changes nothing', () => {
-    const predict = vi.fn(() => [PAYS_OFF_FIRST])
+    const predict = vi.fn(() => ({ issues: [PAYS_OFF_FIRST] }))
     const { container } = renderBoard({ predict })
     fireEvent.dragOver(card('scene-1'), { dataTransfer: dt() })
     expect(container.querySelector('[data-tape]')).toBeNull()
+    expect(container.querySelector('[data-insert-bar]')).toBeNull()
     expect(card('scene-1').className).not.toMatch(/(^|\s)ring-2/)
     expect(predict).not.toHaveBeenCalled()
+  })
+
+  it('⌥← / ⌥→ ask for a step; never while pending; plain arrows still select', () => {
+    const onMove = vi.fn()
+    const onSelectScene = vi.fn()
+    const ep = fixtureEpisode()
+    ep.scenes[1].locked = true // scene-3
+    const props = {
+      model: model(ep),
+      episodeLocked: false,
+      selection: sel('scene-2'),
+      collapsedActs: new Set<number>(),
+      onSelectScene,
+      onMove,
+      onToggleAct: noop,
+      onEnterPanel: noop,
+    }
+    const { rerender } = render(<Board {...props} pending={false} />)
+
+    expect(
+      fireEvent.keyDown(card('scene-2'), { key: 'ArrowRight', altKey: true }),
+    ).toBe(false)
+    expect(onMove).toHaveBeenLastCalledWith({
+      type: 'step',
+      sceneId: 'scene-2',
+      dir: 1,
+    })
+    fireEvent.keyDown(card('scene-2'), { key: 'ArrowLeft', altKey: true })
+    expect(onMove).toHaveBeenLastCalledWith({
+      type: 'step',
+      sceneId: 'scene-2',
+      dir: -1,
+    })
+    // A locked card still asks: PlanScreen says why it can't move.
+    fireEvent.keyDown(card('scene-3'), { key: 'ArrowRight', altKey: true })
+    expect(onMove).toHaveBeenLastCalledWith({
+      type: 'step',
+      sceneId: 'scene-3',
+      dir: 1,
+    })
+    expect(onMove).toHaveBeenCalledTimes(3)
+
+    // ⌘⌥ / Ctrl+⌥: nothing.
+    fireEvent.keyDown(card('scene-2'), {
+      key: 'ArrowRight',
+      altKey: true,
+      metaKey: true,
+    })
+    fireEvent.keyDown(card('scene-2'), {
+      key: 'ArrowRight',
+      altKey: true,
+      ctrlKey: true,
+    })
+    expect(onMove).toHaveBeenCalledTimes(3)
+    expect(onSelectScene).not.toHaveBeenCalled()
+
+    // While a write is in flight: still handled (no scroll), never a move.
+    rerender(<Board {...props} pending />)
+    expect(
+      fireEvent.keyDown(card('scene-2'), { key: 'ArrowRight', altKey: true }),
+    ).toBe(false)
+    expect(onMove).toHaveBeenCalledTimes(3)
+    expect(onSelectScene).not.toHaveBeenCalled()
+
+    // Plain arrows still select.
+    fireEvent.keyDown(card('scene-2'), { key: 'ArrowRight' })
+    expect(onSelectScene).toHaveBeenLastCalledWith('scene-3')
+    expect(onMove).toHaveBeenCalledTimes(3)
   })
 
   it('the drop tape replaces the relation and highlight tapes; a card never wears two', () => {
@@ -653,7 +801,7 @@ describe('Board', () => {
 
     const tapes = card('scene-4').querySelectorAll('[data-tape]')
     expect(tapes).toHaveLength(1)
-    expect(tapes[0].textContent).toBe('Swap with 5')
+    expect(tapes[0].textContent).toBe('Move 5 here')
     expect(card('scene-4').className).not.toContain('outline-dashed')
     for (const el of container.querySelectorAll('[data-scene-card]'))
       expect(el.querySelectorAll('[data-tape]').length).toBeLessThanOrEqual(1)
@@ -801,8 +949,7 @@ describe('Board', () => {
         fold
         unfolded={new Set(['scene-3', 'scene-4'])}
         onSelectScene={noop}
-        onReorder={noop}
-        onMoveToAct={noop}
+        onMove={noop}
         onToggleAct={noop}
         onEnterPanel={noop}
       />,
@@ -832,8 +979,7 @@ describe('Board', () => {
         unfolded={unfolded}
         onUnfold={(ids) => setUnfolded((prev) => new Set([...prev, ...ids]))}
         onSelectScene={setSelected}
-        onReorder={noop}
-        onMoveToAct={noop}
+        onMove={noop}
         onToggleAct={noop}
         onEnterPanel={noop}
       />
