@@ -14,7 +14,7 @@ const MAX_TICKS = 12
 // The body sets 13px type on a 15px line from y=28, so its baselines fall near
 // 40, 55, 70, 85: the faint rules sit one pixel under each, never through the
 // letters (a 14px pitch started at 22px used to strike through the text).
-const RULED: CSSProperties = {
+export const RULED: CSSProperties = {
   backgroundImage:
     'linear-gradient(var(--tr-board-rule-top), var(--tr-board-rule-top)), repeating-linear-gradient(to bottom, transparent 0 14px, var(--tr-board-rule) 14px 15px)',
   backgroundSize: '100% 1px, 100% 100%',

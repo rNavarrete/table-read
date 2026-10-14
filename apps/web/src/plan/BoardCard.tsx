@@ -1,0 +1,284 @@
+import type { DragEvent, KeyboardEvent, MouseEvent } from 'react'
+import { RULED } from '../projects/wizard/board/IndexCard'
+import { plural } from '../projects/wizard/board/boardText'
+import { sceneLocationType, sceneTypeDotClass } from '../write/sceneType'
+import {
+  cardTag,
+  type CardTape,
+  type SceneSignals,
+  type TapeTone,
+} from './story'
+
+export interface BoardCardProps {
+  signals: SceneSignals
+  /** Effective: scene or episode lock. */
+  locked: boolean
+  selected: boolean
+  /** Roving tab stop: Board gives exactly one card 0. */
+  tabIndex: 0 | -1
+  /** A write is in flight: no drag. */
+  pending: boolean
+  unsaved: boolean
+  /** At most one tape (spec §4.2). */
+  tape: CardTape | null
+  /** Shares a thread with the selected scene: dashed sky outline. */
+  related: boolean
+  dragging: boolean
+  dropTarget: boolean
+  onSelect: () => void
+  onOpenInWrite: () => void
+  onKeyDown: (event: KeyboardEvent<HTMLDivElement>) => void
+  onFocus: () => void
+  onDragStart: () => void
+  onDragEnd: () => void
+  onDragOver: () => void
+  onDragLeave: () => void
+  onDrop: () => void
+}
+
+// Literal class names: Tailwind only generates whole names it can see.
+const TONE_BG: Record<TapeTone, string> = {
+  sky: 'bg-tr-sky',
+  amber: 'bg-tr-amber',
+  secret: 'bg-tr-ledger-secret-ink',
+  accent: 'bg-tr-accent-ink',
+}
+
+const TICK: Record<SceneSignals['ticks'][number], string> = {
+  story: 'h-2.5 bg-tr-amber',
+  import: 'h-2.5 bg-transparent inset-ring inset-ring-tr-text-secondary',
+  plain: 'h-2 bg-tr-border-strong',
+}
+
+// PanelHeader's focus ring, offset 4 so it clears the selected card's inset
+// ring and the related card's dashed outline (solid even on a related card).
+// Never outline-none: in Tailwind 4 it would hide outline-selected too.
+const FOCUS =
+  'focus-visible:outline focus-visible:outline-selected focus-visible:outline-offset-4 focus-visible:outline-tr-sky focus-visible:outline-solid'
+
+function LockGlyph() {
+  return (
+    <svg
+      data-lock-glyph
+      viewBox="0 0 24 24"
+      className="h-3 w-3 shrink-0 text-tr-amber"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      aria-hidden="true"
+    >
+      <rect x="5" y="11" width="14" height="10" rx="2" />
+      <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+    </svg>
+  )
+}
+
+function cardLabel(
+  s: SceneSignals,
+  locked: boolean,
+  unsaved: boolean,
+  tape: CardTape | null,
+): string {
+  const notes = s.storyNotes.length + s.importNotes.length
+  const tag = cardTag(s)
+  return [
+    `Scene ${s.number}`,
+    s.place,
+    locked && 'locked',
+    notes > 0 && plural(notes, 'note'),
+    s.importNotes.length > 0 && `${s.importNotes.length} from the import`,
+    s.setsUp.length > 0 && `sets up ${s.setsUp.length}`,
+    s.paysOff.length > 0 && `pays off ${s.paysOff.length}`,
+    s.secret && `secret ${s.secret}`,
+    tag && (tag === 'TURN' ? s.landmark : 'act out'),
+    unsaved && 'unsaved draft',
+    tape?.text,
+  ]
+    .filter(Boolean)
+    .join(', ')
+}
+
+/**
+ * A scene on the Plan board as the import board's ruled index card (redesign
+ * spec §4.2). Draggable for a swap unless locked (scene or episode) or a
+ * write is in flight; a locked card is never a drop target either, since a
+ * swap would still change its index. Board owns the roving tab stop and the
+ * keys; double-click opens Write on this scene.
+ */
+export function BoardCard({
+  signals,
+  locked,
+  selected,
+  tabIndex,
+  pending,
+  unsaved,
+  tape,
+  related,
+  dragging,
+  dropTarget,
+  onSelect,
+  onOpenInWrite,
+  onKeyDown,
+  onFocus,
+  onDragStart,
+  onDragEnd,
+  onDragOver,
+  onDragLeave,
+  onDrop,
+}: BoardCardProps) {
+  const { scene, number, place } = signals
+  const draggable = !locked && !pending
+  const tag = cardTag(signals)
+
+  function handleDoubleClick(event: MouseEvent) {
+    event.preventDefault()
+    onOpenInWrite()
+  }
+
+  function handleDragStart(event: DragEvent) {
+    if (!draggable) {
+      event.preventDefault()
+      return
+    }
+    event.dataTransfer.setData('text/plain', scene.id)
+    event.dataTransfer.effectAllowed = 'move'
+    onDragStart()
+  }
+
+  function handleDragOver(event: DragEvent) {
+    if (locked) return // no preventDefault: "not allowed", drop never fires
+    event.preventDefault()
+    onDragOver()
+  }
+
+  function handleDrop(event: DragEvent) {
+    if (locked) return
+    event.preventDefault()
+    onDrop()
+  }
+
+  const fill = selected
+    ? 'bg-tr-coral-soft inset-ring-2 inset-ring-tr-coral shadow-card-lift'
+    : 'bg-tr-board-paper shadow-card-board hover:shadow-card-lift'
+
+  return (
+    <div
+      role="button"
+      aria-pressed={selected}
+      aria-label={cardLabel(signals, locked, unsaved, tape)}
+      title={`${number}. ${scene.location}\n${scene.whatHappens}`}
+      data-scene-card
+      data-scene-id={scene.id}
+      data-testid={`scene-card-${scene.id}`}
+      data-locked={locked}
+      tabIndex={tabIndex}
+      draggable={draggable}
+      onClick={onSelect}
+      onDoubleClick={handleDoubleClick}
+      onKeyDown={onKeyDown}
+      onFocus={onFocus}
+      onDragStart={handleDragStart}
+      onDragEnd={onDragEnd}
+      onDragOver={handleDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={handleDrop}
+      style={RULED}
+      className={
+        `relative flex h-card-board-h w-card-board-w shrink-0 cursor-pointer select-none flex-col rounded-[4px] px-2 pb-1 pt-[7px] text-tr-text-primary transition-[box-shadow,translate] ease-standard hover:-translate-y-px motion-reduce:transition-none ${fill} ${FOCUS}` +
+        (related
+          ? ' outline-[1.5px] outline-offset-3 outline-dashed outline-tr-sky'
+          : '') +
+        (dragging ? ' opacity-50' : '') +
+        (dropTarget ? ' ring-2 ring-tr-sky' : '')
+      }
+    >
+      {tape && (
+        <span
+          aria-hidden="true"
+          data-tape
+          className={`absolute -top-2.5 left-2 z-[2] max-w-[134px] truncate rounded-[3px] px-1.5 text-11 font-semibold leading-4 text-tr-surface-raised shadow-raised ${TONE_BG[tape.tone]}`}
+        >
+          {tape.text}
+        </span>
+      )}
+      <div
+        aria-hidden="true"
+        className="flex h-3.5 min-w-0 items-center gap-[5px] whitespace-nowrap text-12 leading-[14px]"
+      >
+        <span className="shrink-0 font-semibold tabular-nums">{number}</span>
+        <span
+          className={`size-1.5 shrink-0 rounded-full ${sceneTypeDotClass(sceneLocationType(scene))}`}
+        />
+        <span className="min-w-0 flex-1 truncate font-semibold">{place}</span>
+        {signals.storyNotes.length > 0 ? (
+          <span
+            data-testid="consistency-flag-badge"
+            data-kind="story"
+            className="shrink-0 rounded-chip bg-tr-amber-soft px-[5px] text-11 font-semibold text-tr-amber"
+          >
+            ⚑{signals.storyNotes.length}
+          </span>
+        ) : (
+          signals.importNotes.length > 0 && (
+            <span
+              data-testid="consistency-flag-badge"
+              data-kind="import"
+              className="shrink-0 rounded-chip bg-tr-surface-sunken px-[5px] text-11 font-medium inset-ring inset-ring-tr-border-strong"
+            >
+              ⚑{signals.importNotes.length}
+            </span>
+          )
+        )}
+        {locked && <LockGlyph />}
+        {unsaved && (
+          <span
+            data-testid="unsaved-dot"
+            role="img"
+            aria-label="Unsaved edits"
+            title="Unsaved edits"
+            className="size-2 shrink-0 rounded-full bg-tr-coral"
+          />
+        )}
+      </div>
+      <p className="mt-[7px] line-clamp-4 flex-1 overflow-hidden font-ledger-display text-13 leading-[15px] text-tr-text-primary">
+        {scene.whatHappens}
+      </p>
+      <div
+        aria-hidden="true"
+        className="flex h-3.5 items-center gap-1.5 text-11 leading-[14px] tabular-nums"
+      >
+        <span className="flex shrink-0 items-end gap-0.5">
+          {signals.ticks.map((tick, i) => (
+            <i
+              key={i}
+              data-tick={tick}
+              className={`w-0.75 rounded-[1px] ${TICK[tick]}`}
+            />
+          ))}
+        </span>
+        {signals.setsUp.length > 0 && (
+          <span
+            className={`font-semibold ${signals.neverPaidOff ? 'text-tr-amber' : 'text-tr-sky'}`}
+          >
+            ↗{signals.setsUp.length}
+          </span>
+        )}
+        {signals.paysOff.length > 0 && (
+          <span className="font-semibold text-tr-sky">
+            ↘{signals.paysOff.length}
+          </span>
+        )}
+        {signals.secret && (
+          <span className="font-semibold text-tr-ledger-secret-ink">
+            {signals.secret === 'out' ? '◇' : '◆'}
+          </span>
+        )}
+        {tag && (
+          <span className="ml-auto font-semibold tracking-[.05em] text-tr-accent-ink">
+            {tag}
+          </span>
+        )}
+      </div>
+    </div>
+  )
+}
