@@ -202,10 +202,11 @@ function titleCase(text: string): string {
     )
 }
 
-// ponytail: the common slugline time / continuity words; an unlisted one
+// ponytail: the common slugline time / continuity words and shot descriptors
+// ("MOVING", "FLASHBACK"), none of which name a place; an unlisted one
 // ("MAGIC HOUR", "3 AM") becomes the title. Add words as real scripts show them.
 const SLUG_TIME =
-  /^(?:(?:EARLY|LATE|NEXT|SAME|THAT|MOMENTS)\s+)?(?:DAY|NIGHT|MORNING|AFTERNOON|EVENING|DAWN|DUSK|SUNRISE|SUNSET|LATER|CONTINUOUS|SAME|SAME TIME)$/i
+  /^(?:(?:(?:EARLY|LATE|NEXT|SAME|THAT|MOMENTS)\s+)?(?:DAY|NIGHT|MORNING|AFTERNOON|EVENING|DAWN|DUSK|SUNRISE|SUNSET|LATER|CONTINUOUS|SAME|SAME TIME)|MOVING|ESTABLISHING(?: SHOT)?|FLASHBACK|INTERCUT|POV|MONTAGE|(?:WIDE|AERIAL) SHOT)$/i
 
 /** The most specific part of the slug: "INT. THE LONG POUR - BAR - DAY" →
  * "Bar". Drops the INT./EXT./I/E. prefix, then takes the last " - " part,
