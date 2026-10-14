@@ -336,11 +336,9 @@ def assert_no_locked_writes(old_doc: dict, new_doc: dict) -> None:
             raise LockViolation(
                 f"cannot add or remove scenes in locked episode {episode['id']!r}"
             )
-        # Array order and story order (act, index): `index` is exempt from the
-        # per-scene content check, so an index swap would slip past otherwise.
-        if _child_order(old_scenes) != _child_order(new_scene_list) or _child_order(
-            scenes_in_story_order(episode)
-        ) != _child_order(scenes_in_story_order(after)):
+        # Story order (act, index) is frozen above: every scene of a locked
+        # episode counts as locked, so its `act` and `index` can't change.
+        if _child_order(old_scenes) != _child_order(new_scene_list):
             raise LockViolation(
                 f"cannot reorder scenes in locked episode {episode['id']!r}"
             )
