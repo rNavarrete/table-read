@@ -195,6 +195,47 @@ export function linkifyNote(
   return out
 }
 
+/** The instruction "Draft a fix in Review…" starts from (T3.9): where the note
+ * sits ("scene 5 (Kitchen)", "beat 5.1 (Kitchen)"), then the note in words —
+ * other scenes by their card number and place, a fact id as the quoted Ledger
+ * fact, a scene that is gone as "a deleted scene". Never a raw scene or fact
+ * id or [code]; the writer edits it before anything is sent. Continuity notes
+ * only. */
+export function fixInstruction(
+  note: PlanNote,
+  scene: Scene,
+  scenes: readonly Scene[],
+  ledger: readonly LedgerFact[],
+): string {
+  // "Scene"/"scene" as written; the number is the card's, not the id's.
+  const named = (written: string, target: Scene) =>
+    `${written.slice(0, 5)} ${target.index + 1} (${placeTitle(target)})`
+  const where = note.beat
+    ? `beat ${scene.index + 1}.${note.beat.index + 1}`
+    : `scene ${scene.index + 1}`
+  const body = linkifyNote(note.flag.explanation, scenes, ledger)
+    .map((s) => {
+      if (s.type === 'scene')
+        return named(
+          s.text,
+          scenes.find((x) => x.id === s.sceneId)!,
+        )
+      if (s.type === 'fact')
+        return `the Ledger fact “${ledger.find((f) => f.id === s.factId)!.fact}”`
+      // linkifyNote leaves as text a missing scene ("Scene 40", "scene-40")
+      // and any hex id (guided setup mints `scene-<uuid hex>`), existing or
+      // not. Hex only, so prose like "scene-level" stays.
+      return s.text.replace(/\bscene-[0-9a-f]+\b|\bscene \d+\b/gi, (m) => {
+        const id = m.toLowerCase().replace(' ', '-')
+        const target = scenes.find((x) => x.id === id)
+        return target ? named(m, target) : 'a deleted scene'
+      })
+    })
+    .join('')
+    .trim()
+  return `Fix this continuity note in ${where} (${placeTitle(scene)}): ${body}`
+}
+
 // ── Scene reading ───────────────────────────────────────────────────────
 
 const SLUG_PREFIX =
