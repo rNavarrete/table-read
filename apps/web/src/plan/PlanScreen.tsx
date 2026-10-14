@@ -57,7 +57,6 @@ import {
 } from './planTree'
 import {
   boardModel,
-  dropsAfter,
   highlightAnnouncement,
   lockedMoveText,
   NO_HIGHLIGHT,
@@ -694,27 +693,14 @@ export function PlanScreen() {
               draftSceneIds={drafts.dirtySceneIds}
               onSelectScene={selectScene}
               onOpenInWrite={(sceneId) => openInWrite(sceneId)}
-              onReorder={(sceneId, targetSceneId) =>
-                void applyMove({
-                  type: 'insert',
-                  sceneId,
-                  targetSceneId,
-                  after: dropsAfter(model, sceneId, targetSceneId),
-                })
-              }
-              onMoveToAct={(sceneId, act) =>
-                void saveSceneField(sceneId, 'act', act)
-              }
+              onMove={(move) => void applyMove(move)}
               onToggleAct={acts.toggle}
               onEnterPanel={() =>
                 document
                   .querySelector<HTMLElement>('[data-testid="inspector"] h2')
                   ?.focus()
               }
-              predict={(move) => {
-                const p = predictMove(project, move)
-                return p && 'issues' in p ? p.issues : []
-              }}
+              predict={(move) => predictMove(project, move)}
               header={
                 <>
                   <HighlightBar
