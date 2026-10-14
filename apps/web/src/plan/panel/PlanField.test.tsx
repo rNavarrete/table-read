@@ -318,5 +318,34 @@ describe('PlanField', () => {
       expect(screen.getByTestId('suggestion-chips')).not.toBeNull()
       expect(onSuggest).toHaveBeenCalledTimes(1)
     })
+
+    it("a late reply for one scene leaves another scene's chips alone", async () => {
+      const user = userEvent.setup()
+      const slow = deferred<string[]>()
+      const onSuggest = vi
+        .fn()
+        .mockReturnValueOnce(slow.promise)
+        .mockResolvedValueOnce(['Idea for scene two.'])
+      const sceneTwo = {
+        value: '',
+        onSuggest,
+        draftKey: 'scene-2:whatHappens',
+        sceneId: 'scene-2',
+      }
+      const { rerender } = render(
+        <PlanField {...props({ value: '', onSuggest })} />,
+        { wrapper: WithDrafts },
+      )
+      await user.click(screen.getByRole('button', { name: 'Suggest…' }))
+      rerender(<PlanField {...props(sceneTwo)} />)
+      await user.click(screen.getByRole('button', { name: 'Suggest…' }))
+      expect(await screen.findByText('Idea for scene two.')).not.toBeNull()
+
+      slow.resolve(['Late idea for scene one.'])
+      await act(async () => {
+        await slow.promise
+      })
+      expect(screen.getByText('Idea for scene two.')).not.toBeNull()
+    })
   })
 })

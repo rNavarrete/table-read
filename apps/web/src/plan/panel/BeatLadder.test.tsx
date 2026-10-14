@@ -284,15 +284,6 @@ describe('BeatLadder', () => {
     )
   })
 
-  it('scrolls the selected row into view', () => {
-    const scrollIntoView = vi.spyOn(Element.prototype, 'scrollIntoView')
-    renderLadder({ selectedBeatId: 'beat-1-2' })
-    expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' })
-    expect(scrollIntoView.mock.contexts[0]).toBe(
-      screen.getByTestId('beat-card-beat-1-2'),
-    )
-  })
-
   it('says so when the scene has no beats yet', () => {
     renderLadder({ scene: scene({ beats: [] }) })
     expect(screen.getByText('No beats yet.')).not.toBeNull()

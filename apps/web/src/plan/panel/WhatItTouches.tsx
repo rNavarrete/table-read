@@ -72,7 +72,7 @@ function FactRow({
       className={`flex w-full flex-col items-start gap-1 rounded-card border border-tr-border bg-tr-surface-raised p-2 text-left hover:bg-tr-surface-clay ${FOCUS}`}
     >
       <span className="text-13 text-tr-text-primary">{fact.fact}</span>
-      <span className="flex flex-wrap items-center gap-1.5 text-12 text-tr-text-secondary">
+      <span className="flex flex-wrap items-center gap-1.5 text-12 text-tr-text-primary">
         <Chip hue="sky">{fact.factType.replace(/_/g, ' ')}</Chip>
         {fact.status === 'pending_review' && (
           <Chip hue="neutral">Unconfirmed</Chip>
@@ -153,13 +153,11 @@ export function WhatItTouches({
           return (
             <div key={`${thread.id}:${role}`} className="text-13">
               <p className="text-tr-text-primary">
-                <span className="text-tr-text-secondary">
-                  {role === 'sets_up' ? '↗ Sets up' : '↘ Pays off'}
-                </span>{' '}
+                {role === 'sets_up' ? '↗ Sets up' : '↘ Pays off'}{' '}
                 <span className="font-semibold">{thread.label}</span>
               </p>
               {thread.summary && (
-                <p className="text-tr-text-secondary">{thread.summary}</p>
+                <p className="text-tr-text-primary">{thread.summary}</p>
               )}
               <p className="mt-1">
                 {role === 'sets_up' ? (

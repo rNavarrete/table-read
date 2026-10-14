@@ -89,7 +89,7 @@ Quiet Tool visual language: cool paper neutrals, slate-blue accent (`--tr-coral*
   /* Shadow: 0 1px 2px rgb(38 39 43 / 0.04), lift: 0 4px 16px rgb(38 39 43 / 0.08) */
   /* Write/Ledger elevation: --tr-shadow-write-page/-card/-bar/-cta, --tr-shadow-ledger-card, --tr-shadow-overview-card. */
   /* Motion: 160ms ease-out standard; streaming text has no animation. */
-  /* Layout: --tr-script-col 600px; --tr-panel-candidate-dock 392px (CO-WRITER dock, §3); --tr-panel-write-outline 296px; --tr-command-bar 560px; --tr-script-page 680px; Plan: Story Layers 232px, scene cards 214px, scene panel 400px (--tr-panel-plan, owner-approved 2026-10-13); --tr-panel-inspector 296px is the import board's reading view; Ledger CAST rail 236px (--tr-panel-ledger-filters); shell 56px (§2). */
+  /* Layout: --tr-script-col 600px; --tr-panel-candidate-dock 392px (CO-WRITER dock, §3); --tr-panel-write-outline 296px; --tr-command-bar 560px; --tr-script-page 680px; Plan: Story Layers 232px, scene cards 214px, scene panel 400px (--tr-panel-plan, owner-approved 2026-10-13); --tr-panel-inspector 296px is the import board's reading view, the Ledger fact drawer and the Ledger Story Atlas side column; Ledger CAST rail 236px (--tr-panel-ledger-filters); shell 56px (§2). */
 }
 ```
 

@@ -1,4 +1,3 @@
-import { useEffect, useRef } from 'react'
 import type { Scene, StoryOverviewBeatItem, TimelineAnchor } from 'contract'
 import { Chip } from '../Chip'
 import { LockToggle } from '../LockToggle'
@@ -91,15 +90,6 @@ export function BeatLadder({
   onSaveBeatField,
   onOpenBeatInWrite,
 }: BeatLadderProps) {
-  const listRef = useRef<HTMLOListElement>(null)
-
-  useEffect(() => {
-    if (!selectedBeatId) return
-    listRef.current
-      ?.querySelector(`[data-testid="beat-card-${selectedBeatId}"]`)
-      ?.scrollIntoView({ block: 'nearest' })
-  }, [selectedBeatId])
-
   const beats = [...scene.beats].sort((a, b) => a.index - b.index)
   const lastBeatId = beats.at(-1)?.id
 
@@ -108,7 +98,7 @@ export function BeatLadder({
       {beats.length === 0 ? (
         <p className="text-13 text-tr-text-secondary">No beats yet.</p>
       ) : (
-        <ol ref={listRef} className="flex flex-col gap-1">
+        <ol className="flex flex-col gap-1">
           {beats.map((beat) => {
             const number = `${scene.index + 1}.${beat.index + 1}`
             const expanded = beat.id === selectedBeatId
@@ -163,7 +153,7 @@ export function BeatLadder({
                     )}
                     {landmark && <Chip hue="sky">{landmark.label}</Chip>}
                     {beat.id === lastBeatId && (
-                      <span className="text-11 text-tr-text-secondary">
+                      <span className="text-11 text-tr-text-primary">
                         lands
                       </span>
                     )}
@@ -216,7 +206,7 @@ export function BeatLadder({
         </ol>
       )}
       {timeJump && (
-        <p className="mt-2 border-t border-dashed border-tr-border pt-2 text-12 text-tr-text-secondary">
+        <p className="mt-2 border-t border-dashed border-tr-border pt-2 text-12 text-tr-text-primary">
           ↷ Then a time jump: {timeJump.label}
         </p>
       )}

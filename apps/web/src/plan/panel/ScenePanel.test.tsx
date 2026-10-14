@@ -8,6 +8,7 @@ import {
   within,
 } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { Profiler, useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Episode, LedgerFact, Project, Scene } from 'contract'
 import { ScenePanel, type ScenePanelProps } from './ScenePanel'
@@ -359,7 +360,7 @@ describe('ScenePanel', () => {
   it('renders the notes slot before the sections and adds Notes n to the jump bar', () => {
     renderPanel({
       noteCount: 2,
-      notes: (
+      notes: () => (
         <section id="plan-section-notes" data-plan-section="notes">
           Two notes
         </section>
@@ -573,20 +574,189 @@ describe('ScenePanel', () => {
     expect(current).toEqual(['Wants 1'])
   })
 
-  it('opens a closed Beats section when a beat is selected', () => {
+  function currentJump(): (string | null)[] {
+    return within(screen.getByTestId('jump-bar'))
+      .getAllByRole('button')
+      .filter((el) => el.getAttribute('aria-current') === 'true')
+      .map((el) => el.textContent)
+  }
+
+  it('Show beat opens a closed Beats section and scrolls to the row, on every click', async () => {
+    const user = userEvent.setup()
     localStorage.setItem(
       'tr.plan.sections.v1',
       JSON.stringify({ beats: false }),
     )
-    const p = props()
-    const { rerender } = render(<ScenePanel {...p} />, { wrapper: WithDrafts })
-    const beats = document.getElementById(
-      'plan-section-beats',
-    ) as HTMLDetailsElement
-    expect(beats.open).toBe(false)
+    const scrolled: Element[] = []
+    vi.spyOn(Element.prototype, 'scrollIntoView').mockImplementation(function (
+      this: Element,
+    ) {
+      // A row inside a closed <details> has no box: nothing scrolls.
+      if (!this.closest('details:not([open])')) scrolled.push(this)
+    })
+    const ep = episode({
+      storyOverview: {
+        logline: '',
+        outline: [],
+        summary: '',
+        provenance: 'inferred',
+        locked: false,
+        beatSheet: [
+          {
+            beatId: 'beat-1-2',
+            label: 'Catalyst',
+            summary: '',
+            sceneId: 'scene-1',
+            act: 0,
+          },
+        ],
+      },
+    })
+    const p = props({ episode: ep, scene: ep.scenes[0] })
+    // Selection lives in PlanScreen; this stands in for it.
+    function Harness() {
+      const [beatId, setBeatId] = useState<string | null>(null)
+      return (
+        <ScenePanel
+          {...p}
+          selectedBeatId={beatId}
+          onSelectBeat={(_, id) => setBeatId(id)}
+        />
+      )
+    }
+    render(<Harness />, { wrapper: WithDrafts })
+    const row = screen.getByTestId('beat-card-beat-1-2')
+    const link = screen.getByRole('button', { name: 'Beat 1.2' })
 
-    rerender(<ScenePanel {...p} selectedBeatId="beat-1-1" />)
-    expect(beats.open).toBe(true)
+    await user.click(link)
+    expect(
+      (document.getElementById('plan-section-beats') as HTMLDetailsElement)
+        .open,
+    ).toBe(true)
+    await waitFor(() => expect(scrolled).toEqual([row]))
+
+    // Scrolled away, the same link brings the row back.
+    await user.click(link)
+    await waitFor(() => expect(scrolled).toEqual([row, row]))
+  })
+
+  it('a jump keeps the clicked section underlined while its scroll runs, even when it bottoms out', async () => {
+    const user = userEvent.setup()
+    const scrollTo = vi
+      .spyOn(Element.prototype, 'scrollTo')
+      .mockImplementation(() => {})
+    renderPanel()
+    const aside = screen.getByTestId('inspector')
+    // A short panel scrolled to the bottom: the spy alone would say Details.
+    Object.defineProperty(aside, 'clientHeight', { value: 400 })
+    Object.defineProperty(aside, 'scrollHeight', { value: 1000 })
+    Object.defineProperty(aside, 'scrollTop', { value: 600 })
+
+    await user.click(
+      within(screen.getByTestId('jump-bar')).getByRole('button', {
+        name: 'Beats 2',
+      }),
+    )
+    await waitFor(() => expect(scrollTo).toHaveBeenCalled())
+    fireEvent.scroll(aside)
+    expect(currentJump()).toEqual(['Beats 2'])
+
+    // Once the scroll ends, the spy takes over again.
+    fireEvent(aside, new Event('scrollend'))
+    fireEvent.scroll(aside)
+    expect(currentJump()).toEqual(['Details'])
+  })
+
+  it('scrolling within one section does not re-render the panel', () => {
+    const onRender = vi.fn()
+    render(
+      <Profiler id="panel" onRender={onRender}>
+        <ScenePanel {...props()} />
+      </Profiler>,
+      { wrapper: WithDrafts },
+    )
+    const aside = screen.getByTestId('inspector')
+    Object.defineProperty(aside, 'clientHeight', { value: 400 })
+    Object.defineProperty(aside, 'scrollHeight', { value: 2000 })
+    Object.defineProperty(aside, 'scrollTop', { value: 0 })
+    // React may render once more before it bails out on equal state.
+    fireEvent.scroll(aside)
+    fireEvent.scroll(aside)
+    const renders = onRender.mock.calls.length
+    fireEvent.scroll(aside)
+    fireEvent.scroll(aside)
+    fireEvent.scroll(aside)
+    expect(onRender.mock.calls.length).toBe(renders)
+  })
+
+  it('a scene switch folds the retired facts away again', async () => {
+    const user = userEvent.setup()
+    const p = props({
+      ledger: [
+        fact({ id: 'fact-03', status: 'superseded' }),
+        fact({
+          id: 'fact-04',
+          status: 'stale',
+          sourceSpan: { ...fact().sourceSpan, sceneId: 'scene-2' },
+        }),
+      ],
+    })
+    const { rerender } = render(<ScenePanel {...p} />, { wrapper: WithDrafts })
+    await user.click(screen.getByRole('button', { name: 'Show 1 retired' }))
+    expect(screen.getByRole('button', { name: 'Hide retired' })).not.toBeNull()
+
+    rerender(<ScenePanel {...p} scene={p.episode.scenes[1]} />)
+    expect(
+      screen.getByRole('button', { name: 'Show 1 retired' }),
+    ).not.toBeNull()
+  })
+
+  it('identifying text in What it touches and on beat rows meets AA too', () => {
+    const ep = episode({
+      threads: [
+        {
+          id: 'thread-1',
+          label: 'The transfer',
+          summary: 'Where did the money go?',
+          status: 'open',
+          ownerCharacterIds: [],
+          setupSceneId: 'scene-1',
+          payoffSceneId: null,
+          setupQuote: '',
+          payoffQuote: '',
+          setupBeatId: null,
+          payoffBeatId: null,
+          locked: false,
+        },
+      ],
+      timelineAnchors: [
+        {
+          afterSceneId: 'scene-1',
+          label: 'Three days later',
+          kind: 'relative',
+          quote: '',
+        },
+      ],
+    })
+    renderPanel({
+      episode: ep,
+      scene: ep.scenes[0],
+      ledger: [fact({ audienceKnows: false, knownBy: ['char-marta'] })],
+    })
+    const identifying = [
+      screen.getByText('↗ Sets up', { exact: false }),
+      screen.getByText('Where did the money go?'),
+      screen.getByText('◆ hidden from the audience'),
+      screen.getByText('Known by Marta Vega'),
+      screen.getByText('lands'),
+      screen.getByText('↷ Then a time jump: Three days later'),
+    ]
+    for (const el of identifying) {
+      // The nearest text colour wins: the element's own, else an ancestor's.
+      const coloured = el.closest('[class*="text-tr-text-"]')
+      expect(coloured?.className).toContain('text-tr-text-primary')
+      expect(coloured?.className).not.toMatch(/text-tr-text-(secondary|muted)/)
+    }
   })
 
   it('missing story keys and an empty scene render quiet, with zero counts', () => {
