@@ -4,14 +4,19 @@ import type { Scene } from 'contract'
 import { plural } from '../projects/wizard/board/boardText'
 import { ActHeader } from './ActHeader'
 import { BoardCard } from './BoardCard'
+import type { SceneMove } from './planTree'
 import {
   HIGHLIGHT_TONE,
   highlightTape,
   matchesHighlight,
   NO_HIGHLIGHT,
+  predictionTape,
   relationTape,
   type BoardModel,
+  type CardTape,
   type Highlight,
+  type OrderIssue,
+  type SceneSignals,
 } from './story'
 
 export type PlanSelection =
@@ -48,6 +53,9 @@ export interface BoardProps {
   onUnfold?: (sceneIds: string[]) => void
   /** Rendered sticky at the top of the board's scroll area (the highlight bar). */
   header?: ReactNode
+  /** The order problems a move would add (story.predictMove on the project):
+   * the drop target's tape while a card is dragged over it. */
+  predict?: (move: SceneMove) => OrderIssue[]
 }
 
 type Box = Pick<DOMRect, 'top' | 'bottom' | 'left' | 'width'>
@@ -82,6 +90,7 @@ export function gridNeighbor(
 }
 
 const EMPTY: ReadonlySet<string> = new Set()
+const NO_PREDICTION = (): OrderIssue[] => []
 
 const FOCUS =
   'focus-visible:outline focus-visible:outline-selected focus-visible:outline-offset-2 focus-visible:outline-tr-sky'
@@ -140,6 +149,7 @@ export function Board({
   unfolded = EMPTY,
   onUnfold = () => {},
   header,
+  predict = NO_PREDICTION,
 }: BoardProps) {
   const rootRef = useRef<HTMLDivElement>(null)
   const [dragSourceId, setDragSourceId] = useState<string | null>(null)
@@ -163,6 +173,23 @@ export function Board({
   const rendered = [...itemsByAct.values()].flatMap((items) =>
     items.flatMap((item) => (item.type === 'card' ? [item.scene.id] : [])),
   )
+  // The prediction runs only while a dragged card is over a target; dragover
+  // re-sets the same state, which React skips, so no memo.
+  const dragged = dragSourceId ? model.signals.get(dragSourceId) : undefined
+  function dropTape(from: SceneSignals, target: SceneSignals): CardTape {
+    if (target.scene.locked || episodeLocked)
+      return { text: "Locked — can't swap", tone: 'amber' }
+    return (
+      predictionTape(
+        model,
+        predict({
+          type: 'swap',
+          sceneId: from.scene.id,
+          targetSceneId: target.scene.id,
+        }),
+      ) ?? { text: `Swap with ${from.number}`, tone: 'sky' }
+    )
+  }
   const tabStop =
     [selectedId, focusedId].find(
       (id) => id !== null && rendered.includes(id),
@@ -228,10 +255,12 @@ export function Board({
     <div
       ref={rootRef}
       // Scroll padding keeps a card that focus or a deep link scrolls to
-      // clear of the sticky highlight bar and the card's tape.
-      // ponytail: fixed, sized for the bar wrapped to three rows (viewports
-      // down to ~900px); measure the bar if Plan has to fit narrower.
-      className="min-w-0 flex-1 scroll-pt-48 overflow-y-auto p-5"
+      // clear of the sticky header (highlight bar, 84px chart and its legend)
+      // and the card's tape.
+      // ponytail: fixed, sized for the bar wrapped to three rows plus the
+      // chart (viewports down to ~900px); measure the header if Plan has to
+      // fit narrower.
+      className="min-w-0 flex-1 scroll-pt-72 overflow-y-auto p-5"
       aria-label="Plan board"
     >
       {header && (
@@ -243,16 +272,30 @@ export function Board({
         {model.acts.map((summary) => {
           const { act, scenes } = summary
           const collapsed = collapsedActs.has(act)
-          const withNotes = scenes.filter(
-            (s) => (model.signals.get(s.id)?.storyNotes.length ?? 0) > 0,
-          ).length
+          const withNotes = scenes.filter((s) => {
+            const signals = model.signals.get(s.id)
+            return (
+              !!signals &&
+              signals.storyNotes.length + signals.orderNotes.length > 0
+            )
+          }).length
+          // A card over this empty act: the act change's prediction.
+          const actDrop = dropAct === act && dragged ? dragged : null
+          const actTape = actDrop
+            ? predictionTape(
+                model,
+                predict({ type: 'act', sceneId: actDrop.scene.id, act }),
+              )
+            : null
           return (
             <section
               key={act}
               data-testid={`act-frame-${act}`}
               className={
                 'rounded-frame bg-tr-surface-clay px-3.5 pb-4 pt-2.5' +
-                (dropAct === act ? ' inset-ring-2 inset-ring-tr-sky' : '')
+                (dropAct === act
+                  ? ` inset-ring-2 ${actTape ? 'inset-ring-tr-amber' : 'inset-ring-tr-sky'}`
+                  : '')
               }
             >
               <ActHeader
@@ -281,9 +324,12 @@ export function Board({
                     if (dragSourceId) onMoveToAct(dragSourceId, act)
                     clearDrag()
                   }}
-                  className="mt-3 rounded-card border border-dashed border-tr-border-strong p-4 text-center text-12 text-tr-text-primary"
+                  className={`mt-3 rounded-card border border-dashed border-tr-border-strong p-4 text-center text-12 ${actTape ? 'font-semibold text-tr-amber' : 'text-tr-text-primary'}`}
                 >
-                  No scenes yet. Drag a card here, or use the Act control.
+                  {actTape?.text ??
+                    (actDrop
+                      ? `Move scene ${actDrop.number} here`
+                      : 'No scenes yet. Drag a card here, or use the Act control.')}
                 </p>
               ) : (
                 <div className="mt-4 flex flex-wrap gap-x-3 gap-y-4">
@@ -319,6 +365,10 @@ export function Board({
                     if (!signals) return null
                     const relation = relationTape(model, selectedId, id)
                     const match = highlightTape(model, id, highlight)
+                    const over =
+                      !!dragged &&
+                      id === dropTargetId &&
+                      id !== dragged.scene.id
                     return (
                       <BoardCard
                         key={id}
@@ -328,8 +378,12 @@ export function Board({
                         tabIndex={id === tabStop ? 0 : -1}
                         pending={pending}
                         unsaved={draftSceneIds.has(id)}
-                        tape={relation ?? match}
-                        related={relation !== null}
+                        tape={
+                          over && dragged
+                            ? dropTape(dragged, signals)
+                            : (relation ?? match)
+                        }
+                        related={!over && relation !== null}
                         ring={
                           match && highlight.kind !== 'none'
                             ? HIGHLIGHT_TONE[highlight.kind]
@@ -341,14 +395,16 @@ export function Board({
                           id !== selectedId
                         }
                         dragging={id === dragSourceId}
-                        dropTarget={id === dropTargetId && id !== dragSourceId}
+                        dropTarget={over}
                         onSelect={() => onSelectScene(id)}
                         onOpenInWrite={() => onOpenInWrite(id)}
                         onKeyDown={(e) => handleKey(e, id)}
                         onFocus={() => setFocusedId(id)}
                         onDragStart={() => setDragSourceId(id)}
                         onDragEnd={clearDrag}
-                        onDragOver={() => setDropTargetId(id)}
+                        onDragOver={() => {
+                          if (dragSourceId) setDropTargetId(id)
+                        }}
                         onDragLeave={() => setDropTargetId(null)}
                         onDrop={() => {
                           if (dragSourceId && dragSourceId !== id)

@@ -485,7 +485,77 @@ describe('BoardCard', () => {
     )
   })
 
-  it('click selects, double-click opens Write; a locked card refuses a drop (no preventDefault on dragover)', () => {
+  it("Order notes join the amber ⚑ count and the accessible name's notes", () => {
+    // The foreclosure now pays off (scene 3) before its setup (scene 4).
+    const backwards = [thread('thread-foreclosure', 'scene-4', 'scene-3')]
+    const card = renderCard({
+      signals: signalsFor(
+        'scene-3',
+        [flag('story-scene', 'scene', 'scene-3')],
+        backwards,
+      ),
+    })
+    const chip = screen.getByTestId('consistency-flag-badge')
+    expect(chip.dataset.kind).toBe('story')
+    expect(chip.textContent).toBe('⚑2')
+    expect(card.getAttribute('aria-label')).toContain(', 2 notes,')
+    cleanup()
+
+    renderCard({ signals: signalsFor('scene-3', [], backwards) })
+    const alone = screen.getByTestId('consistency-flag-badge')
+    expect(alone.dataset.kind).toBe('story')
+    expect(alone.textContent).toBe('⚑1')
+    expect(alone.className).toContain('bg-tr-amber-soft')
+  })
+
+  it("a drop target's ring follows its tape: amber for a problem or a lock, sky otherwise", () => {
+    const amber = renderCard({
+      dropTarget: true,
+      tape: { text: "Locked — can't swap", tone: 'amber' },
+    })
+    expectClasses(amber, 'ring-2 ring-tr-amber')
+    expect(amber.className).not.toContain('ring-tr-sky')
+    cleanup()
+
+    const sky = renderCard({
+      dropTarget: true,
+      tape: { text: 'Swap with 5', tone: 'sky' },
+    })
+    expectClasses(sky, 'ring-2 ring-tr-sky')
+    expect(sky.className).not.toContain('ring-tr-amber')
+  })
+
+  it('the related outline turns amber with an order tape', () => {
+    const order = renderCard({
+      related: true,
+      tape: { text: '⚠ order with 2', tone: 'amber' },
+    })
+    expectClasses(order, 'outline-dashed outline-tr-amber')
+    expect(order.classList.contains('outline-tr-sky')).toBe(false)
+    cleanup()
+
+    const thread = renderCard({
+      related: true,
+      tape: { text: '↘ pays off 2', tone: 'sky' },
+    })
+    expectClasses(thread, 'outline-dashed outline-tr-sky')
+    expect(thread.classList.contains('outline-tr-amber')).toBe(false)
+  })
+
+  it('a locked card reports dragover for its tape but never accepts the drop', () => {
+    const onDragOver = vi.fn()
+    const onDrop = vi.fn()
+    const locked = renderCard({ locked: true, onDragOver, onDrop })
+    // Not prevented: the browser shows "not allowed" and never drops.
+    expect(fireEvent.dragOver(locked, { dataTransfer: dataTransfer() })).toBe(
+      true,
+    )
+    expect(onDragOver).toHaveBeenCalledTimes(1)
+    fireEvent.drop(locked, { dataTransfer: dataTransfer() })
+    expect(onDrop).not.toHaveBeenCalled()
+  })
+
+  it('click selects, double-click opens Write; an unlocked card accepts a drop', () => {
     const onSelect = vi.fn()
     const onOpenInWrite = vi.fn()
     const onDragOver = vi.fn()
@@ -500,15 +570,6 @@ describe('BoardCard', () => {
     )
     expect(onDragOver).toHaveBeenCalledTimes(1)
     fireEvent.drop(card, { dataTransfer: dataTransfer() })
-    expect(onDrop).toHaveBeenCalledTimes(1)
-    cleanup()
-
-    const locked = renderCard({ locked: true, onDragOver, onDrop })
-    expect(fireEvent.dragOver(locked, { dataTransfer: dataTransfer() })).toBe(
-      true,
-    )
-    fireEvent.drop(locked, { dataTransfer: dataTransfer() })
-    expect(onDragOver).toHaveBeenCalledTimes(1)
     expect(onDrop).toHaveBeenCalledTimes(1)
   })
 })

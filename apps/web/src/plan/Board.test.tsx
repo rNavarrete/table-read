@@ -21,7 +21,13 @@ import type {
   StoryThread,
 } from 'contract'
 import { Board, gridNeighbor } from './Board'
-import { boardModel, NO_HIGHLIGHT, type Highlight } from './story'
+import {
+  boardModel,
+  NO_HIGHLIGHT,
+  predictionTape,
+  type Highlight,
+  type OrderIssue,
+} from './story'
 
 afterEach(cleanup)
 
@@ -208,6 +214,17 @@ function foldModel() {
     scene({ id: 'scene-6', index: 5, act: 2 }),
   ])
   return model(ep, [storyFlag('scene-1'), storyFlag('scene-5')])
+}
+
+/** What predict returns for a move that would make scene 5 pay off the cash
+ * before scene 2 sets it up. */
+const PAYS_OFF_FIRST: OrderIssue = {
+  id: 'payoff_first:thread-cash:scene-5',
+  kind: 'payoff_first',
+  sourceId: 'thread-cash',
+  label: 'The moved cash',
+  sceneId: 'scene-5',
+  otherSceneId: 'scene-2',
 }
 
 const sel = (sceneId: string) => ({ type: 'scene' as const, sceneId })
@@ -503,6 +520,143 @@ describe('Board', () => {
     expect(fireEvent.keyDown(card('scene-4'), { key: ' ' })).toBe(false)
     expect(onSelectScene).toHaveBeenLastCalledWith('scene-4')
     expect(onEnterPanel).toHaveBeenCalledTimes(1)
+  })
+
+  it('a collapsed act counts scenes with Order notes as with notes', () => {
+    // Scene 3 (act 1) pays off before scene 4 (act 2) sets up: an Order note
+    // on each, and no story note anywhere.
+    const ep = fixtureEpisode({
+      threads: [thread('thread-cash', 'scene-4', 'scene-3')],
+    })
+    renderBoard({ model: model(ep), collapsedActs: new Set([1]) })
+    expect(
+      within(screen.getByTestId('act-frame-1')).getByText(
+        '2 scenes hidden · 1 with notes',
+      ),
+    ).not.toBeNull()
+  })
+
+  it('dragging over a card predicts the swap on it', () => {
+    const m = model()
+    const predict = vi.fn(() => [PAYS_OFF_FIRST])
+    const { unmount } = renderBoard({ model: m, predict })
+    fireEvent.dragStart(card('scene-5'), { dataTransfer: dt() })
+    expect(predict).not.toHaveBeenCalled()
+    fireEvent.dragOver(card('scene-1'), { dataTransfer: dt() })
+
+    expect(predict).toHaveBeenCalledWith({
+      type: 'swap',
+      sceneId: 'scene-5',
+      targetSceneId: 'scene-1',
+    })
+    const tape = card('scene-1').querySelector('[data-tape]')
+    expect(tape?.textContent).toBe(predictionTape(m, [PAYS_OFF_FIRST])?.text)
+    expect(tape?.textContent).toBe('⚠ 5 would pay off before 2')
+    expect(tape?.className).toContain('bg-tr-amber')
+    expect(card('scene-1').className).toContain('ring-tr-amber')
+    // The dragged card itself is never a target.
+    expect(card('scene-5').querySelector('[data-tape]')).toBeNull()
+    unmount()
+
+    renderBoard({ predict: () => [] })
+    fireEvent.dragStart(card('scene-5'), { dataTransfer: dt() })
+    fireEvent.dragOver(card('scene-1'), { dataTransfer: dt() })
+    const swap = card('scene-1').querySelector('[data-tape]')
+    expect(swap?.textContent).toBe('Swap with 5')
+    expect(swap?.className).toContain('bg-tr-sky')
+    expect(card('scene-1').className).toContain('ring-tr-sky')
+    expect(card('scene-1').getAttribute('aria-label')).toContain('Swap with 5')
+
+    // Leaving the card or ending the drag takes the tape off.
+    fireEvent.dragLeave(card('scene-1'), { dataTransfer: dt() })
+    expect(card('scene-1').querySelector('[data-tape]')).toBeNull()
+    fireEvent.dragOver(card('scene-1'), { dataTransfer: dt() })
+    fireEvent.dragEnd(card('scene-5'), { dataTransfer: dt() })
+    expect(card('scene-1').querySelector('[data-tape]')).toBeNull()
+    expect(card('scene-1').className).not.toMatch(/(^|\s)ring-2/)
+  })
+
+  it("a locked card says Locked — can't swap and refuses the drop", () => {
+    const onReorder = vi.fn()
+    const predict = vi.fn(() => [PAYS_OFF_FIRST])
+    const ep = fixtureEpisode()
+    ep.scenes[1].locked = true // scene-3
+    renderBoard({ model: model(ep), predict, onReorder })
+
+    fireEvent.dragStart(card('scene-2'), { dataTransfer: dt() })
+    fireEvent.dragOver(card('scene-3'), { dataTransfer: dt() })
+    const tape = card('scene-3').querySelector('[data-tape]')
+    expect(tape?.textContent).toBe("Locked — can't swap")
+    expect(tape?.className).toContain('bg-tr-amber')
+    expect(card('scene-3').className).toContain('ring-tr-amber')
+    expect(predict).not.toHaveBeenCalled()
+
+    fireEvent.drop(card('scene-3'), { dataTransfer: dt() })
+    expect(onReorder).not.toHaveBeenCalled()
+  })
+
+  it("an empty act shows the act change's prediction while a card is over it", () => {
+    const predict = vi.fn(() => [PAYS_OFF_FIRST])
+    const { unmount } = renderBoard({ predict })
+    let frame = screen.getByTestId('act-frame-4')
+    let empty = within(frame).getByText(/^No scenes yet/)
+    fireEvent.dragStart(card('scene-5'), { dataTransfer: dt() })
+    fireEvent.dragOver(empty, { dataTransfer: dt() })
+
+    expect(predict).toHaveBeenCalledWith({
+      type: 'act',
+      sceneId: 'scene-5',
+      act: 4,
+    })
+    expect(empty.textContent).toBe('⚠ 5 would pay off before 2')
+    expect(empty.className).toContain('text-tr-amber')
+    expect(frame.className).toContain('inset-ring-tr-amber')
+    expect(frame.className).not.toContain('inset-ring-tr-sky')
+    fireEvent.dragLeave(empty, { dataTransfer: dt() })
+    expect(empty.textContent).toMatch(/^No scenes yet/)
+    expect(frame.className).not.toContain('inset-ring-tr-amber')
+    unmount()
+
+    renderBoard({ predict: () => [] })
+    frame = screen.getByTestId('act-frame-4')
+    empty = within(frame).getByText(/^No scenes yet/)
+    fireEvent.dragStart(card('scene-5'), { dataTransfer: dt() })
+    fireEvent.dragOver(empty, { dataTransfer: dt() })
+    expect(empty.textContent).toBe('Move scene 5 here')
+    expect(empty.className).not.toContain('text-tr-amber')
+    expect(frame.className).toContain('inset-ring-tr-sky')
+  })
+
+  it('a dragover without a drag from this board changes nothing', () => {
+    const predict = vi.fn(() => [PAYS_OFF_FIRST])
+    const { container } = renderBoard({ predict })
+    fireEvent.dragOver(card('scene-1'), { dataTransfer: dt() })
+    expect(container.querySelector('[data-tape]')).toBeNull()
+    expect(card('scene-1').className).not.toMatch(/(^|\s)ring-2/)
+    expect(predict).not.toHaveBeenCalled()
+  })
+
+  it('the drop tape replaces the relation and highlight tapes; a card never wears two', () => {
+    // scene-4 relates to the selected scene-2 and matches Marta.
+    const { container } = renderBoard({
+      model: martaModel({
+        threads: [thread('thread-cash', 'scene-2', 'scene-4')],
+      }),
+      selection: sel('scene-2'),
+      highlight: WHO_MARTA,
+    })
+    expect(card('scene-4').querySelector('[data-tape]')?.textContent).toBe(
+      '↘ pays off 2',
+    )
+    fireEvent.dragStart(card('scene-5'), { dataTransfer: dt() })
+    fireEvent.dragOver(card('scene-4'), { dataTransfer: dt() })
+
+    const tapes = card('scene-4').querySelectorAll('[data-tape]')
+    expect(tapes).toHaveLength(1)
+    expect(tapes[0].textContent).toBe('Swap with 5')
+    expect(card('scene-4').className).not.toContain('outline-dashed')
+    for (const el of container.querySelectorAll('[data-scene-card]'))
+      expect(el.querySelectorAll('[data-tape]').length).toBeLessThanOrEqual(1)
   })
 
   it('a card that shares a thread with the selection wears the relation tape and the dashed outline', () => {

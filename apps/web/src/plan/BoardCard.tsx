@@ -21,7 +21,8 @@ export interface BoardCardProps {
   unsaved: boolean
   /** At most one tape (spec §4.2). */
   tape: CardTape | null
-  /** Shares a thread with the selected scene: dashed sky outline. */
+  /** Shares a thread or an order problem with the selected scene: a dashed
+   * outline in the tape's tone (amber for "⚠ order with n", else sky). */
   related: boolean
   dragging: boolean
   dropTarget: boolean
@@ -98,13 +99,18 @@ function beatParts(s: SceneSignals): string[] {
   ].filter(Boolean)
 }
 
+/** Story notes and Order notes: the amber ⚑ count. */
+function storyCount(s: SceneSignals): number {
+  return s.storyNotes.length + s.orderNotes.length
+}
+
 function cardLabel(
   s: SceneSignals,
   locked: boolean,
   unsaved: boolean,
   tape: CardTape | null,
 ): string {
-  const notes = s.storyNotes.length + s.importNotes.length
+  const notes = storyCount(s) + s.importNotes.length
   const tag = cardTag(s)
   return [
     `Scene ${s.number}`,
@@ -127,8 +133,9 @@ function cardLabel(
 /**
  * A scene on the Plan board as the import board's ruled index card (redesign
  * spec §4.2). Draggable for a swap unless locked (scene or episode) or a
- * write is in flight; a locked card is never a drop target either, since a
- * swap would still change its index. Board owns the roving tab stop and the
+ * write is in flight; a locked card never takes a drop either, since a swap
+ * would still change its index, but it reports the dragover so Board can
+ * tape it "Locked — can't swap". Board owns the roving tab stop and the
  * keys; double-click opens Write on this scene.
  */
 export function BoardCard({
@@ -161,6 +168,8 @@ export function BoardCard({
   // the ring marks the match, so no tape (a landmark or ACT SPLIT? tape stays).
   const shownTape = tape && tape.text !== tag ? tape : null
   const beats = beatParts(signals).join(' · ')
+  const stories = storyCount(signals)
+  const amber = tape?.tone === 'amber'
 
   function handleDoubleClick(event: MouseEvent) {
     event.preventDefault()
@@ -178,9 +187,9 @@ export function BoardCard({
   }
 
   function handleDragOver(event: DragEvent) {
+    onDragOver()
     if (locked) return // no preventDefault: "not allowed", drop never fires
     event.preventDefault()
-    onDragOver()
   }
 
   function handleDrop(event: DragEvent) {
@@ -221,13 +230,14 @@ export function BoardCard({
       className={
         `relative flex h-card-board-h w-card-board-w shrink-0 cursor-pointer select-none flex-col rounded-[4px] px-2 pb-1 pt-[7px] text-tr-text-primary transition-[box-shadow,translate] ease-standard hover:-translate-y-px motion-reduce:transition-none ${fill} ${FOCUS}` +
         (related
-          ? ' outline-[1.5px] outline-offset-3 outline-dashed outline-tr-sky'
+          ? ` outline-[1.5px] outline-offset-3 outline-dashed ${amber ? 'outline-tr-amber' : 'outline-tr-sky'}`
           : '') +
         (dragging ? ' opacity-50' : '') +
         // Both are box-shadow rings and compose with the selected inset ring;
-        // a drop target's sky ring wins over a highlight ring.
+        // a drop target's ring (amber for a problem or a lock, else sky) wins
+        // over a highlight ring.
         (dropTarget
-          ? ' ring-2 ring-tr-sky'
+          ? ` ring-2 ${amber ? 'ring-tr-amber' : 'ring-tr-sky'}`
           : ring
             ? ` ring-2 ${TONE_RING[ring]}`
             : '')
@@ -251,13 +261,13 @@ export function BoardCard({
           className={`size-1.5 shrink-0 rounded-full ${sceneTypeDotClass(sceneLocationType(scene))}`}
         />
         <span className="min-w-0 flex-1 truncate font-semibold">{place}</span>
-        {signals.storyNotes.length > 0 ? (
+        {stories > 0 ? (
           <span
             data-testid="consistency-flag-badge"
             data-kind="story"
             className="shrink-0 rounded-chip bg-tr-amber-soft px-[5px] text-11 font-semibold text-tr-amber"
           >
-            ⚑{signals.storyNotes.length}
+            ⚑{stories}
           </span>
         ) : (
           signals.importNotes.length > 0 && (
