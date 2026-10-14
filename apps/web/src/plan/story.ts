@@ -201,6 +201,58 @@ export function linkifyNote(
   return out
 }
 
+const ORDINAL = new Intl.PluralRules('en', { type: 'ordinal' })
+const SUFFIX: Record<string, string> = { one: 'st', two: 'nd', few: 'rd' }
+/** 1 → "1st", 12 → "12th", 23 → "23rd". */
+const nth = (n: number) => `${n}${SUFFIX[ORDINAL.select(n)] ?? 'th'}`
+
+/** The instruction "Draft a fix in Review…" starts from (T3.9): where the note
+ * sits, then the note in words — a fact id as the quoted Ledger fact, a scene
+ * that is gone as "a deleted scene". Never a raw scene or fact id or [code];
+ * the writer edits it before anything is sent. Continuity notes only.
+ *
+ * The text also reaches the model (EDIT / APPROVED EDIT), which reads
+ * "scene 3" as the id scene-3 (linkifyNote). So a scene is never "scene n"
+ * here, and a beat never "beat n.m": "the Basement scene (3rd on the board)",
+ * "the 1st beat of …". After a reorder a card number and an id number differ.
+ * Wording confirmed by the owner on 2026-10-14. */
+export function fixInstruction(
+  note: PlanNote,
+  scene: Scene,
+  scenes: readonly Scene[],
+  ledger: readonly LedgerFact[],
+): string {
+  const named = (target: Scene) => {
+    const at = nth(target.index + 1)
+    const place = placeTitle(target).replace(/^the /i, '')
+    // placeTitle falls back to "Scene n" when there is no place.
+    return /^Scene \d+$/.test(place)
+      ? `the ${at} scene on the board`
+      : `the ${place} scene (${at} on the board)`
+  }
+  const where = note.beat
+    ? `the ${nth(note.beat.index + 1)} beat of ${named(scene)}`
+    : named(scene)
+  const body = linkifyNote(note.flag.explanation, scenes, ledger)
+    .map((s) => {
+      if (s.type === 'scene')
+        return named(scenes.find((x) => x.id === s.sceneId)!)
+      if (s.type === 'fact')
+        return `the Ledger fact “${ledger.find((f) => f.id === s.factId)!.fact}”`
+      // linkifyNote leaves as text a missing scene ("Scene 40", "scene-40")
+      // and any hex id (guided setup mints `scene-<uuid hex>`), existing or
+      // not. Hex only, so prose like "scene-level" stays.
+      return s.text.replace(/\bscene-[0-9a-f]+\b|\bscene \d+\b/gi, (m) => {
+        const id = m.toLowerCase().replace(' ', '-')
+        const target = scenes.find((x) => x.id === id)
+        return target ? named(target) : 'a deleted scene'
+      })
+    })
+    .join('')
+    .trim()
+  return `Fix this continuity note in ${where}: ${body}`
+}
+
 // ── Scene reading ───────────────────────────────────────────────────────
 
 const SLUG_PREFIX =

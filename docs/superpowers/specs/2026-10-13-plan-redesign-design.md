@@ -201,7 +201,7 @@ Kept: `act-frame-{n}`, `scene-card-{id}` (+ `data-locked`), `consistency-flag-ba
 
 **Phase 4 — Owner-approved additions (T3.8, T3.9).**
 - T3.8 Insert reorder with ⌥←/⌥→ — lock-violation test first; confirm the patch applier accepts multiple `/index` replaces in one PATCH.
-- T3.9 "Draft a fix in Review…" on story notes — existing Change Set path, hidden on locked scenes, lock-violation test first.
+- T3.9 "Draft a fix in Review…" on continuity notes (owner decision 2026-10-14: act-split and Order notes keep their own verbs) — existing Change Set path, hidden on locked scenes, lock-violation test first.
 
 **Not scheduled:** Read mode (linear outline), `flag.kind` contract field, motivation editing, storyline tagging, scene turn field, a Plan entry point for the paid structure check.
 

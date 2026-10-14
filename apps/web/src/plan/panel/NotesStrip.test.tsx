@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen, within } from '@testing-library/react'
+import { act, cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ComponentProps } from 'react'
 import type { Beat, ConsistencyFlag, LedgerFact, Scene } from 'contract'
-import { notesForScene, type OrderNote } from '../story'
+import { ApiError } from '../../api/errors'
+import { fixInstruction, notesForScene, type OrderNote } from '../story'
 import { NotesStrip } from './NotesStrip'
 
 afterEach(cleanup)
@@ -127,6 +128,14 @@ const ORDER_NOTE: OrderNote = {
   text: 'Pays off “The spare key” before its setup in scene 4.',
 }
 
+const DRAFT_FIX = { name: 'Draft a fix in Review…' }
+
+function fixArea() {
+  return screen.getByRole('textbox', {
+    name: 'Fix instruction',
+  }) as HTMLTextAreaElement
+}
+
 function renderStrip(
   overrides: Partial<ComponentProps<typeof NotesStrip>> = {},
 ) {
@@ -137,6 +146,7 @@ function renderStrip(
     ledger: [FACT_02],
     busy: false,
     actLocked: false,
+    locked: false,
     onSelectScene: vi.fn(),
     onShowBeat: vi.fn(),
     onOpenInWrite: vi.fn(),
@@ -349,7 +359,7 @@ describe('NotesStrip', () => {
   it('Undo the move only on an undoable note, disabled while busy', async () => {
     const user = userEvent.setup()
     const onUndoMove = vi.fn()
-    renderStrip({ orderNotes: [ORDER_NOTE], onUndoMove, defaultExpanded: true })
+    renderStrip({ orderNotes: [ORDER_NOTE], onUndoMove, freshKey: 'issue-1' })
     expect(screen.queryByRole('button', { name: 'Undo the move' })).toBeNull()
     cleanup()
 
@@ -357,7 +367,7 @@ describe('NotesStrip', () => {
       orderNotes: [ORDER_NOTE],
       undoableIssueIds: new Set([ORDER_NOTE.issue.id]),
       onUndoMove,
-      defaultExpanded: true,
+      freshKey: 'issue-1',
     })
     await user.click(screen.getByRole('button', { name: 'Undo the move' }))
     expect(onUndoMove).toHaveBeenCalledOnce()
@@ -367,7 +377,7 @@ describe('NotesStrip', () => {
       orderNotes: [ORDER_NOTE],
       undoableIssueIds: new Set([ORDER_NOTE.issue.id]),
       onUndoMove,
-      defaultExpanded: true,
+      freshKey: 'issue-1',
       busy: true,
     })
     expect(
@@ -379,8 +389,8 @@ describe('NotesStrip', () => {
     ).toBe(true)
   })
 
-  it('defaultExpanded starts the strip open', () => {
-    renderStrip({ orderNotes: [ORDER_NOTE], defaultExpanded: true })
+  it('a fresh order problem (freshKey) starts the strip open', () => {
+    renderStrip({ orderNotes: [ORDER_NOTE], freshKey: 'issue-1' })
     expect(
       screen
         .getByRole('button', { name: 'Hide' })
@@ -390,5 +400,251 @@ describe('NotesStrip', () => {
       screen.getByTestId(`order-note-${ORDER_NOTE.issue.id}`),
     ).not.toBeNull()
     expect(screen.queryByTestId('notes-peek')).toBeNull()
+  })
+
+  it('a new freshKey opens a collapsed strip again without remounting it: an open fix editor keeps its text', async () => {
+    const user = userEvent.setup()
+    const { rerender, ...props } = renderStrip({
+      onDraftFix: vi.fn(() => Promise.resolve()),
+      orderNotes: [ORDER_NOTE],
+      freshKey: 'issue-1',
+    })
+    await user.click(
+      within(screen.getByTestId('note-flag-scene')).getByRole(
+        'button',
+        DRAFT_FIX,
+      ),
+    )
+    await user.type(fixArea(), ' Keep the fight.')
+    const typed = fixArea().value
+
+    rerender(<NotesStrip {...props} freshKey="" />)
+    expect(fixArea().value).toBe(typed)
+    await user.click(screen.getByRole('button', { name: 'Hide' }))
+    rerender(<NotesStrip {...props} freshKey="issue-2" />)
+    expect(
+      screen
+        .getByRole('button', { name: 'Hide' })
+        .getAttribute('aria-expanded'),
+    ).toBe('true')
+    expect(fixArea().value).toBe(typed)
+  })
+
+  // ── Draft a fix in Review… (T3.9) ──
+
+  it('Draft a fix in Review… only on continuity notes: not on act-split, import or Order notes', async () => {
+    const user = userEvent.setup()
+    renderStrip({
+      onDraftFix: vi.fn(() => Promise.resolve()),
+      orderNotes: [ORDER_NOTE],
+    })
+    await user.click(screen.getByRole('button', { name: 'Show' }))
+    await user.click(screen.getByText('From the import · 2'))
+
+    for (const id of ['note-flag-scene', 'note-flag-beat']) {
+      expect(
+        within(screen.getByTestId(id)).queryByRole('button', DRAFT_FIX),
+      ).not.toBeNull()
+    }
+    for (const id of [
+      'note-flag-act',
+      'notes-import-group',
+      `order-note-${ORDER_NOTE.issue.id}`,
+    ]) {
+      expect(
+        within(screen.getByTestId(id)).queryByRole('button', DRAFT_FIX),
+      ).toBeNull()
+    }
+    expect(screen.getAllByRole('button', DRAFT_FIX)).toHaveLength(2)
+    cleanup()
+
+    renderStrip({ orderNotes: [ORDER_NOTE], freshKey: 'issue-1' })
+    expect(screen.queryByRole('button', DRAFT_FIX)).toBeNull()
+  })
+
+  it('hidden while locked; an open editor goes when the scene locks and comes back with its text', async () => {
+    const user = userEvent.setup()
+    const { rerender, ...props } = renderStrip({
+      onDraftFix: vi.fn(() => Promise.resolve()),
+      freshKey: 'issue-1',
+      locked: true,
+    })
+    expect(screen.queryByRole('button', DRAFT_FIX)).toBeNull()
+
+    rerender(<NotesStrip {...props} locked={false} />)
+    await user.click(
+      within(screen.getByTestId('note-flag-scene')).getByRole(
+        'button',
+        DRAFT_FIX,
+      ),
+    )
+    const area = fixArea()
+    await user.type(area, ' Keep the fight.')
+    const typed = area.value
+    expect(typed).toMatch(/ Keep the fight\.$/)
+
+    // The writer is on the Lock switch (outside the strip): unlocking
+    // brings the editor back without taking focus.
+    const elsewhere = screen.getByRole('button', { name: 'Hide' })
+    act(() => elsewhere.focus())
+    rerender(<NotesStrip {...props} locked />)
+    expect(screen.queryByTestId('fix-editor')).toBeNull()
+    expect(screen.queryByRole('button', DRAFT_FIX)).toBeNull()
+
+    rerender(<NotesStrip {...props} locked={false} />)
+    expect(screen.getByTestId('fix-editor')).not.toBeNull()
+    expect(fixArea().value).toBe(typed)
+    expect(document.activeElement).toBe(elsewhere)
+  })
+
+  it('opening the editor sends nothing; it is prefilled in words with the explainer', async () => {
+    const user = userEvent.setup()
+    const onDraftFix = vi.fn(() => Promise.resolve())
+    const props = renderStrip({ onDraftFix, freshKey: 'issue-1' })
+    const card = screen.getByTestId('note-flag-scene')
+    const verb = within(card).getByRole('button', DRAFT_FIX)
+    expect(verb.getAttribute('aria-expanded')).toBe('false')
+
+    await user.click(verb)
+    expect(onDraftFix).not.toHaveBeenCalled()
+    expect(within(card).getByTestId('fix-editor')).not.toBeNull()
+    const area = fixArea()
+    expect(document.activeElement).toBe(area)
+    expect(area.value).toBe(
+      fixInstruction(props.notes[0], SCENE_5, SCENES, [FACT_02]),
+    )
+    expect(area.value).not.toMatch(/scene-|fact-|\[/)
+    const explainer = document.getElementById(
+      area.getAttribute('aria-describedby') ?? '',
+    )
+    expect(explainer?.textContent).toBe(
+      'Nothing changes until you apply it in Review. Locked scenes are never changed.',
+    )
+    expect(verb.getAttribute('aria-expanded')).toBe('true')
+  })
+
+  it('Open Review sends the edited, trimmed text; it reads Opening… and waits; Cancel closes and refocuses the verb', async () => {
+    const user = userEvent.setup()
+    let resolve = () => {}
+    const onDraftFix = vi.fn(
+      () =>
+        new Promise<void>((done) => {
+          resolve = done
+        }),
+    )
+    renderStrip({ onDraftFix, freshKey: 'issue-1' })
+    const verb = within(screen.getByTestId('note-flag-scene')).getByRole(
+      'button',
+      DRAFT_FIX,
+    )
+    await user.click(verb)
+    const editor = screen.getByTestId('fix-editor')
+    const open = within(editor).getByRole('button', {
+      name: 'Open Review',
+    }) as HTMLButtonElement
+    const cancel = within(editor).getByRole('button', {
+      name: 'Cancel',
+    }) as HTMLButtonElement
+
+    await user.clear(fixArea())
+    expect(open.disabled).toBe(true)
+    await user.type(fixArea(), '  Move the money talk to the marina.  ')
+    await user.click(open)
+    expect(onDraftFix).toHaveBeenCalledOnce()
+    expect(onDraftFix).toHaveBeenCalledWith(
+      'Move the money talk to the marina.',
+    )
+    expect(open.textContent).toBe('Opening…')
+    expect(open.disabled).toBe(true)
+    expect(cancel.disabled).toBe(true)
+
+    await act(async () => resolve())
+    expect(open.textContent).toBe('Open Review')
+    expect(open.disabled).toBe(false)
+    // Stay in Plan: focus back in the box, not on <body>.
+    expect(document.activeElement).toBe(fixArea())
+
+    await user.click(cancel)
+    expect(screen.queryByTestId('fix-editor')).toBeNull()
+    expect(document.activeElement).toBe(verb)
+  })
+
+  it.each([
+    [
+      new ApiError(502, {
+        code: 'SCHEMA_INVALID_LLM',
+        message:
+          'classify_blast_radius: LLM output failed schema validation twice',
+      }),
+      "Review couldn't plan this fix (the AI's answer came back malformed twice). Nothing changed; try again.",
+    ],
+    [
+      new ApiError(503, { code: 'LLM_UNAVAILABLE', message: 'upstream 529' }),
+      'The AI service is unavailable right now. Nothing changed.',
+    ],
+    [
+      new ApiError(502, {
+        code: 'INTERNAL',
+        message: 'request failed with status 502',
+      }),
+      "Couldn't open Review. Nothing changed; try again.",
+    ],
+  ])(
+    'a failed send shows writer copy for its code, never the server message (%#)',
+    async (err, copy) => {
+      const user = userEvent.setup()
+      renderStrip({
+        onDraftFix: vi.fn(() => Promise.reject(err)),
+        freshKey: 'issue-1',
+      })
+      await user.click(
+        within(screen.getByTestId('note-flag-scene')).getByRole(
+          'button',
+          DRAFT_FIX,
+        ),
+      )
+      await user.click(screen.getByRole('button', { name: 'Open Review' }))
+      expect((await screen.findByRole('alert')).textContent).toBe(copy)
+    },
+  )
+
+  it('a failed send shows the error inline, keeps the edited text and focuses it', async () => {
+    const user = userEvent.setup()
+    renderStrip({
+      onDraftFix: vi.fn(() => Promise.reject(new TypeError('Failed to fetch'))),
+      freshKey: 'issue-1',
+    })
+    await user.click(
+      within(screen.getByTestId('note-flag-scene')).getByRole(
+        'button',
+        DRAFT_FIX,
+      ),
+    )
+    await user.type(fixArea(), ' Keep the fight.')
+    const edited = fixArea().value
+    const open = screen.getByRole('button', {
+      name: 'Open Review',
+    }) as HTMLButtonElement
+    await user.click(open)
+
+    expect((await screen.findByRole('alert')).textContent).toBe(
+      "Couldn't open Review. Nothing changed; try again.",
+    )
+    expect(fixArea().value).toBe(edited)
+    expect(document.activeElement).toBe(fixArea())
+    expect(open.disabled).toBe(false)
+  })
+
+  it('the verb is disabled while a write is in flight', () => {
+    renderStrip({
+      onDraftFix: vi.fn(() => Promise.resolve()),
+      freshKey: 'issue-1',
+      busy: true,
+    })
+    const verbs = screen.getAllByRole('button', DRAFT_FIX)
+    expect(verbs).toHaveLength(2)
+    for (const verb of verbs) {
+      expect((verb as HTMLButtonElement).disabled).toBe(true)
+    }
   })
 })

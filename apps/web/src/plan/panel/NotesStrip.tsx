@@ -1,7 +1,9 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { LedgerFact, Scene } from 'contract'
+import { ApiError } from '../../api/errors'
 import { plural } from '../../projects/wizard/board/boardText'
 import {
+  fixInstruction,
   importNoteText,
   linkifyNote,
   type OrderNote,
@@ -20,6 +22,13 @@ export interface NotesStripProps {
   busy: boolean
   /** the Act select is disabled, so "Change the act" is too */
   actLocked: boolean
+  /** The scene or its episode is locked: no "Draft a fix in Review…" and no
+   * open fix editor (rule 2; owner decision 3). Notes and Dismiss still work. */
+  locked: boolean
+  /** Draft a fix in Review… → Open Review: PlanScreen creates the Change Set
+   * and goes to Review. Resolves once on the way, or when the writer stays in
+   * Plan; rejects with the error the editor shows. Absent → no verb. */
+  onDraftFix?: (instruction: string) => Promise<void>
   onSelectScene: (sceneId: string) => void
   onShowBeat: (beatId: string) => void
   /** null = the scene */
@@ -32,16 +41,32 @@ export interface NotesStripProps {
   /** Issue ids whose note offers Undo the move. */
   undoableIssueIds?: ReadonlySet<string>
   onUndoMove?: () => void
-  /** Start open: a new order problem just landed on this scene (PlanScreen re-keys the strip). */
-  defaultExpanded?: boolean
+  /** The last move's new Order issue ids on this scene, joined: non-empty
+   * opens the strip (on mount, and again when it changes). PlanScreen keys
+   * the strip by scene only, so a move never throws away an open fix editor. */
+  freshKey?: string
 }
 
 const NO_IDS: ReadonlySet<string> = new Set()
+
+// Data contract §4 codes → writer copy; never the server's message.
+const FIX_ERRORS: Record<string, string> = {
+  SCHEMA_INVALID_LLM:
+    "Review couldn't plan this fix (the AI's answer came back malformed twice). Nothing changed; try again.",
+  LLM_UNAVAILABLE: 'The AI service is unavailable right now. Nothing changed.',
+}
+const fixErrorText = (err: unknown) =>
+  (err instanceof ApiError && FIX_ERRORS[err.code]) ||
+  "Couldn't open Review. Nothing changed; try again."
 
 const FOCUS =
   'focus-visible:outline focus-visible:outline-selected focus-visible:outline-offset-2 focus-visible:outline-tr-sky'
 const LINK = `text-tr-sky underline ${FOCUS}`
 const VERB = `rounded-card px-2 py-1 text-13 text-tr-text-primary hover:bg-tr-surface-clay disabled:cursor-not-allowed disabled:opacity-50 ${FOCUS}`
+// PlanField's CONTROL textarea and its footer's coral Open Review.
+const CONTROL =
+  'mt-1 w-full rounded-card border border-tr-border bg-tr-surface-raised p-2 text-tr-text-primary outline-none focus:border-tr-sky disabled:opacity-50'
+const PRIMARY = `rounded-card bg-tr-coral px-3 py-1 text-13 text-tr-surface-raised disabled:cursor-not-allowed disabled:opacity-50 ${FOCUS}`
 
 function beatLabel(scene: Scene, note: PlanNote): string | null {
   return note.beat ? `${scene.index + 1}.${note.beat.index + 1}` : null
@@ -53,7 +78,7 @@ function beatLabel(scene: Scene, note: PlanNote): string | null {
  * its verbs, then the import notes in a closed "From the import" group.
  * Order notes count as story notes. Severity is not shown: all live flags are
  * 'tension'. PlanScreen keys the strip by scene id, so it starts collapsed on
- * every scene unless `defaultExpanded`. */
+ * every scene unless `freshKey`. */
 export function NotesStrip({
   scene,
   notes,
@@ -61,6 +86,8 @@ export function NotesStrip({
   ledger,
   busy,
   actLocked,
+  locked,
+  onDraftFix,
   onSelectScene,
   onShowBeat,
   onOpenInWrite,
@@ -70,9 +97,65 @@ export function NotesStrip({
   orderNotes = [],
   undoableIssueIds = NO_IDS,
   onUndoMove,
-  defaultExpanded = false,
+  freshKey = '',
 }: NotesStripProps) {
-  const [expanded, setExpanded] = useState(defaultExpanded)
+  const [expanded, setExpanded] = useState(freshKey !== '')
+  // A new fresh key opens the strip (state adjusted during render).
+  const [seenKey, setSeenKey] = useState(freshKey)
+  if (seenKey !== freshKey) {
+    setSeenKey(freshKey)
+    if (freshKey) setExpanded(true)
+  }
+  // The one open fix editor (T3.9): its note and the writer's text. Lives
+  // while this scene stays selected (PlanScreen keys the strip by scene).
+  const [fix, setFix] = useState<{ flagId: string; text: string } | null>(null)
+  const [sending, setSending] = useState(false)
+  const [fixError, setFixError] = useState<string | null>(null)
+  const fixVerbRef = useRef<HTMLButtonElement>(null)
+  const fixAreaRef = useRef<HTMLTextAreaElement>(null)
+  // Focus the box when an editor opens, not when a lock/unlock remounts it
+  // (that would pull focus off the Lock switch).
+  const fixId = fix?.flagId
+  useEffect(() => {
+    if (fixId) fixAreaRef.current?.focus()
+  }, [fixId])
+
+  function toggleFix(note: PlanNote) {
+    setFixError(null)
+    setFix(
+      fix?.flagId === note.flag.id
+        ? null
+        : {
+            flagId: note.flag.id,
+            text: fixInstruction(note, scene, scenes, ledger),
+          },
+    )
+  }
+  function sendFix() {
+    if (!fix || !onDraftFix) return
+    setSending(true)
+    setFixError(null)
+    onDraftFix(fix.text.trim()).then(
+      () => {
+        // On the way to Review, or Stay in Plan: the leave dialog gave focus
+        // back to a button that was disabled, so put it in the box.
+        setSending(false)
+        fixAreaRef.current?.focus()
+      },
+      (err: unknown) => {
+        setSending(false)
+        setFixError(fixErrorText(err))
+        fixAreaRef.current?.focus() // the text is kept; let the writer edit it
+      },
+    )
+  }
+  // Cancel: focus the verb first (it exists before and after the close).
+  function cancelFix() {
+    fixVerbRef.current?.focus()
+    setFix(null)
+    setFixError(null)
+  }
+
   if (notes.length === 0 && orderNotes.length === 0) return null
 
   const story = notes.filter((note) => note.kind !== 'import')
@@ -169,6 +252,8 @@ export function NotesStrip({
             const fact = note.flag.factId
               ? ledger.find((f) => f.id === note.flag.factId)
               : undefined
+            const canFix = !!onDraftFix && !locked
+            const fixing = fix?.flagId === note.flag.id
             return (
               <article
                 key={note.flag.id}
@@ -246,10 +331,71 @@ export function NotesStrip({
                       >
                         Open in Write
                       </button>
+                      {canFix && (
+                        <button
+                          ref={fixing ? fixVerbRef : undefined}
+                          type="button"
+                          aria-expanded={fixing}
+                          disabled={busy}
+                          onClick={() => toggleFix(note)}
+                          className={VERB}
+                        >
+                          Draft a fix in Review…
+                        </button>
+                      )}
                       {dismissButton(note, 'Dismiss')}
                     </>
                   )}
                 </div>
+                {canFix && fixing && (
+                  <div
+                    data-testid="fix-editor"
+                    className="mt-2 flex flex-col gap-2"
+                  >
+                    <textarea
+                      ref={fixAreaRef}
+                      aria-label="Fix instruction"
+                      aria-describedby="plan-fix-explainer"
+                      rows={4}
+                      readOnly={sending}
+                      value={fix.text}
+                      onChange={(e) =>
+                        setFix({ flagId: note.flag.id, text: e.target.value })
+                      }
+                      className={`${CONTROL} resize-y text-13`}
+                    />
+                    <p
+                      id="plan-fix-explainer"
+                      className="text-12 text-tr-text-primary"
+                    >
+                      Nothing changes until you apply it in Review. Locked
+                      scenes are never changed.
+                    </p>
+                    {fixError && (
+                      <p role="alert" className="text-13 text-tr-danger">
+                        {fixError}
+                      </p>
+                    )}
+                    <div className="flex flex-wrap items-center gap-1">
+                      <button
+                        type="button"
+                        disabled={busy || sending || !fix.text.trim()}
+                        onClick={sendFix}
+                        className={PRIMARY}
+                      >
+                        {sending ? 'Opening…' : 'Open Review'}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={sending}
+                        onClick={cancelFix}
+                        className={VERB}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
               </article>
             )
           })}
