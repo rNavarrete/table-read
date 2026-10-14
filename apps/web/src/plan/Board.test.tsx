@@ -132,7 +132,6 @@ function renderBoard(
       pending={false}
       flaggedSceneIds={new Set()}
       onSelectScene={noop}
-      onSelectBeat={noop}
       onOpenInWrite={noop}
       onReorder={noop}
       {...rest}
@@ -140,7 +139,7 @@ function renderBoard(
   )
 }
 
-describe('Board / SceneCard / BeatCard', () => {
+describe('Board / SceneCard', () => {
   it('renders act frames, and the scene card shows a beat-count chip and the 2-line whatHappens clamp', () => {
     const ep = episode([scene({ beats: [beat1_1(), beat1_2Locked()] })])
     renderBoard({ project: project(ep), episode: ep })
@@ -190,7 +189,6 @@ describe('Board / SceneCard / BeatCard', () => {
         pending={false}
         flaggedSceneIds={new Set()}
         onSelectScene={noop}
-        onSelectBeat={noop}
         onReorder={noop}
       />,
     )
@@ -234,7 +232,6 @@ describe('Board / SceneCard / BeatCard', () => {
         pending={false}
         flaggedSceneIds={new Set()}
         onSelectScene={noop}
-        onSelectBeat={noop}
         onReorder={noop}
       />,
     )
@@ -243,51 +240,23 @@ describe('Board / SceneCard / BeatCard', () => {
     expect(card.className).not.toContain('outline-selected')
   })
 
-  it('the chevron expands the card to reveal nested beat cards; the locked beat shows a lock chip', async () => {
-    const user = userEvent.setup()
-    const ep = episode([scene({ beats: [beat1_1(), beat1_2Locked()] })])
-    render(
-      <Board
-        project={project(ep)}
-        episode={ep}
-        selection={null}
-        collapsedActs={new Set()}
-        pending={false}
-        flaggedSceneIds={new Set()}
-        onSelectScene={noop}
-        onSelectBeat={noop}
-        onReorder={noop}
-      />,
+  it('a beat selection keeps its scene card selected (the panel is showing that scene)', () => {
+    const ep = episode([scene({ beats: [beat1_1()] })])
+    renderBoard({
+      project: project(ep),
+      episode: ep,
+      selection: { type: 'beat', sceneId: 'scene-1', beatId: 'beat-1-1' },
+    })
+    expect(screen.getByTestId('scene-card-scene-1').className).toContain(
+      'bg-tr-coral-soft',
     )
-    expect(screen.queryByTestId('beat-card-beat-1-2')).toBeNull()
-    await user.click(screen.getByRole('button', { name: 'Expand beats' }))
-    expect(screen.getByTestId('beat-card-beat-1-1')).not.toBeNull()
-    const lockedBeatCard = screen.getByTestId('beat-card-beat-1-2')
-    expect(lockedBeatCard.textContent).toContain('Locked')
   })
 
-  it('clicking a nested beat card selects the beat, not the parent scene', async () => {
-    const user = userEvent.setup()
-    const ep = episode([scene({ beats: [beat1_1()] })])
-    const onSelectScene = vi.fn()
-    const onSelectBeat = vi.fn()
-    render(
-      <Board
-        project={project(ep)}
-        episode={ep}
-        selection={null}
-        collapsedActs={new Set()}
-        pending={false}
-        flaggedSceneIds={new Set()}
-        onSelectScene={onSelectScene}
-        onSelectBeat={onSelectBeat}
-        onReorder={noop}
-      />,
-    )
-    await user.click(screen.getByRole('button', { name: 'Expand beats' }))
-    await user.click(screen.getByTestId('beat-card-beat-1-1'))
-    expect(onSelectBeat).toHaveBeenCalledWith('scene-1', 'beat-1-1')
-    expect(onSelectScene).not.toHaveBeenCalled()
+  it('beats are not on the board: no expand control and no beat cards', () => {
+    const ep = episode([scene({ beats: [beat1_1(), beat1_2Locked()] })])
+    renderBoard({ project: project(ep), episode: ep })
+    expect(screen.queryByRole('button', { name: 'Expand beats' })).toBeNull()
+    expect(screen.queryByTestId('beat-card-beat-1-1')).toBeNull()
   })
 
   it('a locked scene card is not draggable', () => {
@@ -301,7 +270,6 @@ describe('Board / SceneCard / BeatCard', () => {
         pending={false}
         flaggedSceneIds={new Set()}
         onSelectScene={noop}
-        onSelectBeat={noop}
         onReorder={noop}
       />,
     )
@@ -321,7 +289,6 @@ describe('Board / SceneCard / BeatCard', () => {
         pending={false}
         flaggedSceneIds={new Set()}
         onSelectScene={noop}
-        onSelectBeat={noop}
         onReorder={noop}
       />,
     )
@@ -341,7 +308,6 @@ describe('Board / SceneCard / BeatCard', () => {
         pending={false}
         flaggedSceneIds={new Set()}
         onSelectScene={noop}
-        onSelectBeat={noop}
         onReorder={noop}
       />,
     )
@@ -365,7 +331,6 @@ describe('Board / SceneCard / BeatCard', () => {
         pending={false}
         flaggedSceneIds={new Set()}
         onSelectScene={noop}
-        onSelectBeat={noop}
         onReorder={onReorder}
       />,
     )
@@ -391,7 +356,6 @@ describe('Board / SceneCard / BeatCard', () => {
         pending={false}
         flaggedSceneIds={new Set()}
         onSelectScene={onSelectScene}
-        onSelectBeat={noop}
         onReorder={noop}
       />,
     )
@@ -406,28 +370,6 @@ describe('Board / SceneCard / BeatCard', () => {
     onSelectScene.mockClear()
     fireEvent.keyDown(card, { key: ' ' })
     expect(onSelectScene).toHaveBeenCalledWith('scene-1')
-  })
-
-  it('Enter on the nested chevron button does not also select the scene (bubbled keydown ignored)', () => {
-    const ep = episode([scene({ beats: [beat1_1()] })])
-    const onSelectScene = vi.fn()
-    render(
-      <Board
-        project={project(ep)}
-        episode={ep}
-        selection={null}
-        collapsedActs={new Set()}
-        pending={false}
-        flaggedSceneIds={new Set()}
-        onSelectScene={onSelectScene}
-        onSelectBeat={noop}
-        onReorder={noop}
-      />,
-    )
-    const chevron = screen.getByRole('button', { name: 'Expand beats' })
-    chevron.focus()
-    fireEvent.keyDown(chevron, { key: 'Enter' }) // bubbles up to the card
-    expect(onSelectScene).not.toHaveBeenCalled()
   })
 
   it('drag initiation is disabled on every card while a mutation is pending', () => {
@@ -445,7 +387,6 @@ describe('Board / SceneCard / BeatCard', () => {
         pending
         flaggedSceneIds={new Set()}
         onSelectScene={noop}
-        onSelectBeat={noop}
         onReorder={onReorder}
       />,
     )
@@ -482,7 +423,6 @@ describe('Board / SceneCard / BeatCard', () => {
         pending={false}
         flaggedSceneIds={new Set()}
         onSelectScene={noop}
-        onSelectBeat={noop}
         onReorder={onReorder}
       />,
     )

@@ -21,7 +21,6 @@ interface ActFrameProps {
   dragSourceId: string | null
   dropTargetId: string | null
   onSelectScene: (sceneId: string) => void
-  onSelectBeat: (sceneId: string, beatId: string) => void
   onOpenInWrite: (sceneId: string) => void
   onDragStartScene: (sceneId: string) => void
   onDragEndScene: () => void
@@ -42,7 +41,6 @@ function ActFrame({
   dragSourceId,
   dropTargetId,
   onSelectScene,
-  onSelectBeat,
   onOpenInWrite,
   onDragStartScene,
   onDragEndScene,
@@ -74,7 +72,6 @@ function ActFrame({
                 pending={pending}
                 hasOpenConsistencyFlag={flaggedSceneIds.has(scene.id)}
                 onSelectScene={onSelectScene}
-                onSelectBeat={onSelectBeat}
                 onOpenInWrite={onOpenInWrite}
                 dragging={scene.id === dragSourceId}
                 dropTarget={
@@ -106,7 +103,6 @@ export interface BoardProps {
    * badge). Built by PlanScreen from `GET .../consistency-flags?status=open`. */
   flaggedSceneIds: Set<string>
   onSelectScene: (sceneId: string) => void
-  onSelectBeat: (sceneId: string, beatId: string) => void
   onOpenInWrite?: (sceneId: string) => void
   onReorder: (draggedSceneId: string, targetSceneId: string) => void
 }
@@ -130,7 +126,6 @@ export function Board({
   pending,
   flaggedSceneIds,
   onSelectScene,
-  onSelectBeat,
   onOpenInWrite = () => {},
   onReorder,
 }: BoardProps) {
@@ -150,7 +145,7 @@ export function Board({
   }
 
   return (
-    <div className="flex-1 p-6" aria-label="Plan board">
+    <div className="min-w-0 flex-1 overflow-y-auto p-6" aria-label="Plan board">
       <div className="flex flex-col gap-6">
         {acts.map((act) => (
           <ActFrame
@@ -166,7 +161,6 @@ export function Board({
             dragSourceId={dragSourceId}
             dropTargetId={dropTargetId}
             onSelectScene={onSelectScene}
-            onSelectBeat={onSelectBeat}
             onOpenInWrite={onOpenInWrite}
             onDragStartScene={setDragSourceId}
             onDragEndScene={() => {

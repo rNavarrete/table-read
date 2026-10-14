@@ -1,22 +1,35 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import type { ConsistencyFlag, LedgerFact, Project, Scene } from 'contract'
+import type {
+  Beat,
+  ConsistencyFlag,
+  LedgerFact,
+  Project,
+  Scene,
+} from 'contract'
 import {
   createChangeSet,
   getConsistencyFlags,
   getLedger,
   getProject,
+  suggestInstructions,
 } from '../api/client'
 import { requireProjectId } from '../projects/projectRouting'
 import { loadResume, saveResume } from '../projects/resumeContext'
 import { navigateToReview, stashChangeSet } from '../review/changeSetSession'
 import { AppShell } from '../shell/AppShell'
-import { navigateToWriteScene } from '../shell/modeNavigation'
+import {
+  navigateToMode,
+  navigateToWriteBeat,
+  navigateToWriteScene,
+} from '../shell/modeNavigation'
 import { Toast } from '../shell/Toast'
 import { lockedObjectMessage, staleHeadMessage } from '../shell/toastCopy'
 import { Board } from './Board'
 import { GuidedSetup } from './GuidedSetup'
-import { Inspector } from './Inspector'
 import { needsGuidedSetup } from './needsGuidedSetup'
+import { EpisodePanel } from './panel/EpisodePanel'
+import { ScenePanel } from './panel/ScenePanel'
+import { PlanDraftsContext, usePlanDraftStore } from './panel/usePlanDrafts'
 import type { PlanSelection } from './SceneCard'
 import { StoryLayersPanel } from './StoryLayersPanel'
 import { sceneIdsWithOpenFlags } from './flaggedScenes'
@@ -58,6 +71,9 @@ export function PlanScreen() {
   const [collapsedActs, setCollapsedActs] = useState<Set<number>>(new Set())
   const [openingReview, setOpeningReview] = useState(false)
   const [reviewError, setReviewError] = useState<string | null>(null)
+  // One draft per field for the whole screen (spec §4.9): survives scene
+  // switches and failed saves. In memory only.
+  const drafts = usePlanDraftStore()
 
   useEffect(() => {
     if (!projectId) return
@@ -155,79 +171,80 @@ export function PlanScreen() {
     void patcher.patch(ops, swapScenesLocally(project, draggedId, targetId))
   }
 
-  function handleToggleSceneLock(sceneId: string, locked: boolean) {
-    if (!project) return
-    const ops = buildScenePatch(project, sceneId, 'locked', locked)
-    if (!ops) return
-    void patcher.patch(ops, withSceneField(project, sceneId, 'locked', locked))
-  }
-
-  function handleToggleBeatScriptLock(
-    sceneId: string,
-    beatId: string,
-    scriptLocked: boolean,
-  ) {
-    if (!project) return
-    const ops = buildBeatPatch(
-      project,
-      sceneId,
-      beatId,
-      'scriptLocked',
-      scriptLocked,
-    )
-    if (!ops) return
-    void patcher.patch(
-      ops,
-      withBeatField(project, sceneId, beatId, 'scriptLocked', scriptLocked),
-    )
-  }
-
-  function handleSaveSceneField<K extends keyof Scene>(
+  // Every Plan save and lock flip is one direct-edit PATCH and one snapshot
+  // (rule 4). Each resolves `true` only when the server accepted it, so a
+  // field drops its draft only then.
+  function saveSceneField<K extends keyof Scene>(
     sceneId: string,
     field: K,
     value: Scene[K],
-  ) {
-    if (!project) return
+  ): Promise<boolean> {
+    if (!project) return Promise.resolve(false)
     const ops = buildScenePatch(project, sceneId, field, value)
-    if (!ops) return
-    void patcher.patch(ops, withSceneField(project, sceneId, field, value))
+    if (!ops) return Promise.resolve(false)
+    return patcher.patch(ops, withSceneField(project, sceneId, field, value))
   }
 
-  function handleSaveBeatField(
+  function saveBeatField<K extends keyof Beat>(
     sceneId: string,
     beatId: string,
-    field: string,
-    value: string,
-  ) {
-    if (!project) return
+    field: K,
+    value: Beat[K],
+  ): Promise<boolean> {
+    if (!project) return Promise.resolve(false)
     const ops = buildBeatPatch(project, sceneId, beatId, field, value)
-    if (!ops) return
-    void patcher.patch(
+    if (!ops) return Promise.resolve(false)
+    return patcher.patch(
       ops,
-      withBeatField(project, sceneId, beatId, field as never, value),
+      withBeatField(project, sceneId, beatId, field, value),
     )
   }
 
-  function handleSaveProjectField(field: string, value: string) {
-    if (!project) return
-    void patcher.patch(
-      buildProjectFieldPatch(field, value),
-      withProjectField(project, field as never, value),
-    )
-  }
-
-  function handleSaveEpisodeField(
+  function saveEpisodePremise(
     episodeId: string,
-    field: string,
     value: string,
-  ) {
-    if (!project) return
-    const ops = buildEpisodePatch(project, episodeId, field, value)
-    if (!ops) return
-    void patcher.patch(
+  ): Promise<boolean> {
+    if (!project) return Promise.resolve(false)
+    const ops = buildEpisodePatch(project, episodeId, 'premise', value)
+    if (!ops) return Promise.resolve(false)
+    return patcher.patch(
       ops,
-      withEpisodeField(project, episodeId, field as never, value),
+      withEpisodeField(project, episodeId, 'premise', value),
     )
+  }
+
+  function saveSeriesPremise(value: string): Promise<boolean> {
+    if (!project) return Promise.resolve(false)
+    return patcher.patch(
+      buildProjectFieldPatch('premise', value),
+      withProjectField(project, 'premise', value),
+    )
+  }
+
+  function openInWrite(sceneId: string, beatId?: string) {
+    saveResume(activeProjectId, { mode: 'Write', sceneId })
+    if (beatId) navigateToWriteBeat(sceneId, beatId)
+    else navigateToWriteScene(sceneId)
+  }
+
+  /** Ledger deep link to one fact (moved from the old inspector's
+   * AffectedFacts; T3.4 swaps it for navigateToLedgerFact). */
+  function openFact(factId: string) {
+    const url = new URL(window.location.href)
+    url.pathname = '/ledger'
+    url.searchParams.set('fact', factId)
+    window.location.assign(url.toString())
+  }
+
+  /** A4 chips for an empty What happens — only on the writer's explicit
+   * Suggest… click (rule 8, owner decision 5), never on focus. */
+  function suggest(sceneId: string): Promise<string[]> {
+    return suggestInstructions(activeProjectId, {
+      context: 'scene',
+      targetId: sceneId,
+      surface: 'scene_premise',
+      draftScript: null,
+    }).then((result) => result.suggestions)
   }
 
   async function handleOpenReview(targetObjectId: string, instruction: string) {
@@ -322,72 +339,124 @@ export function PlanScreen() {
     )
   }
 
+  const selectScene = (sceneId: string) =>
+    setSelection({ type: 'scene', sceneId })
+  // A stale ?scene= id resolves to no scene: show the episode view.
+  const selectedScene = effectiveSelection
+    ? findScene(project, effectiveSelection.sceneId)
+    : null
+
   return (
-    <AppShell
-      projectTitle={project.title}
-      activeMode="Plan"
-      ledgerCount={ledger.filter((f) => f.status === 'pending_review').length}
-      projectId={projectId}
-    >
-      {reviewError && (
-        <p className="px-6 pt-3 text-13 text-tr-danger" role="alert">
-          {reviewError}
-        </p>
-      )}
-      {patcher.error && (
-        <Toast tone="danger" onDismiss={patcher.dismissError}>
-          {patcher.error.code === 'LOCKED_OBJECT'
-            ? lockedObjectMessage
-            : patcher.error.code === 'CONFLICT_STALE_HEAD'
-              ? staleHeadMessage
-              : patcher.error.message}
-        </Toast>
-      )}
-      <div className="flex">
-        <StoryLayersPanel
-          project={project}
-          episode={episode}
-          selection={effectiveSelection}
-          collapsedActs={collapsedActs}
-          onSelectNothing={() => setSelection(null)}
-          onSelectScene={(sceneId) => setSelection({ type: 'scene', sceneId })}
-          onToggleActCollapse={toggleActCollapse}
-        />
-        <Board
-          project={project}
-          episode={episode}
-          selection={effectiveSelection}
-          collapsedActs={collapsedActs}
-          pending={patcher.pending}
-          flaggedSceneIds={flaggedSceneIds}
-          onSelectScene={(sceneId) => setSelection({ type: 'scene', sceneId })}
-          onSelectBeat={(sceneId, beatId) =>
-            setSelection({ type: 'beat', sceneId, beatId })
-          }
-          onOpenInWrite={(sceneId) => {
-            saveResume(activeProjectId, { mode: 'Write', sceneId })
-            navigateToWriteScene(sceneId)
-          }}
-          onReorder={handleReorder}
-        />
-        <Inspector
-          project={project}
-          episode={episode}
-          ledger={ledger}
-          selection={effectiveSelection}
-          pending={patcher.pending}
-          openingReview={openingReview}
-          onToggleSceneLock={handleToggleSceneLock}
-          onToggleBeatScriptLock={handleToggleBeatScriptLock}
-          onSaveSceneField={handleSaveSceneField}
-          onSaveBeatField={handleSaveBeatField}
-          onSaveProjectField={handleSaveProjectField}
-          onSaveEpisodeField={handleSaveEpisodeField}
-          onOpenReview={(targetObjectId, instruction) =>
-            void handleOpenReview(targetObjectId, instruction)
-          }
-        />
-      </div>
-    </AppShell>
+    <PlanDraftsContext.Provider value={drafts}>
+      <AppShell
+        projectTitle={project.title}
+        activeMode="Plan"
+        ledgerCount={ledger.filter((f) => f.status === 'pending_review').length}
+        projectId={projectId}
+      >
+        {/* Fills the shell's main (whatever renders above it, e.g. the demo
+            banner); the board and both panels scroll on their own. */}
+        <div className="flex h-full flex-col">
+          {reviewError && (
+            <Toast tone="danger" onDismiss={() => setReviewError(null)}>
+              {reviewError}
+            </Toast>
+          )}
+          {patcher.error && (
+            <Toast tone="danger" onDismiss={patcher.dismissError}>
+              {patcher.error.code === 'LOCKED_OBJECT'
+                ? lockedObjectMessage
+                : patcher.error.code === 'CONFLICT_STALE_HEAD'
+                  ? staleHeadMessage
+                  : patcher.error.message}
+            </Toast>
+          )}
+          <div className="flex min-h-0 flex-1 overflow-hidden">
+            <StoryLayersPanel
+              project={project}
+              episode={episode}
+              selection={effectiveSelection}
+              collapsedActs={collapsedActs}
+              onSelectNothing={() => setSelection(null)}
+              onSelectScene={selectScene}
+              onToggleActCollapse={toggleActCollapse}
+            />
+            <Board
+              project={project}
+              episode={episode}
+              selection={effectiveSelection}
+              collapsedActs={collapsedActs}
+              pending={patcher.pending}
+              flaggedSceneIds={flaggedSceneIds}
+              onSelectScene={selectScene}
+              onOpenInWrite={(sceneId) => openInWrite(sceneId)}
+              onReorder={handleReorder}
+            />
+            {selectedScene ? (
+              <ScenePanel
+                project={project}
+                episode={episode}
+                scene={selectedScene}
+                selectedBeatId={
+                  effectiveSelection?.type === 'beat'
+                    ? effectiveSelection.beatId
+                    : null
+                }
+                ledger={ledger}
+                flags={openFlags}
+                pending={patcher.pending}
+                openingReview={openingReview}
+                onBack={() => setSelection(null)}
+                onSelectScene={selectScene}
+                onSelectBeat={(sceneId, beatId) =>
+                  setSelection(
+                    beatId
+                      ? { type: 'beat', sceneId, beatId }
+                      : { type: 'scene', sceneId },
+                  )
+                }
+                onToggleSceneLock={(sceneId, locked) =>
+                  void saveSceneField(sceneId, 'locked', locked)
+                }
+                onToggleBeatLock={(sceneId, beatId, locked) =>
+                  void saveBeatField(sceneId, beatId, 'locked', locked)
+                }
+                onToggleBeatScriptLock={(sceneId, beatId, scriptLocked) =>
+                  void saveBeatField(
+                    sceneId,
+                    beatId,
+                    'scriptLocked',
+                    scriptLocked,
+                  )
+                }
+                onSaveSceneField={saveSceneField}
+                onSaveBeatField={(sceneId, beatId, field, value) =>
+                  saveBeatField(sceneId, beatId, field, value)
+                }
+                onOpenReview={(sceneId, instruction) =>
+                  void handleOpenReview(sceneId, instruction)
+                }
+                onSuggest={suggest}
+                onOpenInWrite={(sceneId) => openInWrite(sceneId)}
+                onOpenBeatInWrite={openInWrite}
+                onOpenFact={openFact}
+                onOpenLedger={() => navigateToMode('Ledger')}
+              />
+            ) : (
+              <EpisodePanel
+                project={project}
+                episode={episode}
+                pending={patcher.pending}
+                openingReview={openingReview}
+                onSaveEpisodePremise={(value) =>
+                  saveEpisodePremise(episode.id, value)
+                }
+                onSaveSeriesPremise={saveSeriesPremise}
+              />
+            )}
+          </div>
+        </div>
+      </AppShell>
+    </PlanDraftsContext.Provider>
   )
 }

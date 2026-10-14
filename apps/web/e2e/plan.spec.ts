@@ -9,11 +9,13 @@ import { expect, test } from '@playwright/test'
 //
 // Shared-DB note (same design as write.spec.ts/error-states.spec.ts): one
 // worker, one seeded project for the whole `make e2e` run. This file's
-// mutations (the scene-3/scene-4 swap, the scene-6 lock toggle) are chosen
+// mutations (the scene-3/scene-4 swap, the scene-6 lock toggle, and a
+// beat-4-1 Beat lock that the test switches back off) are chosen
 // to be inert for every other spec — Write mode never reads `scene.act`,
 // `scene.index`, or `scene.locked` (only `beat.locked`/`scriptLocked`
-// gate its rendering), so nothing here can break locked-beat/quiet-ai/
-// write/error-states' assertions, in either run order.
+// gate its rendering, which is why the beat-4-1 lock is undone), so
+// nothing here can break locked-beat/quiet-ai/write/error-states'
+// assertions, in either run order.
 
 test('reorder scene-4 before scene-3 (cross-act drag) persists after reload', async ({
   page,
@@ -94,14 +96,15 @@ test('lock icon renders on beat-1-2 (locked in fixture); beat-1-1 has none', asy
 }) => {
   await page.goto('/plan?project=proj-longpour')
 
-  const scene1 = page.getByTestId('scene-card-scene-1')
-  await scene1.getByRole('button', { name: 'Expand beats' }).click()
+  // Beats live in the scene panel's beat ladder (T3.3), not on the board.
+  await page.getByTestId('scene-card-scene-1').click()
+  const inspector = page.getByTestId('inspector')
 
-  const beat12 = page.getByTestId('beat-card-beat-1-2')
+  const beat12 = inspector.getByTestId('beat-card-beat-1-2')
   await expect(beat12).toBeVisible()
   await expect(beat12).toContainText('Locked')
 
-  const beat11 = page.getByTestId('beat-card-beat-1-1')
+  const beat11 = inspector.getByTestId('beat-card-beat-1-1')
   await expect(beat11).toBeVisible()
   await expect(beat11).not.toContainText('Locked')
 })
@@ -143,13 +146,16 @@ test('locking a scene via the inspector disables drag and shows the read-only ba
 
   await scene6.click()
   const inspector = page.getByTestId('inspector')
-  await expect(inspector.getByRole('switch')).toHaveAttribute(
-    'aria-checked',
-    'false',
-  )
-  await inspector.getByRole('switch').click()
+  // The scene toggle keeps `lock-toggle`; an open beat adds its own switches.
+  const lockToggle = inspector.getByTestId('lock-toggle')
+  await expect(lockToggle).toHaveAttribute('aria-checked', 'false')
+  await lockToggle.click()
 
-  await expect(inspector.getByText('Locked — unlock to edit')).toBeVisible()
+  await expect(
+    inspector.getByText(
+      'Locked — unlock to edit. Review will never change this scene.',
+    ),
+  ).toBeVisible()
   await expect(scene6).toHaveAttribute('draggable', 'false')
   await expect(scene6).toHaveAttribute('data-locked', 'true')
 
@@ -173,6 +179,8 @@ test('editing location is silent; editing whatHappens offers the Review path; bo
   const inspector = page.getByTestId('inspector')
 
   // 1) Non-structural: editing location shows a plain Save — no footer bar.
+  // Location lives in the Details section, closed by default (T3.3).
+  await inspector.locator('#plan-section-details > summary').click()
   const location = inspector.getByLabel('Location')
   await location.fill('INT. THE MARINA - DAY')
   await expect(
@@ -210,4 +218,34 @@ test('editing location is silent; editing whatHappens offers the Review path; bo
   await expect(reloaded.getByLabel('What happens')).toHaveValue(
     'A structural rewrite of the scene.',
   )
+})
+
+test('a Beat lock set in the panel persists after reload (T3.3)', async ({
+  page,
+}) => {
+  await page.goto('/plan?project=proj-longpour')
+  await page.getByTestId('scene-card-scene-4').click()
+  const inspector = page.getByTestId('inspector')
+
+  await inspector.getByTestId('beat-card-beat-4-1').click()
+  const beatLock = inspector.getByTestId('beat-lock-toggle-beat-4-1')
+  await expect(beatLock).toHaveAttribute('aria-checked', 'false')
+  await beatLock.click()
+  await expect(beatLock).toHaveAttribute('aria-checked', 'true')
+  await expect(beatLock).toBeEnabled() // the PATCH has settled
+  await expect(inspector.getByTestId('beat-card-beat-4-1')).toContainText(
+    'Locked',
+  )
+
+  await page.reload()
+  await page.getByTestId('scene-card-scene-4').click()
+  const reloaded = page.getByTestId('inspector')
+  await reloaded.getByTestId('beat-card-beat-4-1').click()
+  const reloadedLock = reloaded.getByTestId('beat-lock-toggle-beat-4-1')
+  await expect(reloadedLock).toHaveAttribute('aria-checked', 'true')
+
+  // Shared DB: other specs key off beat locks, so put this one back.
+  await reloadedLock.click()
+  await expect(reloadedLock).toHaveAttribute('aria-checked', 'false')
+  await expect(reloadedLock).toBeEnabled()
 })

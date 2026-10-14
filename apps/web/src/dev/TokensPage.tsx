@@ -340,7 +340,13 @@ const TOKEN_GROUPS: TokenGroup[] = [
       },
       {
         cssVar: '--tr-panel-inspector',
-        description: 'Plan mode inspector width (UI spec §4)',
+        description:
+          'Import board reading view; Ledger fact drawer and Story Atlas side column width',
+        kind: 'width',
+      },
+      {
+        cssVar: '--tr-panel-plan',
+        description: 'Plan scene panel width (2026-10-13)',
         kind: 'width',
       },
       {
