@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 import {
+  act,
   cleanup,
+  fireEvent,
   render,
   screen,
   waitFor,
@@ -299,9 +301,104 @@ describe('PlanScreen', () => {
     expect(
       within(screen.getByTestId('inspector')).queryByTestId('lock-toggle'),
     ).toBeNull()
-    expect(screen.getByTestId('scene-card-scene-1').className).not.toContain(
-      'bg-tr-coral-soft',
+    expect(
+      screen.getByTestId('scene-card-scene-1').getAttribute('aria-pressed'),
+    ).toBe('false')
+  })
+
+  it('an empty-act drop sends one act PATCH and nothing else', async () => {
+    const p = project()
+    const moved = structuredClone(p)
+    moved.seasons[0].episodes[0].scenes[0].act = 4
+    patchProjectMock.mockResolvedValue({ project: moved, consistencyFlags: [] })
+    await loadPlan(p)
+    const dataTransfer = {
+      setData: () => {},
+      getData: () => '',
+      effectAllowed: 'move',
+    } as unknown as DataTransfer
+    const empty = within(screen.getByTestId('act-frame-4')).getByText(
+      /^No scenes yet/,
     )
+
+    fireEvent.dragStart(screen.getByTestId('scene-card-scene-1'), {
+      dataTransfer,
+    })
+    fireEvent.dragOver(empty, { dataTransfer })
+    fireEvent.drop(empty, { dataTransfer })
+
+    expect(patchProjectMock).toHaveBeenCalledTimes(1)
+    expect(patchProjectMock).toHaveBeenCalledWith(
+      'proj-longpour',
+      [{ op: 'replace', path: '/seasons/0/episodes/0/scenes/0/act', value: 4 }],
+      { expectedHeadSnapshotId: 'snap-root' },
+    )
+    await waitFor(() =>
+      expect(
+        within(screen.getByTestId('act-frame-4')).getByTestId(
+          'scene-card-scene-1',
+        ),
+      ).not.toBeNull(),
+    )
+    expect(suggestInstructionsMock).not.toHaveBeenCalled()
+    expect(createChangeSetMock).not.toHaveBeenCalled()
+  })
+
+  it('act collapse survives a remount (per project)', async () => {
+    const user = userEvent.setup()
+    await loadPlan()
+    const coldOpen = () => screen.getByTestId('act-frame-0')
+    await user.click(
+      within(coldOpen()).getByRole('button', { name: 'Hide COLD OPEN' }),
+    )
+    expect(screen.queryByTestId('scene-card-scene-1')).toBeNull()
+
+    cleanup()
+    await loadPlan()
+    expect(within(coldOpen()).getByText('2 scenes hidden')).not.toBeNull()
+    expect(screen.queryByTestId('scene-card-scene-1')).toBeNull()
+
+    cleanup()
+    getProjectMock.mockResolvedValue({ ...project(), id: 'proj-other' })
+    window.history.pushState(null, '', '/plan?project=proj-other')
+    render(<PlanScreen />)
+    expect(await screen.findByTestId('scene-card-scene-1')).not.toBeNull()
+  })
+
+  it('selecting a scene in a collapsed act opens that act', async () => {
+    const user = userEvent.setup()
+    const p = project()
+    p.seasons[0].episodes[0].scenes[1].act = 1
+    const panel = await loadPlan(p)
+    await user.click(
+      within(screen.getByTestId('act-frame-1')).getByRole('button', {
+        name: 'Hide ACT ONE',
+      }),
+    )
+    expect(screen.queryByTestId('scene-card-scene-2')).toBeNull()
+
+    await user.click(within(panel).getByRole('button', { name: 'Next scene' }))
+
+    expect(
+      within(screen.getByTestId('act-frame-1')).getByTestId(
+        'scene-card-scene-2',
+      ),
+    ).not.toBeNull()
+    expect(localStorage.getItem('tr.plan.collapsedActs.v1.proj-longpour')).toBe(
+      '[]',
+    )
+  })
+
+  it('Enter on the selected card puts focus on the panel heading', async () => {
+    const user = userEvent.setup()
+    const panel = await loadPlan()
+    act(() => screen.getByTestId('scene-card-scene-1').focus())
+
+    await user.keyboard('{Enter}')
+
+    const heading = panel.querySelector('h2')
+    expect(heading?.textContent).toContain('1 · ')
+    expect(document.activeElement).toBe(heading)
   })
 
   // Task 3's test, carried over unchanged.

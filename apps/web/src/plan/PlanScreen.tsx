@@ -25,7 +25,7 @@ import {
 } from '../shell/modeNavigation'
 import { Toast } from '../shell/Toast'
 import { lockedObjectMessage, staleHeadMessage } from '../shell/toastCopy'
-import { Board } from './Board'
+import { Board, type PlanSelection } from './Board'
 import { GuidedSetup } from './GuidedSetup'
 import { needsGuidedSetup } from './needsGuidedSetup'
 import { EpisodePanel } from './panel/EpisodePanel'
@@ -39,9 +39,7 @@ import {
   PlanDraftsContext,
   usePlanDraftStore,
 } from './panel/usePlanDrafts'
-import type { PlanSelection } from './SceneCard'
 import { StoryLayersPanel } from './StoryLayersPanel'
-import { sceneIdsWithOpenFlags } from './flaggedScenes'
 import {
   buildBeatPatch,
   buildEpisodePatch,
@@ -54,7 +52,8 @@ import {
   withProjectField,
   withSceneField,
 } from './planTree'
-import { notesForScene } from './story'
+import { boardModel, notesForScene } from './story'
+import { useCollapsedActs } from './useCollapsedActs'
 import { useProjectPatch } from './useProjectPatch'
 import { allScenes, findScene } from '../write/projectTree'
 
@@ -78,7 +77,7 @@ export function PlanScreen() {
   const [selection, setSelection] = useState<PlanSelection | undefined>(
     focusSceneId ? { type: 'scene', sceneId: focusSceneId } : undefined,
   )
-  const [collapsedActs, setCollapsedActs] = useState<Set<number>>(new Set())
+  const acts = useCollapsedActs(activeProjectId)
   const [openingReview, setOpeningReview] = useState(false)
   const [reviewError, setReviewError] = useState<string | null>(null)
   // One draft per field for the whole screen (spec §4.9): survives scene
@@ -186,20 +185,11 @@ export function PlanScreen() {
     ;(toggle ?? undoDismissRef.current)?.focus()
   }, [dismissal.busy])
 
-  const flaggedSceneIds = useMemo(
-    () =>
-      project ? sceneIdsWithOpenFlags(openFlags, project) : new Set<string>(),
-    [openFlags, project],
-  )
-
-  function toggleActCollapse(act: number) {
-    setCollapsedActs((prev) => {
-      const next = new Set(prev)
-      if (next.has(act)) next.delete(act)
-      else next.add(act)
-      return next
-    })
-  }
+  // MVP: exactly one season, one episode (data contract §1).
+  const model = useMemo(() => {
+    const ep = project?.seasons[0]?.episodes[0]
+    return project && ep ? boardModel(project, ep, openFlags) : null
+  }, [project, openFlags])
 
   function handleReorder(draggedId: string, targetId: string) {
     if (!project) return
@@ -369,9 +359,8 @@ export function PlanScreen() {
     )
   }
 
-  // MVP: exactly one season, one episode (data contract §1).
   const episode = project.seasons[0]?.episodes[0]
-  if (!episode) {
+  if (!episode || !model) {
     return (
       <AppShell
         projectTitle={project.title}
@@ -386,8 +375,12 @@ export function PlanScreen() {
     )
   }
 
-  const selectScene = (sceneId: string) =>
+  // Selecting a scene inside a collapsed act opens it (and saves that).
+  const selectScene = (sceneId: string) => {
+    const act = findScene(project, sceneId)?.act
+    if (act !== undefined) acts.expand(act)
     setSelection({ type: 'scene', sceneId })
+  }
   // A stale ?scene= id resolves to no scene: show the episode view.
   const selectedScene = effectiveSelection
     ? findScene(project, effectiveSelection.sceneId)
@@ -465,22 +458,30 @@ export function PlanScreen() {
               project={project}
               episode={episode}
               selection={effectiveSelection}
-              collapsedActs={collapsedActs}
+              collapsedActs={acts.collapsed}
               onSelectNothing={() => setSelection(null)}
               onSelectScene={selectScene}
-              onToggleActCollapse={toggleActCollapse}
+              onToggleActCollapse={acts.toggle}
             />
             <Board
-              project={project}
-              episode={episode}
+              model={model}
+              episodeLocked={episode.locked}
               selection={effectiveSelection}
-              collapsedActs={collapsedActs}
+              collapsedActs={acts.collapsed}
               pending={busy}
-              flaggedSceneIds={flaggedSceneIds}
               draftSceneIds={drafts.dirtySceneIds}
               onSelectScene={selectScene}
               onOpenInWrite={(sceneId) => openInWrite(sceneId)}
               onReorder={handleReorder}
+              onMoveToAct={(sceneId, act) =>
+                void saveSceneField(sceneId, 'act', act)
+              }
+              onToggleAct={acts.toggle}
+              onEnterPanel={() =>
+                document
+                  .querySelector<HTMLElement>('[data-testid="inspector"] h2')
+                  ?.focus()
+              }
             />
             {selectedScene ? (
               <ScenePanel

@@ -1,5 +1,5 @@
 import type { Episode, Project } from 'contract'
-import type { PlanSelection } from './SceneCard'
+import type { PlanSelection } from './Board'
 import {
   actLabel,
   actNumbersForBoard,
