@@ -739,6 +739,31 @@ describe('PlanScreen', () => {
     expect(dismiss.disabled).toBe(false)
   })
 
+  it.each(['scene', 'episode'] as const)(
+    'Draft a fix in Review… is never offered on a locked %s (rule 2)',
+    async (lock) => {
+      const user = userEvent.setup()
+      const p = project()
+      const ep = p.seasons[0].episodes[0]
+      if (lock === 'scene') ep.scenes[0].locked = true
+      else ep.locked = true
+      getConsistencyFlagsMock.mockResolvedValueOnce([OPEN_FLAG])
+      await loadPlan(p)
+
+      const strip = await screen.findByTestId('notes-strip')
+      await user.click(within(strip).getByRole('button', { name: 'Show' }))
+      const note = screen.getByTestId('note-flag-1')
+      // The card and its other verbs render: the absence below is the lock's doing.
+      expect(
+        within(note).getByRole('button', { name: 'Dismiss' }),
+      ).not.toBeNull()
+      expect(
+        within(note).queryByRole('button', { name: 'Draft a fix in Review…' }),
+      ).toBeNull()
+      expect(within(note).queryByLabelText('Fix instruction')).toBeNull()
+    },
+  )
+
   it('double-clicking a card with an unsaved edit asks before opening Write', async () => {
     const user = userEvent.setup()
     const panel = await loadPlan()
