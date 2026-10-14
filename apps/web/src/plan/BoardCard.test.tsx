@@ -1,5 +1,11 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import {
+  cleanup,
+  createEvent,
+  fireEvent,
+  render,
+  screen,
+} from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ComponentProps } from 'react'
 import type {
@@ -226,7 +232,7 @@ function renderCard(props: Partial<ComponentProps<typeof BoardCard>> = {}) {
       onFocus={noop}
       onDragStart={noop}
       onDragEnd={noop}
-      onDragOver={noop}
+      onDragOver={() => false}
       onDragLeave={noop}
       onDrop={noop}
       {...props}
@@ -244,6 +250,13 @@ function expectClasses(el: Element, names: string) {
 
 function dataTransfer() {
   return { setData: vi.fn(), getData: vi.fn(), effectAllowed: 'all' }
+}
+
+/** jsdom has no DragEvent, so fireEvent drops clientX: set it by hand. */
+function dragAt(type: 'dragOver' | 'drop', el: HTMLElement, clientX: number) {
+  const event = createEvent[type](el, { dataTransfer: dataTransfer() })
+  Object.defineProperty(event, 'clientX', { value: clientX })
+  return fireEvent(el, event)
 }
 
 describe('BoardCard', () => {
@@ -511,7 +524,7 @@ describe('BoardCard', () => {
   it("a drop target's ring follows its tape: amber for a problem or a lock, sky otherwise", () => {
     const amber = renderCard({
       dropTarget: true,
-      tape: { text: "Locked — can't swap", tone: 'amber' },
+      tape: { text: "Can't move past scene 3: it's locked", tone: 'amber' },
     })
     expectClasses(amber, 'ring-2 ring-tr-amber')
     expect(amber.className).not.toContain('ring-tr-sky')
@@ -519,7 +532,7 @@ describe('BoardCard', () => {
 
     const sky = renderCard({
       dropTarget: true,
-      tape: { text: 'Swap with 5', tone: 'sky' },
+      tape: { text: 'Move 5 here', tone: 'sky' },
     })
     expectClasses(sky, 'ring-2 ring-tr-sky')
     expect(sky.className).not.toContain('ring-tr-amber')
@@ -542,34 +555,68 @@ describe('BoardCard', () => {
     expect(thread.classList.contains('outline-tr-amber')).toBe(false)
   })
 
-  it('a locked card reports dragover for its tape but never accepts the drop', () => {
-    const onDragOver = vi.fn()
-    const onDrop = vi.fn()
-    const locked = renderCard({ locked: true, onDragOver, onDrop })
-    // Not prevented: the browser shows "not allowed" and never drops.
-    expect(fireEvent.dragOver(locked, { dataTransfer: dataTransfer() })).toBe(
-      true,
-    )
-    expect(onDragOver).toHaveBeenCalledTimes(1)
-    fireEvent.drop(locked, { dataTransfer: dataTransfer() })
-    expect(onDrop).not.toHaveBeenCalled()
+  it('the insert bar renders on the given side', () => {
+    const bare = renderCard()
+    expect(bare.querySelector('[data-insert-bar]')).toBeNull()
+    cleanup()
+
+    for (const side of ['before', 'after'] as const) {
+      const card = renderCard({ insert: side })
+      const bars = card.querySelectorAll('[data-insert-bar]')
+      expect(bars).toHaveLength(1)
+      expect(bars[0].getAttribute('data-side')).toBe(side)
+      expect(bars[0].getAttribute('aria-hidden')).toBe('true')
+      expect(bars[0].className).toContain('bg-tr-coral')
+      cleanup()
+    }
   })
 
-  it('click selects, double-click opens Write; an unlocked card accepts a drop', () => {
+  it("dragover reports the pointer's half and prevents default only when onDragOver says yes", () => {
+    const onDragOver = vi.fn(() => false)
+    const onDrop = vi.fn()
+    const card = renderCard({ onDragOver, onDrop })
+    card.getBoundingClientRect = () => ({ left: 0, width: 150 }) as DOMRect
+
+    expect(dragAt('dragOver', card, 140)).toBe(true)
+    expect(onDragOver).toHaveBeenLastCalledWith(true)
+    onDragOver.mockReturnValue(true)
+    expect(dragAt('dragOver', card, 10)).toBe(false)
+    expect(onDragOver).toHaveBeenLastCalledWith(false)
+
+    dragAt('drop', card, 140)
+    expect(onDrop).toHaveBeenLastCalledWith(true)
+    dragAt('drop', card, 10)
+    expect(onDrop).toHaveBeenLastCalledWith(false)
+  })
+
+  it('a locked card reports dragover too (Board decides)', () => {
+    const onDragOver = vi.fn(() => true)
+    const onDrop = vi.fn()
+    const locked = renderCard({ locked: true, onDragOver, onDrop })
+    expect(locked.getAttribute('draggable')).toBe('false')
+    expect(dragAt('dragOver', locked, 0)).toBe(false)
+    expect(onDragOver).toHaveBeenCalledWith(false)
+    dragAt('drop', locked, 0)
+    expect(onDrop).toHaveBeenCalledWith(false)
+  })
+
+  it('a two-line tape', () => {
+    const card = renderCard({
+      tape: { text: "Can't move past scene 3: it's locked", tone: 'amber' },
+    })
+    const tape = card.querySelector('[data-tape]')
+    expect(tape?.className).toContain('line-clamp-2')
+    expect(tape?.className).toContain('max-w-[134px]')
+    expect(tape?.className).not.toContain('truncate')
+  })
+
+  it('click selects, double-click opens Write', () => {
     const onSelect = vi.fn()
     const onOpenInWrite = vi.fn()
-    const onDragOver = vi.fn()
-    const onDrop = vi.fn()
-    const card = renderCard({ onSelect, onOpenInWrite, onDragOver, onDrop })
+    const card = renderCard({ onSelect, onOpenInWrite })
     fireEvent.click(card)
     expect(onSelect).toHaveBeenCalledTimes(1)
     fireEvent.doubleClick(card)
     expect(onOpenInWrite).toHaveBeenCalledTimes(1)
-    expect(fireEvent.dragOver(card, { dataTransfer: dataTransfer() })).toBe(
-      false,
-    )
-    expect(onDragOver).toHaveBeenCalledTimes(1)
-    fireEvent.drop(card, { dataTransfer: dataTransfer() })
-    expect(onDrop).toHaveBeenCalledTimes(1)
   })
 })

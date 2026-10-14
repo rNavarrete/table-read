@@ -26,6 +26,8 @@ export interface BoardCardProps {
   related: boolean
   dragging: boolean
   dropTarget: boolean
+  /** A valid insert lands on this side of the card: the coral bar. */
+  insert?: 'before' | 'after' | null
   /** A highlight match: a 2px ring in the highlight's hue. */
   ring?: TapeTone | null
   /** A non-match under a highlight: flat (no ruled paper, no shadow), never
@@ -37,9 +39,11 @@ export interface BoardCardProps {
   onFocus: () => void
   onDragStart: () => void
   onDragEnd: () => void
-  onDragOver: () => void
+  /** Dragged over, with the pointer on the right half (`after`) or the left;
+   * returns whether the card takes the drop (Board's call). */
+  onDragOver: (after: boolean) => boolean
   onDragLeave: () => void
-  onDrop: () => void
+  onDrop: (after: boolean) => void
 }
 
 // Literal class names: Tailwind only generates whole names it can see.
@@ -130,13 +134,19 @@ function cardLabel(
     .join(', ')
 }
 
+/** The right half of the card inserts after it. */
+function pointerAfter(event: DragEvent<HTMLElement>): boolean {
+  const r = event.currentTarget.getBoundingClientRect()
+  return event.clientX > r.left + r.width / 2
+}
+
 /**
  * A scene on the Plan board as the import board's ruled index card (redesign
- * spec §4.2). Draggable for a swap unless locked (scene or episode) or a
- * write is in flight; a locked card never takes a drop either, since a swap
- * would still change its index, but it reports the dragover so Board can
- * tape it "Locked — can't swap". Board owns the roving tab stop and the
- * keys; double-click opens Write on this scene.
+ * spec §4.2). Draggable unless locked (scene or episode) or a write is in
+ * flight. Every card, locked or not, reports a dragover with the pointer's
+ * half and takes the drop only when Board says so (a locked card takes one
+ * that leaves it in place); the coral bar marks the insert's side. Board owns
+ * the roving tab stop and the keys; double-click opens Write on this scene.
  */
 export function BoardCard({
   signals,
@@ -149,6 +159,7 @@ export function BoardCard({
   related,
   dragging,
   dropTarget,
+  insert = null,
   ring = null,
   quiet = false,
   onSelect,
@@ -186,16 +197,15 @@ export function BoardCard({
     onDragStart()
   }
 
-  function handleDragOver(event: DragEvent) {
-    onDragOver()
-    if (locked) return // no preventDefault: "not allowed", drop never fires
-    event.preventDefault()
+  // Prevented only when Board takes the drop; otherwise the browser shows
+  // "not allowed" and never drops.
+  function handleDragOver(event: DragEvent<HTMLDivElement>) {
+    if (onDragOver(pointerAfter(event))) event.preventDefault()
   }
 
-  function handleDrop(event: DragEvent) {
-    if (locked) return
+  function handleDrop(event: DragEvent<HTMLDivElement>) {
     event.preventDefault()
-    onDrop()
+    onDrop(pointerAfter(event))
   }
 
   const fill = selected
@@ -247,10 +257,19 @@ export function BoardCard({
         <span
           aria-hidden="true"
           data-tape
-          className={`absolute -top-2.5 left-2 z-[2] max-w-[134px] truncate rounded-[3px] px-1.5 text-11 font-semibold leading-4 text-tr-surface-raised shadow-raised ${TONE_BG[shownTape.tone]}`}
+          className={`absolute -top-2.5 left-2 z-[2] line-clamp-2 max-w-[134px] rounded-[3px] px-1.5 text-11 font-semibold leading-4 text-tr-surface-raised shadow-raised ${TONE_BG[shownTape.tone]}`}
         >
           {shownTape.text}
         </span>
+      )}
+      {insert && (
+        // Centred in the board's 12px gap-x-3.
+        <span
+          aria-hidden="true"
+          data-insert-bar
+          data-side={insert}
+          className={`absolute inset-y-0 w-[3px] rounded-full bg-tr-coral ${insert === 'before' ? '-left-[7.5px]' : '-right-[7.5px]'}`}
+        />
       )}
       <div
         aria-hidden="true"

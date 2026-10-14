@@ -8,6 +8,7 @@ import type { SceneMove } from './planTree'
 import {
   HIGHLIGHT_TONE,
   highlightTape,
+  lockedMoveText,
   matchesHighlight,
   NO_HIGHLIGHT,
   predictionTape,
@@ -15,7 +16,7 @@ import {
   type BoardModel,
   type CardTape,
   type Highlight,
-  type OrderIssue,
+  type MovePrediction,
   type SceneSignals,
 } from './story'
 
@@ -37,9 +38,8 @@ export interface BoardProps {
   draftSceneIds?: ReadonlySet<string>
   onSelectScene: (sceneId: string) => void
   onOpenInWrite?: (sceneId: string) => void
-  onReorder: (draggedSceneId: string, targetSceneId: string) => void
-  /** An empty act took a dropped card (spec §4.3): the Act select's save. */
-  onMoveToAct: (sceneId: string, act: number) => void
+  /** Every board move: a drop on a card or an empty act, ⌥← / ⌥→. */
+  onMove: (move: SceneMove) => void
   onToggleAct: (act: number) => void
   /** Enter on the selected card: focus the panel heading. */
   onEnterPanel: () => void
@@ -53,9 +53,9 @@ export interface BoardProps {
   onUnfold?: (sceneIds: string[]) => void
   /** Rendered sticky at the top of the board's scroll area (the highlight bar). */
   header?: ReactNode
-  /** The order problems a move would add (story.predictMove on the project):
-   * the drop target's tape while a card is dragged over it. */
-  predict?: (move: SceneMove) => OrderIssue[]
+  /** story.predictMove on the project: the drop target's tape, bar and
+   * whether it takes the drop. Default: every move allowed, no problems. */
+  predict?: (move: SceneMove) => MovePrediction
 }
 
 type Box = Pick<DOMRect, 'top' | 'bottom' | 'left' | 'width'>
@@ -90,7 +90,10 @@ export function gridNeighbor(
 }
 
 const EMPTY: ReadonlySet<string> = new Set()
-const NO_PREDICTION = (): OrderIssue[] => []
+const NO_PREDICTION = (): MovePrediction => ({ issues: [] })
+
+/** The move would happen: not refused by a lock, not a no-op. */
+const allowed = (p: MovePrediction) => p !== null && !('blockedBy' in p)
 
 const FOCUS =
   'focus-visible:outline focus-visible:outline-selected focus-visible:outline-offset-2 focus-visible:outline-tr-sky'
@@ -127,9 +130,13 @@ function foldRuns(
  * its header, the scenes as index cards, and a drop box in an empty act.
  * Drag is native HTML5 (no dependency): Board holds the drag source, which
  * only a card allowed to drag can set, so a locked or pending card never
- * reaches a swap or an act move. One card is the tab stop (the selected one
- * if rendered, else the last focused, else the first); arrows, Home and End
- * select and focus, Enter on the selected card goes to the panel.
+ * moves by drag. A drop inserts the card before or after the target (the
+ * pointer's half, a coral bar on that side); `predict` decides whether a
+ * target takes it, so a locked card takes only a drop that leaves it in
+ * place, and a refused one tapes the reason. One card is the tab stop (the
+ * selected one if rendered, else the last focused, else the first); arrows,
+ * Home and End select and focus, ⌥← / ⌥→ step the card one slot, Enter on
+ * the selected card goes to the panel.
  */
 export function Board({
   model,
@@ -140,8 +147,7 @@ export function Board({
   draftSceneIds = EMPTY,
   onSelectScene,
   onOpenInWrite = () => {},
-  onReorder,
-  onMoveToAct,
+  onMove,
   onToggleAct,
   onEnterPanel,
   highlight = NO_HIGHLIGHT,
@@ -175,6 +181,7 @@ export function Board({
   }, [hasHeader])
   const [dragSourceId, setDragSourceId] = useState<string | null>(null)
   const [dropTargetId, setDropTargetId] = useState<string | null>(null)
+  const [dropAfter, setDropAfter] = useState(false)
   const [dropAct, setDropAct] = useState<number | null>(null)
   const [focusedId, setFocusedId] = useState<string | null>(null)
 
@@ -195,22 +202,28 @@ export function Board({
     items.flatMap((item) => (item.type === 'card' ? [item.scene.id] : [])),
   )
   // The prediction runs only while a dragged card is over a target; dragover
-  // re-sets the same state, which React skips, so no memo.
+  // re-sets the same state, which React skips, and asks predict whether the
+  // target takes the drop, so no memo.
   const dragged = dragSourceId ? model.signals.get(dragSourceId) : undefined
-  function dropTape(from: SceneSignals, target: SceneSignals): CardTape {
-    if (target.scene.locked || episodeLocked)
-      return { text: "Locked — can't swap", tone: 'amber' }
-    return (
-      predictionTape(
-        model,
-        predict({
-          type: 'insert',
-          sceneId: from.scene.id,
-          targetSceneId: target.scene.id,
-          after: from.number < target.number,
-        }),
-      ) ?? { text: `Swap with ${from.number}`, tone: 'sky' }
-    )
+  /** The insert a drop here would make; null with no drag or over itself. */
+  const insertAt = (id: string, after: boolean): SceneMove | null =>
+    dragged && id !== dragged.scene.id
+      ? { type: 'insert', sceneId: dragged.scene.id, targetSceneId: id, after }
+      : null
+  const overMove = dropTargetId ? insertAt(dropTargetId, dropAfter) : null
+  const prediction = overMove ? predict(overMove) : null
+  /** The refusal, else the problems the move adds, else `fallback` (sky). */
+  function dropTape(
+    from: SceneSignals,
+    p: NonNullable<MovePrediction>,
+    fallback: string,
+  ): CardTape {
+    if ('blockedBy' in p)
+      return {
+        text: lockedMoveText(model, from.scene.id, p.blockedBy),
+        tone: 'amber',
+      }
+    return predictionTape(model, p.issues) ?? { text: fallback, tone: 'sky' }
   }
   const tabStop =
     [selectedId, focusedId].find(
@@ -242,8 +255,23 @@ export function Board({
   }
 
   function handleKey(event: KeyboardEvent<HTMLDivElement>, id: string) {
-    // Only the card itself; ⌥←/→ is Phase 4's insert move.
+    // Only the card itself.
     if (event.target !== event.currentTarget) return
+    if (
+      event.altKey &&
+      !event.metaKey &&
+      !event.ctrlKey &&
+      (event.key === 'ArrowLeft' || event.key === 'ArrowRight')
+    ) {
+      event.preventDefault()
+      if (!pending)
+        onMove({
+          type: 'step',
+          sceneId: id,
+          dir: event.key === 'ArrowRight' ? 1 : -1,
+        })
+      return
+    }
     if (event.altKey || event.metaKey || event.ctrlKey) return
     const at = rendered.indexOf(id)
     switch (event.key) {
@@ -302,22 +330,29 @@ export function Board({
               signals.storyNotes.length + signals.orderNotes.length > 0
             )
           }).length
-          // A card over this empty act: the act change's prediction.
-          const actDrop = dropAct === act && dragged ? dragged : null
-          const actTape = actDrop
-            ? predictionTape(
-                model,
-                predict({ type: 'act', sceneId: actDrop.scene.id, act }),
-              )
+          // A card over this empty act: the act move's prediction.
+          const actMove: SceneMove | null = dragged
+            ? { type: 'act', sceneId: dragged.scene.id, act }
             : null
+          const actPrediction =
+            dropAct === act && actMove ? predict(actMove) : null
+          const actTape =
+            dragged && actPrediction
+              ? dropTape(
+                  dragged,
+                  actPrediction,
+                  `Move scene ${dragged.number} here`,
+                )
+              : null
+          const actAmber = actTape?.tone === 'amber'
           return (
             <section
               key={act}
               data-testid={`act-frame-${act}`}
               className={
                 'rounded-frame bg-tr-surface-clay px-3.5 pb-4 pt-2.5' +
-                (dropAct === act
-                  ? ` inset-ring-2 ${actTape ? 'inset-ring-tr-amber' : 'inset-ring-tr-sky'}`
+                (actTape
+                  ? ` inset-ring-2 ${actAmber ? 'inset-ring-tr-amber' : 'inset-ring-tr-sky'}`
                   : '')
               }
             >
@@ -337,22 +372,20 @@ export function Board({
               ) : scenes.length === 0 ? (
                 <p
                   onDragOver={(e) => {
-                    if (!dragSourceId) return
-                    e.preventDefault()
+                    if (!actMove) return
                     setDropAct(act)
+                    if (allowed(predict(actMove))) e.preventDefault()
                   }}
                   onDragLeave={() => setDropAct(null)}
                   onDrop={(e) => {
                     e.preventDefault()
-                    if (dragSourceId) onMoveToAct(dragSourceId, act)
+                    if (actMove && allowed(predict(actMove))) onMove(actMove)
                     clearDrag()
                   }}
-                  className={`mt-3 rounded-card border border-dashed border-tr-border-strong p-4 text-center text-12 ${actTape ? 'font-semibold text-tr-amber' : 'text-tr-text-primary'}`}
+                  className={`mt-3 rounded-card border border-dashed border-tr-border-strong p-4 text-center text-12 ${actAmber ? 'font-semibold text-tr-amber' : 'text-tr-text-primary'}`}
                 >
                   {actTape?.text ??
-                    (actDrop
-                      ? `Move scene ${actDrop.number} here`
-                      : 'No scenes yet. Drag a card here, or use the Act control.')}
+                    'No scenes yet. Drag a card here, or use the Act control.'}
                 </p>
               ) : (
                 <div className="mt-4 flex flex-wrap gap-x-3 gap-y-4">
@@ -388,10 +421,7 @@ export function Board({
                     if (!signals) return null
                     const relation = relationTape(model, selectedId, id)
                     const match = highlightTape(model, id, highlight)
-                    const over =
-                      !!dragged &&
-                      id === dropTargetId &&
-                      id !== dragged.scene.id
+                    const over = id === dropTargetId && prediction !== null
                     return (
                       <BoardCard
                         key={id}
@@ -403,7 +433,11 @@ export function Board({
                         unsaved={draftSceneIds.has(id)}
                         tape={
                           over && dragged
-                            ? dropTape(dragged, signals)
+                            ? dropTape(
+                                dragged,
+                                prediction,
+                                `Move ${dragged.number} here`,
+                              )
                             : (relation ?? match)
                         }
                         related={!over && relation !== null}
@@ -419,19 +453,30 @@ export function Board({
                         }
                         dragging={id === dragSourceId}
                         dropTarget={over}
+                        insert={
+                          over && allowed(prediction)
+                            ? dropAfter
+                              ? 'after'
+                              : 'before'
+                            : null
+                        }
                         onSelect={() => onSelectScene(id)}
                         onOpenInWrite={() => onOpenInWrite(id)}
                         onKeyDown={(e) => handleKey(e, id)}
                         onFocus={() => setFocusedId(id)}
                         onDragStart={() => setDragSourceId(id)}
                         onDragEnd={clearDrag}
-                        onDragOver={() => {
-                          if (dragSourceId) setDropTargetId(id)
+                        onDragOver={(after) => {
+                          const move = insertAt(id, after)
+                          if (!move) return false
+                          setDropTargetId(id)
+                          setDropAfter(after)
+                          return allowed(predict(move))
                         }}
                         onDragLeave={() => setDropTargetId(null)}
-                        onDrop={() => {
-                          if (dragSourceId && dragSourceId !== id)
-                            onReorder(dragSourceId, id)
+                        onDrop={(after) => {
+                          const move = insertAt(id, after)
+                          if (move && allowed(predict(move))) onMove(move)
                           clearDrag()
                         }}
                       />
