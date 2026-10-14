@@ -39,8 +39,9 @@ export interface ScenePanelProps {
   flags: ConsistencyFlag[]
   pending: boolean
   openingReview: boolean
-  /** T3.4 seam: the notes strip (id="plan-section-notes" data-plan-section="notes"). */
-  notes?: ReactNode
+  /** T3.4 seam: the notes strip (id="plan-section-notes" data-plan-section="notes").
+   * Given `showBeat` so a note's "Show beat" opens Beats and scrolls to the row. */
+  notes?: (showBeat: (beatId: string) => void) => ReactNode
   /** T3.4 seam: "Notes n" in the jump bar. */
   noteCount?: number
   onBack: () => void
@@ -114,19 +115,26 @@ export function ScenePanel({
     sceneId: string
     target: JumpTarget
   } | null>(null)
+  // Until when a jump-bar scroll owns the underline: spy() would otherwise
+  // light up each section the smooth scroll passes, and the last one when
+  // it bottoms out. `scrollend` ends it early; the deadline covers Safari
+  // (no scrollend) and a scroll with nowhere to go.
+  const jumpUntil = useRef(0)
 
-  // A new scene starts at the top, unless a beat was selected with it (notes
-  // "Show beat", landmark links): BeatLadder scrolls that row into view.
+  // A new scene starts at the top, unless a beat was selected with it.
   useEffect(() => {
     if (!selectedBeatId) asideRef.current?.scrollTo({ top: 0 })
     // eslint-disable-next-line react-hooks/exhaustive-deps -- reset per scene, not per beat
   }, [scene.id])
 
-  // A beat selected from outside the ladder (a landmark link, a note's
-  // "Show beat") must be visible even when the viewer left Beats closed.
   useEffect(() => {
-    if (selectedBeatId) setOpen('beats', true)
-  }, [selectedBeatId, setOpen])
+    const aside = asideRef.current
+    const end = () => {
+      jumpUntil.current = 0
+    }
+    aside?.addEventListener('scrollend', end)
+    return () => aside?.removeEventListener('scrollend', end)
+  }, [])
 
   const locked = scene.locked || episode.locked
   const characters = project.seriesBible.characters
@@ -164,7 +172,7 @@ export function ScenePanel({
 
   function spy() {
     const aside = asideRef.current
-    if (!aside) return
+    if (!aside || Date.now() < jumpUntil.current) return
     const line = aside.scrollTop + (headerRef.current?.offsetHeight ?? 0) + 1
     const all = sections()
     // Scrolled to the bottom: the last section can't reach the top line.
@@ -173,17 +181,20 @@ export function ScenePanel({
     const current = atBottom
       ? all[all.length - 1]
       : (all.filter((el) => el.offsetTop <= line).pop() ?? all[0])
-    if (current) {
-      setSpied({
-        sceneId: scene.id,
-        target: current.dataset.planSection as JumpTarget,
-      })
-    }
+    if (!current) return
+    const target = current.dataset.planSection as JumpTarget
+    // Same section: keep the state, or every scroll event re-renders the panel.
+    setSpied((prev) =>
+      prev?.sceneId === scene.id && prev.target === target
+        ? prev
+        : { sceneId: scene.id, target },
+    )
   }
 
   function jump(target: JumpTarget) {
     if (target !== 'notes') setOpen(target, true)
     setSpied({ sceneId: scene.id, target })
+    jumpUntil.current = Date.now() + 1000
     // Next frame: the section may have just opened.
     requestAnimationFrame(() => {
       const el = sections().find((s) => s.dataset.planSection === target)
@@ -193,6 +204,21 @@ export function ScenePanel({
         behavior: prefersReducedMotion() ? 'auto' : 'smooth',
       })
     })
+  }
+
+  // A beat shown from outside the ladder (a landmark link, a note's "Show
+  // beat") must be visible even when the viewer left Beats closed. Scrolled
+  // from the click, next frame (once Beats is open), so a second click on
+  // the same beat scrolls again.
+  function showBeat(beatId: string) {
+    onSelectBeat(scene.id, beatId)
+    setOpen('beats', true)
+    // `document`, not asideRef: showBeat is handed to `notes` during render.
+    requestAnimationFrame(() =>
+      document
+        .querySelector(`[data-testid="beat-card-${beatId}"]`)
+        ?.scrollIntoView({ block: 'nearest' }),
+    )
   }
 
   return (
@@ -275,7 +301,7 @@ export function ScenePanel({
             Locked — unlock to edit. Review will never change this scene.
           </p>
         )}
-        {notes}
+        {notes?.(showBeat)}
         <PanelSection
           id="scene"
           title="What the scene does"
@@ -294,7 +320,7 @@ export function ScenePanel({
             }
             onOpenReview={(instruction) => onOpenReview(scene.id, instruction)}
             onSuggest={() => onSuggest(scene.id)}
-            onShowBeat={(beatId) => onSelectBeat(scene.id, beatId)}
+            onShowBeat={showBeat}
           />
         </PanelSection>
         <PanelSection
@@ -318,6 +344,7 @@ export function ScenePanel({
           onToggle={(next) => setOpen('touches', next)}
         >
           <WhatItTouches
+            key={scene.id}
             scenes={episode.scenes}
             threads={threads}
             secrets={secrets}

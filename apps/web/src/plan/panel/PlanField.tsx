@@ -80,12 +80,11 @@ export function PlanField({
   const dirty = !locked && draft.dirty
   const busy = saving || openingReview
   const areaRef = useRef<HTMLTextAreaElement>(null)
-  // Keyed by draftKey so a reply for another scene's field never shows here.
-  const [suggestion, setSuggestion] = useState<{
-    key: string
-    items: string[]
-    failed: boolean
-  } | null>(null)
+  // One reply per draftKey: the panel isn't remounted per scene, so a late
+  // reply for one scene must neither show on nor replace another's.
+  const [suggestions, setSuggestions] = useState<
+    Record<string, { items: string[]; failed: boolean }>
+  >({})
   const [suggestingKey, setSuggestingKey] = useState<string | null>(null)
 
   useLayoutEffect(() => {
@@ -110,15 +109,16 @@ export function PlanField({
     const key = draftKey
     setSuggestingKey(key)
     try {
-      setSuggestion({ key, items: await onSuggest(), failed: false })
+      const items = await onSuggest()
+      setSuggestions((s) => ({ ...s, [key]: { items, failed: false } }))
     } catch {
-      setSuggestion({ key, items: [], failed: true })
+      setSuggestions((s) => ({ ...s, [key]: { items: [], failed: true } }))
     } finally {
       setSuggestingKey((current) => (current === key ? null : current))
     }
   }
 
-  const shown = suggestion?.key === draftKey ? suggestion : null
+  const shown = suggestions[draftKey]
   const canSuggest = !!onSuggest && !locked && text.trim() === ''
   const suggesting = suggestingKey === draftKey
   const controlClass = `${CONTROL} ${lead ? 'text-15' : 'text-13'}`
@@ -178,7 +178,11 @@ export function PlanField({
           disabled={busy}
           onPick={(picked) => {
             draft.set(picked)
-            setSuggestion(null)
+            setSuggestions((s) => {
+              const rest = { ...s }
+              delete rest[draftKey]
+              return rest
+            })
           }}
         />
       )}
