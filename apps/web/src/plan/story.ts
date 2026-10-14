@@ -494,6 +494,17 @@ export function predictMove(project: Project, move: SceneMove): MovePrediction {
   }
 }
 
+// ponytail: a whole-card drop inserts on the far side of the target (after a
+// later card, before an earlier one) until the board drops by card half.
+export function dropsAfter(
+  model: BoardModel,
+  sceneId: string,
+  targetSceneId: string,
+): boolean {
+  const n = (id: string) => model.signals.get(id)?.number ?? 0
+  return n(sceneId) < n(targetSceneId)
+}
+
 /** "Can't move past scene n: it's locked", or "Can't move scene n: it's
  * locked" when the locked scene is the one being moved; n = today's number. */
 export function lockedMoveText(

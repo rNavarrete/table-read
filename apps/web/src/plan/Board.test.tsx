@@ -545,9 +545,10 @@ describe('Board', () => {
     fireEvent.dragOver(card('scene-1'), { dataTransfer: dt() })
 
     expect(predict).toHaveBeenCalledWith({
-      type: 'swap',
+      type: 'insert',
       sceneId: 'scene-5',
       targetSceneId: 'scene-1',
+      after: false,
     })
     const tape = card('scene-1').querySelector('[data-tape]')
     expect(tape?.textContent).toBe(predictionTape(m, [PAYS_OFF_FIRST])?.text)

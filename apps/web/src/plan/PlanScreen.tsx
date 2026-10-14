@@ -57,7 +57,9 @@ import {
 } from './planTree'
 import {
   boardModel,
+  dropsAfter,
   highlightAnnouncement,
+  lockedMoveText,
   NO_HIGHLIGHT,
   nextMatchId,
   notesForScene,
@@ -365,7 +367,13 @@ export function PlanScreen() {
     if (!project) return Promise.resolve(false)
     const applied = applySceneMove(project, move)
     if (!applied) return Promise.resolve(false)
-    const fresh = predictMove(project, move)
+    if ('blockedBy' in applied) {
+      if (model)
+        announce(lockedMoveText(model, move.sceneId, applied.blockedBy))
+      return Promise.resolve(false)
+    }
+    const prediction = predictMove(project, move)
+    const fresh = prediction && 'issues' in prediction ? prediction.issues : []
     // A failed move leaves the previous one the head: give its offer back.
     const prev = undoMove.move
     undoMove.setMove({ issueIds: fresh.map((i) => i.id), head: null })
@@ -687,7 +695,12 @@ export function PlanScreen() {
               onSelectScene={selectScene}
               onOpenInWrite={(sceneId) => openInWrite(sceneId)}
               onReorder={(sceneId, targetSceneId) =>
-                void applyMove({ type: 'swap', sceneId, targetSceneId })
+                void applyMove({
+                  type: 'insert',
+                  sceneId,
+                  targetSceneId,
+                  after: dropsAfter(model, sceneId, targetSceneId),
+                })
               }
               onMoveToAct={(sceneId, act) =>
                 void saveSceneField(sceneId, 'act', act)
@@ -698,7 +711,10 @@ export function PlanScreen() {
                   .querySelector<HTMLElement>('[data-testid="inspector"] h2')
                   ?.focus()
               }
-              predict={(move) => predictMove(project, move)}
+              predict={(move) => {
+                const p = predictMove(project, move)
+                return p && 'issues' in p ? p.issues : []
+              }}
               header={
                 <>
                   <HighlightBar

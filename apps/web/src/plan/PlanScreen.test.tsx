@@ -20,7 +20,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiError } from '../api/errors'
 import { loadResume, saveResume } from '../projects/resumeContext'
 import { PlanScreen } from './PlanScreen'
-import { withBeatField, withSceneField } from './planTree'
+import { applySceneMove, withBeatField, withSceneField } from './planTree'
 import { UNDO_MOVE_STALE } from './useUndoMove'
 
 const {
@@ -396,7 +396,7 @@ describe('PlanScreen', () => {
     expect(patchProjectMock).toHaveBeenCalledTimes(1)
     expect(patchProjectMock).toHaveBeenCalledWith(
       'proj-longpour',
-      [{ op: 'replace', path: '/seasons/0/episodes/0/scenes/0/act', value: 4 }],
+      opsOf(p, { type: 'act', sceneId: 'scene-1', act: 4 }),
       { expectedHeadSnapshotId: 'snap-root' },
     )
     await waitFor(() =>
@@ -1237,6 +1237,15 @@ describe('PlanScreen', () => {
 
 /** Five scenes (array position = index): the cold open, two in act 1, one
  * each in acts 2 and 3; one thread set up in scene 2 and paid off in scene 5. */
+/** The one PATCH applySceneMove builds for `move` (an insert, renumbered). */
+function appliedOf(p: Project, move: Parameters<typeof applySceneMove>[1]) {
+  const applied = applySceneMove(p, move)
+  if (!applied || 'blockedBy' in applied) throw new Error('no move')
+  return applied
+}
+const opsOf = (...a: Parameters<typeof appliedOf>) => appliedOf(...a).ops
+const nextOf = (...a: Parameters<typeof appliedOf>) => appliedOf(...a).next
+
 function orderProject(): Project {
   const p = project()
   const ep = p.seasons[0].episodes[0]
@@ -1267,7 +1276,7 @@ describe('PlanScreen order check (T3.7)', () => {
   /** The server's reply to scene-5 → the cold open (act 0). */
   const moved = (p: Project, head = 'snap-moved'): Saved => ({
     project: {
-      ...withSceneField(p, 'scene-5', 'act', 0),
+      ...nextOf(p, { type: 'act', sceneId: 'scene-5', act: 0 }),
       headSnapshotId: head,
     },
     consistencyFlags: [],
@@ -1280,7 +1289,7 @@ describe('PlanScreen order check (T3.7)', () => {
   const strip = () => screen.getByTestId('notes-strip')
   const undoButton = () =>
     screen.queryByRole('button', { name: 'Undo the move' })
-  const NOTE = 'Pays off “The spare key” before its setup in scene 2.'
+  const NOTE = 'Pays off “The spare key” before its setup in scene 3.'
 
   /** Loads orderProject(), selects scene-5 and moves it to the cold open. */
   async function moveScene5ToColdOpen(
@@ -1338,7 +1347,7 @@ describe('PlanScreen order check (T3.7)', () => {
     expect(patchProjectMock).toHaveBeenCalledTimes(1)
     expect(patchProjectMock).toHaveBeenCalledWith(
       'proj-longpour',
-      [{ op: 'replace', path: '/seasons/0/episodes/0/scenes/4/act', value: 0 }],
+      opsOf(p, { type: 'act', sceneId: 'scene-5', act: 0 }),
       { expectedHeadSnapshotId: 'snap-root' },
     )
     expect(suggestInstructionsMock).not.toHaveBeenCalled()
@@ -1453,7 +1462,7 @@ describe('PlanScreen order check (T3.7)', () => {
     await waitFor(() => expect(undoButton()).toBeNull())
     expect(strip().textContent).toContain(NOTE)
     await user.click(
-      within(strip()).getByRole('button', { name: 'Go to scene 2' }),
+      within(strip()).getByRole('button', { name: 'Go to scene 3' }),
     )
     expect(
       screen.getByTestId('scene-card-scene-2').getAttribute('aria-pressed'),

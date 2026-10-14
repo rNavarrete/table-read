@@ -204,9 +204,10 @@ export function Board({
       predictionTape(
         model,
         predict({
-          type: 'swap',
+          type: 'insert',
           sceneId: from.scene.id,
           targetSceneId: target.scene.id,
+          after: from.number < target.number,
         }),
       ) ?? { text: `Swap with ${from.number}`, tone: 'sky' }
     )
