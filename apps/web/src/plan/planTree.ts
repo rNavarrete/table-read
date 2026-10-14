@@ -155,6 +155,34 @@ export function swapScenesLocally(
   }
 }
 
+export type SceneMove =
+  | { type: 'swap'; sceneId: string; targetSceneId: string }
+  | { type: 'act'; sceneId: string; act: number }
+
+/** One board move as its single PATCH and the PATCH's optimistic twin
+ * (rule 4): a swap is buildSceneSwapPatch + swapScenesLocally; an act change
+ * is the Act select's one `replace …/act` + withSceneField. null when there is
+ * nothing to move (unknown scene, a swap with itself, the scene's own act). */
+export function applySceneMove(
+  project: Project,
+  move: SceneMove,
+): { ops: JsonPatchOp[]; next: Project } | null {
+  if (move.type === 'swap') {
+    const ops = buildSceneSwapPatch(project, move.sceneId, move.targetSceneId)
+    return ops
+      ? {
+          ops,
+          next: swapScenesLocally(project, move.sceneId, move.targetSceneId),
+        }
+      : null
+  }
+  if (findScene(project, move.sceneId)?.act === move.act) return null
+  const ops = buildScenePatch(project, move.sceneId, 'act', move.act)
+  return ops
+    ? { ops, next: withSceneField(project, move.sceneId, 'act', move.act) }
+    : null
+}
+
 /** Optimistic twin of `buildScenePatch`: sets one field on `sceneId`
  * immutably, everything else structurally shared. */
 export function withSceneField<K extends keyof Scene>(

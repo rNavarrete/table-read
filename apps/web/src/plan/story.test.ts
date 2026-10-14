@@ -29,18 +29,24 @@ import {
   landmarksForScene,
   linkifyNote,
   matchesHighlight,
+  newOrderIssues,
   nextMatchId,
   NO_HIGHLIGHT,
   noteSentence,
   notesForScene,
+  orderIssues,
   placeTitle,
+  predictionTape,
+  predictMove,
   relationTape,
   secretsForScene,
   selectionAnnouncement,
   threadsForScene,
   type Highlight,
   type HighlightKind,
+  type OrderIssue,
 } from './story'
+import { applySceneMove, type SceneMove } from './planTree'
 
 function beat(id: string, index: number, overrides: Partial<Beat> = {}): Beat {
   return {
@@ -988,6 +994,273 @@ describe('boardModel', () => {
   })
 })
 
+describe('orderIssues', () => {
+  const six = ['scene-1', 'scene-2', 'scene-3', 'scene-4', 'scene-5', 'scene-6']
+  const scenes = () => six.map((id, i) => scene(id, i))
+  const spareKey = (setup: string, payoff: string | null): StoryThread => ({
+    ...thread('thread-1', setup, payoff),
+    label: 'The spare key',
+  })
+  const brief = (issues: OrderIssue[]) =>
+    issues.map((i) => [i.kind, i.sceneId, i.otherSceneId])
+
+  it('a thread whose payoff plays before its setup', () => {
+    expect(
+      orderIssues(
+        episode(scenes(), { threads: [spareKey('scene-4', 'scene-2')] }),
+      ),
+    ).toEqual([
+      {
+        id: 'payoff_first:thread-1:scene-2',
+        kind: 'payoff_first',
+        sourceId: 'thread-1',
+        label: 'The spare key',
+        sceneId: 'scene-2',
+        otherSceneId: 'scene-4',
+      },
+    ])
+    expect(
+      orderIssues(
+        episode(scenes(), { threads: [spareKey('scene-2', 'scene-4')] }),
+      ),
+    ).toEqual([])
+  })
+
+  it('skips abandoned threads, a payoff in its own setup scene, no payoff, and missing scenes', () => {
+    const ep = episode(scenes(), {
+      threads: [
+        {
+          ...thread('thread-dropped', 'scene-4', 'scene-2'),
+          status: 'abandoned',
+        },
+        thread('thread-same', 'scene-3', 'scene-3'),
+        thread('thread-open', 'scene-4', null),
+        thread('thread-orphan', 'scene-99', 'scene-1'),
+        thread('thread-cut', 'scene-4', 'scene-99'),
+      ],
+    })
+    expect(orderIssues(ep)).toEqual([])
+  })
+
+  it('orders by act, then index, not by index', () => {
+    const ep = (payoffAct: number) =>
+      episode(
+        [
+          scene('scene-2', 1, { act: payoffAct }),
+          scene('scene-4', 3, { act: 1 }),
+        ],
+        { threads: [thread('thread-1', 'scene-4', 'scene-2')] },
+      )
+    expect(orderIssues(ep(2))).toEqual([])
+    expect(orderIssues(ep(0)).map((i) => i.id)).toEqual([
+      'payoff_first:thread-1:scene-2',
+    ])
+  })
+
+  it('the secret revealed before it is established', () => {
+    const ep = episode(scenes(), {
+      secrets: [
+        secret({ establishedSceneId: 'scene-3', revealedSceneId: 'scene-2' }),
+      ],
+    })
+    expect(orderIssues(ep)).toEqual([
+      {
+        id: 'revealed_first:secret-transfer:scene-2',
+        kind: 'revealed_first',
+        sourceId: 'secret-transfer',
+        label: null,
+        sceneId: 'scene-2',
+        otherSceneId: 'scene-3',
+      },
+    ])
+  })
+
+  it('the secret kept after it is out, or kept before it is established', () => {
+    const check = (overrides: Partial<Secret>) =>
+      brief(orderIssues(episode(scenes(), { secrets: [secret(overrides)] })))
+    expect(
+      check({
+        establishedSceneId: 'scene-2',
+        concealmentSceneIds: ['scene-3'],
+        revealedSceneId: 'scene-4',
+      }),
+    ).toEqual([])
+    expect(
+      check({
+        establishedSceneId: 'scene-2',
+        concealmentSceneIds: ['scene-5', 'scene-1', 'scene-3'],
+        revealedSceneId: 'scene-4',
+      }),
+    ).toEqual([
+      ['kept_after', 'scene-5', 'scene-4'],
+      ['kept_before', 'scene-1', 'scene-2'],
+    ])
+    // Never revealed (or revealed off the board): only kept-before applies.
+    for (const revealedSceneId of [null, 'scene-99'])
+      expect(
+        check({
+          establishedSceneId: 'scene-3',
+          concealmentSceneIds: ['scene-1', 'scene-6'],
+          revealedSceneId,
+        }),
+      ).toEqual([['kept_before', 'scene-1', 'scene-3']])
+    expect(
+      check({
+        establishedSceneId: 'scene-99',
+        concealmentSceneIds: ['scene-1'],
+        revealedSceneId: 'scene-2',
+      }),
+    ).toEqual([])
+  })
+
+  it('reads a raw doc with no threads or secrets', () => {
+    const raw = episode(scenes()) as unknown as Record<string, unknown>
+    delete raw.threads
+    delete raw.secrets
+    expect(orderIssues(raw as unknown as Episode)).toEqual([])
+    const bare = secret({
+      establishedSceneId: 'scene-2',
+    }) as unknown as Record<string, unknown>
+    delete bare.concealmentSceneIds
+    expect(
+      orderIssues({ ...raw, secrets: [bare] } as unknown as Episode),
+    ).toEqual([])
+  })
+})
+
+describe('predictMove', () => {
+  it('predictMove equals the new problems of the saved result', () => {
+    // setup scene-2 (act 1) → payoff scene-5 (act 3): moving scene-5 to the
+    // cold open, or swapping it with scene-1, plays the payoff first.
+    const p = project(
+      episode(
+        [
+          scene('scene-1', 0, { act: 0 }),
+          scene('scene-2', 1, { act: 1 }),
+          scene('scene-5', 4, { act: 3 }),
+        ],
+        { threads: [thread('thread-1', 'scene-2', 'scene-5')] },
+      ),
+    )
+    const moves: SceneMove[] = [
+      { type: 'act', sceneId: 'scene-5', act: 0 },
+      { type: 'swap', sceneId: 'scene-5', targetSceneId: 'scene-1' },
+    ]
+    for (const move of moves) {
+      const saved = applySceneMove(p, move)!.next.seasons[0].episodes[0]
+      const expected = newOrderIssues(
+        orderIssues(p.seasons[0].episodes[0]),
+        orderIssues(saved),
+      )
+      expect(expected).toHaveLength(1)
+      expect(predictMove(p, move)).toEqual(expected)
+    }
+  })
+
+  it('a move that keeps an existing problem predicts nothing new; nothing to move predicts []', () => {
+    // payoff scene-2 (act 1) already plays before its setup scene-5 (act 3).
+    const p = project(
+      episode(
+        [
+          scene('scene-1', 0, { act: 0 }),
+          scene('scene-2', 1, { act: 1 }),
+          scene('scene-5', 4, { act: 3 }),
+        ],
+        { threads: [thread('thread-1', 'scene-5', 'scene-2')] },
+      ),
+    )
+    expect(orderIssues(p.seasons[0].episodes[0])).toHaveLength(1)
+    const moves: SceneMove[] = [
+      { type: 'swap', sceneId: 'scene-2', targetSceneId: 'scene-1' },
+      { type: 'act', sceneId: 'scene-1', act: 2 },
+      { type: 'act', sceneId: 'scene-2', act: 1 },
+      { type: 'act', sceneId: 'scene-99', act: 0 },
+      { type: 'swap', sceneId: 'scene-2', targetSceneId: 'scene-2' },
+    ]
+    for (const move of moves) expect(predictMove(p, move)).toEqual([])
+  })
+})
+
+describe('boardModel order notes', () => {
+  const six = ['scene-1', 'scene-2', 'scene-3', 'scene-4', 'scene-5', 'scene-6']
+  const scenes = () => six.map((id, i) => scene(id, i))
+
+  it('each side of a problem gets an Order note in its own words, with the other scene’s number', () => {
+    const ep = episode(scenes(), {
+      threads: [
+        { ...thread('thread-1', 'scene-4', 'scene-2'), label: 'The spare key' },
+      ],
+    })
+    const model = boardModel(project(ep), ep, [])
+    const notes = (id: string) =>
+      model.signals
+        .get(id)!
+        .orderNotes.map((n) => [n.text, n.otherSceneId, n.otherNumber])
+    expect(notes('scene-2')).toEqual([
+      ['Pays off “The spare key” before its setup in scene 4.', 'scene-4', 4],
+    ])
+    expect(notes('scene-4')).toEqual([
+      [
+        'Sets up “The spare key”, but it now pays off earlier, in scene 2.',
+        'scene-2',
+        2,
+      ],
+    ])
+    expect(notes('scene-1')).toEqual([])
+    expect(model.issues).toEqual(orderIssues(ep))
+    expect(model.signals.get('scene-2')!.orderNotes[0].issue).toEqual(
+      model.issues[0],
+    )
+
+    const sides = (overrides: Partial<Secret>, ids: [string, string]) => {
+      const s = secret(overrides)
+      const e = episode(scenes(), { secrets: [s] })
+      const m = boardModel(project(e), e, [])
+      expect(m.secrets).toEqual([s])
+      return ids.map((id) => m.signals.get(id)!.orderNotes.map((n) => n.text))
+    }
+    expect(
+      sides({ establishedSceneId: 'scene-3', revealedSceneId: 'scene-2' }, [
+        'scene-2',
+        'scene-3',
+      ]),
+    ).toEqual([
+      ['Reveals the secret before scene 3 establishes it.'],
+      ['Establishes the secret after it comes out in scene 2.'],
+    ])
+    expect(
+      sides(
+        {
+          establishedSceneId: 'scene-1',
+          revealedSceneId: 'scene-5',
+          concealmentSceneIds: ['scene-6'],
+        },
+        ['scene-6', 'scene-5'],
+      ),
+    ).toEqual([
+      ['Keeps the secret after it comes out in scene 5.'],
+      ['Reveals the secret, but scene 6 still keeps it afterwards.'],
+    ])
+    expect(
+      sides(
+        { establishedSceneId: 'scene-3', concealmentSceneIds: ['scene-1'] },
+        ['scene-1', 'scene-3'],
+      ),
+    ).toEqual([
+      ['Keeps the secret before scene 3 establishes it.'],
+      ['Establishes the secret after scene 1 already keeps it.'],
+    ])
+  })
+
+  it('act short labels', () => {
+    const ep = episode([scene('scene-1', 0, { act: 0 })])
+    const shorts = (coldOpen: boolean) =>
+      boardModel(project(ep, { coldOpen }), ep, []).acts.map((a) => a.short)
+    expect(shorts(true)).toEqual(['CO', '1', '2', '3', '4'])
+    expect(shorts(false)).toEqual(['1', '2', '3', '4'])
+  })
+})
+
 describe('relationTape', () => {
   it('reads how a card relates to the selected scene through a thread', () => {
     const ep = episode(
@@ -1309,6 +1582,109 @@ describe('highlights', () => {
   })
 })
 
+describe('order problems in tapes, highlights and announcements', () => {
+  // scene-4 sets up "The spare key", paid off in scene-2: out of order.
+  const ep = episode(
+    ['scene-1', 'scene-2', 'scene-3', 'scene-4', 'scene-5', 'scene-6'].map(
+      (id, i) => scene(id, i),
+    ),
+    {
+      threads: [
+        { ...thread('thread-1', 'scene-4', 'scene-2'), label: 'The spare key' },
+      ],
+    },
+  )
+  const model = boardModel(project(ep), ep, [
+    flag({ id: 'both', objectId: 'scene-4' }),
+    flag({ id: 'continuity-only', objectId: 'scene-6' }),
+  ])
+
+  it('relationTape: ⚠ order with n wins over the thread tape', () => {
+    expect(relationTape(model, 'scene-4', 'scene-2')).toEqual({
+      text: '⚠ order with 4',
+      tone: 'amber',
+    })
+    expect(relationTape(model, 'scene-2', 'scene-4')).toEqual({
+      text: '⚠ order with 2',
+      tone: 'amber',
+    })
+    expect(relationTape(model, 'scene-4', 'scene-1')).toBeNull()
+  })
+
+  it('Continuity and N count order problems', () => {
+    const continuity: Highlight = { kind: 'continuity', who: null }
+    expect(
+      model.order.map((s) => highlightTape(model, s.id, continuity)),
+    ).toEqual([
+      null,
+      { text: '⚠ order', tone: 'amber' },
+      null,
+      { text: '⚠ order', tone: 'amber' },
+      null,
+      { text: '⚑ continuity', tone: 'amber' },
+    ])
+    expect(highlightCount(model, continuity)).toBe(3)
+    expect(highlightCount(model, NO_HIGHLIGHT)).toBe(3)
+    expect(matchesHighlight(model, 'scene-2', NO_HIGHLIGHT)).toBe(true)
+    expect(nextMatchId(model, null, 1, NO_HIGHLIGHT)).toBe('scene-2')
+  })
+
+  it('selectionAnnouncement counts Order notes', () => {
+    expect(selectionAnnouncement(model.signals.get('scene-2')!, false)).toBe(
+      'Scene 2, The Long Pour. 1 note.',
+    )
+  })
+
+  it('predictionTape', () => {
+    // Moving scene-2 (act 2) into act 1 would put its payoff before scene-4.
+    const p = project(
+      episode(
+        [
+          scene('scene-1', 0, { act: 1 }),
+          scene('scene-2', 1, { act: 2 }),
+          scene('scene-3', 2, { act: 1 }),
+          scene('scene-4', 3, { act: 1 }),
+          scene('scene-5', 4, { act: 2 }),
+          scene('scene-6', 5, { act: 2 }),
+        ],
+        { threads: [thread('thread-1', 'scene-4', 'scene-2')] },
+      ),
+    )
+    const m = boardModel(p, p.seasons[0].episodes[0], [])
+    const issues = predictMove(p, { type: 'act', sceneId: 'scene-2', act: 1 })
+    expect(predictionTape(m, issues)).toEqual({
+      text: '⚠ 2 would pay off before 4',
+      tone: 'amber',
+    })
+    const secretIssue = (
+      kind: OrderIssue['kind'],
+      sceneId: string,
+      otherSceneId: string,
+    ): OrderIssue => ({
+      id: `${kind}:secret-transfer:${sceneId}`,
+      kind,
+      sourceId: 'secret-transfer',
+      label: null,
+      sceneId,
+      otherSceneId,
+    })
+    const text = (list: OrderIssue[]) => predictionTape(m, list)?.text
+    expect(
+      text([...issues, secretIssue('revealed_first', 'scene-5', 'scene-3')]),
+    ).toBe('⚠ 2 would pay off before 4 +1')
+    expect(text([secretIssue('revealed_first', 'scene-5', 'scene-3')])).toBe(
+      '⚠ 5 would reveal the secret before 3',
+    )
+    expect(text([secretIssue('kept_after', 'scene-6', 'scene-5')])).toBe(
+      '⚠ 6 would keep the secret after 5',
+    )
+    expect(text([secretIssue('kept_before', 'scene-1', 'scene-3')])).toBe(
+      '⚠ 1 would keep the secret before 3',
+    )
+    expect(predictionTape(m, [])).toBeNull()
+  })
+})
+
 describe('missing story data', () => {
   it('reads a doc whose defaulted keys are missing as empty (raw PATCH reply, idea-born project)', () => {
     const s = scene('scene-6', 5, {
@@ -1367,6 +1743,8 @@ describe('missing story data', () => {
     expect(model.hasScript).toBe(false)
     expect(model.hasThreads).toBe(false)
     expect(model.threads).toEqual([])
+    expect(model.issues).toEqual([])
+    expect(model.secrets).toEqual([])
     expect(model.acts.every((a) => a.share === null)).toBe(true)
     expect(model.acts.flatMap((a) => a.landmarks)).toEqual([])
     for (const s of model.signals.values()) {
@@ -1378,6 +1756,7 @@ describe('missing story data', () => {
         null,
       ])
       expect(s.scriptLength).toBe(0)
+      expect(s.orderNotes).toEqual([])
     }
 
     for (const kind of ['none', 'threads', 'secret', 'continuity'] as const)

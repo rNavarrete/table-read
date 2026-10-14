@@ -31,6 +31,7 @@ function summary(overrides: Partial<ActSummary> = {}): ActSummary {
   return {
     act: 1,
     label: 'ACT ONE',
+    short: '1',
     scenes: [scene('scene-2'), scene('scene-3')],
     share: 0.43,
     setUp: 0,
