@@ -279,11 +279,14 @@ export function ScenePanel({
             id="plan-act-select"
             aria-label="Act"
             value={scene.act}
-            disabled={locked || pending}
-            onChange={(e) =>
+            // Disabled would blur the focused select to <body> for the save; aria-disabled keeps it.
+            disabled={locked}
+            aria-disabled={pending || undefined}
+            onChange={(e) => {
+              if (pending) return
               void onSaveSceneField(scene.id, 'act', Number(e.target.value))
-            }
-            className="rounded-card border border-tr-border bg-tr-surface-page px-2 py-1 text-13 text-tr-text-primary disabled:opacity-50"
+            }}
+            className="rounded-card border border-tr-border bg-tr-surface-page px-2 py-1 text-13 text-tr-text-primary disabled:opacity-50 aria-disabled:opacity-50"
           >
             {actNumbersForFormat(project.format).map((act) => (
               <option key={act} value={act}>
