@@ -25,6 +25,11 @@ export interface BoardCardProps {
   related: boolean
   dragging: boolean
   dropTarget: boolean
+  /** A highlight match: a 2px ring in the highlight's hue. */
+  ring?: TapeTone | null
+  /** A non-match under a highlight: flat (no ruled paper, no shadow), never
+   * dimmed. */
+  quiet?: boolean
   onSelect: () => void
   onOpenInWrite: () => void
   onKeyDown: (event: KeyboardEvent<HTMLDivElement>) => void
@@ -42,6 +47,13 @@ const TONE_BG: Record<TapeTone, string> = {
   amber: 'bg-tr-amber',
   secret: 'bg-tr-ledger-secret-ink',
   accent: 'bg-tr-accent-ink',
+}
+
+const TONE_RING: Record<TapeTone, string> = {
+  sky: 'ring-tr-sky',
+  amber: 'ring-tr-amber',
+  secret: 'ring-tr-ledger-secret-ink',
+  accent: 'ring-tr-accent-ink',
 }
 
 const TICK: Record<SceneSignals['ticks'][number], string> = {
@@ -116,6 +128,8 @@ export function BoardCard({
   related,
   dragging,
   dropTarget,
+  ring = null,
+  quiet = false,
   onSelect,
   onOpenInWrite,
   onKeyDown,
@@ -159,7 +173,9 @@ export function BoardCard({
 
   const fill = selected
     ? 'bg-tr-coral-soft inset-ring-2 inset-ring-tr-coral shadow-card-lift'
-    : 'bg-tr-board-paper shadow-card-board hover:shadow-card-lift'
+    : quiet
+      ? 'bg-tr-surface-sunken shadow-none'
+      : 'bg-tr-board-paper shadow-card-board hover:shadow-card-lift'
 
   return (
     <div
@@ -171,6 +187,7 @@ export function BoardCard({
       data-scene-id={scene.id}
       data-testid={`scene-card-${scene.id}`}
       data-locked={locked}
+      data-match={ring ? true : undefined}
       tabIndex={tabIndex}
       draggable={draggable}
       onClick={onSelect}
@@ -182,14 +199,20 @@ export function BoardCard({
       onDragOver={handleDragOver}
       onDragLeave={onDragLeave}
       onDrop={handleDrop}
-      style={RULED}
+      style={quiet && !selected ? undefined : RULED}
       className={
         `relative flex h-card-board-h w-card-board-w shrink-0 cursor-pointer select-none flex-col rounded-[4px] px-2 pb-1 pt-[7px] text-tr-text-primary transition-[box-shadow,translate] ease-standard hover:-translate-y-px motion-reduce:transition-none ${fill} ${FOCUS}` +
         (related
           ? ' outline-[1.5px] outline-offset-3 outline-dashed outline-tr-sky'
           : '') +
         (dragging ? ' opacity-50' : '') +
-        (dropTarget ? ' ring-2 ring-tr-sky' : '')
+        // Both are box-shadow rings and compose with the selected inset ring;
+        // a drop target's sky ring wins over a highlight ring.
+        (dropTarget
+          ? ' ring-2 ring-tr-sky'
+          : ring
+            ? ` ring-2 ${TONE_RING[ring]}`
+            : '')
       }
     >
       {tape && (

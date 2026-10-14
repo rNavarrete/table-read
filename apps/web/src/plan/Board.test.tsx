@@ -11,14 +11,16 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ComponentProps } from 'react'
 import type {
+  Character,
   ConsistencyFlag,
   Episode,
+  Motivation,
   Project,
   Scene,
   StoryThread,
 } from 'contract'
 import { Board, gridNeighbor } from './Board'
-import { boardModel } from './story'
+import { boardModel, NO_HIGHLIGHT, type Highlight } from './story'
 
 afterEach(cleanup)
 
@@ -64,7 +66,7 @@ function episode(scenes: Scene[], overrides: Partial<Episode> = {}): Episode {
   }
 }
 
-function project(ep: Episode): Project {
+function project(ep: Episode, characters: Character[] = []): Project {
   return {
     id: 'proj-longpour',
     title: 'The Long Pour',
@@ -82,7 +84,7 @@ function project(ep: Episode): Project {
       existentialQuestion: { text: '', locked: false },
       worldRules: [],
       storiesToAvoid: [],
-      characters: [],
+      characters,
       relationships: [],
       audienceGoals: [],
       narratorGoals: [],
@@ -152,8 +154,59 @@ function fixtureEpisode(overrides: Partial<Episode> = {}): Episode {
   )
 }
 
-function model(ep: Episode = fixtureEpisode(), flags: ConsistencyFlag[] = []) {
-  return boardModel(project(ep), ep, flags)
+function model(
+  ep: Episode = fixtureEpisode(),
+  flags: ConsistencyFlag[] = [],
+  characters: Character[] = [],
+) {
+  return boardModel(project(ep, characters), ep, flags)
+}
+
+const MARTA: Character = {
+  id: 'char-marta',
+  name: 'Marta Vega',
+  locked: false,
+  aliases: [],
+  embodiment: '',
+  presentation: '',
+  hiding: '',
+  traits: '',
+  seriesArc: '',
+  summary: '',
+  bio: '',
+}
+
+function want(characterId: string): Motivation {
+  return {
+    characterId,
+    objective: 'Keep the bar open',
+    stakes: '',
+    obstacle: '',
+    statedObjective: '',
+    concealed: false,
+  }
+}
+
+const WHO_MARTA: Highlight = { kind: 'who', who: 'char-marta' }
+
+/** fixtureEpisode with Marta wanting something in scenes 2 and 4. */
+function martaModel(overrides: Partial<Episode> = {}) {
+  const ep = fixtureEpisode(overrides)
+  for (const s of ep.scenes)
+    if (s.id === 'scene-2' || s.id === 'scene-4')
+      s.motivations = [want('char-marta')]
+  return model(ep, [], [MARTA])
+}
+
+/** Act 1: scene-1 … scene-5; act 2: scene-6. Story notes on 1 and 5. */
+function foldModel() {
+  const ep = episode([
+    ...[1, 2, 3, 4, 5].map((n) =>
+      scene({ id: `scene-${n}`, index: n - 1, act: 1 }),
+    ),
+    scene({ id: 'scene-6', index: 5, act: 2 }),
+  ])
+  return model(ep, [storyFlag('scene-1'), storyFlag('scene-5')])
 }
 
 const sel = (sceneId: string) => ({ type: 'scene' as const, sceneId })
@@ -490,6 +543,153 @@ describe('Board', () => {
     ).toBeNull()
     expect(card('scene-1').getAttribute('aria-pressed')).toBe('true')
     expect(card('scene-3').getAttribute('aria-pressed')).toBe('false')
+  })
+
+  it('under a highlight, matches wear its ring and tape and the rest go quiet', () => {
+    renderBoard({ model: martaModel(), highlight: WHO_MARTA })
+    for (const id of ['scene-2', 'scene-4']) {
+      expect(card(id).dataset.match).toBe('true')
+      expect(card(id).querySelector('[data-tape]')?.textContent).toBe(
+        'MARTA VEGA · wants',
+      )
+      expect(card(id).className).toContain('ring-tr-sky')
+      expect(card(id).className).not.toContain('bg-tr-surface-sunken')
+    }
+    for (const id of ['scene-1', 'scene-3', 'scene-5']) {
+      expect(card(id).hasAttribute('data-match')).toBe(false)
+      expect(card(id).querySelector('[data-tape]')).toBeNull()
+      expect(card(id).className).toContain('bg-tr-surface-sunken')
+      expect(card(id).className).not.toMatch(/opacity-/)
+    }
+  })
+
+  it('the relation tape wins over the highlight tape; there is only ever one tape', () => {
+    const { container } = renderBoard({
+      model: martaModel({
+        threads: [thread('thread-cash', 'scene-2', 'scene-4')],
+      }),
+      selection: sel('scene-2'),
+      highlight: WHO_MARTA,
+    })
+    for (const el of container.querySelectorAll('[data-scene-card]'))
+      expect(el.querySelectorAll('[data-tape]').length).toBeLessThanOrEqual(1)
+    // scene-4 matches Marta but relates to the selection: relation tape,
+    // still the highlight's ring.
+    expect(card('scene-4').querySelector('[data-tape]')?.textContent).toBe(
+      '↘ pays off 2',
+    )
+    expect(card('scene-4').dataset.match).toBe('true')
+    expect(card('scene-4').className).toContain('outline-dashed')
+    // The selected match keeps its highlight tape.
+    expect(card('scene-2').querySelector('[data-tape]')?.textContent).toBe(
+      'MARTA VEGA · wants',
+    )
+  })
+
+  it('the selected card never goes quiet', () => {
+    renderBoard({
+      model: martaModel(),
+      selection: sel('scene-3'),
+      highlight: WHO_MARTA,
+    })
+    expect(card('scene-3').className).not.toContain('bg-tr-surface-sunken')
+    expect(card('scene-3').className).toContain('bg-tr-coral-soft')
+    expect(card('scene-3').hasAttribute('data-match')).toBe(false)
+    expect(card('scene-1').className).toContain('bg-tr-surface-sunken')
+  })
+
+  it('None shows no ring, tape-from-highlight or quiet card', () => {
+    const { container } = renderBoard({
+      model: model(fixtureEpisode(), [storyFlag('scene-3')], [MARTA]),
+      highlight: NO_HIGHLIGHT,
+    })
+    expect(container.querySelector('[data-match]')).toBeNull()
+    expect(container.querySelector('[data-tape]')).toBeNull()
+    for (const el of container.querySelectorAll('[data-scene-card]')) {
+      expect(el.className).not.toContain('bg-tr-surface-sunken')
+      expect(el.className).not.toMatch(/(^|\s)ring-2/)
+    }
+  })
+
+  it('Fold the rest turns each run of non-matches into one stub; a stub opens its run; the selected scene never folds', async () => {
+    const user = userEvent.setup()
+    const onUnfold = vi.fn()
+    const { container, rerender } = renderBoard({
+      model: foldModel(),
+      selection: sel('scene-2'),
+      fold: true,
+      onUnfold,
+    })
+    // None + fold keeps scenes with a story note (1, 5) and the selection (2).
+    expect(cardIds(container)).toEqual(['scene-1', 'scene-2', 'scene-5'])
+    const stub = screen.getByRole('button', {
+      name: 'Show 2 folded scenes, 3 to 4',
+    })
+    expect(stub.textContent).toBe('3–4')
+    // Runs stop at the act's edge.
+    expect(
+      within(screen.getByTestId('act-frame-2')).getByRole('button', {
+        name: 'Show 1 folded scene, 6',
+      }).textContent,
+    ).toBe('6')
+
+    await user.click(stub)
+    expect(onUnfold).toHaveBeenCalledWith('scene-3')
+
+    rerender(
+      <Board
+        model={foldModel()}
+        episodeLocked={false}
+        selection={sel('scene-2')}
+        collapsedActs={new Set()}
+        pending={false}
+        fold
+        unfolded={new Set(['scene-3'])}
+        onSelectScene={noop}
+        onReorder={noop}
+        onMoveToAct={noop}
+        onToggleAct={noop}
+        onEnterPanel={noop}
+      />,
+    )
+    expect(cardIds(container)).toEqual([
+      'scene-1',
+      'scene-2',
+      'scene-3',
+      'scene-4',
+      'scene-5',
+    ])
+    expect(screen.queryByRole('button', { name: /^Show 2 folded/ })).toBeNull()
+  })
+
+  it('roving order skips folded scenes', async () => {
+    const user = userEvent.setup()
+    const onSelectScene = vi.fn()
+    renderBoard({
+      model: foldModel(),
+      selection: sel('scene-2'),
+      fold: true,
+      onSelectScene,
+    })
+    act(() => card('scene-2').focus())
+    await user.keyboard('{ArrowRight}')
+    expect(onSelectScene).toHaveBeenLastCalledWith('scene-5')
+    expect(document.activeElement).toBe(card('scene-5'))
+    await user.keyboard('{End}')
+    expect(onSelectScene).toHaveBeenLastCalledWith('scene-5')
+  })
+
+  it('the header slot renders inside the scroll area, before the acts', () => {
+    renderBoard({ header: <div data-testid="highlight-slot">bar</div> })
+    const slot = screen.getByTestId('highlight-slot')
+    const board = screen.getByLabelText('Plan board')
+    expect(board.contains(slot)).toBe(true)
+    expect(board.className).toContain('overflow-y-auto')
+    expect(slot.parentElement?.className).toContain('sticky')
+    expect(
+      slot.compareDocumentPosition(screen.getByTestId('act-frame-0')) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
   })
 })
 
