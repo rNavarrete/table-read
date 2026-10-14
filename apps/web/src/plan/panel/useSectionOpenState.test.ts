@@ -19,6 +19,12 @@ describe('useSectionOpenState', () => {
       touches: true,
       beats: true,
       details: false,
+      'ep-acts': true,
+      'ep-threads': true,
+      'ep-secret': true,
+      'ep-notes': true,
+      'ep-cast': true,
+      'ep-premise': false,
     })
   })
 
@@ -52,8 +58,37 @@ describe('useSectionOpenState', () => {
       JSON.stringify({ details: 'yes', beats: false, extra: true }),
     )
     expect(renderHook(() => useSectionOpenState()).result.current.open).toEqual(
-      { scene: true, wants: true, touches: true, beats: false, details: false },
+      {
+        scene: true,
+        wants: true,
+        touches: true,
+        beats: false,
+        details: false,
+        'ep-acts': true,
+        'ep-threads': true,
+        'ep-secret': true,
+        'ep-notes': true,
+        'ep-cast': true,
+        'ep-premise': false,
+      },
     )
+  })
+
+  it('episode sections default open except Premise, and persist like the scene sections', () => {
+    const first = renderHook(() => useSectionOpenState())
+    expect(first.result.current.open['ep-acts']).toBe(true)
+    expect(first.result.current.open['ep-premise']).toBe(false)
+    act(() => first.result.current.setOpen('ep-premise', true))
+    act(() => first.result.current.setOpen('ep-notes', false))
+    expect(JSON.parse(localStorage.getItem(KEY) ?? '{}')).toMatchObject({
+      'ep-premise': true,
+      'ep-notes': false,
+    })
+    first.unmount()
+
+    expect(
+      renderHook(() => useSectionOpenState()).result.current.open,
+    ).toMatchObject({ 'ep-premise': true, 'ep-notes': false, 'ep-cast': true })
   })
 
   it('still toggles in memory when storage throws', () => {
