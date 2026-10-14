@@ -499,12 +499,22 @@ describe('ScenePanel', () => {
     ).toBe(true)
   })
 
-  it('Act select and the lock switch are disabled while a patch is pending', () => {
+  it('the Act select stays focusable while its save is pending and ignores a second change', () => {
+    const { props: p } = renderPanel({ pending: true })
+    const select = screen.getByRole('combobox', {
+      name: 'Act',
+    }) as HTMLSelectElement
+    expect(select.disabled).toBe(false)
+    expect(select.getAttribute('aria-disabled')).toBe('true')
+    select.focus()
+    fireEvent.change(select, { target: { value: '3' } })
+    expect(p.onSaveSceneField).not.toHaveBeenCalled()
+    expect(document.activeElement).toBe(select)
+    expect(select.value).toBe('0')
+  })
+
+  it('the lock switch is disabled while a patch is pending', () => {
     renderPanel({ pending: true })
-    expect(
-      (screen.getByRole('combobox', { name: 'Act' }) as HTMLSelectElement)
-        .disabled,
-    ).toBe(true)
     expect(
       (screen.getByTestId('lock-toggle') as HTMLButtonElement).disabled,
     ).toBe(true)
