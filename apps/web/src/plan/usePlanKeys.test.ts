@@ -55,10 +55,11 @@ describe('usePlanKeys', () => {
       <input /><textarea></textarea><select><option>a</option></select>
       <div contenteditable="true"></div>
       <dialog open><button type="button">ok</button></dialog>
+      <aside role="dialog" aria-modal="true"><button type="button">Close</button></aside>
       <div id="card" tabindex="0"></div>
     `)
     for (const target of host.querySelectorAll(
-      'input, textarea, select, [contenteditable], dialog button',
+      'input, textarea, select, [contenteditable], dialog button, [role="dialog"] button',
     )) {
       for (const key of ['j', 'n', 'Escape']) fireEvent.keyDown(target, { key })
       fireEvent.keyDown(target, { key: 'Enter', metaKey: true })

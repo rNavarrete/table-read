@@ -95,16 +95,21 @@ export function HighlightBar({
             </button>
           )
         })}
+        {/* A placeholder unless Who's in it is on, so picking the
+            character the button counts is still a change. */}
         <select
           aria-label="Character to highlight"
           title="From dialogue cues and recorded wants"
-          value={who ?? ''}
+          value={highlight.kind === 'who' ? (who ?? '') : ''}
           disabled={!who}
           onChange={(event) =>
             onHighlight({ kind: 'who', who: event.target.value })
           }
           className={`max-w-28 rounded-control bg-transparent px-1 py-0.5 text-13 font-medium text-tr-text-primary disabled:cursor-not-allowed ${FOCUS}`}
         >
+          <option value="" disabled hidden>
+            Character…
+          </option>
           {cast.map(({ character }) => (
             <option key={character.id} value={character.id}>
               {character.name}

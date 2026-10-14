@@ -87,7 +87,9 @@ describe('HighlightBar', () => {
       name: 'Character to highlight',
     })
     expect(select.title).toBe('From dialogue cues and recorded wants')
-    expect(select.value).toBe('char-dan')
+    // A placeholder until Who's in it is on, so picking the most-present
+    // character is a change too.
+    expect(select.value).toBe('')
     expect(
       within(select)
         .getAllByRole('option')
@@ -103,6 +105,11 @@ describe('HighlightBar', () => {
     expect(onHighlight).toHaveBeenLastCalledWith({
       kind: 'who',
       who: 'char-marta',
+    })
+    await user.selectOptions(select, 'char-dan')
+    expect(onHighlight).toHaveBeenLastCalledWith({
+      kind: 'who',
+      who: 'char-dan',
     })
   })
 

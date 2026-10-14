@@ -42,9 +42,10 @@ export interface BoardProps {
   highlight?: Highlight
   /** Fold the rest: each run of non-matches in an act becomes one stub. */
   fold?: boolean
-  /** Run keys (first scene id) the writer opened. */
+  /** Scenes the writer opened from a stub: they stay open whatever the
+   * selection does to the runs around them. */
   unfolded?: ReadonlySet<string>
-  onUnfold?: (key: string) => void
+  onUnfold?: (sceneIds: string[]) => void
   /** Rendered sticky at the top of the board's scroll area (the highlight bar). */
   header?: ReactNode
 }
@@ -90,19 +91,16 @@ type BoardItem =
   | { type: 'stub'; key: string; scenes: Scene[] }
 
 /** Each run of scenes `keep` rejects becomes one stub keyed by its first
- * scene, unless the writer opened it. */
+ * scene. */
 function foldRuns(
   scenes: readonly Scene[],
   keep: (sceneId: string) => boolean,
-  unfolded: ReadonlySet<string>,
 ): BoardItem[] {
   const items: BoardItem[] = []
   let run: Scene[] = []
   const flush = () => {
     if (run.length === 0) return
-    if (unfolded.has(run[0].id))
-      items.push(...run.map((scene) => ({ type: 'card' as const, scene })))
-    else items.push({ type: 'stub', key: run[0].id, scenes: run })
+    items.push({ type: 'stub', key: run[0].id, scenes: run })
     run = []
   }
   for (const scene of scenes) {
@@ -151,11 +149,14 @@ export function Board({
 
   const selectedId = selection?.sceneId ?? null
   const keep = (id: string) =>
-    !fold || id === selectedId || matchesHighlight(model, id, highlight)
+    !fold ||
+    id === selectedId ||
+    unfolded.has(id) ||
+    matchesHighlight(model, id, highlight)
   const itemsByAct = new Map(
     model.acts.map((a) => [
       a.act,
-      collapsedActs.has(a.act) ? [] : foldRuns(a.scenes, keep, unfolded),
+      collapsedActs.has(a.act) ? [] : foldRuns(a.scenes, keep),
     ]),
   )
   // DOM order of the visible cards (folded scenes are not in it).
@@ -226,7 +227,11 @@ export function Board({
   return (
     <div
       ref={rootRef}
-      className="min-w-0 flex-1 overflow-y-auto p-5"
+      // Scroll padding keeps a card that focus or a deep link scrolls to
+      // clear of the sticky highlight bar and the card's tape.
+      // ponytail: fixed, sized for the bar wrapped to three rows (viewports
+      // down to ~900px); measure the bar if Plan has to fit narrower.
+      className="min-w-0 flex-1 scroll-pt-48 overflow-y-auto p-5"
       aria-label="Plan board"
     >
       {header && (
@@ -292,7 +297,15 @@ export function Board({
                           key={`stub-${item.key}`}
                           type="button"
                           aria-label={`Show ${plural(n, 'folded scene')}, ${n > 1 ? `${first} to ${last}` : first}`}
-                          onClick={() => onUnfold(item.key)}
+                          onClick={() => {
+                            onUnfold(item.scenes.map((s) => s.id))
+                            // The stub is gone: focus its first card.
+                            requestAnimationFrame(() =>
+                              cardEls()
+                                .find((el) => el.dataset.sceneId === item.key)
+                                ?.focus(),
+                            )
+                          }}
                           className={`flex h-card-board-h w-10 shrink-0 items-center justify-center rounded-[4px] border border-dashed border-tr-border-strong p-1 text-11 text-tr-text-primary hover:bg-tr-surface-sunken ${FOCUS}`}
                         >
                           <b className="rotate-180 font-semibold tabular-nums [writing-mode:vertical-rl]">

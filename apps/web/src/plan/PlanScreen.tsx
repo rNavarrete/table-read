@@ -88,10 +88,11 @@ export function PlanScreen() {
     focusSceneId ? { type: 'scene', sceneId: focusSceneId } : undefined,
   )
   const acts = useCollapsedActs(activeProjectId)
+  const expandAct = acts.expand
   // Highlight and Fold the rest last for the visit (plan defaults 5).
   const [highlight, setHighlight] = useState<Highlight>(NO_HIGHLIGHT)
   const [fold, setFold] = useState(false)
-  // Fold stubs the writer opened; cleared on every highlight or fold change.
+  // Scenes opened from fold stubs; cleared on every highlight or fold change.
   const [unfolded, setUnfolded] = useState<ReadonlySet<string>>(new Set())
   const [openingReview, setOpeningReview] = useState(false)
   const [reviewError, setReviewError] = useState<string | null>(null)
@@ -114,6 +115,12 @@ export function PlanScreen() {
         setProject(loadedProject)
         setLedger(loadedLedger)
         setOpenFlags(loadedFlags)
+        // A deep link into a collapsed act opens it in the same render, so
+        // the deep-link effect below finds the card.
+        const linked = focusSceneId
+          ? findScene(loadedProject, focusSceneId)
+          : null
+        if (linked) expandAct(linked.act)
       })
       .catch((err: unknown) => {
         if (cancelled) return
@@ -124,7 +131,7 @@ export function PlanScreen() {
     return () => {
       cancelled = true
     }
-  }, [projectId])
+  }, [projectId, focusSceneId, expandAct])
 
   const effectiveSelection = useMemo<PlanSelection>(() => {
     if (selection !== undefined) return selection
@@ -217,29 +224,43 @@ export function PlanScreen() {
   const selectedId = effectiveSelection?.sceneId ?? null
 
   const announce = (message: string) => setLive(message)
+  const cardEl = (sceneId: string) =>
+    document.querySelector<HTMLElement>(`[data-testid="scene-card-${sceneId}"]`)
   // Selecting a scene inside a collapsed act opens it (and saves that).
   const selectScene = (sceneId: string) => {
     const signals = model?.signals.get(sceneId)
+    const focused = document.activeElement
+    // The Episode view unmounts under the control that chose the scene.
+    const fromEpisode =
+      !model?.signals.has(selectedId ?? '') &&
+      focused?.closest('[data-testid="inspector"]')
     if (signals) acts.expand(signals.scene.act)
     setSelection({ type: 'scene', sceneId })
-    if (signals)
+    // A focused card already speaks its scene (its name has the same words).
+    if (signals && !focused?.closest('[data-scene-card]'))
       announce(
         selectionAnnouncement(
           signals,
           signals.scene.locked || !!episode?.locked,
         ),
       )
+    if (fromEpisode)
+      requestAnimationFrame(() =>
+        document
+          .querySelector<HTMLElement>('[data-testid="inspector"] h2')
+          ?.focus(),
+      )
   }
-  /** Select by keyboard; a card that had focus hands it to the new card. */
+  /** Select by keyboard and bring the card into view; a card that had focus
+   * hands it to the new card. */
   const selectFromKeys = (sceneId: string) => {
     const fromCard = document.activeElement?.closest('[data-scene-card]')
     selectScene(sceneId)
-    if (fromCard)
-      requestAnimationFrame(() =>
-        document
-          .querySelector<HTMLElement>(`[data-testid="scene-card-${sceneId}"]`)
-          ?.focus(),
-      )
+    requestAnimationFrame(() => {
+      const card = cardEl(sceneId)
+      card?.scrollIntoView({ block: 'nearest' })
+      if (fromCard) card?.focus()
+    })
   }
   function changeHighlight(next: Highlight) {
     if (!board) return
@@ -281,6 +302,7 @@ export function PlanScreen() {
     const fromPanel = document.activeElement?.closest(
       '[data-testid="inspector"]',
     )
+    const fromCard = document.activeElement?.closest('[data-scene-card]')
     setSelection(null)
     announce('Episode view')
     if (fromPanel)
@@ -289,6 +311,15 @@ export function PlanScreen() {
           .querySelector<HTMLElement>('[data-testid="inspector"] h2')
           ?.focus(),
       )
+    // Under Fold the rest the deselected card can fold away: keep focus on
+    // the board.
+    if (fromCard)
+      requestAnimationFrame(() => {
+        if (!fromCard.isConnected)
+          document
+            .querySelector<HTMLElement>('[data-scene-card][tabindex="0"]')
+            ?.focus()
+      })
   }
   usePlanKeys({
     onStep: step,
@@ -606,7 +637,9 @@ export function PlanScreen() {
               highlight={highlight}
               fold={fold}
               unfolded={unfolded}
-              onUnfold={(key) => setUnfolded((prev) => new Set(prev).add(key))}
+              onUnfold={(ids) =>
+                setUnfolded((prev) => new Set([...prev, ...ids]))
+              }
             />
             {selectedScene ? (
               <ScenePanel
@@ -623,6 +656,11 @@ export function PlanScreen() {
                 pending={busy}
                 openingReview={openingReview}
                 onBack={showEpisode}
+                onEscape={() => {
+                  // Its act may be collapsed: open it to reach the card.
+                  acts.expand(selectedScene.act)
+                  requestAnimationFrame(() => cardEl(selectedScene.id)?.focus())
+                }}
                 onSelectScene={selectScene}
                 onSelectBeat={(sceneId, beatId) =>
                   setSelection(

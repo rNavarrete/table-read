@@ -131,7 +131,9 @@ test('the board is one tab stop: arrows select, Enter reaches the panel, Esc com
   await expect(stop).toBeFocused()
   await expect(stop).toHaveAttribute('aria-pressed', 'true')
   await expect(stop).not.toHaveAttribute('data-testid', 'scene-card-scene-1')
-  await expect(page.getByTestId('plan-live')).toContainText('Scene ')
+  // The focused card names its scene; the live region doesn't repeat it.
+  await expect(stop).toHaveAccessibleName(/^Scene 2,/)
+  await expect(page.getByTestId('plan-live')).toHaveText('')
 
   await page.keyboard.press('Enter')
   await expect(
@@ -139,6 +141,13 @@ test('the board is one tab stop: arrows select, Enter reaches the panel, Esc com
   ).toBeFocused()
   await page.keyboard.press('Escape')
   await expect(stop).toBeFocused()
+
+  // A selection made away from a card is announced.
+  await page
+    .getByTestId('inspector')
+    .getByRole('button', { name: 'Next scene' })
+    .click()
+  await expect(page.getByTestId('plan-live')).toContainText('Scene 3,')
 })
 
 test('lock icon renders on beat-1-2 (locked in fixture); beat-1-1 has none', async ({

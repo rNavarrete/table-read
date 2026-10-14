@@ -5,11 +5,12 @@ import {
   fireEvent,
   render,
   screen,
+  waitFor,
   within,
 } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { ComponentProps } from 'react'
+import { useState, type ComponentProps } from 'react'
 import type {
   Character,
   ConsistencyFlag,
@@ -634,7 +635,7 @@ describe('Board', () => {
     ).toBe('6')
 
     await user.click(stub)
-    expect(onUnfold).toHaveBeenCalledWith('scene-3')
+    expect(onUnfold).toHaveBeenCalledWith(['scene-3', 'scene-4'])
 
     rerender(
       <Board
@@ -644,7 +645,7 @@ describe('Board', () => {
         collapsedActs={new Set()}
         pending={false}
         fold
-        unfolded={new Set(['scene-3'])}
+        unfolded={new Set(['scene-3', 'scene-4'])}
         onSelectScene={noop}
         onReorder={noop}
         onMoveToAct={noop}
@@ -660,6 +661,60 @@ describe('Board', () => {
       'scene-5',
     ])
     expect(screen.queryByRole('button', { name: /^Show 2 folded/ })).toBeNull()
+  })
+
+  /** Board wired like PlanScreen: selection and opened scenes in state. */
+  function FoldHarness() {
+    const [selected, setSelected] = useState('scene-2')
+    const [unfolded, setUnfolded] = useState<ReadonlySet<string>>(new Set())
+    return (
+      <Board
+        model={foldModel()}
+        episodeLocked={false}
+        selection={sel(selected)}
+        collapsedActs={new Set()}
+        pending={false}
+        fold
+        unfolded={unfolded}
+        onUnfold={(ids) => setUnfolded((prev) => new Set([...prev, ...ids]))}
+        onSelectScene={setSelected}
+        onReorder={noop}
+        onMoveToAct={noop}
+        onToggleAct={noop}
+        onEnterPanel={noop}
+      />
+    )
+  }
+
+  it('an opened stub stays open when the writer selects one of its cards', async () => {
+    const user = userEvent.setup()
+    const { container } = render(<FoldHarness />)
+    await user.click(
+      screen.getByRole('button', { name: 'Show 2 folded scenes, 3 to 4' }),
+    )
+    await waitFor(() => expect(document.activeElement).toBe(card('scene-3')))
+    await user.click(card('scene-3'))
+    // scene-2 was kept only as the selection; the opened run stays.
+    expect(cardIds(container)).toEqual([
+      'scene-1',
+      'scene-3',
+      'scene-4',
+      'scene-5',
+    ])
+    await user.keyboard('{ArrowRight}')
+    expect(document.activeElement).toBe(card('scene-4'))
+  })
+
+  it('opening a stub puts focus on its first card, not <body>', async () => {
+    const user = userEvent.setup()
+    render(<FoldHarness />)
+    act(() =>
+      screen
+        .getByRole('button', { name: 'Show 2 folded scenes, 3 to 4' })
+        .focus(),
+    )
+    await user.keyboard('{Enter}')
+    await waitFor(() => expect(document.activeElement).toBe(card('scene-3')))
   })
 
   it('roving order skips folded scenes', async () => {
@@ -685,6 +740,8 @@ describe('Board', () => {
     const board = screen.getByLabelText('Plan board')
     expect(board.contains(slot)).toBe(true)
     expect(board.className).toContain('overflow-y-auto')
+    // Focus and deep links scroll a card clear of the sticky bar.
+    expect(board.className).toMatch(/(^|\s)scroll-pt-\d+/)
     expect(slot.parentElement?.className).toContain('sticky')
     expect(
       slot.compareDocumentPosition(screen.getByTestId('act-frame-0')) &

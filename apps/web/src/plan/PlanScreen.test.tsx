@@ -953,31 +953,88 @@ describe('PlanScreen', () => {
     expect(screen.getByTestId('plan-live').textContent).toBe('')
   })
 
-  it('the live region announces a selection from the board and from ‹ ›', async () => {
+  it('the live region announces a selection from ‹ ›, but not one on a focused card (its name says it)', async () => {
     const user = userEvent.setup()
     const panel = await loadPlan()
     const live = screen.getByTestId('plan-live')
     expect(live.getAttribute('role')).toBe('status')
     expect(live.getAttribute('aria-live')).toBe('polite')
 
-    await user.click(screen.getByTestId('scene-card-scene-2'))
+    await user.click(within(panel).getByRole('button', { name: 'Next scene' }))
     expect(live.textContent).toBe('Scene 2, Back Room. No notes.')
 
-    await user.click(
-      within(panel).getByRole('button', { name: 'Previous scene' }),
-    )
-    expect(live.textContent).toBe('Scene 1, The Long Pour. No notes.')
+    await user.click(screen.getByTestId('scene-card-scene-1'))
+    expect(
+      screen.getByTestId('scene-card-scene-1').getAttribute('aria-pressed'),
+    ).toBe('true')
+    expect(live.textContent).toBe('Scene 2, Back Room. No notes.')
   })
 
   it('a note on the scene is part of the announcement', async () => {
     const user = userEvent.setup()
-    getConsistencyFlagsMock.mockResolvedValueOnce([OPEN_FLAG])
-    await loadPlan()
+    getConsistencyFlagsMock.mockResolvedValueOnce([
+      { ...OPEN_FLAG, objectId: 'scene-2' },
+    ])
+    const panel = await loadPlan()
 
-    await user.click(screen.getByTestId('scene-card-scene-1'))
+    await user.click(within(panel).getByRole('button', { name: 'Next scene' }))
 
     expect(screen.getByTestId('plan-live').textContent).toBe(
-      'Scene 1, The Long Pour. 1 note.',
+      'Scene 2, Back Room. 1 note.',
+    )
+  })
+
+  it('a ?scene= link into a collapsed act opens the act, so the card is there to scroll to', async () => {
+    localStorage.setItem('tr.plan.collapsedActs.v1.proj-longpour', '[0]')
+    getProjectMock.mockResolvedValue(project())
+    getLedgerMock.mockResolvedValue([])
+    getConsistencyFlagsMock.mockResolvedValue([])
+    window.history.pushState(
+      null,
+      '',
+      '/plan?project=proj-longpour&scene=scene-2',
+    )
+    render(<PlanScreen />)
+
+    const linked = await screen.findByTestId('scene-card-scene-2')
+    expect(linked.getAttribute('aria-pressed')).toBe('true')
+    expect(linked.className).toContain('outline-tr-coral')
+  })
+
+  it('choosing a scene in the Episode view puts focus on the scene panel heading', async () => {
+    const user = userEvent.setup()
+    const panel = await loadPlan()
+    await user.click(within(panel).getByRole('button', { name: '← Episode' }))
+    await waitFor(() =>
+      expect(document.activeElement?.textContent).toBe('Episode 1: Last Call'),
+    )
+
+    await user.click(
+      within(screen.getByTestId('inspector')).getByRole('button', {
+        name: /^Act out · 2/,
+      }),
+    )
+
+    await waitFor(() => expect(document.activeElement?.tagName).toBe('H2'))
+    expect(document.activeElement?.textContent).toContain('2 · ')
+  })
+
+  it('Esc in the panel opens a collapsed act to get back to the card', async () => {
+    const user = userEvent.setup()
+    const panel = await loadPlan()
+    await user.click(
+      within(screen.getByTestId('act-frame-0')).getByRole('button', {
+        name: 'Hide COLD OPEN',
+      }),
+    )
+    within(panel).getByRole('button', { name: 'Next scene' }).focus()
+
+    await user.keyboard('{Escape}')
+
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        screen.getByTestId('scene-card-scene-1'),
+      ),
     )
   })
 
@@ -1032,7 +1089,7 @@ describe('PlanScreen', () => {
     expect(getProjectMock).toHaveBeenCalledTimes(1)
   })
 
-  it('N selects the next match and announces the scene', async () => {
+  it('N on a card selects and focuses the next match; the card speaks, the live region stays quiet', async () => {
     const user = userEvent.setup()
     getConsistencyFlagsMock.mockResolvedValueOnce([
       { ...OPEN_FLAG, objectId: 'scene-2' },
@@ -1044,10 +1101,48 @@ describe('PlanScreen', () => {
 
     const next = screen.getByTestId('scene-card-scene-2')
     expect(next.getAttribute('aria-pressed')).toBe('true')
+    await waitFor(() => expect(document.activeElement).toBe(next))
+    expect(screen.getByTestId('plan-live').textContent).toBe('')
+  })
+
+  it('Next note in the bar selects the next match, scrolls its card into view and announces it', async () => {
+    const user = userEvent.setup()
+    getConsistencyFlagsMock.mockResolvedValueOnce([
+      { ...OPEN_FLAG, objectId: 'scene-2' },
+    ])
+    await loadPlan()
+    const scrollIntoView = vi.spyOn(Element.prototype, 'scrollIntoView')
+    const button = screen.getByRole('button', { name: 'Next note' })
+
+    await user.click(button)
+
+    const next = screen.getByTestId('scene-card-scene-2')
+    expect(next.getAttribute('aria-pressed')).toBe('true')
     expect(screen.getByTestId('plan-live').textContent).toBe(
       'Scene 2, Back Room. 1 note.',
     )
-    await waitFor(() => expect(document.activeElement).toBe(next))
+    await waitFor(() => expect(scrollIntoView.mock.contexts).toContain(next))
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' })
+    expect(document.activeElement).toBe(button)
+  })
+
+  it('Esc on a card that then folds away keeps focus on the board', async () => {
+    const user = userEvent.setup()
+    await loadPlan(storyProject())
+    await user.click(screen.getByTestId('scene-card-scene-2'))
+    // Marta (bible order wins the tie) is in scene 1 only.
+    await user.click(screen.getByRole('button', { name: /^Who's in it/ }))
+    await user.click(screen.getByRole('button', { name: 'Fold the rest' }))
+    focusCard('scene-2')
+
+    await user.keyboard('{Escape}')
+
+    expect(screen.queryByTestId('scene-card-scene-2')).toBeNull()
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        screen.getByTestId('scene-card-scene-1'),
+      ),
+    )
   })
 
   it("a Who's in it chip in the Episode view switches the board highlight", async () => {

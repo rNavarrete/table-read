@@ -12,7 +12,8 @@ export interface PlanKeyHandlers {
 }
 
 /** Plan's document shortcuts (spec §4.10). Ignores text fields, selects,
- * contentEditable, anything inside a <dialog>, already-handled events and
+ * contentEditable, anything inside a dialog (<dialog> or role="dialog", like
+ * the shell's Settings), already-handled events and
  * other modifier chords. Esc inside the inspector is the panel's. */
 export function usePlanKeys(handlers: PlanKeyHandlers): void {
   // A fresh handlers object each render re-subscribes: cheap, and the
@@ -23,7 +24,7 @@ export function usePlanKeys(handlers: PlanKeyHandlers): void {
       if (
         event.defaultPrevented ||
         target?.closest(
-          'input, textarea, select, [contenteditable="true"], dialog',
+          'input, textarea, select, [contenteditable="true"], dialog, [role="dialog"], [aria-modal="true"]',
         )
       )
         return
