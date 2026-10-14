@@ -26,6 +26,7 @@ EPISODE = "/seasons/0/episodes/0"
 SCENE_1 = "/seasons/0/episodes/0/scenes/0"
 SCENE_2 = "/seasons/0/episodes/0/scenes/1"
 SCENE_3 = "/seasons/0/episodes/0/scenes/2"
+SCENE_4 = "/seasons/0/episodes/0/scenes/3"
 BEAT_1_2 = f"{SCENE_1}/beats/1"  # locked + scriptLocked in the fixture
 
 
@@ -232,3 +233,48 @@ def test_inserting_a_beat_after_a_locked_beat_succeeds(seeded_project):
     ][0]["beats"]
     assert [b["id"] for b in beats] == ["beat-1-1", "beat-1-2", "beat-1-9"]
     assert beats[1] == locked_before  # locked beat preserved byte-identical
+
+
+def _scenes() -> list[dict]:
+    return client.get(f"/api/v1/projects/{PROJECT_ID}").json()["seasons"][0]["episodes"][0][
+        "scenes"
+    ]
+
+
+def test_one_patch_of_index_replaces_and_an_act_is_one_snapshot(seeded_project, db_session):
+    # Insert scene-4 before scene-2 (T3.8): one gesture = one PATCH = one snapshot.
+    array_order = [s["id"] for s in _scenes()]
+    snaps = _snap_count(db_session)
+
+    resp = _patch(
+        [
+            {"op": "replace", "path": f"{SCENE_4}/index", "value": 1},
+            {"op": "replace", "path": f"{SCENE_4}/act", "value": 1},
+            {"op": "replace", "path": f"{SCENE_2}/index", "value": 2},
+            {"op": "replace", "path": f"{SCENE_3}/index", "value": 3},
+        ]
+    )
+
+    assert resp.status_code == 200
+    assert _snap_count(db_session) == snaps + 1
+    scenes = _scenes()
+    board = [s["id"] for s in sorted(scenes, key=lambda s: (s["act"], s["index"]))]
+    assert board == ["scene-1", "scene-4", "scene-2", "scene-3", "scene-5", "scene-6"]
+    assert [s["id"] for s in scenes] == array_order
+
+
+def test_a_multi_op_patch_with_a_bad_op_changes_nothing(seeded_project, db_session):
+    before = client.get(f"/api/v1/projects/{PROJECT_ID}").json()
+    snaps = _snap_count(db_session)
+
+    resp = _patch(
+        [
+            {"op": "replace", "path": f"{SCENE_2}/index", "value": 5},
+            {"op": "replace", "path": "/seasons/0/episodes/0/scenes/99/index", "value": 1},
+        ]
+    )
+
+    assert resp.status_code == 400
+    assert resp.json()["error"]["code"] == "VALIDATION"
+    assert client.get(f"/api/v1/projects/{PROJECT_ID}").json() == before
+    assert _snap_count(db_session) == snaps
