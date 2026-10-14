@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Locator, type Page } from '@playwright/test'
 
 // T3.1 acceptance criteria (build plan, verbatim): reorder scene-4 before
 // scene-3 persists after reload; lock icon renders on beat-1-2 (locked in
@@ -9,7 +9,7 @@ import { expect, test } from '@playwright/test'
 //
 // Shared-DB note (same design as write.spec.ts/error-states.spec.ts): one
 // worker, one seeded project for the whole `make e2e` run. This file's
-// mutations (the scene-3/scene-4 swap, the scene-6 lock toggle, and a
+// mutations (scene moves, the scene-6 lock toggle, and a
 // beat-4-1 Beat lock that the test switches back off) are chosen
 // to be inert for every other spec — Write mode never reads `scene.act`,
 // `scene.index`, or `scene.locked` (only `beat.locked`/`scriptLocked`
@@ -30,9 +30,12 @@ test('reorder scene-4 before scene-3 (cross-act drag) persists after reload', as
   await expect(actOne.getByTestId('scene-card-scene-3')).toBeVisible()
   await expect(actTwo.getByTestId('scene-card-scene-4')).toBeVisible()
 
+  // The left half of scene-3: insert before it (T3.8).
   await page
     .getByTestId('scene-card-scene-4')
-    .dragTo(page.getByTestId('scene-card-scene-3'))
+    .dragTo(page.getByTestId('scene-card-scene-3'), {
+      targetPosition: { x: 12, y: 53 },
+    })
 
   // scene-4 now lives inside Act One's frame, immediately before scene-3
   // (Act One's other member, scene-2, sorts before both by index) — the
@@ -403,11 +406,11 @@ test('an act change that plays a payoff first shows the Order note, and Undo the
       page.getByTestId('act-frame-0').getByTestId('scene-card-scene-5'),
     ).toBeVisible()
     // The strip opened itself (scene-5 also keeps plan-notes.spec's note).
-    const orderNote = inspector.getByText(/before its setup in scene 2/)
+    const orderNote = inspector.getByText(/before its setup in scene 3/)
     await expect(orderNote).toBeVisible()
     await expect(arc).toHaveAttribute('data-tone', 'amber')
     await expect(page.getByTestId('scene-card-scene-2')).toContainText(
-      '⚠ order with 5',
+      '⚠ order with 2',
     )
 
     await inspector.getByRole('button', { name: 'Undo the move' }).click()
@@ -441,4 +444,150 @@ test('the episode chart draws a block per scene and a block selects its scene (T
     'aria-pressed',
     'true',
   )
+})
+
+// T3.8 insert reorder. State here, after the tests above: act 0 [scene-1] ·
+// act 1 [scene-2, scene-4, scene-3] · act 2 empty · act 3 [scene-5] · act 4
+// [scene-6, locked]; numbers 1–6 in that board order. Act frames follow the
+// optimistic doc while the save is pending, and the board ignores ⌥←/⌥→
+// while a write is in flight: after every move that saves, wait for the
+// card to turn draggable again before the next key or click.
+
+/** An act frame's scene ids, in board order. */
+function actOrder(page: Page, act: number) {
+  return page
+    .getByTestId(`act-frame-${act}`)
+    .locator('[data-scene-card]')
+    .evaluateAll((els) => els.map((el) => el.getAttribute('data-scene-id')))
+}
+
+/** Starts a drag from `from` and holds it over `to` at x (two moves, so
+ * Chromium fires dragover). The caller ends it with page.mouse.up(). The
+ * source is centred first, clear of the sticky header, so `to` (its row or
+ * the next) is in view too: a scroll after mousedown drops the drag. */
+async function dragOver(page: Page, from: Locator, to: Locator, x: number) {
+  await from.evaluate((el) => el.scrollIntoView({ block: 'center' }))
+  await from.hover()
+  await page.mouse.down()
+  await to.hover({ position: { x, y: 53 } })
+  await to.hover({ position: { x: x + 2, y: 53 } })
+}
+
+test('a drop inserts where it lands, with a coral bar, and ⌥→ steps a card across an act break (T3.8)', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await page.goto('/plan?project=proj-longpour')
+  const scene2 = page.getByTestId('scene-card-scene-2')
+  const scene3 = page.getByTestId('scene-card-scene-3')
+
+  // The right half of scene-3: the bar after it, and the sky tape.
+  await dragOver(page, scene2, scene3, 130)
+  await expect(
+    scene3.locator('[data-insert-bar][data-side="after"]'),
+  ).toBeVisible()
+  await expect(scene3.locator('[data-tape]')).toHaveText('Move 2 here')
+  await page.mouse.up()
+  await expect
+    .poll(() => actOrder(page, 1))
+    .toEqual(['scene-4', 'scene-3', 'scene-2'])
+  await expect(scene2).toHaveAttribute('draggable', 'true')
+
+  // The last card of act 1 steps into the empty act 2, in place.
+  await scene2.click()
+  await page.keyboard.press('Alt+ArrowRight')
+  await expect(
+    page.getByTestId('act-frame-2').getByTestId('scene-card-scene-2'),
+  ).toBeVisible()
+  await expect(scene2).toBeFocused()
+  await expect(page.getByTestId('plan-live')).toContainText(
+    'Moved to ACT TWO, scene 4 of 6.',
+  )
+  await expect(scene2).toHaveAttribute('draggable', 'true')
+  await page.keyboard.press('Alt+ArrowLeft')
+  await expect
+    .poll(() => actOrder(page, 1))
+    .toEqual(['scene-4', 'scene-3', 'scene-2'])
+  await expect(scene2).toHaveAttribute('draggable', 'true')
+
+  await page.reload()
+  await expect(scene2).toBeVisible()
+  expect(await actOrder(page, 1)).toEqual(['scene-4', 'scene-3', 'scene-2'])
+})
+
+test('a move past a locked scene is refused on the target and sends nothing (T3.8)', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 900 })
+  let patches = 0
+  page.on('request', (r) => {
+    if (r.method() === 'PATCH') patches += 1
+  })
+  await page.goto('/plan?project=proj-longpour')
+  const scene5 = page.getByTestId('scene-card-scene-5')
+  const scene6 = page.getByTestId('scene-card-scene-6') // locked above
+
+  // After scene-6 would shift it: the reason on the target, no bar, no drop.
+  await dragOver(page, scene5, scene6, 130)
+  await expect(scene6.locator('[data-tape]')).toHaveText(
+    "Can't move past scene 6: it's locked",
+  )
+  await expect(page.locator('[data-insert-bar]')).toHaveCount(0)
+  await page.mouse.up()
+  await expect(
+    page.getByTestId('act-frame-3').getByTestId('scene-card-scene-5'),
+  ).toBeVisible()
+  expect(patches).toBe(0)
+
+  // Into act 4 in place leaves scene-6 where it is: allowed.
+  await scene5.click()
+  await page.keyboard.press('Alt+ArrowRight')
+  await expect.poll(() => actOrder(page, 4)).toEqual(['scene-5', 'scene-6'])
+  await expect(scene5).toHaveAttribute('draggable', 'true')
+  expect(patches).toBe(1)
+
+  // Past scene-6 is refused: the toast says why (plan-live has the same words).
+  await page.keyboard.press('Alt+ArrowRight')
+  await expect(page.getByTestId('toast')).toContainText(
+    "Can't move past scene 6: it's locked",
+  )
+  expect(await actOrder(page, 4)).toEqual(['scene-5', 'scene-6'])
+  expect(patches).toBe(1)
+
+  await page.keyboard.press('Alt+ArrowLeft')
+  await expect(
+    page.getByTestId('act-frame-3').getByTestId('scene-card-scene-5'),
+  ).toBeVisible()
+  await expect(scene5).toHaveAttribute('draggable', 'true')
+  expect(patches).toBe(2)
+})
+
+test('the Act select keeps focus through its save, and a move into a collapsed act opens it (T3.8)', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await page.goto('/plan?project=proj-longpour')
+  const scene5 = page.getByTestId('scene-card-scene-5')
+  await scene5.click()
+  const actTwo = page.getByTestId('act-frame-2')
+  await actTwo.getByRole('button', { name: 'Hide ACT TWO' }).click()
+  const select = page
+    .getByTestId('inspector')
+    .getByRole('combobox', { name: 'Act' })
+
+  await select.focus()
+  await select.selectOption('2')
+  await expect(actTwo.getByTestId('scene-card-scene-5')).toBeVisible()
+  await expect(
+    actTwo.getByRole('button', { name: 'Hide ACT TWO' }),
+  ).toHaveAttribute('aria-expanded', 'true')
+  await expect(scene5).toHaveAttribute('draggable', 'true') // saved
+  await expect(select).toBeFocused()
+
+  await select.selectOption('3')
+  await expect(
+    page.getByTestId('act-frame-3').getByTestId('scene-card-scene-5'),
+  ).toBeVisible()
+  await expect(scene5).toHaveAttribute('draggable', 'true')
+  await expect(select).toBeFocused()
 })
