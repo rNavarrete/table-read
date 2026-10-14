@@ -894,13 +894,47 @@ describe('Board', () => {
     const board = screen.getByLabelText('Plan board')
     expect(board.contains(slot)).toBe(true)
     expect(board.className).toContain('overflow-y-auto')
-    // Focus and deep links scroll a card clear of the sticky bar.
-    expect(board.className).toMatch(/(^|\s)scroll-pt-\d+/)
     expect(slot.parentElement?.className).toContain('sticky')
     expect(
       slot.compareDocumentPosition(screen.getByTestId('act-frame-0')) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy()
+  })
+
+  it("the scroll padding follows the sticky header's height", () => {
+    const observed: Element[] = []
+    let resized = () => {}
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        constructor(callback: () => void) {
+          resized = callback
+        }
+        observe(el: Element) {
+          observed.push(el)
+        }
+        disconnect() {}
+      },
+    )
+    try {
+      renderBoard({ header: <div data-testid="highlight-slot">bar</div> })
+      const sticky = screen.getByTestId('highlight-slot').parentElement!
+      const board = screen.getByLabelText('Plan board')
+      expect(observed).toEqual([sticky])
+      // Focus and scrolls land a card below the header (and its tape).
+      expect(board.className).toContain(
+        'scroll-pt-[calc(var(--board-header-h,0px)+--spacing(4))]',
+      )
+      let height = 140
+      sticky.getBoundingClientRect = () => ({ height }) as DOMRect
+      act(() => resized())
+      expect(board.style.getPropertyValue('--board-header-h')).toBe('140px')
+      height = 212 // the bar wrapped
+      act(() => resized())
+      expect(board.style.getPropertyValue('--board-header-h')).toBe('212px')
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 })
 

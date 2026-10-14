@@ -371,7 +371,7 @@ export function PlanScreen() {
     undoMove.setMove({ issueIds: fresh.map((i) => i.id), head: null })
     if (fresh.length)
       announce(`Moved. ${plural(fresh.length, 'new order problem')}.`)
-    return patcher
+    const result = patcher
       .patch(applied.ops, applied.next, (saved) =>
         undoMove.setMove((m) => m && { ...m, head: saved.headSnapshotId }),
       )
@@ -379,6 +379,13 @@ export function PlanScreen() {
         if (!ok) undoMove.setMove(prev)
         return ok
       })
+    // The optimistic doc is on screen by the next frame: bring the selected
+    // card back into view below the sticky header. Focus stays put.
+    if (selectedId)
+      requestAnimationFrame(() =>
+        cardEl(selectedId)?.scrollIntoView({ block: 'nearest' }),
+      )
+    return result
   }
 
   /** Undo the move unmounts its own button, done or not: refocusNotes. */

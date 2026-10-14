@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import type { KeyboardEvent, ReactNode } from 'react'
 import type { Scene } from 'contract'
 import { plural } from '../projects/wizard/board/boardText'
@@ -152,6 +152,27 @@ export function Board({
   predict = NO_PREDICTION,
 }: BoardProps) {
   const rootRef = useRef<HTMLDivElement>(null)
+  const headerRef = useRef<HTMLDivElement>(null)
+  const hasHeader = !!header
+  // The sticky header's height (the bar wraps, the chart's legend too) is the
+  // board's scroll padding, so a card focus or a scroll brings in lands below
+  // it. Written to the DOM, not state: a ?scene= link scrolls in PlanScreen's
+  // effect, which would run before a re-render with the new height.
+  useLayoutEffect(() => {
+    const root = rootRef.current
+    const el = headerRef.current
+    if (!root || !el) return
+    const measure = () =>
+      root.style.setProperty(
+        '--board-header-h',
+        `${el.getBoundingClientRect().height}px`,
+      )
+    measure()
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(measure)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [hasHeader])
   const [dragSourceId, setDragSourceId] = useState<string | null>(null)
   const [dropTargetId, setDropTargetId] = useState<string | null>(null)
   const [dropAct, setDropAct] = useState<number | null>(null)
@@ -254,17 +275,18 @@ export function Board({
   return (
     <div
       ref={rootRef}
-      // Scroll padding keeps a card that focus or a deep link scrolls to
-      // clear of the sticky header (highlight bar, 84px chart and its legend)
-      // and the card's tape.
-      // ponytail: fixed, sized for the bar wrapped to three rows plus the
-      // chart (viewports down to ~900px); measure the header if Plan has to
-      // fit narrower.
-      className="min-w-0 flex-1 scroll-pt-72 overflow-y-auto p-5"
+      // The header's measured height plus room for a card's tape.
+      className="min-w-0 flex-1 scroll-pt-[calc(var(--board-header-h,0px)+--spacing(4))] overflow-y-auto p-5"
       aria-label="Plan board"
     >
       {header && (
-        <div className="sticky top-0 z-10 -mx-5 -mt-5 mb-4 bg-tr-surface-page px-5 py-2">
+        // Sticky insets count from inside the board's p-5: -top-5 pins the
+        // header flush with the board's top, where -mt-5 puts it (top-0 left
+        // a strip above it that cards scrolled through).
+        <div
+          ref={headerRef}
+          className="sticky -top-5 z-10 -mx-5 -mt-5 mb-4 bg-tr-surface-page px-5 py-2"
+        >
           {header}
         </div>
       )}

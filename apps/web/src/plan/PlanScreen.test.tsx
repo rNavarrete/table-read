@@ -1346,6 +1346,26 @@ describe('PlanScreen order check (T3.7)', () => {
     expect(dismissConsistencyFlagMock).not.toHaveBeenCalled()
   })
 
+  it('an act change scrolls the moved card into view without moving focus', async () => {
+    const user = userEvent.setup()
+    const p = orderProject()
+    patchProjectMock.mockResolvedValue(moved(p))
+    await loadPlan(p)
+    await user.click(screen.getByTestId('scene-card-scene-5'))
+    const scrollIntoView = vi.spyOn(Element.prototype, 'scrollIntoView')
+    const select = screen.getByRole('combobox', { name: 'Act' })
+
+    await user.selectOptions(select, '0')
+
+    await waitFor(() =>
+      expect(scrollIntoView.mock.contexts).toContain(
+        screen.getByTestId('scene-card-scene-5'),
+      ),
+    )
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' })
+    expect(document.activeElement).toBe(select)
+  })
+
   it("Undo the move posts /undo with If-Match = the move's head and clears the Order note", async () => {
     const user = userEvent.setup()
     patchProjectMock.mockResolvedValue(moved(orderProject()))
