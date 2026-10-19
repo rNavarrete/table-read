@@ -107,11 +107,15 @@ export const Beat = z.object({
 // in `scenes`: Plan moves rewrite act/index and leave the array alone. Every
 // reader (Write, Ledger, export, prompts) follows it; a scene's number is its
 // 1-based position in it.
+// T10.2 — a TV room's strands: A the main story, B the second, C and D lesser
+// strands or a runner. Import infers them (infer_narrative_promises §2a).
+export const StorylineId = z.enum(['A', 'B', 'C', 'D'])
+
 export const Scene = z.object({
   id: Id,
   index: z.number().int().min(0),
   act: z.number().int().min(0), // 0 = cold open
-  storyline: z.enum(['A', 'B', 'C']).default('A'), // present in schema; UI tagging is v2
+  storyline: StorylineId.default('A'), // import infers it (T10.2); writer tagging is v2
   locked: z.boolean().default(false),
   location: z.string(),
   time: z.string(),
@@ -323,6 +327,9 @@ export const StoryThread = z.object({
   setupBeatId: Id.nullable().default(null),
   payoffBeatId: Id.nullable().default(null),
   locked: z.boolean().default(false),
+  // T10.2 — the episode storyline this thread belongs to, kept only when that
+  // storyline survived the import merge. Null = untagged.
+  storyline: StorylineId.nullable().default(null),
 })
 
 // A StoryThread's shape applied to concealment: established -> revealed
@@ -362,7 +369,7 @@ export const Episode = z.object({
   seasonFunction: z.string().default(''),
   storylines: z.array(
     z.object({
-      id: z.enum(['A', 'B', 'C']),
+      id: StorylineId,
       summary: z.string(),
       characterIds: z.array(Id),
     }),
@@ -1104,8 +1111,29 @@ export const NarrativePromises = z.object({
       payoffSceneId: Id.nullable(),
       setupQuote: z.string(),
       payoffQuote: z.string(),
+      // T10.2 — the letter of the storyline (below) this thread belongs to.
+      storyline: StorylineId.nullable().default(null),
     }),
   ),
+  // T10.2 — the episode's storylines as a TV room breaks them (A main, B
+  // second, C/D lesser strands or a runner), fewer when the episode has fewer.
+  // characterNames resolve to Episode.storylines[].characterIds like ownerNames
+  // (unresolved dropped); sceneIds come from the supplied list. Merge: first
+  // entry per letter wins; unknown scene ids dropped; a scene listed under two
+  // letters keeps the earliest (A before B); a storyline left with no scenes is
+  // dropped. Each scene's `storyline` is its letter (unassigned stays 'A'); a
+  // thread's `storyline` survives only if its letter did. Empty (or a
+  // pre-0.53.0 response or checkpoint) leaves the episode untouched.
+  storylines: z
+    .array(
+      z.object({
+        letter: StorylineId,
+        summary: z.string(),
+        characterNames: z.array(z.string()),
+        sceneIds: z.array(Id),
+      }),
+    )
+    .default([]),
   // Concealment arcs. Names, not ids (server resolves); scene ids chosen from
   // the supplied list. `revealedSceneId: null` = still concealed. The server
   // mints ids and links `factId` where it can.
