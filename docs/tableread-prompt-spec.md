@@ -311,7 +311,7 @@ discovery while bounded excerpts support auditable quotes and keep the
 story-wide request reliable and cost-controlled. All input is
 `<source_data_{nonce}>`.
 
-**Output schema (`NarrativePromises`):** threads (setup→payoff arcs), **secrets** (concealed→revealed arcs), per-scene motivations, and structured world rules. A secret is a thread with an asymmetry: `holderNames` vs `concealedFromNames`. A fact everyone knows is not a secret, so both sides are required; `revealedSceneId: null` means still concealed at end of episode. Motivations carry `statedObjective` (empty unless the character claims a different goal than their behaviour serves) and `concealed` (deliberate deception vs self-deception) — the stated/actual gap is the ulterior motive. Threads and motivations name characters by string, never id — same convention as `infer_story_entities`; the server resolves `ownerNames`/`characterName` against the existing bible and drops unresolvable owners/motivations (log counts only, never text — rule 5). `setupSceneId`/`payoffSceneId`/`sceneId`/`evidenceSceneId` are already-known scene ids the model selects from the input scene list, not free text, so they need no resolution.
+**Output schema (`NarrativePromises`):** threads (setup→payoff arcs), **storylines** (T10.2), **secrets** (concealed→revealed arcs), per-scene motivations, and structured world rules. A secret is a thread with an asymmetry: `holderNames` vs `concealedFromNames`. A fact everyone knows is not a secret, so both sides are required; `revealedSceneId: null` means still concealed at end of episode. Motivations carry `statedObjective` (empty unless the character claims a different goal than their behaviour serves) and `concealed` (deliberate deception vs self-deception) — the stated/actual gap is the ulterior motive. Threads and motivations name characters by string, never id — same convention as `infer_story_entities`; the server resolves `ownerNames`/`characterName` against the existing bible and drops unresolvable owners/motivations (log counts only, never text — rule 5). `setupSceneId`/`payoffSceneId`/`sceneId`/`evidenceSceneId` are already-known scene ids the model selects from the input scene list, not free text, so they need no resolution.
 
 ```json
 {
@@ -324,7 +324,16 @@ story-wide request reliable and cost-controlled. All input is
       "setupSceneId": "",
       "payoffSceneId": "or null",
       "setupQuote": "<=200 chars",
-      "payoffQuote": "may be empty"
+      "payoffQuote": "may be empty",
+      "storyline": "A | B | C | D, or null"
+    }
+  ],
+  "storylines": [
+    {
+      "letter": "A | B | C | D",
+      "summary": "one sentence",
+      "characterNames": ["string"],
+      "sceneIds": [""]
     }
   ],
   "sceneMotivations": [
@@ -364,6 +373,24 @@ for that episode, same as scenes — v1 has no thread locking);
 `worldRules` append new rules into the bible's `worldRules` and never overwrite
 a `locked: true` rule. Schema-invalid after one retry surfaces
 `SCHEMA_INVALID_LLM`, import fails atomically (rule 9).
+
+**Storylines (T10.2, `PROMPT_VERSION 0.53.0`):** the prompt asks for the
+episode's storylines the way a TV room breaks them — A the main story, B the
+second, C and D lesser strands or a runner — and fewer when the episode has
+fewer (a one-strand episode has only A; never padded to four). Each carries a
+one-sentence `summary`, `characterNames` (names from the cast, resolved like
+`ownerNames`; unresolved dropped) and the `sceneIds` that mainly serve it; a
+scene belongs to at most one. Each thread's `storyline` is the letter of the
+storyline it belongs to, or null. Server merge (`drama_manager.promises`): a
+repeated letter keeps its first entry; unknown scene ids are dropped; a scene
+listed under more than one letter keeps the earliest (A before B); a storyline
+left with no scenes is dropped. Each scene's `storyline` becomes its letter
+and a scene in no storyline stays `A`; `Episode.storylines` is the merged list
+in letter order; a thread keeps its letter only if that storyline survived,
+else null. When nothing survives — an empty `storylines`, or a pre-0.53.0
+response or checkpoint, which parses with `storylines: []` — the episode is
+left as import built it: every scene `A`, `storylines: []`. Logs carry counts
+only (rule 5).
 
 ## 6. `suggest_instructions`
 

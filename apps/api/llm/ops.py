@@ -206,9 +206,10 @@ _OPS: tuple[LlmOp, ...] = (
         "NarrativePromises",
         NarrativePromises,
         "import_analyst",
-        "Identify setup/payoff story threads, fill scene motivations, and "
-        "extract structured world rules (limit/cost/exception) from the "
-        "imported script, each with source evidence.",
+        "Identify setup/payoff story threads and the episode's storylines "
+        "(A-D), fill scene motivations, and extract structured world rules "
+        "(limit/cost/exception) from the imported script, each with source "
+        "evidence.",
         # The prompt carries every semantic beat plus bounded evidence. A
         # selective motivation policy keeps 12k ample for the reply while
         # preventing an oversized response from extending this import
