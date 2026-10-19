@@ -144,6 +144,7 @@ function thread(
     setupBeatId: null,
     payoffBeatId: null,
     locked: false,
+    storyline: null,
   }
 }
 
