@@ -57,7 +57,7 @@ export function DetailsSection({
             aria-label="Storyline"
             aria-describedby={summary ? summaryId : undefined}
             disabled
-            title="Storyline tagging is v2"
+            title="Set by the import; editing storylines is v2"
             className="mt-1 text-13 text-tr-text-secondary"
           >
             <option>{scene.storyline}</option>
