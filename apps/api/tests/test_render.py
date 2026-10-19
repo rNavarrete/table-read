@@ -111,6 +111,36 @@ def test_segment_prompt_wraps_scene_as_numbered_objects_and_requests_starts():
     assert "do not return end lines" in user
 
 
+def test_structural_definitions_use_the_craft_beat_boundary_rule():
+    """T10.1: a beat breaks on tactic/objective, entrance/exit or location;
+    topic change and emotional/power shift are not boundary rules, and ten
+    lines is a size, not a cap."""
+    system = render.build_system_prompt({"title": "T", "format": {}}, _NONCE)
+    assert "positive, negative or mixed" in system
+    assert "one exchange of action and reaction" in system
+    assert "changes tactic or objective" in system
+    assert "topic change" not in system and "emotional/power shift" not in system
+    assert "a size, not a boundary rule" in system
+
+
+def test_segment_prompt_asks_for_beat_actions_and_the_scene_turn():
+    _system, user = render.build_segment_prompt(
+        {"title": "T", "format": {}}, ["INT. BAR", "Dan pours."], _NONCE
+    )
+    assert "change of topic while the tactic holds is not a new beat" in user
+    for field in (
+        "actor:",
+        "actionVerb:",
+        "target:",
+        "reaction:",
+        "sceneValueAtStake:",
+        "sceneChargeIn / sceneChargeOut:",
+        "sceneWhyNow:",
+    ):
+        assert field in user
+    assert "never a summary verb" in user
+
+
 def test_segment_retry_prompt_includes_only_structured_repair_diagnostics():
     _system, user = render.build_segment_retry_prompt(
         {"title": "T", "format": {}},

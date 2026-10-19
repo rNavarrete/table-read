@@ -128,7 +128,7 @@ def test_saves_quotes_scenes_hash_and_version(seeded_project, db_session, mock_l
     assert (you["status"], you["sceneId"]) == ("hit", "scene-1") and you["evidenceQuote"]
     assert check["stages"][2]["status"] == "missing" and check["stages"][2]["beatId"] is None
     assert check["sourceHash"] == structure_source_hash(_episode(_doc(db_session)))
-    assert check["promptVersion"] == "0.51.0" and check["lens"] == "story_circle"
+    assert check["promptVersion"] == render.PROMPT_VERSION and check["lens"] == "story_circle"
 
 
 def test_unsupported_and_unanswered_stages_become_unverified(seeded_project, mock_llm):
@@ -270,7 +270,7 @@ def test_logs_carry_no_writer_text(seeded_project, mock_llm, caplog):
     mock_llm.set_response("verify_structure_check", _verdicts(circle_you=True))
     with caplog.at_level(logging.INFO, logger="drama_manager.structure_checks"):
         assert _post("story_circle").status_code == 200
-    assert "0.51.0" in caplog.text and "lens=story_circle" in caplog.text
+    assert render.PROMPT_VERSION in caplog.text and "lens=story_circle" in caplog.text
     for writer_text in ("circle_you reason", "circle_you verdict", "Fits."):
         assert writer_text not in caplog.text
 
