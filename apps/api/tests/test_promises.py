@@ -6,6 +6,9 @@ Mirrors `test_fountain_characters.py`'s style for the sibling
 
 from __future__ import annotations
 
+import copy
+import logging
+
 from drama_manager.promises import merge_narrative_promises
 from schemas import NarrativePromises
 
@@ -54,6 +57,7 @@ def promises(
     scene_motivations: list[dict] | None = None,
     world_rules: list[dict] | None = None,
     secrets: list[dict] | None = None,
+    storylines: list[dict] | None = None,
 ) -> NarrativePromises:
     return NarrativePromises.model_validate(
         {
@@ -61,6 +65,7 @@ def promises(
             "secrets": secrets or [],
             "sceneMotivations": scene_motivations or [],
             "worldRules": world_rules or [],
+            "storylines": storylines or [],
         }
     )
 
@@ -685,3 +690,303 @@ def test_derived_quote_falls_back_to_action_when_a_beat_has_no_dialogue():
         "scene-1", ("beat-1-1", "INT. BAR - NIGHT\nDan wipes the counter clean.")
     )
     assert quote_for_beat(scene, "beat-1-1")[0] == "Dan wipes the counter clean."
+
+
+# ── storylines (T10.2) ───────────────────────────────────────────────────
+
+
+def _storyline(letter: str, scene_ids: list[str], **overrides) -> dict:
+    return {
+        "letter": letter,
+        "summary": f"Storyline {letter}.",
+        "characterNames": [],
+        "sceneIds": scene_ids,
+        **overrides,
+    }
+
+
+def _imported_doc(scene_count: int = 4, **kwargs) -> dict:
+    """An episode the way import builds it: every scene stamped "A",
+    `storylines: []`."""
+    doc = _doc(
+        scenes=[
+            {"id": f"scene-{i}", "storyline": "A", "motivations": []}
+            for i in range(1, scene_count + 1)
+        ],
+        **kwargs,
+    )
+    doc["seasons"][0]["episodes"][0]["storylines"] = []
+    return doc
+
+
+def _episode(doc: dict) -> dict:
+    return doc["seasons"][0]["episodes"][0]
+
+
+def _letters(doc: dict) -> dict[str, str]:
+    return {scene["id"]: scene["storyline"] for scene in _episode(doc)["scenes"]}
+
+
+def test_storylines_tag_scenes_and_fill_the_episode_in_letter_order():
+    doc = _imported_doc(
+        characters=[
+            _character("char-marta", "Marta Vega"),
+            _character("char-reyes", "Reyes"),
+        ]
+    )
+
+    merge_narrative_promises(
+        doc,
+        "ep-1",
+        promises(
+            storylines=[
+                _storyline("B", ["scene-2"], characterNames=["Reyes"]),
+                _storyline(
+                    "A", ["scene-1", "scene-3"], characterNames=["Marta", "Reyes"]
+                ),
+            ]
+        ),
+    )
+
+    assert _episode(doc)["storylines"] == [
+        {
+            "id": "A",
+            "summary": "Storyline A.",
+            "characterIds": ["char-marta", "char-reyes"],
+        },
+        {"id": "B", "summary": "Storyline B.", "characterIds": ["char-reyes"]},
+    ]
+    # scene-4 is in no storyline, so it keeps today's default.
+    assert _letters(doc) == {
+        "scene-1": "A",
+        "scene-2": "B",
+        "scene-3": "A",
+        "scene-4": "A",
+    }
+
+
+def test_storyline_d_is_accepted():
+    doc = _imported_doc()
+
+    merge_narrative_promises(
+        doc, "ep-1", promises(storylines=[_storyline("D", ["scene-4"])])
+    )
+
+    assert [s["id"] for s in _episode(doc)["storylines"]] == ["D"]
+    assert _letters(doc)["scene-4"] == "D"
+
+
+def test_a_repeated_letter_keeps_its_first_entry():
+    doc = _imported_doc()
+
+    merge_narrative_promises(
+        doc,
+        "ep-1",
+        promises(
+            storylines=[
+                _storyline("A", ["scene-1"], summary="First."),
+                _storyline("A", ["scene-2"], summary="Second."),
+            ]
+        ),
+    )
+
+    assert _episode(doc)["storylines"] == [
+        {"id": "A", "summary": "First.", "characterIds": []}
+    ]
+
+
+def test_a_repeated_letter_does_not_claim_scenes_for_its_letter():
+    doc = _imported_doc()
+
+    merge_narrative_promises(
+        doc,
+        "ep-1",
+        promises(
+            storylines=[
+                _storyline("A", ["scene-1"]),
+                _storyline("B", ["scene-2"]),
+                _storyline("B", ["scene-3"]),
+            ]
+        ),
+    )
+
+    assert _letters(doc) == {
+        "scene-1": "A",
+        "scene-2": "B",
+        "scene-3": "A",
+        "scene-4": "A",
+    }
+
+
+def test_unknown_scene_ids_are_dropped():
+    doc = _imported_doc()
+
+    merge_narrative_promises(
+        doc,
+        "ep-1",
+        promises(storylines=[_storyline("B", ["scene-nope", "scene-2"])]),
+    )
+
+    assert _letters(doc)["scene-2"] == "B"
+    assert "scene-nope" not in _letters(doc)
+
+
+def test_a_scene_listed_under_two_letters_keeps_the_earliest():
+    doc = _imported_doc()
+
+    merge_narrative_promises(
+        doc,
+        "ep-1",
+        promises(
+            storylines=[
+                _storyline("C", ["scene-2", "scene-3"]),
+                _storyline("B", ["scene-2"]),
+            ]
+        ),
+    )
+
+    assert _letters(doc)["scene-2"] == "B"
+    assert _letters(doc)["scene-3"] == "C"
+
+
+def test_a_storyline_left_with_no_scenes_is_dropped():
+    doc = _imported_doc()
+
+    merge_narrative_promises(
+        doc,
+        "ep-1",
+        promises(
+            storylines=[
+                _storyline("A", ["scene-1", "scene-2"]),
+                # Only scene the earlier letter already holds, and an unknown id.
+                _storyline("B", ["scene-2", "scene-nope"]),
+                _storyline("C", []),
+            ]
+        ),
+    )
+
+    assert [s["id"] for s in _episode(doc)["storylines"]] == ["A"]
+    assert set(_letters(doc).values()) == {"A"}
+
+
+def test_unresolved_storyline_characters_are_dropped():
+    doc = _imported_doc(characters=[_character("char-marta", "Marta Vega")])
+
+    merge_narrative_promises(
+        doc,
+        "ep-1",
+        promises(
+            storylines=[
+                _storyline(
+                    "A", ["scene-1"], characterNames=["Ghost", "Marta", "Marta Vega"]
+                )
+            ]
+        ),
+    )
+
+    assert _episode(doc)["storylines"][0]["characterIds"] == ["char-marta"]
+
+
+def test_empty_storylines_leave_the_episode_untouched():
+    doc = _imported_doc()
+    before = copy.deepcopy(_episode(doc))
+
+    merge_narrative_promises(doc, "ep-1", promises(threads=[_thread()]))
+
+    episode = _episode(doc)
+    assert episode["storylines"] == before["storylines"] == []
+    assert episode["scenes"] == before["scenes"]
+    assert episode["threads"][0]["storyline"] is None
+
+
+def test_storylines_that_all_drop_leave_the_episode_untouched():
+    doc = _imported_doc()
+    before = copy.deepcopy(_episode(doc))
+
+    merge_narrative_promises(
+        doc, "ep-1", promises(storylines=[_storyline("B", ["scene-nope"])])
+    )
+
+    assert _episode(doc)["storylines"] == []
+    assert _episode(doc)["scenes"] == before["scenes"]
+
+
+def test_an_old_response_without_storylines_parses_and_changes_nothing():
+    """A pre-0.53.0 model response or promises checkpoint has no
+    `storylines` and no thread `storyline`."""
+    old = {
+        "threads": [_thread()],
+        "secrets": [],
+        "sceneMotivations": [],
+        "worldRules": [],
+    }
+    result = NarrativePromises.model_validate(old)
+    assert result.storylines == []
+    assert result.threads[0].storyline is None
+
+    doc = _imported_doc()
+    merge_narrative_promises(doc, "ep-1", result)
+
+    assert _episode(doc)["storylines"] == []
+    assert set(_letters(doc).values()) == {"A"}
+    assert _episode(doc)["threads"][0]["storyline"] is None
+
+
+def test_a_thread_keeps_its_letter_only_if_that_storyline_survived():
+    doc = _imported_doc()
+
+    merge_narrative_promises(
+        doc,
+        "ep-1",
+        promises(
+            threads=[
+                _thread(label="kept", storyline="B"),
+                _thread(label="dropped storyline", storyline="C"),
+                _thread(label="never returned", storyline="D"),
+                _thread(label="untagged", storyline=None),
+            ],
+            storylines=[
+                _storyline("B", ["scene-2"]),
+                _storyline("C", ["scene-nope"]),
+            ],
+        ),
+    )
+
+    assert {t["label"]: t["storyline"] for t in _episode(doc)["threads"]} == {
+        "kept": "B",
+        "dropped storyline": None,
+        "never returned": None,
+        "untagged": None,
+    }
+
+
+def test_storyline_merge_logs_counts_never_text(caplog):
+    doc = _imported_doc(characters=[_character("char-marta", "Marta Vega")])
+
+    with caplog.at_level(logging.INFO, logger="drama_manager.promises"):
+        merge_narrative_promises(
+            doc,
+            "ep-1",
+            promises(
+                threads=[_thread(label="SECRET THREAD LABEL", storyline="C")],
+                storylines=[
+                    _storyline(
+                        "A",
+                        ["scene-1", "scene-nope"],
+                        summary="SECRET STORYLINE SUMMARY",
+                        characterNames=["Marta", "SECRET GHOST NAME"],
+                    ),
+                    _storyline("A", ["scene-2"], summary="SECRET REPEAT"),
+                    _storyline("C", ["scene-1"], summary="SECRET EMPTY"),
+                ],
+            ),
+        )
+
+    messages = [r.getMessage() for r in caplog.records]
+    assert any(
+        "storylines=1 scenes_assigned=1 letters_repeated=1 scene_ids_unknown=1 "
+        "storylines_empty=1 characters_dropped=1" in m
+        for m in messages
+    )
+    assert any("thread_storylines_dropped=1" in m for m in messages)
+    assert not any("SECRET" in m or "Marta" in m for m in messages)
