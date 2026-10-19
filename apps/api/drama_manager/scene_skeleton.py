@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 import uuid
 
-from drama_manager import render
+from drama_manager import locks, render
 from llm.errors import SchemaInvalidLlmError
 from llm.protocol import LlmClient
 from schemas import InitialSceneSkeletonCandidate, InitialSceneSkeletonScene
@@ -156,9 +156,8 @@ def generate_candidates(
             "location": scene.get("location", ""),
             "whatHappens": scene.get("whatHappens", ""),
         }
-        for season in doc.get("seasons", [])
-        for episode in season.get("episodes", [])
-        for scene in episode.get("scenes", [])
+        for episode in locks._iter_episodes(doc)
+        for scene in locks.scenes_in_story_order(episode)
     ]
 
     candidates: list[dict] = []

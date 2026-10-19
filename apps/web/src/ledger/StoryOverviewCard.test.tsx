@@ -136,6 +136,47 @@ describe('StoryOverviewCard', () => {
     expect(onJumpToScene).toHaveBeenCalledWith('scene-1')
   })
 
+  it('lists the outline in story order and numbers it by story position', async () => {
+    const user = userEvent.setup()
+    const moved = project()
+    // A Plan move put scene-2 first (act / index) and left the array — and
+    // the import-order outline — alone.
+    moved.seasons[0].episodes[0].scenes =
+      moved.seasons[0].episodes[0].scenes.map((scene) => ({
+        ...scene,
+        act: 1,
+        index: scene.id === 'scene-2' ? 0 : 1,
+      }))
+    render(
+      <StoryOverviewCard
+        project={moved}
+        overview={overview()}
+        {...counts}
+        onJumpToScene={vi.fn()}
+      />,
+    )
+
+    await user.click(screen.getByTestId('overview-expand-toggle'))
+    const rows = Array.from(
+      screen
+        .getByTestId('overview-outline')
+        .querySelectorAll<HTMLElement>(
+          '[data-testid^="overview-outline-scene-"]',
+        ),
+    )
+    expect(rows.map((r) => r.dataset.testid)).toEqual([
+      'overview-outline-scene-scene-2',
+      'overview-outline-scene-scene-1',
+    ])
+    expect(rows.map((r) => r.textContent?.match(/^\d+/)?.[0])).toEqual([
+      '1',
+      '2',
+    ])
+    expect(
+      screen.getByTestId('overview-outline-location-scene-2').textContent,
+    ).toBe('SCENE 1')
+  })
+
   it('renders real paragraphs when summary has literal \\n\\n escapes', async () => {
     const user = userEvent.setup()
     render(

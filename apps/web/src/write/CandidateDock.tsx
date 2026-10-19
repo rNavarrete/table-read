@@ -4,6 +4,7 @@ import { CandidateCard } from './CandidateCard'
 import { CraftLevelPicker } from './CraftLevelPicker'
 import type { AcceptErrorState } from './useAcceptBeat'
 import { useFrozenWhen } from './useFrozenWhen'
+import type { FlushResult } from './useWriteQueue'
 
 export interface CandidateDockProps {
   session: CandidateSession
@@ -24,16 +25,22 @@ export interface CandidateDockProps {
   errorByIndex: Record<number, AcceptErrorState>
   projectId: string
   sceneId: string
+  /** Write's autosave flush, handed to each card's Tune. */
+  beforeGenerate?: () => FlushResult
+  /** Next Beat is waiting on that flush: show a disabled "Saving…". */
+  saving?: boolean
 }
 
 function NextBeatButton({
   onClick,
   disabled,
   hidden,
+  saving,
 }: {
   onClick: () => void
   disabled: boolean
   hidden: boolean
+  saving: boolean
 }) {
   return (
     <button
@@ -46,7 +53,7 @@ function NextBeatButton({
         (hidden ? ' invisible' : '')
       }
     >
-      <span>Suggest next beat</span>
+      <span>{saving ? 'Saving…' : 'Suggest next beat'}</span>
       <span
         aria-hidden="true"
         className="rounded-[5px] border border-tr-coral-hover bg-tr-coral-hover/80 px-1.5 py-px font-script text-[10.5px] text-tr-surface-raised"
@@ -76,6 +83,8 @@ export function CandidateDock({
   errorByIndex,
   projectId,
   sceneId,
+  beforeGenerate,
+  saving = false,
 }: CandidateDockProps) {
   const session = useFrozenWhen(liveSession, quiet)
   const streaming = session.phase === 'streaming'
@@ -124,8 +133,9 @@ export function CandidateDock({
           <div className="mb-4 shrink-0">
             <NextBeatButton
               onClick={onNextBeat}
-              disabled={streaming}
+              disabled={streaming || saving}
               hidden={quiet}
+              saving={saving}
             />
           </div>
           {!empty && (
@@ -149,6 +159,7 @@ export function CandidateDock({
                   onSkip={() => onSkip(index)}
                   onReplace={(candidate) => onReplace(index, candidate)}
                   onRetryGeneration={onRetry}
+                  beforeGenerate={beforeGenerate}
                 />
               ))}
             </div>

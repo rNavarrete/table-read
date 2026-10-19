@@ -502,6 +502,72 @@ export const NarrativeMapRun = z.object({
 })
 export type NarrativeMapRun = z.infer<typeof NarrativeMapRun>
 
+// Structure checklist (spec 2026-10-11). TV act structure is derived in the
+// web and never stored, so it is not a lens here.
+export const StructureLens = z.enum([
+  'heros_journey',
+  'story_circle',
+  'save_the_cat',
+])
+export type StructureLens = z.infer<typeof StructureLens>
+
+export const StructureStageName = z.enum([
+  ...HeroJourneyStageName.options,
+  'circle_you',
+  'circle_need',
+  'circle_go',
+  'circle_search',
+  'circle_find',
+  'circle_take',
+  'circle_return',
+  'circle_change',
+  'opening_image',
+  'theme_stated',
+  'set_up',
+  'catalyst',
+  'debate',
+  'break_into_two',
+  'b_story',
+  'fun_and_games',
+  'midpoint',
+  'bad_guys_close_in',
+  'all_is_lost',
+  'dark_night_of_the_soul',
+  'break_into_three',
+  'finale',
+  'final_image',
+])
+export type StructureStageName = z.infer<typeof StructureStageName>
+
+export const StructureStageStatus = z.enum([
+  'hit',
+  'thin',
+  'missing',
+  'unverified',
+])
+export type StructureStageStatus = z.infer<typeof StructureStageStatus>
+
+export const StructureStage = z.object({
+  stage: StructureStageName,
+  status: StructureStageStatus,
+  beatId: Id.nullable(),
+  sceneId: Id.nullable(),
+  reason: z.string(),
+  evidenceQuote: z.string().min(1).max(200).nullable(),
+})
+export type StructureStage = z.infer<typeof StructureStage>
+
+export const StructureCheck = z.object({
+  lens: StructureLens,
+  applies: z.boolean(),
+  rationale: z.string(),
+  stages: z.array(StructureStage),
+  sourceHash: z.string().min(1),
+  checkedAt: z.string(),
+  promptVersion: z.string(),
+})
+export type StructureCheck = z.infer<typeof StructureCheck>
+
 export const Episode = z.object({
   id: Id,
   index: z.number().int().min(0),
@@ -538,6 +604,8 @@ export const Episode = z.object({
   // Import-time macro/micro analysis. The map is evidence-grounded to imported
   // beats and remains nullable for existing projects.
   narrativeMap: NarrativeMap.nullable().default(null),
+  // At most one per lens; a new check replaces that lens's entry.
+  structureChecks: z.array(StructureCheck).default([]),
 })
 export type Episode = z.infer<typeof Episode>
 
@@ -816,11 +884,89 @@ export const ProjectImportStageName = z.enum([
 ])
 export type ProjectImportStageName = z.infer<typeof ProjectImportStageName>
 
+// §9.3 `found` payloads: per-unit import results for the live import board.
+// Indexes are 0-based positions in the server's scene split; data is
+// post-merge where a merge exists and never carries `scriptText`.
+const NonNeg = z.number().int().nonnegative()
+export const ImportFoundScene = z.object({
+  index: NonNeg,
+  slugline: z.string(),
+  lineCount: NonNeg,
+  intExt: z.enum(['int', 'ext', 'other']),
+})
+export type ImportFoundScene = z.infer<typeof ImportFoundScene>
+
+// A segmented beat's reading for the board's reading view (T9.17): the
+// reading fields only, in scene order; never its `scriptText`.
+export const ImportFoundBeat = z.object({
+  whatHappens: z.string(),
+  audienceLearns: z.string(),
+  audienceFeels: z.string(),
+})
+export type ImportFoundBeat = z.infer<typeof ImportFoundBeat>
+
+export const ProjectImportFound = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('scenes'), scenes: z.array(ImportFoundScene) }),
+  z.object({
+    kind: z.literal('scene'),
+    index: NonNeg,
+    beatCount: NonNeg,
+    whatHappens: z.string(),
+    failed: z.boolean(),
+    beats: z.array(ImportFoundBeat).default([]),
+  }),
+  z.object({
+    kind: z.literal('acts'),
+    format: ShowFormat,
+    sceneActs: z.array(NonNeg),
+  }),
+  z.object({ kind: z.literal('castRead'), sceneIndexes: z.array(NonNeg) }),
+  z.object({
+    kind: z.literal('cast'),
+    total: NonNeg,
+    characters: z.array(z.object({ name: z.string(), sceneCount: NonNeg })),
+  }),
+  z.object({
+    kind: z.literal('threads'),
+    threads: z.array(
+      z.object({
+        label: z.string(),
+        status: z.enum(['open', 'paid_off', 'abandoned']),
+        setupSceneIndex: NonNeg.nullable(),
+        payoffSceneIndex: NonNeg.nullable(),
+      }),
+    ),
+  }),
+  z.object({
+    kind: z.literal('overview'),
+    logline: z.string(),
+    beatSheet: z.array(
+      z.object({ label: z.string(), sceneIndex: NonNeg.nullable() }),
+    ),
+  }),
+  z.object({
+    kind: z.literal('facts'),
+    index: NonNeg,
+    factCount: NonNeg,
+    secretCount: NonNeg,
+    failed: z.boolean(),
+  }),
+  z.object({
+    kind: z.literal('flags'),
+    contradictions: NonNeg,
+    tensions: NonNeg,
+    other: NonNeg,
+  }),
+])
+export type ProjectImportFound = z.infer<typeof ProjectImportFound>
+
 // §9.3 SSE progress: `stage` events mark named stage transitions and
 // `progress` events report scene completions within those stages, followed by
-// exactly one terminal `complete` or `failed`. `error` matches the canonical
-// `{code, message, details?}` envelope (data contract §4) so the wizard's
-// failure UI reuses the same error rendering as every other endpoint.
+// exactly one terminal `complete` or `failed`. `found` events (additive)
+// carry per-unit results; `cached` marks units replayed from checkpoints.
+// `error` matches the canonical `{code, message, details?}` envelope (data
+// contract §4) so the wizard's failure UI reuses the same error rendering as
+// every other endpoint.
 export const ProjectImportProgressEvent = z.discriminatedUnion('type', [
   z.object({ type: z.literal('stage'), name: ProjectImportStageName }),
   z.object({
@@ -828,6 +974,12 @@ export const ProjectImportProgressEvent = z.discriminatedUnion('type', [
     stage: ProjectImportStageName,
     done: z.number().int().nonnegative(),
     total: z.number().int().nonnegative(),
+  }),
+  z.object({
+    type: z.literal('found'),
+    stage: ProjectImportStageName,
+    cached: z.boolean().default(false),
+    data: ProjectImportFound,
   }),
   z.object({ type: z.literal('complete'), result: ProjectImportResult }),
   z.object({
@@ -1415,6 +1567,37 @@ export const NarrativeMapVerification = z.object({
   ),
 })
 export type NarrativeMapVerification = z.infer<typeof NarrativeMapVerification>
+
+// Structure checklist ops (spec 2026-10-11). The model never writes quotes or
+// sceneId, and never says `unverified`: the server fills and sets those.
+const InferredStructureStage = z.object({
+  stage: StructureStageName,
+  status: z.enum(['hit', 'thin', 'missing']),
+  beatId: Id.nullable(),
+  reason: z.string(),
+})
+
+export const InferredStructureCheck = z.object({
+  applies: z.boolean(),
+  rationale: z.string(),
+  stages: z.array(InferredStructureStage),
+})
+export type InferredStructureCheck = z.infer<typeof InferredStructureCheck>
+
+// `supported` is declared LAST so the model reasons before it answers (same
+// decoding-order argument as NarrativeMapVerification.excerptCarriesClaim).
+export const StructureCheckVerification = z.object({
+  stages: z.array(
+    z.object({
+      stage: StructureStageName,
+      reason: z.string(),
+      supported: z.boolean(),
+    }),
+  ),
+})
+export type StructureCheckVerification = z.infer<
+  typeof StructureCheckVerification
+>
 
 // T7.23 extract-time counterpart to `KnowledgeEvent`: the model names
 // characters, never ids (same convention as `knownBy`/`InferredCharacter`);

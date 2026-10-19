@@ -12,13 +12,16 @@ needs before each scene heading.
 
 from __future__ import annotations
 
+from drama_manager.locks import scenes_in_story_order
+
 
 def to_fountain(project: dict) -> str:
-    """Serialize a `Project` wire dict to a Fountain script string."""
+    """Serialize a `Project` wire dict to a Fountain script string, scenes in
+    story order (act, then index — not the stored array's order)."""
     blocks: list[str] = []
     for season in project.get("seasons", []):
         for episode in season.get("episodes", []):
-            for scene in episode.get("scenes", []):
+            for scene in scenes_in_story_order(episode):
                 for beat in scene.get("beats", []):
                     text = beat.get("scriptText", "")
                     if text != "":

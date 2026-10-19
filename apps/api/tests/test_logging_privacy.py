@@ -143,6 +143,16 @@ def test_anthropic_client_log_hashes_user_message_never_content(caplog):
         def create(self, **_kwargs: Any) -> _FakeMessage:
             return self._responses.pop(0)
 
+        @property
+        def with_raw_response(self) -> Any:
+            from types import SimpleNamespace
+
+            def create(**kwargs: Any) -> SimpleNamespace:
+                reply = self.create(**kwargs)
+                return SimpleNamespace(headers={}, parse=lambda: reply)
+
+            return SimpleNamespace(create=create)
+
     class _FakeSdk:
         def __init__(self, responses: list[_FakeMessage]) -> None:
             self.messages = _FakeMessages(responses)

@@ -4,6 +4,7 @@ import {
   InferredActBreaks,
   NarrativeMap,
   NarrativePromises,
+  ProjectImportProgressEvent,
   ProjectImportStageName,
   StoryThread,
   WorldRule,
@@ -11,6 +12,8 @@ import {
   KnowledgeEvent,
   Motivation,
   Secret,
+  StructureCheck,
+  StructureStage,
 } from './index'
 
 // Placeholder scaffold test — real schema tests land in T0.2.
@@ -293,6 +296,111 @@ describe('ProjectImportStageName', () => {
   })
 })
 
+describe('ProjectImportProgressEvent found', () => {
+  const format = {
+    genre: 'drama',
+    runtimeMinutes: 60,
+    actCount: 4,
+    coldOpen: true,
+    tag: false,
+    serialization: 0.5,
+  }
+  const examples = [
+    {
+      kind: 'scenes',
+      scenes: [
+        {
+          index: 0,
+          slugline: 'INT. BAR - NIGHT',
+          lineCount: 12,
+          intExt: 'int',
+        },
+      ],
+    },
+    {
+      kind: 'scene',
+      index: 3,
+      beatCount: 5,
+      whatHappens: 'Marta finds the transfer.',
+      failed: false,
+      beats: [
+        {
+          whatHappens: 'Marta opens the ledger.',
+          audienceLearns: 'The money moved.',
+          audienceFeels: 'Dread',
+        },
+      ],
+    },
+    { kind: 'acts', format, sceneActs: [1, 1, 2] },
+    { kind: 'castRead', sceneIndexes: [0, 1, 2] },
+    { kind: 'cast', total: 7, characters: [{ name: 'MARTA', sceneCount: 9 }] },
+    {
+      kind: 'threads',
+      threads: [
+        {
+          label: 'The money',
+          status: 'open',
+          setupSceneIndex: 1,
+          payoffSceneIndex: null,
+        },
+      ],
+    },
+    {
+      kind: 'overview',
+      logline: 'A bartender learns her brother moved the money.',
+      beatSheet: [{ label: 'Catalyst', sceneIndex: null }],
+    },
+    { kind: 'facts', index: 2, factCount: 4, secretCount: 1, failed: false },
+    { kind: 'flags', contradictions: 1, tensions: 2, other: 0 },
+  ]
+
+  it.each(examples)('accepts a $kind frame', (data) => {
+    const event = { type: 'found', stage: 'parsing_scenes', data }
+    expect(ProjectImportProgressEvent.parse(event)).toEqual({
+      ...event,
+      cached: false,
+    })
+  })
+
+  it("defaults a 'scene' frame's beats to none (additive, T9.17)", () => {
+    const data = {
+      kind: 'scene',
+      index: 0,
+      beatCount: 1,
+      whatHappens: '',
+      failed: true,
+    }
+    const event = { type: 'found', stage: 'segmenting_beats', data }
+    expect(ProjectImportProgressEvent.parse(event)).toEqual({
+      ...event,
+      cached: false,
+      data: { ...data, beats: [] },
+    })
+  })
+
+  it('rejects a negative index and an unknown kind', () => {
+    const frame = (data: unknown) => ({
+      type: 'found',
+      stage: 'segmenting_beats',
+      data,
+    })
+    expect(() =>
+      ProjectImportProgressEvent.parse(
+        frame({
+          kind: 'scene',
+          index: -1,
+          beatCount: 1,
+          whatHappens: '',
+          failed: false,
+        }),
+      ),
+    ).toThrow()
+    expect(() =>
+      ProjectImportProgressEvent.parse(frame({ kind: 'mystery' })),
+    ).toThrow()
+  })
+})
+
 describe('Motivation stated vs actual', () => {
   it('defaults to no stated/actual gap so existing docs validate', () => {
     const parsed = Motivation.parse({
@@ -384,5 +492,56 @@ describe('Episode.secrets', () => {
       scenes: [],
     })
     expect(episode.secrets).toEqual([])
+  })
+})
+
+describe('StructureCheck', () => {
+  const stage = {
+    stage: 'circle_you',
+    status: 'hit',
+    beatId: 'beat-1-1',
+    sceneId: 'scene-1',
+    reason: 'Marta at the bar.',
+    evidenceQuote: 'Marta pours.',
+  }
+  const check = {
+    lens: 'story_circle',
+    applies: true,
+    rationale: 'Fits.',
+    stages: [stage],
+    sourceHash: 'abc',
+    checkedAt: '2026-10-11T00:00:00Z',
+    promptVersion: '0.51.0',
+  }
+  it('accepts a check and a missing stage with null beat and quote', () => {
+    expect(StructureCheck.safeParse(check).success).toBe(true)
+    expect(
+      StructureStage.safeParse({
+        ...stage,
+        status: 'missing',
+        beatId: null,
+        sceneId: null,
+        evidenceQuote: null,
+      }).success,
+    ).toBe(true)
+  })
+  it('rejects tv_act_structure as a stored lens and an unknown stage', () => {
+    expect(
+      StructureCheck.safeParse({ ...check, lens: 'tv_act_structure' }).success,
+    ).toBe(false)
+    expect(StructureStage.safeParse({ ...stage, stage: 'you' }).success).toBe(
+      false,
+    )
+  })
+  it('defaults Episode.structureChecks to []', () => {
+    const episode = Episode.parse({
+      id: 'ep-1',
+      index: 0,
+      title: 'Pilot',
+      premise: '',
+      storylines: [],
+      scenes: [],
+    })
+    expect(episode.structureChecks).toEqual([])
   })
 })

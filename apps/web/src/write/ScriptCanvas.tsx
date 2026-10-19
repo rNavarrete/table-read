@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState, type ChangeEvent } from 'react'
 import type { Beat, Scene } from 'contract'
+import { isBeatEffectivelyLocked } from '../plan/planTree'
 import { FormattedScript } from './FormattedScript'
 import { parseFountainLines } from './fountainFormat'
+import { OPTIMISTIC_BEAT_ID } from './projectTree'
 import { formatSceneSlug } from './SceneOutline'
 import type { QuietAiCanvasHandlers } from './useQuietAi'
 
@@ -37,41 +39,57 @@ const HIGHLIGHT_CLASSES = [
 /**
  * One beat row: gutter label (hover-visible) + the beat's script text.
  * Unlocked beats are a live `<textarea>` (rule: "Direct typing is allowed
- * only in unlocked ranges" — UI spec §3); locked beats (`locked` or
- * `scriptLocked`, either one) render the same script text read-only, with a
+ * only in unlocked ranges" — UI spec §3); effectively locked beats (the beat's
+ * own `locked`/`scriptLocked`, or a locked scene or episode — Plan's
+ * `isBeatEffectivelyLocked`) render the same script text read-only, with a
  * lock glyph in the gutter and a hint on focus ("caret placement inside
- * shows a brief hint").
+ * shows a brief hint"). The optimistic Accept placeholder is read-only too:
+ * it is re-keyed to the server's id the moment the accept lands.
  *
  * Planned-but-unwritten beats (empty `scriptText`, non-empty `whatHappens`)
  * show the plan pitch as solid primary copy — not muted ghost text — so the
  * page never looks blank after a scene-skeleton apply.
  *
- * Persistence scope note (T2.3): typing here updates only this component's
- * local state, driving the quiet-AI focus rule and the read-only/locked
- * rendering this task owns. Writing edits back to the server via `PATCH
- * /projects/{pid}` — including the locked-range 409 guard — is T3.2 (build
- * plan); wiring it here would duplicate that task's lock-guard tests ahead
- * of the endpoint actually enforcing them.
+ * The typed text stays in this row's state (the editor never loses it, even
+ * if a save fails); `onEdit` reports each change and `onEditBlur` asks for an
+ * immediate save — WriteScreen's queue autosaves it (write/useWriteQueue.ts).
+ * When the server's text changes (a refetch) and the row is neither being
+ * edited nor holding text of its own, the row picks the new text up, so a
+ * stale row can't overwrite a newer version with one keystroke.
  */
 function BeatRow({
   beat,
   index,
+  locked,
   highlighted,
   onFocusScene,
+  onEdit,
+  onEditBlur,
 }: {
   beat: Beat
   index: number
+  /** Effectively locked (beat, scene or episode lock). */
+  locked: boolean
   highlighted: boolean
   onFocusScene?: () => void
+  onEdit?: (text: string) => void
+  onEditBlur?: () => void
 }) {
-  const locked = beat.locked || beat.scriptLocked
+  const readOnly = locked || beat.id === OPTIMISTIC_BEAT_ID
   const [text, setText] = useState(beat.scriptText)
+  const [seen, setSeen] = useState(beat.scriptText)
   const [editing, setEditing] = useState(false)
+  // Adjusting state during render (React's documented pattern for "derive
+  // from a changed prop"), as CandidateCard does.
+  if (!editing && beat.scriptText !== seen) {
+    setSeen(beat.scriptText)
+    if (text === seen) setText(beat.scriptText)
+  }
   const rowRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
   const planPitch = beat.whatHappens.trim()
   const showPlan = text.trim().length === 0 && planPitch.length > 0
-  const showFormatted = text.trim().length > 0 && (locked || !editing)
+  const showFormatted = text.trim().length > 0 && (readOnly || !editing)
 
   // Ledger source-span jump (UI spec §6): highlight 2s via DOM classes —
   // avoids setState-in-effect (react-hooks lint) while still timing out.
@@ -104,10 +122,11 @@ function BeatRow({
   function onChange(event: ChangeEvent<HTMLTextAreaElement>) {
     setText(event.target.value)
     autosize(event.target)
+    onEdit?.(event.target.value)
   }
 
   function startEditing() {
-    if (locked) return
+    if (readOnly) return
     onFocusScene?.()
     setEditing(true)
   }
@@ -162,7 +181,7 @@ function BeatRow({
                 ? `Beat ${index + 1} (locked)`
                 : `Beat ${index + 1} — click to edit`
             }
-            onActivate={locked ? undefined : startEditing}
+            onActivate={readOnly ? undefined : startEditing}
             tabIndex={locked ? 0 : undefined}
             className="peer"
           />
@@ -170,14 +189,14 @@ function BeatRow({
           <textarea
             className={
               'peer w-full resize-none overflow-hidden whitespace-pre-wrap border-0 bg-transparent font-script text-12 leading-relaxed text-tr-text-primary outline-none' +
-              (locked ? ' cursor-default text-tr-text-secondary' : '') +
+              (readOnly ? ' cursor-default text-tr-text-secondary' : '') +
               (showPlan
                 ? ' min-h-[3rem] rounded-card border border-tr-border bg-tr-surface-clay px-3 py-2'
                 : '')
             }
             value={text}
-            readOnly={locked}
-            aria-readonly={locked}
+            readOnly={readOnly}
+            aria-readonly={readOnly}
             aria-label={
               showPlan ? `Script for beat ${index + 1}` : `Beat ${index + 1}`
             }
@@ -187,12 +206,21 @@ function BeatRow({
               if (el) autosize(el)
             }}
             onChange={onChange}
-            onFocus={onFocusScene}
-            onBlur={() => setEditing(false)}
+            onFocus={() => {
+              onFocusScene?.()
+              // An empty planned beat shows this textarea without a click:
+              // mark it as editing so its first keystroke doesn't swap in
+              // the formatted view, and so a refetch won't replace its text.
+              if (!readOnly) setEditing(true)
+            }}
+            onBlur={() => {
+              setEditing(false)
+              onEditBlur?.()
+            }}
             rows={showPlan ? 3 : 1}
           />
         )}
-        {showPlan && !locked ? (
+        {showPlan && !readOnly ? (
           <p className="mt-1 text-12 text-tr-text-secondary">
             Type script here, or use Next Beat to draft dialogue for this scene.
           </p>
@@ -217,16 +245,23 @@ function SceneBlock({
   scene,
   sceneNumber,
   active,
+  episodeLocked,
   highlightBeatId,
   onSceneFocus,
+  onBeatEdit,
+  onBeatBlur,
 }: {
   scene: Scene
   /** 1-based index matching the ON THE PAGE outline (document order). */
   sceneNumber: number
   /** True when this scene is the Write active scene. */
   active: boolean
+  /** The scene's episode is locked (every beat inside is read-only). */
+  episodeLocked: boolean
   highlightBeatId: string | null
   onSceneFocus?: (sceneId: string) => void
+  onBeatEdit?: ScriptCanvasProps['onBeatEdit']
+  onBeatBlur?: () => void
 }) {
   const slug = formatSceneSlug(scene)
   const scenePitch = scene.whatHappens.trim()
@@ -310,8 +345,11 @@ function SceneBlock({
             key={beat.id}
             beat={beat}
             index={index}
+            locked={isBeatEffectivelyLocked(episodeLocked, scene, beat)}
             highlighted={highlightBeatId === beat.id}
             onFocusScene={focus}
+            onEdit={(text) => onBeatEdit?.(scene.id, beat.id, text)}
+            onEditBlur={onBeatBlur}
           />
         ))
       )}
@@ -320,7 +358,7 @@ function SceneBlock({
 }
 
 export interface ScriptCanvasProps {
-  /** Episode scenes in document order (Write script-home, T2.4). */
+  /** Episode scenes in story order (projectTree.allScenes; T2.4). */
   scenes: Scene[]
   canvasHandlers: QuietAiCanvasHandlers
   /** When set (Ledger source-span jump), highlight that beat for 2s. */
@@ -329,6 +367,12 @@ export interface ScriptCanvasProps {
   onSceneFocus?: (sceneId: string) => void
   /** Active scene id — drives scene-number badge accent (matches outline). */
   activeSceneId?: string | null
+  /** Scenes whose episode is locked — their beats render read-only. */
+  lockedEpisodeSceneIds?: ReadonlySet<string>
+  /** Each change to an unlocked beat's text (autosave, debounced upstream). */
+  onBeatEdit?: (sceneId: string, beatId: string, text: string) => void
+  /** A beat editor blurred — save now. */
+  onBeatBlur?: () => void
 }
 
 /**
@@ -344,6 +388,9 @@ export function ScriptCanvas({
   highlightBeatId = null,
   onSceneFocus,
   activeSceneId = null,
+  lockedEpisodeSceneIds,
+  onBeatEdit,
+  onBeatBlur,
 }: ScriptCanvasProps) {
   return (
     <div
@@ -358,8 +405,11 @@ export function ScriptCanvas({
           scene={scene}
           sceneNumber={index + 1}
           active={scene.id === activeSceneId}
+          episodeLocked={lockedEpisodeSceneIds?.has(scene.id) ?? false}
           highlightBeatId={highlightBeatId}
           onSceneFocus={onSceneFocus}
+          onBeatEdit={onBeatEdit}
+          onBeatBlur={onBeatBlur}
         />
       ))}
     </div>

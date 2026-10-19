@@ -7,12 +7,20 @@ test_llm_factory.py for the explicit socket-level proof.
 
 from __future__ import annotations
 
+import inspect
+import json
 import logging
+import re
+import threading
 from dataclasses import dataclass, field
+from types import SimpleNamespace
 from typing import Any
 
+import anthropic
+import httpx
 import pytest
 
+from import_diagnostics import ImportUnit, import_run_context, import_unit_context
 from llm.anthropic_client import DEFAULT_MAX_TOKENS, AnthropicClient
 from llm.errors import SchemaInvalidLlmError
 from llm.ops import OP_REGISTRY
@@ -63,7 +71,29 @@ class FakeMessagesEndpoint:
 
     def create(self, **kwargs: Any) -> FakeMessage:
         self.calls.append(kwargs)
-        return self._responses.pop(0)
+        response = self._responses.pop(0)
+        if isinstance(response, BaseException):
+            raise response
+        return response
+
+    @property
+    def with_raw_response(self) -> SimpleNamespace:
+        """`messages.with_raw_response`: the same `create`, wrapped like the
+        SDK's raw response (`.headers`, `.parse()`), headers from `headers`."""
+        return SimpleNamespace(
+            create=lambda **kwargs: FakeRawResponse(self.create(**kwargs), self.headers)
+        )
+
+    headers: dict[str, str] = {}
+
+
+@dataclass
+class FakeRawResponse:
+    message: Any
+    headers: dict[str, str]
+
+    def parse(self) -> Any:
+        return self.message
 
 
 class FakeSdkClient:
@@ -72,9 +102,21 @@ class FakeSdkClient:
 
 
 class FakeMessageStream:
-    def __init__(self, response: FakeMessage) -> None:
-        self.response = response
+    """The SDK's `MessageStream`: `response` is the HTTP response (headers
+    only here) and `request_id` its `request-id`; the final message is
+    separate."""
+
+    def __init__(
+        self,
+        final: FakeMessage,
+        headers: dict[str, str] | None = None,
+        request_id: str | None = None,
+    ) -> None:
+        self.final = final
+        self.response = SimpleNamespace(headers=headers or {})
+        self.request_id = request_id
         self.closed = False
+        self._started = False
 
     def __enter__(self) -> FakeMessageStream:
         return self
@@ -83,7 +125,14 @@ class FakeMessageStream:
         self.closed = True
 
     def get_final_message(self) -> FakeMessage:
-        return self.response
+        return self.final
+
+    def __next__(self) -> Any:
+        # The real stream opens with message_start, which the client times as TTFT.
+        if self._started:
+            raise StopIteration
+        self._started = True
+        return SimpleNamespace(type="message_start")
 
     def close(self) -> None:
         self.closed = True
@@ -96,7 +145,9 @@ class FakeStreamingMessagesEndpoint(FakeMessagesEndpoint):
 
     def stream(self, **kwargs: Any) -> FakeMessageStream:
         self.stream_calls.append(kwargs)
-        return FakeMessageStream(self._responses.pop(0))
+        return FakeMessageStream(self._responses.pop(0), self.headers, self.request_id)
+
+    request_id: str | None = None
 
 
 class FakeStreamingSdkClient:
@@ -969,6 +1020,10 @@ def _fixture_valid_input_for(op_name: str) -> dict:
             "missingSceneIds": [],
             "advisories": [],
         },
+        "check_structure": {"applies": False, "rationale": "Ensemble.", "stages": []},
+        "verify_structure_check": {
+            "stages": [{"stage": "circle_you", "reason": "Shown.", "supported": True}]
+        },
         "segment_scene": {"segments": []},
         "scan_consistency": {"flags": []},
         "generate_scene_skeleton": {"label": "x", "scenes": []},
@@ -1225,3 +1280,341 @@ def test_a_timed_out_call_leaves_no_thread_that_can_delay_process_exit():
         "by the interpreter at exit, which is the hang this guards"
     )
     release.set()
+
+
+# ---------------------------------------------------------------------------
+# Call timing on the `llm_call` line: numbers only (hard rule 5).
+# ---------------------------------------------------------------------------
+
+
+def test_llm_call_line_carries_elapsed_ms_and_no_ttft_for_a_plain_call(caplog):
+    sdk = FakeSdkClient([_valid_response()])
+    client = AnthropicClient(sdk_client=sdk, models=_MODELS)
+
+    with caplog.at_level(logging.INFO, logger="llm.anthropic_client"):
+        client.generate_beat_candidates(system="s", user_message="u", prompt_version="0.1.0")
+
+    [message] = [r.getMessage() for r in caplog.records]
+    assert re.search(r" elapsed_ms=\d+ ", message)
+    assert " ttft_ms=- " in message
+
+
+def test_llm_call_line_carries_ttft_ms_for_a_streamed_call(caplog):
+    response = FakeMessage(
+        content=[
+            FakeToolUseBlock(input=_fixture_valid_input_for("segment_scene"), name="segment_scene")
+        ]
+    )
+    sdk = FakeStreamingSdkClient([response])
+    client = AnthropicClient(sdk_client=sdk, models=_MODELS)
+
+    with caplog.at_level(logging.INFO, logger="llm.anthropic_client"):
+        client.segment_scene(system="s", user_message="u", prompt_version="0.1.0")
+
+    [message] = [r.getMessage() for r in caplog.records]
+    assert re.search(r" elapsed_ms=\d+ ", message)
+    assert re.search(r" ttft_ms=\d+ ", message)
+
+
+# ---------------------------------------------------------------------------
+# Import diagnostics on the `llm_call` line: run id, unit, queue time, calls in
+# flight, rate-limit headers, output size, request id. Ids and numbers (or
+# `-`) only, never text (hard rule 5).
+# ---------------------------------------------------------------------------
+
+_RATE_LIMIT_HEADERS = {
+    "anthropic-ratelimit-requests-remaining": "999",
+    "anthropic-ratelimit-requests-limit": "1000",
+    "anthropic-ratelimit-input-tokens-remaining": "1996000",
+    "anthropic-ratelimit-input-tokens-limit": "2000000",
+    "anthropic-ratelimit-output-tokens-remaining": "399000",
+    "anthropic-ratelimit-output-tokens-limit": "400000",
+}
+_RATE_LIMIT_FIELDS = (
+    "rl_requests_remaining=999 rl_requests_limit=1000 "
+    "rl_input_remaining=1996000 rl_input_limit=2000000 "
+    "rl_output_remaining=399000 rl_output_limit=400000"
+)
+
+
+def _field(message: str, name: str) -> str:
+    match = re.search(rf" {name}=(\S+)", message)
+    assert match, f"{name} missing from {message!r}"
+    return match.group(1)
+
+
+def test_llm_call_line_outside_an_import_logs_dashes_and_numbers(caplog):
+    sdk = FakeSdkClient([_valid_response()])
+    client = AnthropicClient(sdk_client=sdk, models=_MODELS)
+
+    with caplog.at_level(logging.INFO, logger="llm.anthropic_client"):
+        client.generate_beat_candidates(system="s", user_message="u", prompt_version="0.1.0")
+
+    [message] = [r.getMessage() for r in caplog.records]
+    assert message.startswith("llm_call op=generate_beat_candidates run_id=None ")
+    assert " stage=- scene=- " in message
+    assert " queue_ms=- in_flight=1 " in message
+    for name in ("requests", "input", "output"):
+        assert f" rl_{name}_remaining=- rl_{name}_limit=- " in message
+    out = json.dumps(_VALID_BEAT_CANDIDATE_INPUT, ensure_ascii=False).encode("utf-8")
+    assert _field(message, "out_bytes") == str(len(out))
+    assert "You tell me" not in message, "the size of the tool input, never the input"
+
+
+def test_llm_call_line_reads_rate_limit_headers_of_a_plain_call(caplog):
+    sdk = FakeSdkClient([_valid_response()])
+    sdk.messages.headers = {
+        **_RATE_LIMIT_HEADERS,
+        "anthropic-ratelimit-requests-limit": "SECRET not a number",
+    }
+    client = AnthropicClient(sdk_client=sdk, models=_MODELS)
+
+    with caplog.at_level(logging.INFO, logger="llm.anthropic_client"):
+        client.generate_beat_candidates(system="s", user_message="u", prompt_version="0.1.0")
+
+    [message] = [r.getMessage() for r in caplog.records]
+    assert " rl_requests_remaining=999 rl_requests_limit=- " in message
+    assert " rl_input_remaining=1996000 rl_input_limit=2000000 " in message
+    assert " rl_output_remaining=399000 rl_output_limit=400000 " in message
+    assert "SECRET" not in message
+    assert "timeout" in sdk.messages.calls[0], "the raw-response path keeps the op timeout"
+
+
+def test_streamed_call_logs_its_request_id_and_rate_limit_headers(caplog):
+    response = FakeMessage(
+        content=[
+            FakeToolUseBlock(input=_fixture_valid_input_for("segment_scene"), name="segment_scene")
+        ]
+    )
+    sdk = FakeStreamingSdkClient([response])
+    sdk.messages.headers = _RATE_LIMIT_HEADERS
+    sdk.messages.request_id = "req_011CStreamed"
+    client = AnthropicClient(sdk_client=sdk, models=_MODELS)
+
+    with caplog.at_level(logging.INFO, logger="llm.anthropic_client"):
+        client.segment_scene(system="s", user_message="u", prompt_version="0.1.0")
+
+    [message] = [r.getMessage() for r in caplog.records]
+    assert " request_id=req_011CStreamed " in message
+    assert f" {_RATE_LIMIT_FIELDS} " in message
+    assert _field(message, "out_bytes").isdigit()
+
+
+def test_llm_call_line_carries_the_run_id_and_import_unit(caplog):
+    sdk = FakeSdkClient([_valid_response()])
+    client = AnthropicClient(sdk_client=sdk, models=_MODELS)
+
+    with (
+        caplog.at_level(logging.INFO, logger="llm.anthropic_client"),
+        import_run_context("import-0123abcd"),
+        import_unit_context(ImportUnit("extracting_facts", 4, 37)),
+    ):
+        client.generate_beat_candidates(system="s", user_message="u", prompt_version="0.1.0")
+
+    [message] = [r.getMessage() for r in caplog.records]
+    assert " run_id=import-0123abcd stage=extracting_facts scene=4 " in message
+    assert " queue_ms=37 " in message
+
+
+def test_in_flight_counts_the_calls_running_when_each_started(caplog):
+    both_started = threading.Barrier(2, timeout=5)
+
+    class _OverlappingEndpoint(FakeMessagesEndpoint):
+        def create(self, **kwargs: Any) -> FakeMessage:
+            both_started.wait()  # neither call returns until both are in flight
+            return super().create(**kwargs)
+
+    sdk = FakeSdkClient([])
+    sdk.messages = _OverlappingEndpoint([_valid_response(), _valid_response()])
+    client = AnthropicClient(sdk_client=sdk, models=_MODELS)
+
+    def call() -> None:
+        client.generate_beat_candidates(system="s", user_message="u", prompt_version="0.1.0")
+
+    with caplog.at_level(logging.INFO, logger="llm.anthropic_client"):
+        workers = [threading.Thread(target=call) for _ in range(2)]
+        for worker in workers:
+            worker.start()
+        for worker in workers:
+            worker.join()
+
+    assert sorted(_field(r.getMessage(), "in_flight") for r in caplog.records) == ["1", "2"]
+    assert client._in_flight == 0
+
+
+# ---------------------------------------------------------------------------
+# prewarm_cache: the real op's request with `max_tokens: 0`, never validated,
+# never raised.
+# ---------------------------------------------------------------------------
+
+_REQUEST = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+
+
+def _api_error(cls: type, status: int) -> Exception:
+    return cls(message="x", response=httpx.Response(status, request=_REQUEST), body=None)
+
+
+def _prewarm_reply(cache_write: int = 1234) -> FakeMessage:
+    usage = SimpleNamespace(
+        input_tokens=10,
+        output_tokens=0,
+        cache_creation_input_tokens=cache_write,
+        cache_read_input_tokens=0,
+    )
+    return FakeMessage(content=[], usage=usage, stop_reason="max_tokens")
+
+
+def _op_kwargs(name: str) -> dict[str, Any]:
+    kwargs: dict[str, Any] = {"system": "sys", "user_message": "hi"}
+    if "cache_prefix" in inspect.signature(getattr(AnthropicClient, name)).parameters:
+        kwargs["cache_prefix"] = "the whole episode script"
+    return kwargs
+
+
+@pytest.mark.parametrize("name", sorted(OP_REGISTRY))
+def test_prewarm_sends_the_real_request_with_zero_max_tokens(name):
+    op = OP_REGISTRY[name]
+    real_reply = FakeMessage(
+        content=[FakeToolUseBlock(input=_fixture_valid_input_for(name), name=name)]
+    )
+    sdk = FakeStreamingSdkClient([real_reply, _prewarm_reply()])
+    client = AnthropicClient(sdk_client=sdk, models=_MODELS)
+
+    getattr(client, name)(**_op_kwargs(name), prompt_version="0.1.0")
+    client.prewarm_cache(name, **_op_kwargs(name))
+
+    real = (sdk.messages.stream_calls or sdk.messages.calls)[0]
+    prewarm = sdk.messages.calls[-1]
+    assert prewarm["max_tokens"] == 0
+    # `max_tokens: 0` is a 400 with `stream: true`; streaming is transport,
+    # not part of the cached prefix.
+    assert "stream" not in prewarm
+    # Same model, tools, tool_choice, system (cache breakpoint included),
+    # thinking, effort, messages and timeout as the call it warms for.
+    assert {k: v for k, v in prewarm.items() if k != "max_tokens"} == {
+        k: v for k, v in real.items() if k != "max_tokens"
+    }
+    if op.effort is not None:
+        assert prewarm["output_config"] == {"effort": op.effort}
+    if op.adaptive_thinking:
+        assert prewarm["thinking"] == {"type": "adaptive"}
+
+
+def test_prewarm_keeps_the_cache_breakpoint_on_the_shared_source():
+    sdk = FakeSdkClient([_prewarm_reply()])
+    client = AnthropicClient(sdk_client=sdk, models=_MODELS)
+
+    client.prewarm_cache("segment_scene", system="s", user_message="u", cache_prefix="script")
+
+    [call] = sdk.messages.calls
+    assert call["system"][-1] == {
+        "type": "text",
+        "text": "script",
+        "cache_control": {"type": "ephemeral", "ttl": "1h"},
+    }
+    assert call["tool_choice"] == {"type": "auto", "disable_parallel_tool_use": True}
+
+
+def test_prewarm_falls_back_to_one_token_after_a_400_and_remembers_it():
+    sdk = FakeSdkClient(
+        [_api_error(anthropic.BadRequestError, 400), _prewarm_reply(), _prewarm_reply()]
+    )
+    client = AnthropicClient(sdk_client=sdk, models=_MODELS)
+
+    client.prewarm_cache("segment_scene", system="s", user_message="u", cache_prefix="p")
+    client.prewarm_cache("extract_ledger_facts", system="s", user_message="u", cache_prefix="p")
+
+    assert [call["max_tokens"] for call in sdk.messages.calls] == [0, 1, 1]
+
+
+def test_prewarm_keeps_zero_tokens_when_the_400_was_about_something_else():
+    bad = _api_error(anthropic.BadRequestError, 400)
+    sdk = FakeSdkClient([bad, bad, _prewarm_reply()])
+    client = AnthropicClient(sdk_client=sdk, models=_MODELS)
+
+    client.prewarm_cache("segment_scene", system="s", user_message="u")
+    client.prewarm_cache("segment_scene", system="s", user_message="u")
+
+    assert [call["max_tokens"] for call in sdk.messages.calls] == [0, 1, 0]
+
+
+def test_prewarm_does_not_fall_back_to_one_token_on_a_spend_limit_400(caplog):
+    response = httpx.Response(
+        400,
+        request=_REQUEST,
+        json={
+            "type": "error",
+            "error": {
+                "type": "invalid_request_error",
+                "message": "You have reached your specified API usage limits.",
+            },
+        },
+    )
+    over_limit = anthropic.BadRequestError(
+        message="x", response=response, body=response.json()
+    )
+    sdk = FakeSdkClient([over_limit, _prewarm_reply()])
+    client = AnthropicClient(sdk_client=sdk, models=_MODELS)
+
+    with caplog.at_level(logging.INFO, logger="llm.anthropic_client"):
+        client.prewarm_cache("segment_scene", system="s", user_message="u", cache_prefix="p")
+
+    assert [call["max_tokens"] for call in sdk.messages.calls] == [0]
+    assert client._prewarm_max_tokens == 0
+    [message] = [r.getMessage() for r in caplog.records]
+    assert "failed=True" in message and "status=400" in message
+
+
+@pytest.mark.parametrize(
+    ("error", "status"),
+    [
+        (_api_error(anthropic.OverloadedError, 529), "529"),
+        (_api_error(anthropic.RateLimitError, 429), "429"),
+        (anthropic.APIConnectionError(request=_REQUEST), "None"),
+        (RuntimeError("SECRET writer text"), "None"),
+    ],
+    ids=["529", "429", "connection", "unexpected"],
+)
+def test_prewarm_swallows_and_logs_every_error_without_retrying(error, status, caplog):
+    sdk = FakeSdkClient([error, _prewarm_reply()])
+    client = AnthropicClient(sdk_client=sdk, models=_MODELS)
+
+    with caplog.at_level(logging.INFO, logger="llm.anthropic_client"):
+        assert (
+            client.prewarm_cache("segment_scene", system="s", user_message="u", cache_prefix="p")
+            is None
+        )
+
+    assert len(sdk.messages.calls) == 1, "a cold cache costs money, not correctness"
+    [message] = [r.getMessage() for r in caplog.records]
+    assert "llm_prewarm op=segment_scene" in message
+    assert "failed=True" in message
+    assert f"status={status}" in message
+    assert "SECRET" not in message
+
+
+def test_prewarm_never_validates_the_empty_reply(caplog):
+    sdk = FakeSdkClient([_prewarm_reply(cache_write=4321)])
+    client = AnthropicClient(sdk_client=sdk, models=_MODELS)
+    secret = "WRITER INSTRUCTION: Marta confesses"
+
+    with caplog.at_level(logging.INFO, logger="llm.anthropic_client"):
+        client.prewarm_cache(
+            "extract_ledger_facts", system="top secret", user_message=secret, cache_prefix=secret
+        )
+
+    assert len(sdk.messages.calls) == 1, "no rule-9 retry: there is no tool call to validate"
+    [message] = [r.getMessage() for r in caplog.records]
+    assert "llm_schema_invalid" not in message
+    assert "llm_prewarm op=extract_ledger_facts" in message
+    assert "model=classifier-model-y" in message
+    assert "cache_write=4321" in message
+    assert re.search(r" elapsed_ms=\d+", message)
+    assert "Marta" not in message and "top secret" not in message
+
+
+def test_prewarm_of_an_unknown_op_is_a_caller_bug():
+    client = AnthropicClient(sdk_client=FakeSdkClient([]), models=_MODELS)
+
+    with pytest.raises(KeyError):
+        client.prewarm_cache("segment_scenes", system="s", user_message="u")

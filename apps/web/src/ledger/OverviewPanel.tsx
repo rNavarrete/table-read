@@ -1,6 +1,7 @@
 import type { Project, StoryOverview } from 'contract'
 import { Card } from '../plan/Card'
 import { actLabel } from '../plan/planTree'
+import { findScene, sceneNumber } from '../write/projectTree'
 
 export interface OverviewPanelProps {
   project: Project
@@ -9,17 +10,12 @@ export interface OverviewPanelProps {
   onClose: () => void
 }
 
-/** "THE GARAGE" if the scene has a location, else "Scene {n}" (1-based). */
+/** "THE GARAGE" if the scene has a location, else "Scene {n}" (1-based
+ * story position). */
 function sceneLabel(project: Project, sceneId: string): string {
-  for (const season of project.seasons) {
-    for (const episode of season.episodes) {
-      const scene = episode.scenes.find((s) => s.id === sceneId)
-      if (!scene) continue
-      const location = (scene as { location?: string }).location
-      return location || `Scene ${scene.index + 1}`
-    }
-  }
-  return sceneId
+  const scene = findScene(project, sceneId)
+  if (!scene) return sceneId
+  return scene.location || `Scene ${sceneNumber(project, sceneId)}`
 }
 
 function beatSceneId(project: Project, beatId: string): string | null {

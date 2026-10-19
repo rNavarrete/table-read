@@ -13,6 +13,7 @@ import type {
   ProjectCreateRequest,
   ProjectSummary,
   SnapshotSummary,
+  StructureLens,
   SuggestRequest,
 } from 'contract'
 
@@ -84,8 +85,8 @@ async function patchJson<T>(
 /** One RFC 6902 JSON Patch operation (data contract §4 `PATCH /projects/{pid}`;
  * applier: `apps/api/storage/patching.py`). Only `add`/`replace`/`remove` are
  * supported server-side — `move`/`copy`/`test` are rejected as 400
- * `VALIDATION`, so Plan mode's reorder (an index/act swap, not an array
- * move) is expressed as two or three `replace` ops, never `move`. */
+ * `VALIDATION`, so Plan mode's reorder is expressed as index/act `replace`s
+ * for the scenes a move shifts, never an array `move`. */
 export interface JsonPatchOp {
   op: 'add' | 'replace' | 'remove'
   path: string
@@ -181,6 +182,20 @@ export async function exportProjectJson(projectId: string): Promise<object> {
 
 export function getProject(projectId: string): Promise<Project> {
   return getJson<Project>(`/projects/${projectId}`)
+}
+
+/** Run one AI structure check (Ledger Structure tab, explicit click only).
+ * Returns the updated project with the saved check and the new head. */
+export function checkStructure(
+  projectId: string,
+  lens: StructureLens,
+  opts?: IfMatchOpts,
+): Promise<Project> {
+  return postJson<Project>(
+    `/projects/${projectId}/structure-checks/${lens}`,
+    {},
+    opts,
+  )
 }
 
 /** Generate the optional Narrative Map in a separate snapshot. A failed map

@@ -782,6 +782,22 @@ describe('NarrativeMapCard', () => {
     expect(onGenerateNarrativeMap).toHaveBeenCalledOnce()
   })
 
+  it('numbers a listed scene by story position, not array position', () => {
+    const moved = project()
+    const episode = moved.seasons[0].episodes[0]
+    // A Plan move left the array alone: scene-2 (act 1) is still 2nd.
+    episode.scenes = [...episode.scenes].reverse()
+    render(
+      <NarrativeMapCard
+        project={moved}
+        narrativeMap={mapWithSceneTwoUnanalyzed()}
+        onJumpToScene={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByRole('button', { name: 'Scene 2' })).toBeTruthy()
+  })
+
   it('does not offer analysis the latest run cannot start', () => {
     render(
       <NarrativeMapCard

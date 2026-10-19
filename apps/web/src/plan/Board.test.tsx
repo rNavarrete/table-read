@@ -1,10 +1,34 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import {
+  act,
+  cleanup,
+  createEvent,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { ComponentProps } from 'react'
-import type { Episode, Project, Scene } from 'contract'
-import { Board } from './Board'
+import { useState, type ComponentProps } from 'react'
+import type {
+  Character,
+  ConsistencyFlag,
+  Episode,
+  Motivation,
+  Project,
+  Scene,
+  StoryThread,
+} from 'contract'
+import { Board, gridNeighbor } from './Board'
+import {
+  boardModel,
+  NO_HIGHLIGHT,
+  predictionTape,
+  type Highlight,
+  type OrderIssue,
+} from './story'
 
 afterEach(cleanup)
 
@@ -28,33 +52,7 @@ function scene(overrides: Partial<Scene> = {}): Scene {
   }
 }
 
-function beat1_1() {
-  return {
-    id: 'beat-1-1',
-    index: 0,
-    locked: false,
-    whatHappens: '',
-    audienceLearns: '',
-    audienceFeels: '',
-    scriptText: "DAN\nWe're closed.",
-    scriptLocked: false,
-  }
-}
-
-function beat1_2Locked() {
-  return {
-    id: 'beat-1-2',
-    index: 1,
-    locked: true,
-    whatHappens: '',
-    audienceLearns: '',
-    audienceFeels: '',
-    scriptText: 'ON SCREEN: OUTGOING TRANSFER',
-    scriptLocked: true,
-  }
-}
-
-function episode(scenes: Scene[]): Episode {
+function episode(scenes: Scene[], overrides: Partial<Episode> = {}): Episode {
   return {
     id: 'ep-1',
     index: 0,
@@ -71,10 +69,12 @@ function episode(scenes: Scene[]): Episode {
     secrets: [],
     storyOverview: null,
     narrativeMap: null,
+    structureChecks: [],
+    ...overrides,
   }
 }
 
-function project(ep: Episode): Project {
+function project(ep: Episode, characters: Character[] = []): Project {
   return {
     id: 'proj-longpour',
     title: 'The Long Pour',
@@ -92,7 +92,7 @@ function project(ep: Episode): Project {
       existentialQuestion: { text: '', locked: false },
       worldRules: [],
       storiesToAvoid: [],
-      characters: [],
+      characters,
       relationships: [],
       audienceGoals: [],
       narratorGoals: [],
@@ -113,408 +113,1002 @@ function project(ep: Episode): Project {
   }
 }
 
+function thread(
+  id: string,
+  setupSceneId: string,
+  payoffSceneId: string | null,
+): StoryThread {
+  return {
+    id,
+    label: id,
+    summary: '',
+    status: payoffSceneId ? 'paid_off' : 'open',
+    ownerCharacterIds: [],
+    setupSceneId,
+    payoffSceneId,
+    setupQuote: '',
+    payoffQuote: '',
+    setupBeatId: null,
+    payoffBeatId: null,
+    locked: false,
+  }
+}
+
+function storyFlag(objectId: string): ConsistencyFlag {
+  return {
+    id: `flag-${objectId}`,
+    objectType: 'scene',
+    objectId,
+    factId: null,
+    explanation: 'Scene 2 still has the money in the bar.',
+    severity: 'tension',
+    status: 'open',
+    sourceChange: 'snap-root',
+  }
+}
+
+/** The fixture's shape with act 4 empty: cold open scene-1; act 1 scene-2,
+ * scene-3; act 2 scene-4; act 3 scene-5. */
+function fixtureEpisode(overrides: Partial<Episode> = {}): Episode {
+  return episode(
+    [
+      scene({ id: 'scene-1', index: 0, act: 0 }),
+      scene({ id: 'scene-3', index: 2, act: 1, location: 'INT. BACK ROOM' }),
+      scene({ id: 'scene-2', index: 1, act: 1, location: 'INT. BAR' }),
+      scene({ id: 'scene-4', index: 3, act: 2, location: 'EXT. MARINA' }),
+      scene({ id: 'scene-5', index: 4, act: 3, location: 'INT. OFFICE' }),
+    ],
+    overrides,
+  )
+}
+
+function model(
+  ep: Episode = fixtureEpisode(),
+  flags: ConsistencyFlag[] = [],
+  characters: Character[] = [],
+) {
+  return boardModel(project(ep, characters), ep, flags)
+}
+
+const MARTA: Character = {
+  id: 'char-marta',
+  name: 'Marta Vega',
+  locked: false,
+  aliases: [],
+  embodiment: '',
+  presentation: '',
+  hiding: '',
+  traits: '',
+  seriesArc: '',
+  summary: '',
+  bio: '',
+}
+
+function want(characterId: string): Motivation {
+  return {
+    characterId,
+    objective: 'Keep the bar open',
+    stakes: '',
+    obstacle: '',
+    statedObjective: '',
+    concealed: false,
+  }
+}
+
+const WHO_MARTA: Highlight = { kind: 'who', who: 'char-marta' }
+
+/** fixtureEpisode with Marta wanting something in scenes 2 and 4. */
+function martaModel(overrides: Partial<Episode> = {}) {
+  const ep = fixtureEpisode(overrides)
+  for (const s of ep.scenes)
+    if (s.id === 'scene-2' || s.id === 'scene-4')
+      s.motivations = [want('char-marta')]
+  return model(ep, [], [MARTA])
+}
+
+/** Act 1: scene-1 … scene-5; act 2: scene-6. Story notes on 1 and 5. */
+function foldModel() {
+  const ep = episode([
+    ...[1, 2, 3, 4, 5].map((n) =>
+      scene({ id: `scene-${n}`, index: n - 1, act: 1 }),
+    ),
+    scene({ id: 'scene-6', index: 5, act: 2 }),
+  ])
+  return model(ep, [storyFlag('scene-1'), storyFlag('scene-5')])
+}
+
+/** What predict returns for a move that would make scene 5 pay off the cash
+ * before scene 2 sets it up. */
+const PAYS_OFF_FIRST: OrderIssue = {
+  id: 'payoff_first:thread-cash:scene-5',
+  kind: 'payoff_first',
+  sourceId: 'thread-cash',
+  label: 'The moved cash',
+  sceneId: 'scene-5',
+  otherSceneId: 'scene-2',
+}
+
+const sel = (sceneId: string) => ({ type: 'scene' as const, sceneId })
 const noop = () => {}
 
-function renderBoard(
-  overrides: Partial<ComponentProps<typeof Board>> & {
-    project: Project
-    episode: Episode
-  },
-) {
-  const { project: proj, episode: ep, ...rest } = overrides
+function renderBoard(overrides: Partial<ComponentProps<typeof Board>> = {}) {
   return render(
     <Board
-      project={proj}
-      episode={ep}
+      model={model()}
+      episodeLocked={false}
       selection={null}
       collapsedActs={new Set()}
       pending={false}
-      flaggedSceneIds={new Set()}
       onSelectScene={noop}
-      onSelectBeat={noop}
       onOpenInWrite={noop}
-      onReorder={noop}
-      {...rest}
+      onMove={noop}
+      onToggleAct={noop}
+      onEnterPanel={noop}
+      {...overrides}
     />,
   )
 }
 
-describe('Board / SceneCard / BeatCard', () => {
-  it('renders act frames, and the scene card shows a beat-count chip and the 2-line whatHappens clamp', () => {
-    const ep = episode([scene({ beats: [beat1_1(), beat1_2Locked()] })])
-    renderBoard({ project: project(ep), episode: ep })
-    expect(screen.getByTestId('act-frame-0')).not.toBeNull() // cold open
-    expect(screen.getByText('COLD OPEN')).not.toBeNull()
-    expect(screen.getByTestId('scene-card-scene-1')).not.toBeNull()
-    expect(screen.getByText('2 beats')).not.toBeNull()
-  })
+const card = (id: string) => screen.getByTestId(`scene-card-${id}`)
+const cardIds = (root: HTMLElement) =>
+  [...root.querySelectorAll<HTMLElement>('[data-scene-card]')].map(
+    (el) => el.dataset.sceneId,
+  )
 
-  it('shows an amber consistency badge on scene cards with open flags', () => {
-    const ep = episode([
-      scene({ id: 'scene-1' }),
-      scene({ id: 'scene-5', index: 1, location: 'INT. MARINA' }),
-    ])
-    renderBoard({
-      project: project(ep),
-      episode: ep,
-      flaggedSceneIds: new Set(['scene-5']),
-    })
-    expect(
-      screen
-        .getByTestId('scene-card-scene-5')
-        .querySelector('[data-testid="consistency-flag-badge"]'),
-    ).not.toBeNull()
-    expect(
-      screen
-        .getByTestId('scene-card-scene-1')
-        .querySelector('[data-testid="consistency-flag-badge"]'),
-    ).toBeNull()
-  })
-
-  it('clears the amber badge when the scene leaves the flagged set (dismiss)', () => {
-    const ep = episode([scene({ id: 'scene-5', location: 'INT. MARINA' })])
-    const { rerender } = renderBoard({
-      project: project(ep),
-      episode: ep,
-      flaggedSceneIds: new Set(['scene-5']),
-    })
-    expect(screen.getByTestId('consistency-flag-badge')).not.toBeNull()
-
-    rerender(
-      <Board
-        project={project(ep)}
-        episode={ep}
-        selection={null}
-        collapsedActs={new Set()}
-        pending={false}
-        flaggedSceneIds={new Set()}
-        onSelectScene={noop}
-        onSelectBeat={noop}
-        onReorder={noop}
-      />,
-    )
-    expect(screen.queryByTestId('consistency-flag-badge')).toBeNull()
-  })
-
-  it('clicking a scene card selects it', async () => {
-    const user = userEvent.setup()
-    const ep = episode([scene()])
-    const onSelectScene = vi.fn()
-    renderBoard({
-      project: project(ep),
-      episode: ep,
-      onSelectScene,
-    })
-    await user.click(screen.getByTestId('scene-card-scene-1'))
-    expect(onSelectScene).toHaveBeenCalledWith('scene-1')
-  })
-
-  it('double-clicking a scene card opens it in Write', async () => {
-    const user = userEvent.setup()
-    const ep = episode([scene()])
-    const onOpenInWrite = vi.fn()
-    renderBoard({
-      project: project(ep),
-      episode: ep,
-      onOpenInWrite,
-    })
-    await user.dblClick(screen.getByTestId('scene-card-scene-1'))
-    expect(onOpenInWrite).toHaveBeenCalledWith('scene-1')
-  })
-
-  it('a selected scene card uses the Quiet Tool soft accent fill', () => {
-    const ep = episode([scene()])
-    render(
-      <Board
-        project={project(ep)}
-        episode={ep}
-        selection={{ type: 'scene', sceneId: 'scene-1' }}
-        collapsedActs={new Set()}
-        pending={false}
-        flaggedSceneIds={new Set()}
-        onSelectScene={noop}
-        onSelectBeat={noop}
-        onReorder={noop}
-      />,
-    )
-    const card = screen.getByTestId('scene-card-scene-1')
-    expect(card.className).toContain('bg-tr-coral-soft')
-    expect(card.className).not.toContain('outline-selected')
-  })
-
-  it('the chevron expands the card to reveal nested beat cards; the locked beat shows a lock chip', async () => {
-    const user = userEvent.setup()
-    const ep = episode([scene({ beats: [beat1_1(), beat1_2Locked()] })])
-    render(
-      <Board
-        project={project(ep)}
-        episode={ep}
-        selection={null}
-        collapsedActs={new Set()}
-        pending={false}
-        flaggedSceneIds={new Set()}
-        onSelectScene={noop}
-        onSelectBeat={noop}
-        onReorder={noop}
-      />,
-    )
-    expect(screen.queryByTestId('beat-card-beat-1-2')).toBeNull()
-    await user.click(screen.getByRole('button', { name: 'Expand beats' }))
-    expect(screen.getByTestId('beat-card-beat-1-1')).not.toBeNull()
-    const lockedBeatCard = screen.getByTestId('beat-card-beat-1-2')
-    expect(lockedBeatCard.textContent).toContain('Locked')
-  })
-
-  it('clicking a nested beat card selects the beat, not the parent scene', async () => {
-    const user = userEvent.setup()
-    const ep = episode([scene({ beats: [beat1_1()] })])
-    const onSelectScene = vi.fn()
-    const onSelectBeat = vi.fn()
-    render(
-      <Board
-        project={project(ep)}
-        episode={ep}
-        selection={null}
-        collapsedActs={new Set()}
-        pending={false}
-        flaggedSceneIds={new Set()}
-        onSelectScene={onSelectScene}
-        onSelectBeat={onSelectBeat}
-        onReorder={noop}
-      />,
-    )
-    await user.click(screen.getByRole('button', { name: 'Expand beats' }))
-    await user.click(screen.getByTestId('beat-card-beat-1-1'))
-    expect(onSelectBeat).toHaveBeenCalledWith('scene-1', 'beat-1-1')
-    expect(onSelectScene).not.toHaveBeenCalled()
-  })
-
-  it('a locked scene card is not draggable', () => {
-    const ep = episode([scene({ locked: true })])
-    render(
-      <Board
-        project={project(ep)}
-        episode={ep}
-        selection={null}
-        collapsedActs={new Set()}
-        pending={false}
-        flaggedSceneIds={new Set()}
-        onSelectScene={noop}
-        onSelectBeat={noop}
-        onReorder={noop}
-      />,
-    )
-    const card = screen.getByTestId('scene-card-scene-1')
-    expect(card.getAttribute('draggable')).toBe('false')
-    expect(card.getAttribute('data-locked')).toBe('true')
-  })
-
-  it('an unlocked scene card is draggable', () => {
-    const ep = episode([scene()])
-    render(
-      <Board
-        project={project(ep)}
-        episode={ep}
-        selection={null}
-        collapsedActs={new Set()}
-        pending={false}
-        flaggedSceneIds={new Set()}
-        onSelectScene={noop}
-        onSelectBeat={noop}
-        onReorder={noop}
-      />,
-    )
-    expect(
-      screen.getByTestId('scene-card-scene-1').getAttribute('draggable'),
-    ).toBe('true')
-  })
-
-  it('a collapsed act hides its scene cards but keeps the frame and label', () => {
-    const ep = episode([scene()])
-    render(
-      <Board
-        project={project(ep)}
-        episode={ep}
-        selection={null}
-        collapsedActs={new Set([0])}
-        pending={false}
-        flaggedSceneIds={new Set()}
-        onSelectScene={noop}
-        onSelectBeat={noop}
-        onReorder={noop}
-      />,
-    )
-    expect(screen.getByText('COLD OPEN')).not.toBeNull()
-    expect(screen.queryByTestId('scene-card-scene-1')).toBeNull()
-    expect(screen.getByText('1 scene hidden')).not.toBeNull()
-  })
-
-  it('dragging one unlocked scene card onto another calls onReorder with (dragged, target)', () => {
-    const ep = episode([
-      scene({ id: 'scene-1', index: 0, act: 1 }),
-      scene({ id: 'scene-2', index: 1, act: 1, location: 'INT. OTHER' }),
-    ])
-    const onReorder = vi.fn()
-    render(
-      <Board
-        project={project(ep)}
-        episode={ep}
-        selection={null}
-        collapsedActs={new Set()}
-        pending={false}
-        flaggedSceneIds={new Set()}
-        onSelectScene={noop}
-        onSelectBeat={noop}
-        onReorder={onReorder}
-      />,
-    )
-    const source = screen.getByTestId('scene-card-scene-1')
-    const target = screen.getByTestId('scene-card-scene-2')
-
-    fireEvent.dragStart(source, { dataTransfer: makeDataTransfer() })
-    fireEvent.dragOver(target, { dataTransfer: makeDataTransfer() })
-    fireEvent.drop(target, { dataTransfer: makeDataTransfer() })
-
-    expect(onReorder).toHaveBeenCalledWith('scene-1', 'scene-2')
-  })
-
-  it('a scene card is keyboard-selectable: focusable button role, Enter and Space both select', () => {
-    const ep = episode([scene()])
-    const onSelectScene = vi.fn()
-    render(
-      <Board
-        project={project(ep)}
-        episode={ep}
-        selection={null}
-        collapsedActs={new Set()}
-        pending={false}
-        flaggedSceneIds={new Set()}
-        onSelectScene={onSelectScene}
-        onSelectBeat={noop}
-        onReorder={noop}
-      />,
-    )
-    const card = screen.getByTestId('scene-card-scene-1')
-    expect(card.getAttribute('role')).toBe('button')
-    expect(card.getAttribute('tabindex')).toBe('0')
-
-    card.focus()
-    fireEvent.keyDown(card, { key: 'Enter' })
-    expect(onSelectScene).toHaveBeenCalledWith('scene-1')
-
-    onSelectScene.mockClear()
-    fireEvent.keyDown(card, { key: ' ' })
-    expect(onSelectScene).toHaveBeenCalledWith('scene-1')
-  })
-
-  it('Enter on the nested chevron button does not also select the scene (bubbled keydown ignored)', () => {
-    const ep = episode([scene({ beats: [beat1_1()] })])
-    const onSelectScene = vi.fn()
-    render(
-      <Board
-        project={project(ep)}
-        episode={ep}
-        selection={null}
-        collapsedActs={new Set()}
-        pending={false}
-        flaggedSceneIds={new Set()}
-        onSelectScene={onSelectScene}
-        onSelectBeat={noop}
-        onReorder={noop}
-      />,
-    )
-    const chevron = screen.getByRole('button', { name: 'Expand beats' })
-    chevron.focus()
-    fireEvent.keyDown(chevron, { key: 'Enter' }) // bubbles up to the card
-    expect(onSelectScene).not.toHaveBeenCalled()
-  })
-
-  it('drag initiation is disabled on every card while a mutation is pending', () => {
-    const ep = episode([
-      scene({ id: 'scene-1', index: 0, act: 1 }),
-      scene({ id: 'scene-2', index: 1, act: 1, location: 'INT. OTHER' }),
-    ])
-    const onReorder = vi.fn()
-    render(
-      <Board
-        project={project(ep)}
-        episode={ep}
-        selection={null}
-        collapsedActs={new Set()}
-        pending
-        flaggedSceneIds={new Set()}
-        onSelectScene={noop}
-        onSelectBeat={noop}
-        onReorder={onReorder}
-      />,
-    )
-    const source = screen.getByTestId('scene-card-scene-1')
-    expect(source.getAttribute('draggable')).toBe('false')
-
-    // Second guard: even a synthetic dragStart (bypassing the attribute) is
-    // refused, so a subsequent drop can never produce a reorder.
-    fireEvent.dragStart(source, { dataTransfer: makeDataTransfer() })
-    const target = screen.getByTestId('scene-card-scene-2')
-    fireEvent.dragOver(target, { dataTransfer: makeDataTransfer() })
-    fireEvent.drop(target, { dataTransfer: makeDataTransfer() })
-    expect(onReorder).not.toHaveBeenCalled()
-  })
-
-  it('a locked scene is refused as a drop target: dragOver never marks it and drop is a no-op', () => {
-    const ep = episode([
-      scene({ id: 'scene-1', index: 0, act: 1 }),
-      scene({
-        id: 'scene-2',
-        index: 1,
-        act: 1,
-        location: 'INT. OTHER',
-        locked: true,
-      }),
-    ])
-    const onReorder = vi.fn()
-    render(
-      <Board
-        project={project(ep)}
-        episode={ep}
-        selection={null}
-        collapsedActs={new Set()}
-        pending={false}
-        flaggedSceneIds={new Set()}
-        onSelectScene={noop}
-        onSelectBeat={noop}
-        onReorder={onReorder}
-      />,
-    )
-    const source = screen.getByTestId('scene-card-scene-1')
-    const lockedTarget = screen.getByTestId('scene-card-scene-2')
-
-    fireEvent.dragStart(source, { dataTransfer: makeDataTransfer() })
-
-    // dragOver on a locked target must NOT call preventDefault — in a real
-    // browser that's precisely what keeps the drop from ever firing.
-    // (fireEvent returns false iff preventDefault was called.)
-    const overNotPrevented = fireEvent.dragOver(lockedTarget, {
-      dataTransfer: makeDataTransfer(),
-    })
-    expect(overNotPrevented).toBe(true)
-    // ...and no clay drop-target highlight is applied.
-    expect(lockedTarget.className).not.toContain('bg-tr-surface-clay')
-
-    // Belt-and-suspenders: even if a drop somehow fires, the handler
-    // returns early for a locked target — no reorder.
-    fireEvent.drop(lockedTarget, { dataTransfer: makeDataTransfer() })
-    expect(onReorder).not.toHaveBeenCalled()
-  })
-})
-
-// jsdom doesn't implement DataTransfer fully; a minimal stand-in is enough
-// since SceneCard only calls setData/reads effectAllowed, never getData in
-// these handlers (onReorder is driven by Board's own drag-source state, per
-// the comment in Board.tsx).
-function makeDataTransfer() {
+// jsdom doesn't implement DataTransfer; the cards only call setData.
+function dt() {
   return {
     setData: () => {},
     getData: () => '',
     effectAllowed: 'move',
   } as unknown as DataTransfer
 }
+
+/** jsdom has no DragEvent, so fireEvent drops clientX: set it by hand. Its
+ * rects are all zero, so 0 is a card's left half and any positive x its
+ * right half. */
+function dragAt(type: 'dragOver' | 'drop', el: HTMLElement, clientX: number) {
+  const event = createEvent[type](el, { dataTransfer: dt() })
+  Object.defineProperty(event, 'clientX', { value: clientX })
+  return fireEvent(el, event)
+}
+
+describe('Board', () => {
+  it('renders a frame per board act with its header, and its cards in board order', () => {
+    renderBoard()
+    for (const n of [0, 1, 2, 3, 4]) {
+      expect(screen.getByTestId(`act-frame-${n}`)).not.toBeNull()
+    }
+    const actOne = screen.getByTestId('act-frame-1')
+    expect(
+      within(actOne).getByRole('heading', { name: 'ACT ONE' }),
+    ).not.toBeNull()
+    expect(cardIds(actOne)).toEqual(['scene-2', 'scene-3'])
+    expect(
+      within(screen.getByTestId('act-frame-0')).getByText('COLD OPEN'),
+    ).not.toBeNull()
+  })
+
+  it('a collapsed act keeps its header and says how many scenes are hidden, and how many have notes', async () => {
+    const user = userEvent.setup()
+    const onToggleAct = vi.fn()
+    renderBoard({
+      model: model(fixtureEpisode(), [storyFlag('scene-3')]),
+      collapsedActs: new Set([1]),
+      onToggleAct,
+    })
+    const actOne = screen.getByTestId('act-frame-1')
+    expect(within(actOne).getByText('ACT ONE')).not.toBeNull()
+    expect(
+      within(actOne).getByText('2 scenes hidden · 1 with notes'),
+    ).not.toBeNull()
+    expect(cardIds(actOne)).toEqual([])
+
+    await user.click(
+      within(actOne).getByRole('button', { name: 'Show ACT ONE' }),
+    )
+    expect(onToggleAct).toHaveBeenCalledWith(1)
+  })
+
+  it('an empty act says so and takes a drop as an act move', () => {
+    const onMove = vi.fn()
+    renderBoard({ onMove })
+    const frame = screen.getByTestId('act-frame-4')
+    const empty = within(frame).getByText(
+      'No scenes yet. Drag a card here, or use the Act control.',
+    )
+
+    fireEvent.dragStart(card('scene-1'), { dataTransfer: dt() })
+    const notPrevented = fireEvent.dragOver(empty, { dataTransfer: dt() })
+    expect(notPrevented).toBe(false)
+    expect(frame.className).toContain('inset-ring-tr-sky')
+    fireEvent.drop(empty, { dataTransfer: dt() })
+
+    expect(onMove).toHaveBeenCalledTimes(1)
+    expect(onMove).toHaveBeenCalledWith({
+      type: 'act',
+      sceneId: 'scene-1',
+      act: 4,
+    })
+    expect(frame.className).not.toContain('inset-ring-tr-sky')
+  })
+
+  it('an empty act ignores a drag that never started (a locked card)', () => {
+    const onMove = vi.fn()
+    const ep = fixtureEpisode()
+    ep.scenes[0].locked = true
+    renderBoard({ model: model(ep), onMove })
+    const empty = within(screen.getByTestId('act-frame-4')).getByText(
+      /^No scenes yet/,
+    )
+
+    fireEvent.dragStart(card('scene-1'), { dataTransfer: dt() })
+    expect(fireEvent.dragOver(empty, { dataTransfer: dt() })).toBe(true)
+    fireEvent.drop(empty, { dataTransfer: dt() })
+    expect(onMove).not.toHaveBeenCalled()
+  })
+
+  it('a locked card never drags, and an episode lock locks every card', () => {
+    const onMove = vi.fn()
+    const ep = fixtureEpisode()
+    ep.scenes[1].locked = true // scene-3
+    const { rerender } = renderBoard({ model: model(ep), onMove })
+
+    expect(card('scene-3').getAttribute('draggable')).toBe('false')
+    expect(card('scene-3').getAttribute('data-locked')).toBe('true')
+    expect(card('scene-2').getAttribute('draggable')).toBe('true')
+
+    // Even a synthetic dragStart on a locked card starts nothing.
+    fireEvent.dragStart(card('scene-3'), { dataTransfer: dt() })
+    expect(fireEvent.dragOver(card('scene-2'), { dataTransfer: dt() })).toBe(
+      true,
+    )
+    fireEvent.drop(card('scene-2'), { dataTransfer: dt() })
+    expect(onMove).not.toHaveBeenCalled()
+
+    rerender(
+      <Board
+        model={model(ep)}
+        episodeLocked
+        selection={null}
+        collapsedActs={new Set()}
+        pending={false}
+        onSelectScene={noop}
+        onMove={onMove}
+        onToggleAct={noop}
+        onEnterPanel={noop}
+      />,
+    )
+    expect(card('scene-2').getAttribute('draggable')).toBe('false')
+    expect(card('scene-2').getAttribute('data-locked')).toBe('true')
+  })
+
+  it('a locked card takes a drop that leaves it in place', () => {
+    const onMove = vi.fn()
+    const ep = fixtureEpisode()
+    ep.scenes[1].locked = true // scene-3
+    renderBoard({ model: model(ep), onMove, predict: () => ({ issues: [] }) })
+
+    fireEvent.dragStart(card('scene-5'), { dataTransfer: dt() })
+    expect(dragAt('dragOver', card('scene-3'), 1)).toBe(false)
+    const bar = card('scene-3').querySelector('[data-insert-bar]')
+    expect(bar?.getAttribute('data-side')).toBe('after')
+    dragAt('drop', card('scene-3'), 1)
+    expect(onMove).toHaveBeenCalledTimes(1)
+    expect(onMove).toHaveBeenCalledWith({
+      type: 'insert',
+      sceneId: 'scene-5',
+      targetSceneId: 'scene-3',
+      after: true,
+    })
+  })
+
+  it('nothing drags while a write is in flight', () => {
+    const onMove = vi.fn()
+    renderBoard({ pending: true, onMove })
+    expect(card('scene-2').getAttribute('draggable')).toBe('false')
+
+    // Even a synthetic dragStart (bypassing the attribute) starts nothing.
+    fireEvent.dragStart(card('scene-2'), { dataTransfer: dt() })
+    fireEvent.dragOver(card('scene-4'), { dataTransfer: dt() })
+    fireEvent.drop(card('scene-4'), { dataTransfer: dt() })
+    const empty = within(screen.getByTestId('act-frame-4')).getByText(
+      /^No scenes yet/,
+    )
+    fireEvent.dragOver(empty, { dataTransfer: dt() })
+    fireEvent.drop(empty, { dataTransfer: dt() })
+    expect(onMove).not.toHaveBeenCalled()
+  })
+
+  it('over a target whose insert would shift a locked scene: the amber reason, no bar, and the drop is refused', () => {
+    const onMove = vi.fn()
+    const predict = vi.fn(() => ({ blockedBy: 'scene-3' }))
+    const { container } = renderBoard({ predict, onMove })
+
+    fireEvent.dragStart(card('scene-2'), { dataTransfer: dt() })
+    const notPrevented = fireEvent.dragOver(card('scene-4'), {
+      dataTransfer: dt(),
+    })
+    const tape = card('scene-4').querySelector('[data-tape]')
+    expect(tape?.textContent).toBe("Can't move past scene 3: it's locked")
+    expect(tape?.className).toContain('bg-tr-amber')
+    expect(card('scene-4').className).toContain('ring-tr-amber')
+    expect(container.querySelector('[data-insert-bar]')).toBeNull()
+    // Not prevented: the browser shows "not allowed" and never drops.
+    expect(notPrevented).toBe(true)
+    fireEvent.drop(card('scene-4'), { dataTransfer: dt() })
+    expect(onMove).not.toHaveBeenCalled()
+
+    // An empty act: the same reason in its box, an amber frame, no drop.
+    const frame = screen.getByTestId('act-frame-4')
+    const empty = within(frame).getByText(/^No scenes yet/)
+    fireEvent.dragStart(card('scene-2'), { dataTransfer: dt() })
+    const emptyNotPrevented = fireEvent.dragOver(empty, { dataTransfer: dt() })
+    expect(empty.textContent).toBe("Can't move past scene 3: it's locked")
+    expect(empty.className).toContain('text-tr-amber')
+    expect(frame.className).toContain('inset-ring-tr-amber')
+    expect(emptyNotPrevented).toBe(true)
+    fireEvent.drop(empty, { dataTransfer: dt() })
+    expect(onMove).not.toHaveBeenCalled()
+  })
+
+  it('exactly one card is a tab stop: the selected one, else the first', () => {
+    const stops = (root: HTMLElement) =>
+      [
+        ...root.querySelectorAll<HTMLElement>(
+          '[data-scene-card][tabindex="0"]',
+        ),
+      ].map((el) => el.dataset.sceneId)
+
+    const { container, rerender } = renderBoard({ selection: sel('scene-3') })
+    expect(stops(container)).toEqual(['scene-3'])
+
+    const props = {
+      model: model(),
+      episodeLocked: false,
+      pending: false,
+      onSelectScene: noop,
+      onMove: noop,
+      onToggleAct: noop,
+      onEnterPanel: noop,
+    }
+    rerender(<Board {...props} selection={null} collapsedActs={new Set()} />)
+    expect(stops(container)).toEqual(['scene-1'])
+
+    // The selected scene's act is collapsed: the first rendered card.
+    rerender(
+      <Board
+        {...props}
+        selection={sel('scene-3')}
+        collapsedActs={new Set([0, 1])}
+      />,
+    )
+    expect(stops(container)).toEqual(['scene-4'])
+
+    // Without a selection, the last focused card keeps the stop.
+    rerender(<Board {...props} selection={null} collapsedActs={new Set()} />)
+    act(() => card('scene-5').focus())
+    expect(stops(container)).toEqual(['scene-5'])
+  })
+
+  it('→ ← Home End select and focus the neighbour in board order, across acts', async () => {
+    const user = userEvent.setup()
+    const onSelectScene = vi.fn()
+    renderBoard({ selection: sel('scene-1'), onSelectScene })
+
+    act(() => card('scene-1').focus())
+    await user.keyboard('{ArrowRight}')
+    expect(onSelectScene).toHaveBeenLastCalledWith('scene-2')
+    expect(document.activeElement).toBe(card('scene-2'))
+
+    await user.keyboard('{ArrowLeft}')
+    expect(onSelectScene).toHaveBeenLastCalledWith('scene-1')
+    expect(document.activeElement).toBe(card('scene-1'))
+
+    await user.keyboard('{End}')
+    expect(onSelectScene).toHaveBeenLastCalledWith('scene-5')
+    expect(document.activeElement).toBe(card('scene-5'))
+
+    await user.keyboard('{Home}')
+    expect(onSelectScene).toHaveBeenLastCalledWith('scene-1')
+    expect(document.activeElement).toBe(card('scene-1'))
+
+    // At the edge, and with a modifier (⌥→ is a move, not a selection): nothing.
+    onSelectScene.mockClear()
+    await user.keyboard('{ArrowLeft}{Alt>}{ArrowRight}{/Alt}')
+    expect(onSelectScene).not.toHaveBeenCalled()
+    expect(document.activeElement).toBe(card('scene-1'))
+  })
+
+  it('↓ ↑ move to the nearest card in the next or previous row', async () => {
+    const user = userEvent.setup()
+    const onSelectScene = vi.fn()
+    // Four act-1 cards; jsdom has no layout, so give each a box: two rows of two.
+    const ep = episode([
+      scene({ id: 'scene-1', index: 0, act: 1 }),
+      scene({ id: 'scene-2', index: 1, act: 1 }),
+      scene({ id: 'scene-3', index: 2, act: 1 }),
+      scene({ id: 'scene-4', index: 3, act: 1 }),
+    ])
+    renderBoard({ model: model(ep), selection: sel('scene-1'), onSelectScene })
+    const boxes: Record<string, [number, number]> = {
+      'scene-1': [0, 0],
+      'scene-2': [0, 162],
+      'scene-3': [124, 0],
+      'scene-4': [124, 162],
+    }
+    for (const [id, [top, left]] of Object.entries(boxes)) {
+      card(id).getBoundingClientRect = () =>
+        ({ top, bottom: top + 106, left, width: 150 }) as DOMRect
+    }
+    act(() => card('scene-2').focus())
+    await user.keyboard('{ArrowDown}')
+    expect(onSelectScene).toHaveBeenLastCalledWith('scene-4')
+    expect(document.activeElement).toBe(card('scene-4'))
+    await user.keyboard('{ArrowUp}')
+    expect(onSelectScene).toHaveBeenLastCalledWith('scene-2')
+  })
+
+  it('Enter on the selected card asks for the panel; Enter or Space on another card selects it', () => {
+    const onSelectScene = vi.fn()
+    const onEnterPanel = vi.fn()
+    renderBoard({ selection: sel('scene-2'), onSelectScene, onEnterPanel })
+
+    fireEvent.keyDown(card('scene-2'), { key: 'Enter' })
+    expect(onEnterPanel).toHaveBeenCalledTimes(1)
+    expect(onSelectScene).not.toHaveBeenCalled()
+
+    expect(fireEvent.keyDown(card('scene-3'), { key: 'Enter' })).toBe(false)
+    expect(onSelectScene).toHaveBeenLastCalledWith('scene-3')
+    expect(fireEvent.keyDown(card('scene-4'), { key: ' ' })).toBe(false)
+    expect(onSelectScene).toHaveBeenLastCalledWith('scene-4')
+    expect(onEnterPanel).toHaveBeenCalledTimes(1)
+  })
+
+  it('a collapsed act counts scenes with Order notes as with notes', () => {
+    // Scene 3 (act 1) pays off before scene 4 (act 2) sets up: an Order note
+    // on each, and no story note anywhere.
+    const ep = fixtureEpisode({
+      threads: [thread('thread-cash', 'scene-4', 'scene-3')],
+    })
+    renderBoard({ model: model(ep), collapsedActs: new Set([1]) })
+    expect(
+      within(screen.getByTestId('act-frame-1')).getByText(
+        '2 scenes hidden · 1 with notes',
+      ),
+    ).not.toBeNull()
+  })
+
+  it("over a card's left half: the coral bar before it and the insert's prediction", () => {
+    const m = model()
+    const predict = vi.fn(() => ({ issues: [PAYS_OFF_FIRST] }))
+    const { container } = renderBoard({ model: m, predict })
+    fireEvent.dragStart(card('scene-5'), { dataTransfer: dt() })
+    expect(predict).not.toHaveBeenCalled()
+    expect(dragAt('dragOver', card('scene-1'), 0)).toBe(false)
+
+    expect(predict).toHaveBeenCalledWith({
+      type: 'insert',
+      sceneId: 'scene-5',
+      targetSceneId: 'scene-1',
+      after: false,
+    })
+    const bars = container.querySelectorAll('[data-insert-bar]')
+    expect(bars).toHaveLength(1)
+    expect(card('scene-1').contains(bars[0])).toBe(true)
+    expect(bars[0].getAttribute('data-side')).toBe('before')
+    expect(bars[0].className).toContain('bg-tr-coral')
+    const tape = card('scene-1').querySelector('[data-tape]')
+    expect(tape?.textContent).toBe(predictionTape(m, [PAYS_OFF_FIRST])?.text)
+    expect(tape?.textContent).toBe('⚠ 5 would pay off before 2')
+    expect(tape?.className).toContain('bg-tr-amber')
+    expect(card('scene-1').className).toContain('ring-tr-amber')
+    // The dragged card itself is never a target.
+    expect(card('scene-5').querySelector('[data-tape]')).toBeNull()
+  })
+
+  it("over a card's right half: the coral bar after it and the insert's prediction", () => {
+    const predict = vi.fn(() => ({ issues: [] }))
+    renderBoard({ predict })
+    fireEvent.dragStart(card('scene-5'), { dataTransfer: dt() })
+    expect(dragAt('dragOver', card('scene-1'), 1)).toBe(false)
+
+    expect(predict).toHaveBeenLastCalledWith({
+      type: 'insert',
+      sceneId: 'scene-5',
+      targetSceneId: 'scene-1',
+      after: true,
+    })
+    const bar = card('scene-1').querySelector('[data-insert-bar]')
+    expect(bar?.getAttribute('data-side')).toBe('after')
+    const tape = card('scene-1').querySelector('[data-tape]')
+    expect(tape?.textContent).toBe('Move 5 here')
+    expect(tape?.className).toContain('bg-tr-sky')
+    expect(card('scene-1').className).toContain('ring-tr-sky')
+    expect(card('scene-1').getAttribute('aria-label')).toContain('Move 5 here')
+  })
+
+  it('a drop beside itself shows nothing and is refused', () => {
+    const onMove = vi.fn()
+    const { container } = renderBoard({ predict: () => null, onMove })
+    fireEvent.dragStart(card('scene-2'), { dataTransfer: dt() })
+    expect(dragAt('dragOver', card('scene-3'), 0)).toBe(true)
+    expect(container.querySelector('[data-tape]')).toBeNull()
+    expect(container.querySelector('[data-insert-bar]')).toBeNull()
+    expect(card('scene-3').className).not.toMatch(/(^|\s)ring-2/)
+    dragAt('drop', card('scene-3'), 0)
+    expect(onMove).not.toHaveBeenCalled()
+  })
+
+  it("a drop calls onMove with the insert on the pointer's side, then clears", () => {
+    const onMove = vi.fn()
+    const { container } = renderBoard({
+      predict: () => ({ issues: [] }),
+      onMove,
+    })
+    const clear = () => {
+      expect(container.querySelector('[data-tape]')).toBeNull()
+      expect(container.querySelector('[data-insert-bar]')).toBeNull()
+      expect(card('scene-1').className).not.toMatch(/(^|\s)ring-2/)
+    }
+
+    // Leaving the card or ending the drag takes the tape and bar off.
+    fireEvent.dragStart(card('scene-5'), { dataTransfer: dt() })
+    dragAt('dragOver', card('scene-1'), 1)
+    fireEvent.dragLeave(card('scene-1'), { dataTransfer: dt() })
+    clear()
+    dragAt('dragOver', card('scene-1'), 1)
+    fireEvent.dragEnd(card('scene-5'), { dataTransfer: dt() })
+    clear()
+
+    fireEvent.dragStart(card('scene-5'), { dataTransfer: dt() })
+    dragAt('dragOver', card('scene-1'), 1)
+    dragAt('drop', card('scene-1'), 1)
+    expect(onMove).toHaveBeenCalledTimes(1)
+    expect(onMove).toHaveBeenCalledWith({
+      type: 'insert',
+      sceneId: 'scene-5',
+      targetSceneId: 'scene-1',
+      after: true,
+    })
+    clear()
+  })
+
+  it("an empty act shows the act move's prediction while a card is over it", () => {
+    const predict = vi.fn(() => ({ issues: [PAYS_OFF_FIRST] }))
+    const { unmount } = renderBoard({ predict })
+    let frame = screen.getByTestId('act-frame-4')
+    let empty = within(frame).getByText(/^No scenes yet/)
+    fireEvent.dragStart(card('scene-5'), { dataTransfer: dt() })
+    fireEvent.dragOver(empty, { dataTransfer: dt() })
+
+    expect(predict).toHaveBeenCalledWith({
+      type: 'act',
+      sceneId: 'scene-5',
+      act: 4,
+    })
+    expect(empty.textContent).toBe('⚠ 5 would pay off before 2')
+    expect(empty.className).toContain('text-tr-amber')
+    expect(frame.className).toContain('inset-ring-tr-amber')
+    expect(frame.className).not.toContain('inset-ring-tr-sky')
+    fireEvent.dragLeave(empty, { dataTransfer: dt() })
+    expect(empty.textContent).toMatch(/^No scenes yet/)
+    expect(frame.className).not.toContain('inset-ring-tr-amber')
+    unmount()
+
+    renderBoard({ predict: () => ({ issues: [] }) })
+    frame = screen.getByTestId('act-frame-4')
+    empty = within(frame).getByText(/^No scenes yet/)
+    fireEvent.dragStart(card('scene-5'), { dataTransfer: dt() })
+    fireEvent.dragOver(empty, { dataTransfer: dt() })
+    expect(empty.textContent).toBe('Move scene 5 here')
+    expect(empty.className).not.toContain('text-tr-amber')
+    expect(frame.className).toContain('inset-ring-tr-sky')
+  })
+
+  it('a dragover without a drag from this board changes nothing', () => {
+    const predict = vi.fn(() => ({ issues: [PAYS_OFF_FIRST] }))
+    const { container } = renderBoard({ predict })
+    fireEvent.dragOver(card('scene-1'), { dataTransfer: dt() })
+    expect(container.querySelector('[data-tape]')).toBeNull()
+    expect(container.querySelector('[data-insert-bar]')).toBeNull()
+    expect(card('scene-1').className).not.toMatch(/(^|\s)ring-2/)
+    expect(predict).not.toHaveBeenCalled()
+  })
+
+  it('⌥← / ⌥→ ask for a step; never while pending; plain arrows still select', () => {
+    const onMove = vi.fn()
+    const onSelectScene = vi.fn()
+    const ep = fixtureEpisode()
+    ep.scenes[1].locked = true // scene-3
+    const props = {
+      model: model(ep),
+      episodeLocked: false,
+      selection: sel('scene-2'),
+      collapsedActs: new Set<number>(),
+      onSelectScene,
+      onMove,
+      onToggleAct: noop,
+      onEnterPanel: noop,
+    }
+    const { rerender } = render(<Board {...props} pending={false} />)
+
+    expect(
+      fireEvent.keyDown(card('scene-2'), { key: 'ArrowRight', altKey: true }),
+    ).toBe(false)
+    expect(onMove).toHaveBeenLastCalledWith({
+      type: 'step',
+      sceneId: 'scene-2',
+      dir: 1,
+    })
+    fireEvent.keyDown(card('scene-2'), { key: 'ArrowLeft', altKey: true })
+    expect(onMove).toHaveBeenLastCalledWith({
+      type: 'step',
+      sceneId: 'scene-2',
+      dir: -1,
+    })
+    // A locked card still asks: PlanScreen says why it can't move.
+    fireEvent.keyDown(card('scene-3'), { key: 'ArrowRight', altKey: true })
+    expect(onMove).toHaveBeenLastCalledWith({
+      type: 'step',
+      sceneId: 'scene-3',
+      dir: 1,
+    })
+    expect(onMove).toHaveBeenCalledTimes(3)
+
+    // ⌘⌥ / Ctrl+⌥: nothing.
+    fireEvent.keyDown(card('scene-2'), {
+      key: 'ArrowRight',
+      altKey: true,
+      metaKey: true,
+    })
+    fireEvent.keyDown(card('scene-2'), {
+      key: 'ArrowRight',
+      altKey: true,
+      ctrlKey: true,
+    })
+    expect(onMove).toHaveBeenCalledTimes(3)
+    expect(onSelectScene).not.toHaveBeenCalled()
+
+    // While a write is in flight: still handled (no scroll), never a move.
+    rerender(<Board {...props} pending />)
+    expect(
+      fireEvent.keyDown(card('scene-2'), { key: 'ArrowRight', altKey: true }),
+    ).toBe(false)
+    expect(onMove).toHaveBeenCalledTimes(3)
+    expect(onSelectScene).not.toHaveBeenCalled()
+
+    // Plain arrows still select.
+    fireEvent.keyDown(card('scene-2'), { key: 'ArrowRight' })
+    expect(onSelectScene).toHaveBeenLastCalledWith('scene-3')
+    expect(onMove).toHaveBeenCalledTimes(3)
+  })
+
+  it('the drop tape replaces the relation and highlight tapes; a card never wears two', () => {
+    // scene-4 relates to the selected scene-2 and matches Marta.
+    const { container } = renderBoard({
+      model: martaModel({
+        threads: [thread('thread-cash', 'scene-2', 'scene-4')],
+      }),
+      selection: sel('scene-2'),
+      highlight: WHO_MARTA,
+    })
+    expect(card('scene-4').querySelector('[data-tape]')?.textContent).toBe(
+      '↘ pays off 2',
+    )
+    fireEvent.dragStart(card('scene-5'), { dataTransfer: dt() })
+    fireEvent.dragOver(card('scene-4'), { dataTransfer: dt() })
+
+    const tapes = card('scene-4').querySelectorAll('[data-tape]')
+    expect(tapes).toHaveLength(1)
+    expect(tapes[0].textContent).toBe('Move 5 here')
+    expect(card('scene-4').className).not.toContain('outline-dashed')
+    for (const el of container.querySelectorAll('[data-scene-card]'))
+      expect(el.querySelectorAll('[data-tape]').length).toBeLessThanOrEqual(1)
+  })
+
+  it('a card that shares a thread with the selection wears the relation tape and the dashed outline', () => {
+    const ep = fixtureEpisode({
+      threads: [thread('thread-cash', 'scene-2', 'scene-4')],
+    })
+    renderBoard({ model: model(ep), selection: sel('scene-2') })
+
+    const payoff = card('scene-4')
+    expect(payoff.querySelector('[data-tape]')?.textContent).toBe(
+      '↘ pays off 2',
+    )
+    expect(payoff.className).toContain('outline-dashed')
+    expect(card('scene-5').querySelector('[data-tape]')).toBeNull()
+    expect(card('scene-5').className).not.toContain('outline-dashed')
+  })
+
+  it('click selects, double-click opens Write, the unsaved dot follows draftSceneIds', async () => {
+    const user = userEvent.setup()
+    const onSelectScene = vi.fn()
+    const onOpenInWrite = vi.fn()
+    renderBoard({
+      selection: sel('scene-1'),
+      draftSceneIds: new Set(['scene-2']),
+      onSelectScene,
+      onOpenInWrite,
+    })
+
+    await user.click(card('scene-3'))
+    expect(onSelectScene).toHaveBeenCalledWith('scene-3')
+    await user.dblClick(card('scene-4'))
+    expect(onOpenInWrite).toHaveBeenCalledWith('scene-4')
+
+    expect(
+      card('scene-2').querySelector('[data-testid="unsaved-dot"]'),
+    ).not.toBeNull()
+    expect(
+      card('scene-1').querySelector('[data-testid="unsaved-dot"]'),
+    ).toBeNull()
+    expect(card('scene-1').getAttribute('aria-pressed')).toBe('true')
+    expect(card('scene-3').getAttribute('aria-pressed')).toBe('false')
+  })
+
+  it('under a highlight, matches wear its ring and tape and the rest go quiet', () => {
+    renderBoard({ model: martaModel(), highlight: WHO_MARTA })
+    for (const id of ['scene-2', 'scene-4']) {
+      expect(card(id).dataset.match).toBe('true')
+      expect(card(id).querySelector('[data-tape]')?.textContent).toBe(
+        'MARTA VEGA · wants',
+      )
+      expect(card(id).className).toContain('ring-tr-sky')
+      expect(card(id).className).not.toContain('bg-tr-surface-sunken')
+    }
+    for (const id of ['scene-1', 'scene-3', 'scene-5']) {
+      expect(card(id).hasAttribute('data-match')).toBe(false)
+      expect(card(id).querySelector('[data-tape]')).toBeNull()
+      expect(card(id).className).toContain('bg-tr-surface-sunken')
+      expect(card(id).className).not.toMatch(/opacity-/)
+    }
+  })
+
+  it('the relation tape wins over the highlight tape; there is only ever one tape', () => {
+    const { container } = renderBoard({
+      model: martaModel({
+        threads: [thread('thread-cash', 'scene-2', 'scene-4')],
+      }),
+      selection: sel('scene-2'),
+      highlight: WHO_MARTA,
+    })
+    for (const el of container.querySelectorAll('[data-scene-card]'))
+      expect(el.querySelectorAll('[data-tape]').length).toBeLessThanOrEqual(1)
+    // scene-4 matches Marta but relates to the selection: relation tape,
+    // still the highlight's ring.
+    expect(card('scene-4').querySelector('[data-tape]')?.textContent).toBe(
+      '↘ pays off 2',
+    )
+    expect(card('scene-4').dataset.match).toBe('true')
+    expect(card('scene-4').className).toContain('outline-dashed')
+    // The selected match keeps its highlight tape.
+    expect(card('scene-2').querySelector('[data-tape]')?.textContent).toBe(
+      'MARTA VEGA · wants',
+    )
+  })
+
+  it('the selected card never goes quiet', () => {
+    renderBoard({
+      model: martaModel(),
+      selection: sel('scene-3'),
+      highlight: WHO_MARTA,
+    })
+    expect(card('scene-3').className).not.toContain('bg-tr-surface-sunken')
+    expect(card('scene-3').className).toContain('bg-tr-coral-soft')
+    expect(card('scene-3').hasAttribute('data-match')).toBe(false)
+    expect(card('scene-1').className).toContain('bg-tr-surface-sunken')
+  })
+
+  it('None shows no ring, tape-from-highlight or quiet card', () => {
+    const { container } = renderBoard({
+      model: model(fixtureEpisode(), [storyFlag('scene-3')], [MARTA]),
+      highlight: NO_HIGHLIGHT,
+    })
+    expect(container.querySelector('[data-match]')).toBeNull()
+    expect(container.querySelector('[data-tape]')).toBeNull()
+    for (const el of container.querySelectorAll('[data-scene-card]')) {
+      expect(el.className).not.toContain('bg-tr-surface-sunken')
+      expect(el.className).not.toMatch(/(^|\s)ring-2/)
+    }
+  })
+
+  it('Fold the rest turns each run of non-matches into one stub; a stub opens its run; the selected scene never folds', async () => {
+    const user = userEvent.setup()
+    const onUnfold = vi.fn()
+    const { container, rerender } = renderBoard({
+      model: foldModel(),
+      selection: sel('scene-2'),
+      fold: true,
+      onUnfold,
+    })
+    // None + fold keeps scenes with a story note (1, 5) and the selection (2).
+    expect(cardIds(container)).toEqual(['scene-1', 'scene-2', 'scene-5'])
+    const stub = screen.getByRole('button', {
+      name: 'Show 2 folded scenes, 3 to 4',
+    })
+    expect(stub.textContent).toBe('3–4')
+    // Runs stop at the act's edge.
+    expect(
+      within(screen.getByTestId('act-frame-2')).getByRole('button', {
+        name: 'Show 1 folded scene, 6',
+      }).textContent,
+    ).toBe('6')
+
+    await user.click(stub)
+    expect(onUnfold).toHaveBeenCalledWith(['scene-3', 'scene-4'])
+
+    rerender(
+      <Board
+        model={foldModel()}
+        episodeLocked={false}
+        selection={sel('scene-2')}
+        collapsedActs={new Set()}
+        pending={false}
+        fold
+        unfolded={new Set(['scene-3', 'scene-4'])}
+        onSelectScene={noop}
+        onMove={noop}
+        onToggleAct={noop}
+        onEnterPanel={noop}
+      />,
+    )
+    expect(cardIds(container)).toEqual([
+      'scene-1',
+      'scene-2',
+      'scene-3',
+      'scene-4',
+      'scene-5',
+    ])
+    expect(screen.queryByRole('button', { name: /^Show 2 folded/ })).toBeNull()
+  })
+
+  /** Board wired like PlanScreen: selection and opened scenes in state. */
+  function FoldHarness() {
+    const [selected, setSelected] = useState('scene-2')
+    const [unfolded, setUnfolded] = useState<ReadonlySet<string>>(new Set())
+    return (
+      <Board
+        model={foldModel()}
+        episodeLocked={false}
+        selection={sel(selected)}
+        collapsedActs={new Set()}
+        pending={false}
+        fold
+        unfolded={unfolded}
+        onUnfold={(ids) => setUnfolded((prev) => new Set([...prev, ...ids]))}
+        onSelectScene={setSelected}
+        onMove={noop}
+        onToggleAct={noop}
+        onEnterPanel={noop}
+      />
+    )
+  }
+
+  it('an opened stub stays open when the writer selects one of its cards', async () => {
+    const user = userEvent.setup()
+    const { container } = render(<FoldHarness />)
+    await user.click(
+      screen.getByRole('button', { name: 'Show 2 folded scenes, 3 to 4' }),
+    )
+    await waitFor(() => expect(document.activeElement).toBe(card('scene-3')))
+    await user.click(card('scene-3'))
+    // scene-2 was kept only as the selection; the opened run stays.
+    expect(cardIds(container)).toEqual([
+      'scene-1',
+      'scene-3',
+      'scene-4',
+      'scene-5',
+    ])
+    await user.keyboard('{ArrowRight}')
+    expect(document.activeElement).toBe(card('scene-4'))
+  })
+
+  it('opening a stub puts focus on its first card, not <body>', async () => {
+    const user = userEvent.setup()
+    render(<FoldHarness />)
+    act(() =>
+      screen
+        .getByRole('button', { name: 'Show 2 folded scenes, 3 to 4' })
+        .focus(),
+    )
+    await user.keyboard('{Enter}')
+    await waitFor(() => expect(document.activeElement).toBe(card('scene-3')))
+  })
+
+  it('roving order skips folded scenes', async () => {
+    const user = userEvent.setup()
+    const onSelectScene = vi.fn()
+    renderBoard({
+      model: foldModel(),
+      selection: sel('scene-2'),
+      fold: true,
+      onSelectScene,
+    })
+    act(() => card('scene-2').focus())
+    await user.keyboard('{ArrowRight}')
+    expect(onSelectScene).toHaveBeenLastCalledWith('scene-5')
+    expect(document.activeElement).toBe(card('scene-5'))
+    await user.keyboard('{End}')
+    expect(onSelectScene).toHaveBeenLastCalledWith('scene-5')
+  })
+
+  it('the header slot renders inside the scroll area, before the acts', () => {
+    renderBoard({ header: <div data-testid="highlight-slot">bar</div> })
+    const slot = screen.getByTestId('highlight-slot')
+    const board = screen.getByLabelText('Plan board')
+    expect(board.contains(slot)).toBe(true)
+    expect(board.className).toContain('overflow-y-auto')
+    expect(slot.parentElement?.className).toContain('sticky')
+    expect(
+      slot.compareDocumentPosition(screen.getByTestId('act-frame-0')) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+  })
+
+  it("the scroll padding follows the sticky header's height", () => {
+    const observed: Element[] = []
+    let resized = () => {}
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        constructor(callback: () => void) {
+          resized = callback
+        }
+        observe(el: Element) {
+          observed.push(el)
+        }
+        disconnect() {}
+      },
+    )
+    try {
+      renderBoard({ header: <div data-testid="highlight-slot">bar</div> })
+      const sticky = screen.getByTestId('highlight-slot').parentElement!
+      const board = screen.getByLabelText('Plan board')
+      expect(observed).toEqual([sticky])
+      // Focus and scrolls land a card below the header (and its tape).
+      expect(board.className).toContain(
+        'scroll-pt-[calc(var(--board-header-h,0px)+--spacing(4))]',
+      )
+      let height = 140
+      sticky.getBoundingClientRect = () => ({ height }) as DOMRect
+      act(() => resized())
+      expect(board.style.getPropertyValue('--board-header-h')).toBe('140px')
+      height = 212 // the bar wrapped
+      act(() => resized())
+      expect(board.style.getPropertyValue('--board-header-h')).toBe('212px')
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+})
+
+describe('gridNeighbor', () => {
+  const box = (top: number, left: number) => ({
+    top,
+    bottom: top + 106,
+    left,
+    width: 150,
+  })
+  // Row 0: three cards (centres 75, 237, 399); row 1: two (175, 375).
+  const boxes = [
+    box(0, 0),
+    box(0, 162),
+    box(0, 324),
+    box(120, 100),
+    box(120, 300),
+  ]
+
+  it('returns the box in the next or previous row nearest by centre', () => {
+    expect(gridNeighbor(boxes, 1, 1)).toBe(3)
+    expect(gridNeighbor(boxes, 2, 1)).toBe(4)
+    expect(gridNeighbor(boxes, 4, -1)).toBe(2)
+  })
+
+  it('is null past the first or last row', () => {
+    expect(gridNeighbor(boxes, 3, 1)).toBeNull()
+    expect(gridNeighbor(boxes, 0, -1)).toBeNull()
+    expect(gridNeighbor([], 0, 1)).toBeNull()
+  })
+})

@@ -19,6 +19,8 @@ API_DIR="$(cd "$SCRIPT_DIR/../../api" && pwd)"
 DB_FILE="$(mktemp -u -t tableread-e2e).db"
 
 export DATABASE_URL="sqlite:///$DB_FILE"
+# Beside the disposable DB, never the dev server's apps/api/logs/.
+export TABLEREAD_IMPORT_DIAGNOSTICS_LOG="${DB_FILE%.db}-import-diagnostics.log"
 export TABLEREAD_ALLOW_MOCK_LLM=1
 unset ANTHROPIC_API_KEY
 

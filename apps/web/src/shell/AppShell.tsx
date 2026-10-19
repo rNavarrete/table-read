@@ -9,7 +9,7 @@ import {
 import { ApiError } from '../api/errors'
 import { hasDraftChangeSet } from '../review/changeSetSession'
 import { ModeSwitcher, type Mode } from './ModeSwitcher'
-import { navigateToMode } from './modeNavigation'
+import { navigateToMode, navigateToProjects } from './modeNavigation'
 import { SettingsPanel } from './SettingsPanel'
 import { Toast } from './Toast'
 
@@ -29,6 +29,11 @@ export interface AppShellProps {
   /** When false, Undo stays disabled (e.g. at root snapshot). Default true
    * when `projectId` is set. */
   canUndo?: boolean
+  /** Runs the Undo / history-restore request for the mode (Write: inside
+   * its mutation queue, after the pending autosave lands in the same op, so
+   * Undo never reverts an older change under unsaved text). Resolving
+   * `false` cancels — the save failure is already on screen. */
+  runHistoryChange?: (request: () => Promise<unknown>) => Promise<boolean>
   children: ReactNode
 }
 
@@ -80,9 +85,12 @@ export function AppShell({
   projectId,
   onUndo,
   canUndo = true,
+  runHistoryChange,
   children,
 }: AppShellProps) {
   useModeShortcuts()
+  const runHistory = (request: () => Promise<unknown>) =>
+    runHistoryChange ? runHistoryChange(request) : request().then(() => true)
   const [settingsOpen, setSettingsOpen] = useState(false)
   // Without this the app looks identical whether its analysis is real or
   // fixture data — see api/client.getLlmMode.
@@ -163,11 +171,11 @@ export function AppShell({
     setHistoryOpen(false)
     try {
       if (onUndo) {
-        await onUndo()
+        await runHistory(async () => onUndo())
       } else {
         // No in-shell head cache — omit If-Match; server still CAS-guards
         // against the observed head so concurrent undos cannot both win.
-        await undoProject(projectId)
+        if (!(await runHistory(() => undoProject(projectId)))) return
         // Full reload so every mode re-fetches the restored head (no shared
         // project store across Write/Plan/Review/Ledger yet).
         window.location.reload()
@@ -190,7 +198,8 @@ export function AppShell({
     setBusy(true)
     setHistoryOpen(false)
     try {
-      await restoreProject(projectId, snapshotId)
+      if (!(await runHistory(() => restoreProject(projectId, snapshotId))))
+        return
       window.location.reload()
     } catch (err) {
       setToast(
@@ -227,7 +236,7 @@ export function AppShell({
   const exportEnabled = Boolean(projectId) && !busy
 
   return (
-    <div className="min-h-screen bg-tr-surface-page">
+    <div className="flex h-screen flex-col bg-tr-surface-page">
       {llmMode === 'mock' ? (
         <div
           role="status"
@@ -245,6 +254,13 @@ export function AppShell({
         {projectId ? (
           <a
             href="/projects"
+            onClick={(event) => {
+              // A plain click leaves this page, so ask Plan's leave guard
+              // first; a modified click (new tab/window) leaves nothing.
+              if (event.metaKey || event.ctrlKey || event.shiftKey) return
+              event.preventDefault()
+              navigateToProjects()
+            }}
             className="font-script text-[14px] font-medium text-tr-text-primary"
           >
             {projectTitle}
@@ -358,7 +374,7 @@ export function AppShell({
           </button>
         </div>
       </header>
-      <main>{children}</main>
+      <main className="min-h-0 flex-1 overflow-y-auto">{children}</main>
       <SettingsPanel
         open={settingsOpen}
         onClose={() => setSettingsOpen(false)}

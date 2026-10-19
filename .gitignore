@@ -14,3 +14,5 @@ apps/api/evals/reports/
 # Eval failure-capture artifacts (evals.run --capture): generated/fixture text,
 # for human review only — never commit or log (test plan §3, CLAUDE.md rule 5).
 apps/api/evals/captures/
+# Import diagnostics log (import_diagnostics.py): ids and counts, but per-machine.
+apps/api/logs/

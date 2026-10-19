@@ -162,6 +162,7 @@ describe('useProjectPatch', () => {
             secrets: [],
             storyOverview: null,
             narrativeMap: null,
+            structureChecks: [],
           },
         ],
       },
@@ -257,6 +258,59 @@ describe('useProjectPatch', () => {
       )
     })
     expect(third).toBe(true)
+  })
+
+  it("onSaved gets the server's project after a success, and is not called on a failure or a refused second patch", async () => {
+    const before = project('Before')
+    const server = project('Server Truth')
+    const op = [{ op: 'replace' as const, path: '/title', value: 'x' }]
+    const { result } = renderHook(() =>
+      useProjectPatch('proj-x', before, vi.fn()),
+    )
+
+    // Success: called once with the server's reply, not the optimistic guess.
+    patchProjectMock.mockResolvedValue({
+      project: server,
+      consistencyFlags: [],
+    })
+    const onSaved = vi.fn()
+    await act(async () => {
+      await result.current.patch(op, project('Optimistic'), onSaved)
+    })
+    expect(onSaved).toHaveBeenCalledTimes(1)
+    expect(onSaved).toHaveBeenCalledWith(server)
+
+    // Failure: never called.
+    patchProjectMock.mockRejectedValue(
+      new ApiError(500, { code: 'UNKNOWN', message: 'boom' }),
+    )
+    const onFailedSave = vi.fn()
+    await act(async () => {
+      await result.current.patch(op, project('Optimistic'), onFailedSave)
+    })
+    expect(onFailedSave).not.toHaveBeenCalled()
+
+    // Refused second patch (first in flight): never called.
+    let resolveFirst!: (r: { project: Project; consistencyFlags: [] }) => void
+    patchProjectMock.mockImplementation(
+      () =>
+        new Promise<{ project: Project; consistencyFlags: [] }>(
+          (resolve) => (resolveFirst = resolve),
+        ),
+    )
+    let first!: Promise<boolean>
+    act(() => {
+      first = result.current.patch(op, project('Optimistic 1'))
+    })
+    const onRefused = vi.fn()
+    await act(async () => {
+      await result.current.patch(op, project('Optimistic 2'), onRefused)
+    })
+    await act(async () => {
+      resolveFirst({ project: server, consistencyFlags: [] })
+      await first
+    })
+    expect(onRefused).not.toHaveBeenCalled()
   })
 
   it('is a no-op when there is no project loaded yet', async () => {

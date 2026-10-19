@@ -1,25 +1,22 @@
 {
   "asOf": "2026-10",
+  "cacheWrite1hMultiplier": 2,
   "classifier": {
     "modelIdNote": "claude-haiku-5-5 via config/models.toml classifier role; rates for prompts up to 100K tokens",
     "inputUsdPerMTok": 0.1,
-    "outputUsdPerMTok": 0.5
+    "outputUsdPerMTok": 0.5,
+    "cacheReadUsdPerMTok": 0.01
   },
   "importAnalyst": {
     "modelIdNote": "claude-opus-5-5 via config/models.toml import_analyst role",
     "inputUsdPerMTok": 4.0,
-    "outputUsdPerMTok": 20.0
+    "outputUsdPerMTok": 20.0,
+    "cacheReadUsdPerMTok": 0.2
   },
   "importWorker": {
     "modelIdNote": "claude-sonnet-5-5 via config/models.toml import_worker role",
     "inputUsdPerMTok": 2.0,
-    "outputUsdPerMTok": 10.0
-  },
-  "importHeuristic": {
-    "charsPerToken": 4,
-    "systemOverheadTokensPerCall": 1500,
-    "avgOutputTokensPerCall": 400,
-    "entityScenesPerCall": 12,
-    "highMultiplier": 1.75
+    "outputUsdPerMTok": 10.0,
+    "cacheReadUsdPerMTok": 0.2
   }
 }

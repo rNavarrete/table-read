@@ -8,6 +8,7 @@ never be treated as a rule-9 schema-invalid retry target -- the eval loops
 from __future__ import annotations
 
 import contextlib
+import functools
 import logging
 import time
 from dataclasses import dataclass, field
@@ -35,9 +36,22 @@ _MODELS = {
 }
 
 
+class _RawResponses:
+    """`messages.with_raw_response` over a fake whose `create` returns the
+    reply: the SDK's raw-response shape (`.headers`, `.parse()`)."""
+
+    def __init__(self, messages: Any) -> None:
+        self._messages = messages
+
+    def create(self, **kwargs: Any) -> Any:
+        reply = self._messages.create(**kwargs)
+        return SimpleNamespace(headers={}, parse=lambda: reply)
+
+
 class _HangSdk:
     def __init__(self) -> None:
         self.messages = self
+        self.with_raw_response = _RawResponses(self)
         self.calls = 0
 
     def create(self, **kwargs: Any) -> Any:
@@ -121,6 +135,7 @@ def test_hung_retry_call_also_times_out_without_a_third_attempt():
     class _FirstInvalidThenHangSdk:
         def __init__(self) -> None:
             self.messages = self
+            self.with_raw_response = _RawResponses(self)
             self.calls = 0
 
         def create(self, **kwargs: Any) -> Any:
@@ -197,17 +212,27 @@ def test_grader_calibration_timeout_fails_closed_without_fabricating_verdict():
 
 # ---------------------------------------------------------------------------
 # T9.4: the SDK never retries on its own (`max_retries=0`), so a timed-out call
-# is never silently re-sent and billed twice. The helpers retry exactly once,
-# after a backoff, and only on 429/529/5xx: those requests were rejected
-# unbilled. Each attempt carries the op's own timeout to the SDK.
+# is never silently re-sent and billed twice. The helpers retry only on
+# 429/529/5xx-but-504 (those requests were rejected unbilled): up to 4
+# attempts, honoring `retry-after` or backing off 2/4/8 s with jitter, never
+# waiting more than 60 s in total. Each attempt carries the op's own timeout.
 # ---------------------------------------------------------------------------
 
 _REQUEST = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
 _HANG = object()
 
 
-def _status_error(cls: type, status: int) -> Exception:
-    return cls(message="x", response=httpx.Response(status, request=_REQUEST), body=None)
+def _status_error(
+    cls: type, status: int, retry_after: str | None = None, body: dict | None = None
+) -> Exception:
+    headers = {"retry-after": retry_after} if retry_after is not None else None
+    response = httpx.Response(status, request=_REQUEST, headers=headers)
+    return cls(message="x", response=response, body=body)
+
+
+def _error_body(error_type: str, **error: Any) -> dict:
+    """The API's error shape (platform.claude.com/docs/en/api/errors)."""
+    return {"type": "error", "error": {"type": error_type, "message": "x", **error}}
 
 
 class _ScriptedSdk:
@@ -216,6 +241,7 @@ class _ScriptedSdk:
 
     def __init__(self, *outcomes: Any) -> None:
         self.messages = self
+        self.with_raw_response = _RawResponses(self)
         self._outcomes = list(outcomes)
         self.calls: list[dict[str, Any]] = []
 
@@ -233,17 +259,46 @@ class _ScriptedSdk:
 
     def stream(self, **kwargs: Any) -> Any:
         reply = self._next(kwargs)
-        return contextlib.nullcontext(SimpleNamespace(get_final_message=lambda: reply))
+        return contextlib.nullcontext(_FakeStream(reply))
 
 
+class _FakeStream:
+    """An SDK message stream with no events: TTFT stays unknown."""
+
+    def __init__(self, reply: Any) -> None:
+        self.get_final_message = lambda: reply
+
+    def __next__(self) -> Any:
+        raise StopIteration
+
+
+# `meta` sends a plain call through `messages.with_raw_response`, as every
+# non-streamed op call does.
 _EACH_HELPER = pytest.mark.parametrize(
-    "helper", [_create_with_timeout, _stream_final_with_timeout], ids=["create", "stream"]
+    "helper",
+    [
+        _create_with_timeout,
+        functools.partial(_create_with_timeout, meta={}),
+        _stream_final_with_timeout,
+    ],
+    ids=["create", "create-raw", "stream"],
 )
 
 
 @pytest.fixture()
-def no_backoff(monkeypatch):
-    monkeypatch.setattr("llm.anthropic_client._OVERLOAD_BACKOFF_SECONDS", 0)
+def sleeps(monkeypatch) -> list[float]:
+    """Swap the backoff clock for a recorder, so no test really waits."""
+    recorded: list[float] = []
+    monkeypatch.setattr("llm.anthropic_client._sleep", recorded.append)
+    return recorded
+
+
+@pytest.fixture()
+def no_backoff(sleeps):
+    return sleeps
+
+
+_OVERLOADED = _status_error(anthropic.OverloadedError, 529)
 
 
 @_EACH_HELPER
@@ -257,25 +312,100 @@ def no_backoff(monkeypatch):
     ],
     ids=["529", "429", "500", "503"],
 )
-def test_an_overload_is_retried_once_after_a_backoff(helper, error, monkeypatch):
-    monkeypatch.setattr("llm.anthropic_client._OVERLOAD_BACKOFF_SECONDS", 0.05)
+def test_an_overload_is_retried_after_a_backoff(helper, error, sleeps):
     sdk = _ScriptedSdk(_status_error(*error), "reply")
 
-    t0 = time.monotonic()
     assert helper(sdk, 180.0, "segment_scene", model="m") == "reply"
 
     assert len(sdk.calls) == 2
-    assert time.monotonic() - t0 >= 0.05, "the retry waits out a backoff first"
+    assert len(sleeps) == 1
+    assert 2.0 * 0.8 <= sleeps[0] <= 2.0 * 1.2, "first backoff is 2 s, plus or minus 20%"
 
 
 @_EACH_HELPER
-def test_a_second_overload_surfaces_without_a_third_attempt(helper, no_backoff):
-    overloaded = _status_error(anthropic.OverloadedError, 529)
-    sdk = _ScriptedSdk(overloaded, overloaded, "unused")
+def test_success_on_the_third_attempt_backs_off_exponentially(helper, sleeps):
+    sdk = _ScriptedSdk(_OVERLOADED, _OVERLOADED, "reply")
+
+    assert helper(sdk, 180.0, "segment_scene", model="m") == "reply"
+
+    assert len(sdk.calls) == 3
+    assert len(sleeps) == 2
+    assert 1.6 <= sleeps[0] <= 2.4
+    assert 3.2 <= sleeps[1] <= 4.8
+
+
+@_EACH_HELPER
+def test_retry_after_is_honored_over_the_backoff(helper, sleeps):
+    sdk = _ScriptedSdk(_status_error(anthropic.RateLimitError, 429, retry_after="7"), "reply")
+
+    assert helper(sdk, 180.0, "segment_scene", model="m") == "reply"
+
+    assert sleeps == [7.0]
+
+
+def test_an_unreadable_retry_after_falls_back_to_the_backoff(sleeps):
+    sdk = _ScriptedSdk(_status_error(anthropic.RateLimitError, 429, retry_after="soon"), "reply")
+
+    assert _create_with_timeout(sdk, 180.0, "segment_scene", model="m") == "reply"
+
+    assert len(sleeps) == 1
+    assert 1.6 <= sleeps[0] <= 2.4
+
+
+@_EACH_HELPER
+def test_attempts_are_capped_at_four(helper, sleeps):
+    sdk = _ScriptedSdk(_OVERLOADED, _OVERLOADED, _OVERLOADED, _OVERLOADED, "unused")
 
     with pytest.raises(anthropic.OverloadedError):
         helper(sdk, 180.0, "segment_scene", model="m")
+
+    assert len(sdk.calls) == 4
+    assert len(sleeps) == 3
+    assert 6.4 <= sleeps[2] <= 9.6, "the third backoff is 8 s, plus or minus 20%"
+
+
+@_EACH_HELPER
+def test_the_total_wait_never_exceeds_sixty_seconds(helper, sleeps):
+    """A retry-after that would push the total past 60 s is not waited out:
+    the overload surfaces instead, and no retry ever comes earlier than the
+    API asked for."""
+    limited = _status_error(anthropic.RateLimitError, 429, retry_after="40")
+    sdk = _ScriptedSdk(limited, limited, "unused")
+
+    with pytest.raises(anthropic.RateLimitError):
+        helper(sdk, 180.0, "segment_scene", model="m")
+
+    assert sleeps == [40.0]
     assert len(sdk.calls) == 2
+
+
+def test_a_retry_after_above_the_cap_surfaces_at_once(sleeps):
+    sdk = _ScriptedSdk(_status_error(anthropic.RateLimitError, 429, retry_after="61"), "unused")
+
+    with pytest.raises(anthropic.RateLimitError):
+        _create_with_timeout(sdk, 180.0, "segment_scene", model="m")
+
+    assert sleeps == []
+    assert len(sdk.calls) == 1
+
+
+def test_each_wait_is_logged_with_numbers_only(sleeps, caplog):
+    limited = _status_error(
+        anthropic.RateLimitError, 429, retry_after="3", body=_error_body("rate_limit_error")
+    )
+    sdk = _ScriptedSdk(limited, "reply")
+
+    with caplog.at_level(logging.WARNING, logger="llm.anthropic_client"):
+        _create_with_timeout(sdk, 180.0, "segment_scene", model="m")
+
+    [line] = [r.getMessage() for r in caplog.records]
+    assert "llm_unavailable" in line
+    assert "op=segment_scene" in line
+    assert "status=429" in line
+    assert "attempt=1" in line
+    assert "wait_ms=3000" in line
+    assert "retry_after=3.0" in line
+    assert "error_type=rate_limit_error" in line
 
 
 @_EACH_HELPER
@@ -297,6 +427,55 @@ def test_other_failures_are_not_retried(helper, error, no_backoff):
     with pytest.raises(type(error)):
         helper(sdk, 180.0, "segment_scene", model="m")
     assert len(sdk.calls) == 1
+    assert no_backoff == []
+
+
+# Billing and spend-limit refusals keep failing until someone pays or raises
+# the limit (platform.claude.com/docs/en/api/errors and /api/rate-limits).
+_BILLING = _status_error(anthropic.APIStatusError, 402, body=_error_body("billing_error"))
+_SPEND_CAP = _status_error(
+    anthropic.RateLimitError,
+    429,
+    body=_error_body("rate_limit_error", details={"error_code": "enforced_spend_limit_reached"}),
+)
+_OWN_SPEND_LIMIT = _status_error(
+    anthropic.BadRequestError,
+    400,
+    body=_error_body(
+        "invalid_request_error",
+        message="You have reached your specified API usage limits. You will regain access "
+        "on 2026-11-01 at 00:00 UTC.",
+    ),
+)
+
+
+@_EACH_HELPER
+@pytest.mark.parametrize(
+    "error", [_BILLING, _SPEND_CAP, _OWN_SPEND_LIMIT], ids=["402", "429-spend-cap", "400"]
+)
+def test_billing_and_spend_limit_errors_fail_fast(helper, error, no_backoff, caplog):
+    sdk = _ScriptedSdk(error, "unused")
+
+    with caplog.at_level(logging.WARNING, logger="llm.anthropic_client"):
+        with pytest.raises(type(error)):
+            helper(sdk, 180.0, "segment_scene", model="m")
+
+    assert len(sdk.calls) == 1
+    assert no_backoff == []
+    [line] = [r.getMessage() for r in caplog.records]
+    assert "reason_class=spend_limit" in line
+    assert "attempt=None wait_ms=None" in line, "logged as a failure, not a retry wait"
+    assert "regain access" not in line
+
+
+def test_an_ordinary_rate_limit_is_still_retried(sleeps):
+    limited = _status_error(
+        anthropic.RateLimitError, 429, retry_after="2", body=_error_body("rate_limit_error")
+    )
+    sdk = _ScriptedSdk(limited, "reply")
+
+    assert _create_with_timeout(sdk, 180.0, "segment_scene", model="m") == "reply"
+    assert sleeps == [2.0]
 
 
 @_EACH_HELPER

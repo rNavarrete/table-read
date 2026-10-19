@@ -3,6 +3,7 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AppShell } from './AppShell'
+import { setLeaveGuard } from './modeNavigation'
 
 const { listProjectSnapshotsMock, restoreProjectMock, undoProjectMock } =
   vi.hoisted(() => ({
@@ -100,38 +101,78 @@ describe('AppShell', () => {
     // modes by re-fetching.
     await waitFor(() => expect(reloadMock).toHaveBeenCalled())
   })
-})
 
-describe('demo-mode banner', () => {
-  it('warns the writer when AI results are fixture data', async () => {
-    getLlmModeMock.mockResolvedValueOnce({ status: 'ok', llmMode: 'mock' })
+  it('Undo runs its request through runHistoryChange (Write queue) and stays put when it declines', async () => {
+    const user = userEvent.setup()
+    undoProjectMock.mockResolvedValue({ id: 'proj-1' })
+    let decline = true
+    const runHistoryChange = vi.fn(async (request: () => Promise<unknown>) => {
+      if (decline) return false // a save failed: no undo
+      await request()
+      return true
+    })
+
     render(
-      <AppShell projectTitle="The Long Pour" activeMode="Write" ledgerCount={0}>
-        <div />
+      <AppShell
+        activeMode="Write"
+        ledgerCount={0}
+        projectTitle="Long Pour"
+        projectId="proj-1"
+        runHistoryChange={runHistoryChange}
+      >
+        <p>Mode content</p>
       </AppShell>,
     )
-    const banner = await screen.findByTestId('mock-llm-banner')
-    expect(banner.textContent).toMatch(/sample data/i)
+
+    await user.click(screen.getByTestId('undo-button'))
+    await waitFor(() =>
+      expect(
+        (screen.getByTestId('undo-button') as HTMLButtonElement).disabled,
+      ).toBe(false),
+    )
+    expect(runHistoryChange).toHaveBeenCalledOnce()
+    expect(undoProjectMock).not.toHaveBeenCalled()
+    expect(reloadMock).not.toHaveBeenCalled()
+
+    decline = false
+    await user.click(screen.getByTestId('undo-button'))
+    await waitFor(() => expect(reloadMock).toHaveBeenCalled())
+    // The undo request ran inside the runner, not beside it.
+    expect(undoProjectMock).toHaveBeenCalledWith('proj-1')
+    expect(runHistoryChange).toHaveBeenCalledTimes(2)
   })
 
-  it('stays out of the way when the real client is configured', async () => {
-    render(
-      <AppShell projectTitle="The Long Pour" activeMode="Write" ledgerCount={0}>
-        <div />
-      </AppShell>,
-    )
-    await waitFor(() => expect(getLlmModeMock).toHaveBeenCalled())
-    expect(screen.queryByTestId('mock-llm-banner')).toBeNull()
-  })
+  it('the project title asks the leave guard before going to the project list', async () => {
+    const user = userEvent.setup()
+    const assignMock = vi.fn()
+    window.location.assign = assignMock
+    let allow = false
+    const guard = vi.fn(() => Promise.resolve(allow))
+    setLeaveGuard(guard)
+    try {
+      render(
+        <AppShell
+          activeMode="Plan"
+          ledgerCount={0}
+          projectTitle="Long Pour"
+          projectId="proj-1"
+        >
+          <p>Mode content</p>
+        </AppShell>,
+      )
+      const title = screen.getByRole('link', { name: 'Long Pour' })
+      expect(title.getAttribute('href')).toBe('/projects')
 
-  it('says nothing when the health check cannot be reached', async () => {
-    getLlmModeMock.mockRejectedValueOnce(new Error('offline'))
-    render(
-      <AppShell projectTitle="The Long Pour" activeMode="Write" ledgerCount={0}>
-        <div />
-      </AppShell>,
-    )
-    await waitFor(() => expect(getLlmModeMock).toHaveBeenCalled())
-    expect(screen.queryByTestId('mock-llm-banner')).toBeNull()
+      await user.click(title)
+      expect(guard).toHaveBeenCalledOnce()
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      expect(assignMock).not.toHaveBeenCalled()
+
+      allow = true
+      await user.click(title)
+      await waitFor(() => expect(assignMock).toHaveBeenCalledWith('/projects'))
+    } finally {
+      setLeaveGuard(null)
+    }
   })
 })

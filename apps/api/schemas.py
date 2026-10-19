@@ -471,6 +471,78 @@ class NarrativeMapRun(_Base):
     updated_at: str
 
 
+# Structure checklist (spec 2026-10-11). TV act structure is derived in the
+# web and never stored, so it is not a lens here.
+class StructureLens(StrEnum):
+    heros_journey = "heros_journey"
+    story_circle = "story_circle"
+    save_the_cat = "save_the_cat"
+
+
+class StructureStageName(StrEnum):
+    ordinary_world = "ordinary_world"
+    call_to_adventure = "call_to_adventure"
+    refusal = "refusal"
+    meeting_the_mentor = "meeting_the_mentor"
+    crossing_the_threshold = "crossing_the_threshold"
+    tests_allies_enemies = "tests_allies_enemies"
+    approach = "approach"
+    ordeal = "ordeal"
+    reward = "reward"
+    road_back = "road_back"
+    resurrection = "resurrection"
+    return_with_elixir = "return_with_elixir"
+    circle_you = "circle_you"
+    circle_need = "circle_need"
+    circle_go = "circle_go"
+    circle_search = "circle_search"
+    circle_find = "circle_find"
+    circle_take = "circle_take"
+    circle_return = "circle_return"
+    circle_change = "circle_change"
+    opening_image = "opening_image"
+    theme_stated = "theme_stated"
+    set_up = "set_up"
+    catalyst = "catalyst"
+    debate = "debate"
+    break_into_two = "break_into_two"
+    b_story = "b_story"
+    fun_and_games = "fun_and_games"
+    midpoint = "midpoint"
+    bad_guys_close_in = "bad_guys_close_in"
+    all_is_lost = "all_is_lost"
+    dark_night_of_the_soul = "dark_night_of_the_soul"
+    break_into_three = "break_into_three"
+    finale = "finale"
+    final_image = "final_image"
+
+
+class StructureStageStatus(StrEnum):
+    hit = "hit"
+    thin = "thin"
+    missing = "missing"
+    unverified = "unverified"
+
+
+class StructureStage(_Base):
+    stage: StructureStageName
+    status: StructureStageStatus
+    beat_id: Id | None
+    scene_id: Id | None
+    reason: str
+    evidence_quote: str | None = Field(min_length=1, max_length=200)
+
+
+class StructureCheck(_Base):
+    lens: StructureLens
+    applies: bool
+    rationale: str
+    stages: list[StructureStage]
+    source_hash: str = Field(min_length=1)
+    checked_at: str
+    prompt_version: str
+
+
 class Episode(_Base):
     id: Id
     index: int = Field(ge=0)
@@ -487,6 +559,8 @@ class Episode(_Base):
     secrets: list[Secret] = []
     story_overview: StoryOverview | None = None
     narrative_map: NarrativeMap | None = None
+    # At most one per lens; a new check replaces that lens's entry.
+    structure_checks: list[StructureCheck] = []
 
 
 class CharacterArc(_Base):
@@ -791,6 +865,116 @@ class ImportProgressItemEvent(_Base):
     total: int = Field(ge=0)
 
 
+class ImportFoundScene(_Base):
+    index: int = Field(ge=0)
+    slugline: str
+    line_count: int = Field(ge=0)
+    int_ext: Literal["int", "ext", "other"]
+
+
+class ImportFoundScenes(_Base):
+    kind: Literal["scenes"]
+    scenes: list[ImportFoundScene]
+
+
+class ImportFoundBeat(_Base):
+    """A segmented beat's reading fields (T9.17); never its `scriptText`."""
+
+    what_happens: str
+    audience_learns: str
+    audience_feels: str
+
+
+class ImportFoundSceneRead(_Base):
+    kind: Literal["scene"]
+    index: int = Field(ge=0)
+    beat_count: int = Field(ge=0)
+    what_happens: str
+    failed: bool
+    beats: list[ImportFoundBeat] = []
+
+
+class ImportFoundActs(_Base):
+    kind: Literal["acts"]
+    format: ShowFormat
+    scene_acts: list[Annotated[int, Field(ge=0)]]
+
+
+class ImportFoundCastRead(_Base):
+    kind: Literal["castRead"]
+    scene_indexes: list[Annotated[int, Field(ge=0)]]
+
+
+class ImportFoundCharacter(_Base):
+    name: str
+    scene_count: int = Field(ge=0)
+
+
+class ImportFoundCast(_Base):
+    kind: Literal["cast"]
+    total: int = Field(ge=0)
+    characters: list[ImportFoundCharacter]
+
+
+class ImportFoundThread(_Base):
+    label: str
+    status: ThreadStatus
+    setup_scene_index: int | None = Field(ge=0)
+    payoff_scene_index: int | None = Field(ge=0)
+
+
+class ImportFoundThreads(_Base):
+    kind: Literal["threads"]
+    threads: list[ImportFoundThread]
+
+
+class ImportFoundBeatSheetItem(_Base):
+    label: str
+    scene_index: int | None = Field(ge=0)
+
+
+class ImportFoundOverview(_Base):
+    kind: Literal["overview"]
+    logline: str
+    beat_sheet: list[ImportFoundBeatSheetItem]
+
+
+class ImportFoundFacts(_Base):
+    kind: Literal["facts"]
+    index: int = Field(ge=0)
+    fact_count: int = Field(ge=0)
+    secret_count: int = Field(ge=0)
+    failed: bool
+
+
+class ImportFoundFlags(_Base):
+    kind: Literal["flags"]
+    contradictions: int = Field(ge=0)
+    tensions: int = Field(ge=0)
+    other: int = Field(ge=0)
+
+
+ProjectImportFound = Annotated[
+    ImportFoundScenes
+    | ImportFoundSceneRead
+    | ImportFoundActs
+    | ImportFoundCastRead
+    | ImportFoundCast
+    | ImportFoundThreads
+    | ImportFoundOverview
+    | ImportFoundFacts
+    | ImportFoundFlags,
+    Field(discriminator="kind"),
+]
+
+
+class ProjectImportFoundEvent(_Base):
+    type: Literal["found"]
+    stage: ImportProgressStageName
+    cached: bool = False
+    data: ProjectImportFound
+
+
 class ImportProgressCompleteEvent(_Base):
     type: Literal["complete"]
     result: ProjectImportResult
@@ -812,6 +996,7 @@ class ProjectImportProgressEvent(
         Annotated[
             ImportProgressStageEvent
             | ImportProgressItemEvent
+            | ProjectImportFoundEvent
             | ImportProgressCompleteEvent
             | ImportProgressFailedEvent,
             Field(discriminator="type"),
@@ -1289,6 +1474,32 @@ class NarrativeMapVerification(_Base):
     unsupported_claims: list[NarrativeMapUnsupportedClaim]
     missing_scene_ids: list[Id]
     advisories: list[NarrativeMapVerificationNote]
+
+
+# Structure checklist ops (spec 2026-10-11). The model never writes quotes or
+# scene ids, and never says `unverified`: the server fills and sets those.
+class InferredStructureStage(_Base):
+    stage: StructureStageName
+    status: Literal["hit", "thin", "missing"]
+    beat_id: Id | None
+    reason: str
+
+
+class InferredStructureCheck(_Base):
+    applies: bool
+    rationale: str
+    stages: list[InferredStructureStage]
+
+
+# `supported` is last to match the Zod declaration order (reason, then answer).
+class StructureCheckVerdict(_Base):
+    stage: StructureStageName
+    reason: str
+    supported: bool
+
+
+class StructureCheckVerification(_Base):
+    stages: list[StructureCheckVerdict]
 
 
 class ExtractedFactSourceSpan(_Base):

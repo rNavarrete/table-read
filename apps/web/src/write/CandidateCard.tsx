@@ -9,6 +9,7 @@ import {
 } from './normalizeScriptText'
 import { SuggestionChips } from './SuggestionChips'
 import { useTuneSession } from './useTuneSession'
+import type { FlushResult } from './useWriteQueue'
 import type { AcceptErrorState } from './useAcceptBeat'
 
 export interface CandidateCardProps {
@@ -29,6 +30,8 @@ export interface CandidateCardProps {
   /** Session-level retry (regenerates the full 3-card round) — the only
    * retry granularity the generation endpoint offers a failed slot. */
   onRetryGeneration: () => void
+  /** Write's autosave flush, awaited before Tune runs (useTuneSession). */
+  beforeGenerate?: () => FlushResult
 }
 
 const cardShell =
@@ -149,8 +152,9 @@ export function CandidateCard({
   onSkip,
   onReplace,
   onRetryGeneration,
+  beforeGenerate,
 }: CandidateCardProps) {
-  const tuneSession = useTuneSession(projectId, sceneId)
+  const tuneSession = useTuneSession(projectId, sceneId, beforeGenerate)
   const [tuneOpen, setTuneOpen] = useState(false)
   const [instruction, setInstruction] = useState('')
   const [conflictsConfirmed, setConflictsConfirmed] = useState(false)
@@ -346,10 +350,10 @@ export function CandidateCard({
                 />
                 <button
                   type="submit"
-                  disabled={!instruction.trim()}
+                  disabled={!instruction.trim() || tuneSession.saving}
                   className="rounded-card border border-tr-border px-3 py-1.5 text-13 text-tr-text-primary disabled:opacity-50"
                 >
-                  Go
+                  {tuneSession.saving ? 'Saving…' : 'Go'}
                 </button>
                 <button
                   type="button"

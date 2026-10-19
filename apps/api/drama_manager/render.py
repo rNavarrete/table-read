@@ -24,8 +24,11 @@ import json
 import secrets
 from typing import Any
 
+from drama_manager.structure_stages import STRUCTURE_NAMES, STRUCTURE_STAGES
+
 # Prompt spec §8 / hard rule 7: every template carries a PROMPT_VERSION (semver);
-# it is logged with each call and bumped on any template change. 0.50.0 lets
+# it is logged with each call and bumped on any template change. 0.51.0 adds
+# check_structure and verify_structure_check (structure checklist). 0.50.0 lets
 # an import with no format ask infer_act_breaks for one (genre, runtime,
 # acts, cold open, tag, serialization) before its act starts, keeping any
 # printed structure, and asks a given-format call to return format null;
@@ -144,7 +147,7 @@ from typing import Any
 # 0.10.0 typed segment starts; 0.9.0 lock-aware narrative repair. Earlier:
 # 0.8.0 suggest; 0.7.0 scene skeleton; 0.6.0 continuity; 0.5.0 regenerate;
 # 0.4.0 blast; 0.3.0 tune; 0.2.0 candidate + §0 system prompt.
-PROMPT_VERSION = "0.50.0"
+PROMPT_VERSION = "0.51.0"
 
 
 def new_nonce() -> str:
@@ -869,6 +872,62 @@ def build_narrative_map_verification_prompt(
         "approved=true when both are empty, however many advisories you record. Keep "
         "advisories limited to genuine non-blocking advice; do not add confirmed, consistent, "
         "or 'not an issue' observations. Do not rewrite the map."
+    )
+    return build_system_prompt(project, nonce), user
+
+
+def build_structure_check_prompt(
+    project: dict, lens: str, spine: dict, nonce: str, diagnostics: list[dict] | None = None
+) -> tuple[str, str]:
+    """One structure check over the import's own breakdown (spec 2026-10-11)."""
+    name = STRUCTURE_NAMES[lens]
+    stages = [{"stage": stage, "label": label} for stage, label in STRUCTURE_STAGES[lens]]
+    user = (
+        source_data("show_format", project.get("format") or {}, nonce)
+        + "\n"
+        + source_data("story_overview", spine["storyOverview"], nonce)
+        + "\n"
+        + source_data("story_threads", spine["threads"], nonce)
+        + "\n"
+        + source_data("scene_spine", spine["scenes"], nonce)
+        + "\n"
+        + source_data("required_stages", stages, nonce)
+        + f"\nCheck this episode against {name}. For every stage in required_stages, "
+        "decide one status: hit (the stage clearly happens; cite the one beatId where it "
+        "lands), thin (it happens only partly or weakly; cite the beatId and say what is "
+        "missing), or missing (it does not happen; beatId null). Judge only from "
+        "scene_spine, story_overview and story_threads, and cite only beatIds that appear "
+        "in scene_spine. Each reason is one plain sentence about this story, naming its "
+        "characters and events. If the structure does not fit this script at all (for "
+        "example an ensemble with no single protagonist for the Hero's Journey), set "
+        "applies to false, explain why in rationale, and return no stages. Otherwise set "
+        "applies to true and give one sentence in rationale on how the script uses it."
+    )
+    if lens == "save_the_cat":
+        user += (
+            " Save the Cat is a feature-film template; a TV episode may compress or skip "
+            "beats. Judge what is on the page, and set applies to false if the episode "
+            "does not follow it."
+        )
+    if diagnostics:
+        user += (
+            "\nYour previous answer failed these checks:\n"
+            + source_data("structure_check_repairs", diagnostics, nonce)
+            + "\nReturn one corrected answer covering every required stage exactly once."
+        )
+    return build_system_prompt(project, nonce), user
+
+
+def build_structure_verification_prompt(
+    project: dict, lens: str, claims: list[dict], nonce: str
+) -> tuple[str, str]:
+    """Per-stage evidence check: does each excerpt show its claimed stage?"""
+    user = (
+        source_data("claims", claims, nonce)
+        + f"\nEach claim says a stage of {STRUCTURE_NAMES[lens]} happens at the cited "
+        "beat. Using only that claim's excerpt, decide whether the excerpt shows it. Give "
+        "a one-sentence reason first, then supported true or false. Return one verdict per "
+        "claim, using the claim's stage."
     )
     return build_system_prompt(project, nonce), user
 

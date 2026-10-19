@@ -35,6 +35,9 @@ interface WizardShellProps {
   // to the same `stepId` as last time; normal Back/Continue clicks keep
   // working in between jumps.
   jumpTo?: { stepId: string; token: number }
+  // The import board's column (the prototype's 1280px) while it runs and
+  // holds its finale, so a 120-scene board stays within about two screens.
+  wide?: boolean
 }
 
 function focusFirstInvalidField() {
@@ -54,6 +57,7 @@ export function WizardShell({
   onFinalAction,
   isFinalActionDisabled = false,
   jumpTo,
+  wide = false,
 }: WizardShellProps) {
   const [currentIndex, setCurrentIndex] = useState(0)
   // "Adjusting state during render" (react.dev), not an effect: a jump is a
@@ -98,7 +102,9 @@ export function WizardShell({
           Table Read
         </a>
       </header>
-      <main className="mx-auto flex max-w-3xl flex-col gap-6 px-6 py-10">
+      <main
+        className={`mx-auto flex flex-col gap-6 px-6 py-10 ${wide ? 'max-w-7xl' : 'max-w-3xl'}`}
+      >
         <div>
           <p className="text-12 uppercase tracking-wide text-tr-text-muted">
             New project

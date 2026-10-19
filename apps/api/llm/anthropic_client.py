@@ -8,8 +8,9 @@ On a schema-invalid (or missing) tool_use response, retries **exactly once**
 with the validation error appended as an `is_error` tool_result, then raises
 `SchemaInvalidLlmError` -- never a fabricated fallback (CLAUDE.md hard rule
 9). Logs only op name, PROMPT_VERSION, model id, retry/failure flags,
-token counts, and a short sha256 hash of the user message
-(`input_hash=`) -- never prompt or response content (hard rule 5).
+token counts, timings, rate-limit header counts, ids, the byte size of the
+tool input, and a short sha256 hash of the user message (`input_hash=`) --
+never prompt or response content (hard rule 5).
 
 This class takes its Anthropic SDK client via constructor injection and is
 never constructed here: the only sanctioned construction point is
@@ -24,18 +25,24 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import random
+import threading
 import time
 from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, ValidationError
 
 from deadline import DeadlineExceeded, call_within_deadline
+from import_diagnostics import current_import_run_id, current_import_unit
 from llm.errors import (
     LlmTimeoutError,
     SchemaInvalidLlmError,
+    is_spend_limit,
     log_llm_unavailable,
+    retry_after_seconds,
     validation_error_paths,
 )
 from llm.ops import OP_REGISTRY, LlmOp
@@ -48,6 +55,7 @@ from schemas import (
     InferredNarrativeMapSynthesis,
     InferredNarrativeSceneAnalysisBatch,
     InferredStoryOverview,
+    InferredStructureCheck,
     InitialSceneSkeleton,
     InstructionSuggestions,
     LedgerExtraction,
@@ -56,6 +64,7 @@ from schemas import (
     RegeneratedElements,
     SegmentedScene,
     StoryEntities,
+    StructureCheckVerification,
 )
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -69,51 +78,100 @@ DEFAULT_MAX_TOKENS = 16_384
 # schema-invalid response, never on a timeout (see `LlmTimeoutError`).
 DEFAULT_LLM_CALL_TIMEOUT_SECONDS = 120
 
-_OVERLOAD_BACKOFF_SECONDS = 5.0
+_OVERLOAD_MAX_ATTEMPTS = 4
+_OVERLOAD_BACKOFF_SECONDS = (2.0, 4.0, 8.0)  # before attempts 2, 3 and 4
+_OVERLOAD_JITTER = 0.2
+_OVERLOAD_MAX_TOTAL_WAIT_SECONDS = 60.0
+_sleep = time.sleep  # tests swap in a recorder
 
 _logger = logging.getLogger("llm.anthropic_client")
 
 
-def _retry_once_if_overloaded(
-    attempt: Callable[[], Any], *, where: str, op: str, model: Any
-) -> Any:
-    """Run `attempt()`, and once more after a backoff if the API rejected it
-    with 429, 529 or another 5xx: those requests are not billed. The SDK is
-    built with `max_retries=0`, so this is the only retry. Never after a
-    timeout (the SDK's, a 504 gateway timeout, or our deadline): that request
-    may have run and been billed."""
-    try:
-        return attempt()
-    except Exception as exc:
-        status = getattr(exc, "status_code", None)
-        if not (
-            (getattr(type(exc), "__module__", "") or "").startswith("anthropic")
-            and isinstance(status, int)
-            and (status == 429 or (status >= 500 and status != 504))
-        ):
-            raise
-        log_llm_unavailable(_logger, exc, where=where, op=op, model=model)
-    time.sleep(_OVERLOAD_BACKOFF_SECONDS)
+def _is_overload(exc: Exception) -> bool:
+    """429, 529 or another 5xx from the API: rejected, so not billed. A 504 is
+    a gateway timeout, and that request may have run. A 429 for a spend cap is
+    not an overload: it fails until the month turns or the limit is raised
+    (`is_spend_limit`)."""
+    status = getattr(exc, "status_code", None)
+    return (
+        (getattr(type(exc), "__module__", "") or "").startswith("anthropic")
+        and isinstance(status, int)
+        and (status == 429 or (status >= 500 and status != 504))
+        and not is_spend_limit(exc)
+    )
+
+
+def _retry_if_overloaded(attempt: Callable[[], Any], *, where: str, op: str, model: Any) -> Any:
+    """Run `attempt()`, retrying an overload (`_is_overload`) up to
+    `_OVERLOAD_MAX_ATTEMPTS` attempts in all. The SDK is built with
+    `max_retries=0`, so this is the only retry. Never after a timeout (the
+    SDK's, a 504, or our deadline): that request may have run and been billed.
+
+    Each wait honors the API's `retry-after` when present, else backs off 2, 4
+    then 8 s with +/-20% jitter so parallel import workers don't retry in
+    lockstep. A wait that would take the total past 60 s is not taken: the
+    overload surfaces instead of retrying earlier than the API asked."""
+    waited = 0.0
+    for attempt_number in range(1, _OVERLOAD_MAX_ATTEMPTS):
+        try:
+            return attempt()
+        except Exception as exc:
+            if not _is_overload(exc):
+                raise
+            wait = retry_after_seconds(exc)
+            if wait is None:
+                wait = _OVERLOAD_BACKOFF_SECONDS[attempt_number - 1] * random.uniform(
+                    1 - _OVERLOAD_JITTER, 1 + _OVERLOAD_JITTER
+                )
+            if waited + wait > _OVERLOAD_MAX_TOTAL_WAIT_SECONDS:
+                raise
+            log_llm_unavailable(
+                _logger,
+                exc,
+                where=where,
+                op=op,
+                model=model,
+                attempt=attempt_number,
+                wait_ms=round(wait * 1000),
+            )
+        _sleep(wait)
+        waited += wait
     return attempt()
 
 
-def _create_with_timeout(sdk_client: Any, timeout: float, op: str, **kwargs: Any) -> Any:
+def _create_with_timeout(
+    sdk_client: Any,
+    timeout: float,
+    op: str,
+    *,
+    meta: dict[str, Any] | None = None,
+    **kwargs: Any,
+) -> Any:
     """Run `sdk_client.messages.create(**kwargs)` on a daemon thread and wait
     at most `timeout` seconds, then raise `LlmTimeoutError(op)`. A hung call
     hangs neither the caller nor, via `deadline.call_within_deadline`, the process at
     exit.
 
+    Given `meta`, sends the request through `messages.with_raw_response` (the
+    SDK's only way to read a non-streamed response's headers) and sets
+    `meta["headers"]` to the last attempt's response headers.
+
     Anthropic SDK transport/status failures are logged here (class, status,
     op — never message/body text) before re-raise so SSE/route mapping to
     `LLM_UNAVAILABLE` is diagnosable in prod/dev logs."""
 
+    def send() -> Any:
+        if meta is None:
+            return sdk_client.messages.create(**kwargs, timeout=timeout)
+        raw = sdk_client.messages.with_raw_response.create(**kwargs, timeout=timeout)
+        meta["headers"] = raw.headers
+        return raw.parse()
+
     def attempt() -> Any:
-        return call_within_deadline(
-            lambda: sdk_client.messages.create(**kwargs, timeout=timeout), timeout, name="llm-call"
-        )
+        return call_within_deadline(send, timeout, name="llm-call")
 
     try:
-        return _retry_once_if_overloaded(
+        return _retry_if_overloaded(
             attempt, where="anthropic_client", op=op, model=kwargs.get("model")
         )
     except DeadlineExceeded:
@@ -139,27 +197,48 @@ def _create_with_timeout(sdk_client: Any, timeout: float, op: str, **kwargs: Any
         raise
 
 
-def _stream_final_with_timeout(sdk_client: Any, timeout: float, op: str, **kwargs: Any) -> Any:
+def _stream_final_with_timeout(
+    sdk_client: Any,
+    timeout: float,
+    op: str,
+    *,
+    meta: dict[str, Any] | None = None,
+    **kwargs: Any,
+) -> Any:
     """Consume an SDK Messages stream and return its accumulated final Message.
 
     Long, high-effort responses can legitimately exceed the safe idle period
     for a non-streaming request. Anthropic's stream emits SSE ping events while
     the model works, and ``get_final_message`` preserves the same Message shape
     used by the existing strict-tool validator.
+
+    When given `meta`, sets, for the last attempt: `meta["ttft_ms"]`, the
+    delay before the stream's first event (message_start, which already
+    carries the first output token, so it measures queueing plus prefill: what
+    a warm prompt cache shortens); `meta["headers"]`, the HTTP response
+    headers; and `meta["request_id"]`, the stream's `request_id` (the
+    accumulated final message carries none).
     """
 
     active_stream: dict[str, Any] = {}
 
     def consume() -> Any:
+        started = time.monotonic()
         with sdk_client.messages.stream(**kwargs, timeout=timeout) as stream:
             active_stream["value"] = stream
             try:
+                if meta is not None:
+                    meta["headers"] = getattr(getattr(stream, "response", None), "headers", None)
+                    meta["request_id"] = getattr(stream, "request_id", None)
+                # `get_final_message` drains whatever this leaves unread.
+                if next(stream, None) is not None and meta is not None:
+                    meta["ttft_ms"] = round((time.monotonic() - started) * 1000)
                 return stream.get_final_message()
             finally:
                 active_stream.pop("value", None)
 
     try:
-        return _retry_once_if_overloaded(
+        return _retry_if_overloaded(
             lambda: call_within_deadline(consume, timeout, name="llm-call"),
             where="anthropic_client_stream",
             op=op,
@@ -202,11 +281,48 @@ def _response_with_timeout(
     sdk_client: Any,
     timeout: float,
     op: LlmOp,
+    *,
+    meta: dict[str, Any],
     **kwargs: Any,
 ) -> Any:
     if op.stream_response:
-        return _stream_final_with_timeout(sdk_client, timeout, op.name, **kwargs)
-    return _create_with_timeout(sdk_client, timeout, op.name, **kwargs)
+        return _stream_final_with_timeout(sdk_client, timeout, op.name, meta=meta, **kwargs)
+    return _create_with_timeout(sdk_client, timeout, op.name, meta=meta, **kwargs)
+
+
+# (log field, response header): the request and token buckets of the model's
+# per-minute rate limit, as the API reports them after this request.
+_RATE_LIMIT_HEADERS = tuple(
+    (f"rl_{field}_{kind}", f"anthropic-ratelimit-{bucket}-{kind}")
+    for field, bucket in (
+        ("requests", "requests"),
+        ("input", "input-tokens"),
+        ("output", "output-tokens"),
+    )
+    for kind in ("remaining", "limit")
+)
+
+
+def _rate_limit_fields(headers: Any) -> list[str]:
+    """`name=value` per `_RATE_LIMIT_HEADERS`: an integer, or `-` when the
+    header is absent or not a number (nothing else from a header is logged)."""
+    fields = []
+    for name, header in _RATE_LIMIT_HEADERS:
+        try:
+            value: Any = int(headers.get(header))
+        except (AttributeError, TypeError, ValueError):
+            value = "-"
+        fields.append(f"{name}={value}")
+    return fields
+
+
+def _out_bytes(response: Any, op_name: str) -> int | str:
+    """Byte size of the logged response's tool input as JSON, or `-` without
+    one. A size only: the input itself is never logged."""
+    tool_use = _find_tool_use(response, op_name)
+    if tool_use is None:
+        return "-"
+    return len(json.dumps(tool_use.input, ensure_ascii=False, default=str).encode("utf-8"))
 
 
 class _RecoverableLlmError(Exception):
@@ -295,11 +411,43 @@ class AnthropicClient:
         self._max_tokens = default_max_tokens
         self._call_timeout_seconds = call_timeout_seconds
         self._tool_cache: dict[str, dict[str, Any]] = {}
+        # `max_tokens: 0` is the documented prewarm; drops to 1 for good if
+        # the API ever rejects 0 and accepts 1 (see `prewarm_cache`).
+        self._prewarm_max_tokens = 0
+        # Ops (and prewarms) running now, across threads: `in_flight=`.
+        self._in_flight = 0
+        self._in_flight_lock = threading.Lock()
 
     def _tool_for(self, op: LlmOp) -> dict[str, Any]:
         if op.name not in self._tool_cache:
             self._tool_cache[op.name] = _build_tool(op)
         return self._tool_cache[op.name]
+
+    def _timeout_for(self, op: LlmOp) -> float:
+        if op.call_timeout_seconds is not None:
+            return op.call_timeout_seconds
+        return self._call_timeout_seconds
+
+    @contextmanager
+    def _counted(self) -> Iterator[int]:
+        """Count a request as in flight while it runs; yields the count at its
+        start, itself included. A call abandoned on its deadline stops counting
+        though its HTTP request may still be running, so after timeouts the
+        count runs low."""
+        with self._in_flight_lock:
+            self._in_flight += 1
+            count = self._in_flight
+        try:
+            yield count
+        finally:
+            with self._in_flight_lock:
+                self._in_flight -= 1
+
+    def _send(self, op: LlmOp, meta: dict[str, Any], **kwargs: Any) -> Any:
+        """One op request, overload retries included; fills `meta` for `_log`."""
+        with self._counted() as in_flight:
+            meta["in_flight"] = in_flight
+            return _response_with_timeout(self._sdk, self._timeout_for(op), op, meta=meta, **kwargs)
 
     def _log(
         self,
@@ -309,32 +457,51 @@ class AnthropicClient:
         response: Any,
         *,
         retried: bool,
+        started: float,
+        meta: dict[str, Any],
         failed: bool = False,
         input_hash: str | None = None,
     ) -> None:
         usage = getattr(response, "usage", None)
         content = getattr(response, "content", []) or []
         content_types = ",".join(str(getattr(block, "type", "unknown")) for block in content)
+        unit = current_import_unit()
+        ttft_ms = meta.get("ttft_ms")
         _logger.info(
-            "llm_call op=%s prompt_version=%s model=%s retried=%s failed=%s "
-            "input_tokens=%s output_tokens=%s cache_write=%s cache_read=%s "
-            "stop_reason=%s response_id=%s "
-            "request_id=%s content_types=%s input_hash=%s",
+            "llm_call op=%s run_id=%s stage=%s scene=%s prompt_version=%s model=%s "
+            "retried=%s failed=%s input_tokens=%s output_tokens=%s out_bytes=%s "
+            "cache_write=%s cache_read=%s elapsed_ms=%s ttft_ms=%s queue_ms=%s "
+            "in_flight=%s %s stop_reason=%s response_id=%s request_id=%s "
+            "content_types=%s input_hash=%s",
             op.name,
+            current_import_run_id(),
+            "-" if unit is None else unit.stage,
+            "-" if unit is None or unit.scene is None else unit.scene,
             prompt_version,
             model,
             retried,
             failed,
             getattr(usage, "input_tokens", None),
             getattr(usage, "output_tokens", None),
+            _out_bytes(response, op.name),
             # A cached-prefix op whose cache_read stays 0 across a run has a
             # silent invalidator (a per-call nonce, a changed tool list, a
             # changed effort). These counters are the only symptom.
             getattr(usage, "cache_creation_input_tokens", None),
             getattr(usage, "cache_read_input_tokens", None),
+            # Wall time of the whole op, overload waits and the rule-9 retry
+            # included; TTFT of the logged response, streamed ops only.
+            round((time.monotonic() - started) * 1000),
+            "-" if ttft_ms is None else ttft_ms,
+            # How long the import unit waited for a pool worker, and how many
+            # ops were running when this one started (itself included).
+            "-" if unit is None or unit.queue_ms is None else unit.queue_ms,
+            meta.get("in_flight", "-"),
+            " ".join(_rate_limit_fields(meta.get("headers"))),
             getattr(response, "stop_reason", None),
             getattr(response, "id", None),
-            getattr(response, "_request_id", None),
+            # A streamed call's id comes from its stream, not its message.
+            meta.get("request_id") or getattr(response, "_request_id", None),
             content_types or "none",
             input_hash,
         )
@@ -380,6 +547,112 @@ class AnthropicClient:
             },
         ]
 
+    def _request(
+        self, op: LlmOp, *, system: str, user_message: str, cache_prefix: str | None
+    ) -> dict[str, Any]:
+        """The Messages request for one op call. `prewarm_cache` sends this
+        same request, so anything that changes the cached prefix (model, tool,
+        system, thinking, effort) can never drift between the two."""
+        kwargs: dict[str, Any] = {
+            "model": self._models[op.role],
+            "max_tokens": op.max_tokens if op.max_tokens is not None else self._max_tokens,
+            "system": self._system_param(system, cache_prefix),
+            "tools": [self._tool_for(op)],
+            "tool_choice": _TOOL_CHOICE,
+            "messages": [{"role": "user", "content": _ask_for_tool(user_message, op.name)}],
+        }
+        if op.adaptive_thinking:
+            kwargs["thinking"] = {"type": "adaptive"}
+        if op.effort is not None:
+            kwargs["output_config"] = {"effort": op.effort}
+        return kwargs
+
+    def prewarm_cache(
+        self,
+        op: str,
+        *,
+        system: str,
+        user_message: str,
+        cache_prefix: str | None = None,
+    ) -> None:
+        """Best-effort: write the prompt cache for `op` without generating an answer.
+
+        Sends exactly the request the real `op` call sends (`_request`: model,
+        tool, `tool_choice`, system with its cache breakpoint, thinking,
+        effort, timeout) with `max_tokens: 0`. Per the prompt-caching docs
+        (claude-api skill, shared/prompt-caching.md "Pre-warming the cache";
+        https://platform.claude.com/docs/en/build-with-claude/prompt-caching),
+        the API then runs prefill only, writes the cache at the breakpoint and
+        returns `content: []`, `stop_reason: "max_tokens"`, no output tokens.
+        Thinking and effort must match the real calls, because both are
+        rendered into the prompt: a mismatched prewarm writes an entry the real
+        calls never read. `max_tokens: 0` is rejected with `stream: true`, so
+        this always uses `messages.create`, even for a streamed op; streaming
+        is transport, not part of the cached prefix.
+
+        Never validates (there is no tool call, so rule 9 does not apply) and
+        never raises for a failed request: a cold cache costs money, not
+        correctness, so the error is logged and swallowed. Never retried on an
+        overload either; the calls it warms for retry on their own. If the API
+        400s on `max_tokens: 0` and accepts 1, 1 is used from then on. An
+        unknown `op` is a caller bug and raises `KeyError`, as everywhere."""
+        spec = OP_REGISTRY[op]
+        kwargs = self._request(
+            spec, system=system, user_message=user_message, cache_prefix=cache_prefix
+        )
+        timeout = self._timeout_for(spec)
+        started = time.monotonic()
+        max_tokens = self._prewarm_max_tokens
+
+        def send(tokens: int) -> Any:
+            request = {**kwargs, "max_tokens": tokens}
+            return call_within_deadline(
+                lambda: self._sdk.messages.create(**request, timeout=timeout),
+                timeout,
+                name="llm-prewarm",
+            )
+
+        try:
+            with self._counted():
+                try:
+                    response = send(max_tokens)
+                except Exception as exc:
+                    # A spend-limit refusal is a 400 too; 1 token fares no better.
+                    if (
+                        max_tokens != 0
+                        or getattr(exc, "status_code", None) != 400
+                        or is_spend_limit(exc)
+                    ):
+                        raise
+                    max_tokens = 1
+                    response = send(max_tokens)
+                    self._prewarm_max_tokens = 1
+        except Exception as exc:
+            _logger.warning(
+                "llm_prewarm op=%s run_id=%s model=%s failed=True status=%s cause=%s "
+                "max_tokens=%s elapsed_ms=%s",
+                spec.name,
+                current_import_run_id(),
+                kwargs["model"],
+                getattr(exc, "status_code", None),
+                type(exc).__name__,
+                max_tokens,
+                round((time.monotonic() - started) * 1000),
+            )
+            return
+        usage = getattr(response, "usage", None)
+        _logger.info(
+            "llm_prewarm op=%s run_id=%s model=%s max_tokens=%s cache_write=%s cache_read=%s "
+            "elapsed_ms=%s",
+            spec.name,
+            current_import_run_id(),
+            kwargs["model"],
+            max_tokens,
+            getattr(usage, "cache_creation_input_tokens", None),
+            getattr(usage, "cache_read_input_tokens", None),
+            round((time.monotonic() - started) * 1000),
+        )
+
     def _call(
         self,
         op_name: str,
@@ -391,30 +664,13 @@ class AnthropicClient:
     ) -> BaseModel:
         op = OP_REGISTRY[op_name]
         model = self._models[op.role]
-        tool = self._tool_for(op)
         input_hash = self._input_hash(user_message)
-        messages: list[dict[str, Any]] = [
-            {"role": "user", "content": _ask_for_tool(user_message, op.name)}
-        ]
-        kwargs: dict[str, Any] = {
-            "model": model,
-            "max_tokens": op.max_tokens if op.max_tokens is not None else self._max_tokens,
-            "system": self._system_param(system, cache_prefix),
-            "tools": [tool],
-            "tool_choice": _TOOL_CHOICE,
-            "messages": messages,
-        }
-        if op.adaptive_thinking:
-            kwargs["thinking"] = {"type": "adaptive"}
-        if op.effort is not None:
-            kwargs["output_config"] = {"effort": op.effort}
-
-        timeout = (
-            op.call_timeout_seconds
-            if op.call_timeout_seconds is not None
-            else self._call_timeout_seconds
+        kwargs = self._request(
+            op, system=system, user_message=user_message, cache_prefix=cache_prefix
         )
-        response = _response_with_timeout(self._sdk, timeout, op, **kwargs)
+        started = time.monotonic()
+        meta: dict[str, Any] = {}
+        response = self._send(op, meta, **kwargs)
         try:
             result = _validate_tool_response(response, op)
         except _RecoverableLlmError as first_error:
@@ -431,16 +687,27 @@ class AnthropicClient:
                     model,
                     response,
                     retried=False,
+                    started=started,
+                    meta=meta,
                     failed=True,
                     input_hash=input_hash,
                 )
                 raise SchemaInvalidLlmError(op.name) from None
             result = self._retry_once(
-                op, kwargs, response, first_error, prompt_version, model, input_hash
+                op, kwargs, response, first_error, prompt_version, model, input_hash, started
             )
             return result
 
-        self._log(op, prompt_version, model, response, retried=False, input_hash=input_hash)
+        self._log(
+            op,
+            prompt_version,
+            model,
+            response,
+            retried=False,
+            started=started,
+            meta=meta,
+            input_hash=input_hash,
+        )
         return result
 
     def _retry_once(
@@ -452,6 +719,7 @@ class AnthropicClient:
         prompt_version: str,
         model: str,
         input_hash: str,
+        started: float,
     ) -> BaseModel:
         retry_messages = [*kwargs["messages"]]
         if first_response.content:
@@ -504,12 +772,8 @@ class AnthropicClient:
                 }
             )
         retry_kwargs = {**kwargs, "messages": retry_messages}
-        retry_timeout = (
-            op.call_timeout_seconds
-            if op.call_timeout_seconds is not None
-            else self._call_timeout_seconds
-        )
-        response2 = _response_with_timeout(self._sdk, retry_timeout, op, **retry_kwargs)
+        meta: dict[str, Any] = {}
+        response2 = self._send(op, meta, **retry_kwargs)
         try:
             result = _validate_tool_response(response2, op)
         except _RecoverableLlmError:
@@ -519,12 +783,23 @@ class AnthropicClient:
                 model,
                 response2,
                 retried=True,
+                started=started,
+                meta=meta,
                 failed=True,
                 input_hash=input_hash,
             )
             raise SchemaInvalidLlmError(op.name) from None
 
-        self._log(op, prompt_version, model, response2, retried=True, input_hash=input_hash)
+        self._log(
+            op,
+            prompt_version,
+            model,
+            response2,
+            retried=True,
+            started=started,
+            meta=meta,
+            input_hash=input_hash,
+        )
         return result
 
     def generate_beat_candidates(
@@ -594,12 +869,7 @@ class AnthropicClient:
         # Only the call that opens the stream is timed: once events start
         # arriving, iterating them is a caller-visible incremental process,
         # not a single blocking `create()` this helper wraps.
-        stream_timeout = (
-            op.call_timeout_seconds
-            if op.call_timeout_seconds is not None
-            else self._call_timeout_seconds
-        )
-        stream = _create_with_timeout(self._sdk, stream_timeout, op.name, **kwargs)
+        stream = _create_with_timeout(self._sdk, self._timeout_for(op), op.name, **kwargs)
         try:
             for event in stream:
                 etype = getattr(event, "type", None)
@@ -796,6 +1066,26 @@ class AnthropicClient:
     ) -> NarrativeMapVerification:
         return self._call(
             "verify_narrative_map",
+            system=system,
+            user_message=user_message,
+            prompt_version=prompt_version,
+        )
+
+    def check_structure(
+        self, *, system: str, user_message: str, prompt_version: str
+    ) -> InferredStructureCheck:
+        return self._call(
+            "check_structure",
+            system=system,
+            user_message=user_message,
+            prompt_version=prompt_version,
+        )
+
+    def verify_structure_check(
+        self, *, system: str, user_message: str, prompt_version: str
+    ) -> StructureCheckVerification:
+        return self._call(
+            "verify_structure_check",
             system=system,
             user_message=user_message,
             prompt_version=prompt_version,

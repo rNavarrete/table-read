@@ -523,9 +523,67 @@ imported script. Run progress and evidence-rejection codes are written to the
 privacy-safe rotating diagnostics log. The Ledger renders accepted evidence as
 a source-scene jump.
 
+### 5e. Structure check (structure checklist, spec 2026-10-11)
+
+The writer checks the script against one structure at a time from the Ledger
+Structure tab: `heros_journey`, `story_circle` or `save_the_cat`
+(`StructureLens`). TV act structure needs no model call; the web reads it from
+the import's beat sheet. One click runs one structure: one check call, then one
+verify call. Ships with `PROMPT_VERSION 0.51.0`; sign-off is a hand check on
+real scripts, not `make evals` (owner decision 2026-10-11).
+
+**Check:** `check_structure` uses `import_analyst` (`claude-opus-5-5`), adaptive
+thinking at medium effort, one strict tool, not streamed. It reads the import's
+existing breakdown, never the raw script, in these `<source_data>` blocks:
+
+- `show_format`: the project's format
+- `story_overview`: `{logline, summary, beatSheet[{beatId, label, sceneId, act}]}`
+- `story_threads`: `[{id, label, summary, status, setupBeatId, payoffBeatId}]`
+- `scene_spine`: `[{sceneId, act, heading, whatHappens, audienceLearns, beats[{beatId, whatHappens}]}]`
+- `required_stages`: `[{stage, label}]`, the lens's stages in canonical order
+- on retry only, `structure_check_repairs`: the failed checks as `{code, ...ids}`.
+
+It returns `InferredStructureCheck`: `applies`, a one-sentence `rationale`, and
+per stage `{stage, status: hit|thin|missing, beatId, reason}`. Hit and thin cite
+one `beatId` from `scene_spine`; missing cites none. When the structure doesn't
+fit (e.g. an ensemble with no single protagonist for the Hero's Journey),
+`applies` is false, `rationale` is the note shown to the writer, and no stages
+are kept; verification is skipped. **Save the Cat** gets one extra sentence: it
+is a feature-film template, a TV episode may compress or skip beats, and the
+model may say it doesn't fit. The import's ban on Save the Cat labels in the
+beat sheet (§5c) is unchanged.
+
+**Validation and retry:** the server checks every stage of the lens appears
+exactly once and belongs to that lens, and that hit/thin cite an existing beat;
+a beat cited on a missing stage is dropped, not retried. It then puts the stages
+in canonical order. The scene spine follows the writer's order: scenes by
+(act, index), beats by index. A shape
+failure is retried once inside the LLM client, as for every op. A failure of
+these checks gets one retry with the diagnostics in `structure_check_repairs`,
+then `SCHEMA_INVALID_LLM` (rule 9). The server, not the model, fills `sceneId`
+from the cited beat and `evidenceQuote` from that beat's own `scriptText`
+(null when the beat has none).
+
+**Verify:** `verify_structure_check` uses the independent `writer` role
+(`claude-sonnet-5-5`), adaptive thinking at low effort. It receives one
+`claims` block, `[{stage, label, status, claim, beatId, excerpt}]`, for the hit
+and thin stages only. Each `excerpt` is the cited beat's `scriptText`, or its
+`whatHappens` when the beat has no script yet (the check reads `whatHappens`,
+so a plan-only beat is a fair citation), capped at 2,000 characters so the
+verifier sees the whole beat (520, the Narrative Map verifier's cap, cut off
+the cited moment on long beats). It returns `StructureCheckVerification`: per stage
+`{stage, reason, supported}`, with `supported` last so the model reasons first.
+A stage judged unsupported becomes `unverified` ("Couldn't verify") and keeps
+the verifier's reason; a claimed stage with no verdict becomes `unverified` with
+the reason "Not verified". Stages are never dropped, and one failure never sinks
+the others. Missing stages are never verified, since absence can't be cited;
+verdicts for stages that weren't claimed are ignored. If the verify call itself
+fails after its one retry, the whole check fails with `SCHEMA_INVALID_LLM` and
+nothing is saved.
+
 ## 8. Cross-cutting conventions
 
-- **Model pinning:** prompts reference model _roles_ (`writer`, `classifier`, `import_analyst`), resolved via `config/models.toml`, which pins exact model IDs (e.g., `writer = "claude-sonnet-5-5"`, `import_analyst = "claude-opus-5-5"`) per PROMPT_VERSION. Every call logs both the role and the resolved model ID; changing a pinned ID (or reassigning an op's role in `llm/ops.py`) is a versioned change requiring `make evals`, same as a prompt edit. **Role split:** `classifier` (Haiku 5.5, low effort) = grounded extraction — §3 blast radius, §5 ledger extraction, §6 suggestions, §8c consistency scan; `import_worker` (Sonnet 5.5) = per-scene segmentation and chunked entity extraction; `import_analyst` (Opus 5.5) = story-wide import judgment and the raw-screenplay Narrative Map scene/macro passes; `writer` (Sonnet 5.5) = synthesis/judgment, including independent Narrative Map verification. **No role sends `temperature`:** every pinned 5.5 model rejects a non-default value, Haiku 5.5 included, so the classifier's consistency comes from the strict schema and low effort (owner decision 2026-10-11; it replaced the earlier temperature-0 rule).
+- **Model pinning:** prompts reference model _roles_ (`writer`, `classifier`, `import_analyst`), resolved via `config/models.toml`, which pins exact model IDs (e.g., `writer = "claude-sonnet-5-5"`, `import_analyst = "claude-opus-5-5"`) per PROMPT_VERSION. Every call logs both the role and the resolved model ID; changing a pinned ID (or reassigning an op's role in `llm/ops.py`) is a versioned change requiring `make evals`, same as a prompt edit. **Role split:** `classifier` (Haiku 5.5, low effort) = grounded extraction — §3 blast radius, §5 ledger extraction, §6 suggestions, §8c consistency scan; `import_worker` (Sonnet 5.5) = per-scene segmentation and chunked entity extraction; `import_analyst` (Opus 5.5) = story-wide import judgment, the raw-screenplay Narrative Map scene/macro passes, and §5e structure checks; `writer` (Sonnet 5.5) = synthesis/judgment, including independent Narrative Map and §5e structure-check verification. **No role sends `temperature`:** every pinned 5.5 model rejects a non-default value, Haiku 5.5 included, so the classifier's consistency comes from the strict schema and low effort (owner decision 2026-10-11; it replaced the earlier temperature-0 rule).
 - **Strict tool use:** every tool definition sets `strict: true`; candidate cards are actionable only after full tool-input validation (header policy + §8a).
 - **Real schemas, one source:** the canonical `input_schema` for every op is **generated from the Zod definitions in the data contract §2a** (`packages/contract`, via `z.toJSONSchema`) with `additionalProperties: false`, explicit `required` arrays, enums, and nullable fields — every operation type in this doc (`BeatCandidate`, `BlastRadius`, `RegeneratedElements`, `LedgerExtraction`, `InstructionSuggestions`, `InferredActBreaks`, `SegmentedScene`, `ConsistencyScan`) is defined there and CI-diffed; the JSON blocks in this doc are readable summaries, not the artifact. Example of the real thing, `BeatCandidate`:
 

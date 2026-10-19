@@ -43,7 +43,8 @@ vi.mock('./useAcceptBeat', () => ({
   }),
 }))
 
-import { getLedger, getProject } from '../api/client'
+import { getLedger, getProject, patchProject } from '../api/client'
+import { ApiError } from '../api/errors'
 
 beforeEach(() => {
   class FakeIntersectionObserver {
@@ -189,5 +190,158 @@ describe('WriteScreen script home', () => {
     await waitFor(() => {
       expect(scrollIntoView).toHaveBeenCalled()
     })
+  })
+})
+
+describe('WriteScreen story order', () => {
+  it('outline, canvas, scene numbers and ] follow (act, index), not the array', async () => {
+    const user = userEvent.setup()
+    // A Plan move rewrote act / index and left the array alone: story order
+    // is scene-c, scene-a, scene-b.
+    vi.mocked(getProject).mockResolvedValue(
+      project([
+        makeScene({ id: 'scene-b', act: 1, index: 2, location: 'B' }),
+        makeScene({ id: 'scene-a', act: 1, index: 1, location: 'A' }),
+        makeScene({ id: 'scene-c', act: 0, index: 3, location: 'C' }),
+      ]),
+    )
+    vi.mocked(getLedger).mockResolvedValue([])
+    window.history.pushState({}, '', '/?project=proj-1')
+
+    render(<WriteScreen />)
+
+    const outline = await screen.findByTestId('write-scene-outline')
+    const rows = Array.from(
+      outline.querySelectorAll<HTMLElement>('[data-testid^="write-outline-"]'),
+    )
+    expect(rows.map((r) => r.dataset.testid)).toEqual([
+      'write-outline-scene-c',
+      'write-outline-scene-a',
+      'write-outline-scene-b',
+    ])
+    expect(rows.map((r) => r.textContent?.match(/^\d+/)?.[0])).toEqual([
+      '1',
+      '2',
+      '3',
+    ])
+    const sections = Array.from(
+      screen
+        .getByTestId('script-canvas')
+        .querySelectorAll<HTMLElement>('section[data-scene-id]'),
+    )
+    expect(sections.map((s) => s.dataset.sceneId)).toEqual([
+      'scene-c',
+      'scene-a',
+      'scene-b',
+    ])
+    expect(screen.getByTestId('script-scene-number-scene-b').textContent).toBe(
+      '3',
+    )
+    // Opens on the first scene in story order; ] steps to the next one.
+    expect(rows[0].getAttribute('aria-current')).toBe('true')
+    await user.keyboard(']')
+    expect(
+      screen.getByTestId('write-outline-scene-a').getAttribute('aria-current'),
+    ).toBe('true')
+  })
+})
+
+describe('WriteScreen autosave', () => {
+  it('a failed save keeps the typed text and Retry saves it again', async () => {
+    const user = userEvent.setup()
+    vi.mocked(getProject).mockResolvedValue(project())
+    vi.mocked(getLedger).mockResolvedValue([])
+    vi.mocked(patchProject).mockRejectedValueOnce(
+      new ApiError(503, { code: 'UNKNOWN', message: 'offline' }),
+    )
+    window.history.pushState({}, '', '/?project=proj-1&scene=scene-1')
+
+    render(<WriteScreen />)
+    const row = await screen.findByTestId('beat-row-beat-scene-1')
+    await user.click(row.querySelector('[data-testid="formatted-script"]')!)
+    await user.type(screen.getByTestId('beat-beat-scene-1'), ' More.')
+    await user.tab() // blur saves now
+
+    const failure = await screen.findByTestId('write-save-failed')
+    expect(failure.textContent).toContain("Couldn't save your last edit.")
+    expect(failure.className).toContain('text-tr-danger')
+    expect(row.textContent).toContain('Script for scene-1 More.')
+    const ops = [
+      {
+        op: 'replace',
+        path: '/seasons/0/episodes/0/scenes/0/beats/0/scriptText',
+        value: 'Script for scene-1 More.',
+      },
+    ]
+    expect(patchProject).toHaveBeenCalledWith('proj-1', ops, {
+      expectedHeadSnapshotId: 'snap-1',
+    })
+
+    vi.mocked(patchProject).mockResolvedValueOnce({
+      project: { ...project(), headSnapshotId: 'snap-2' },
+      consistencyFlags: [],
+    })
+    await user.click(screen.getByRole('button', { name: 'Retry' }))
+    await waitFor(() => {
+      expect(screen.queryByTestId('write-save-failed')).toBeNull()
+    })
+    expect(patchProject).toHaveBeenCalledTimes(2)
+    expect(vi.mocked(patchProject).mock.calls[1][1]).toEqual(ops)
+    expect(row.textContent).toContain('Script for scene-1 More.')
+  })
+
+  it('a save that can never succeed says why once, with Dismiss, and keeps the text', async () => {
+    const user = userEvent.setup()
+    vi.mocked(getProject).mockResolvedValue(project())
+    vi.mocked(getLedger).mockResolvedValue([])
+    vi.mocked(patchProject).mockRejectedValueOnce(
+      new ApiError(409, { code: 'LOCKED_OBJECT', message: 'locked' }),
+    )
+    window.history.pushState({}, '', '/?project=proj-1&scene=scene-1')
+
+    render(<WriteScreen />)
+    const row = await screen.findByTestId('beat-row-beat-scene-1')
+    await user.click(row.querySelector('[data-testid="formatted-script"]')!)
+    await user.type(screen.getByTestId('beat-beat-scene-1'), ' More.')
+    await user.tab()
+
+    const line = await screen.findByTestId('write-save-failed')
+    expect(line.textContent).toContain("Couldn't save: this beat is locked.")
+    expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull()
+    expect(row.textContent).toContain('Script for scene-1 More.')
+    await user.click(screen.getByRole('button', { name: 'Dismiss' }))
+    expect(screen.queryByTestId('write-save-failed')).toBeNull()
+    expect(patchProject).toHaveBeenCalledOnce()
+  })
+})
+
+describe('WriteScreen craft level', () => {
+  it('saves without If-Match and rolls back to the server value, not the click-time one', async () => {
+    const user = userEvent.setup()
+    vi.mocked(getProject).mockResolvedValue(project())
+    vi.mocked(getLedger).mockResolvedValue([])
+    let failFirst!: (err: unknown) => void
+    vi.mocked(patchProject)
+      .mockReturnValueOnce(
+        new Promise((_resolve, reject) => (failFirst = reject)),
+      )
+      .mockRejectedValueOnce(new Error('offline'))
+    window.history.pushState({}, '', '/?project=proj-1')
+
+    render(<WriteScreen />)
+    const fast = await screen.findByRole('button', { name: /Fast draft/ })
+    await user.click(fast)
+    await user.click(screen.getByRole('button', { name: /Considered/ }))
+    failFirst(new Error('offline'))
+
+    const standard = screen.getByRole('button', { name: /Standard/ })
+    await waitFor(() => expect(patchProject).toHaveBeenCalledTimes(2))
+    await waitFor(() =>
+      expect(standard.getAttribute('aria-pressed')).toBe('true'),
+    )
+    expect(vi.mocked(patchProject).mock.calls[0]).toEqual([
+      'proj-1',
+      [{ op: 'add', path: '/defaultCraftLevel', value: 'fast' }],
+    ])
   })
 })

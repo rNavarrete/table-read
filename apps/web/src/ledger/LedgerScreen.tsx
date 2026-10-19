@@ -4,9 +4,11 @@ import type {
   NarrativeMapRun,
   Project,
   StoryThread,
+  StructureLens,
 } from 'contract'
 import {
   batchLedgerReview,
+  checkStructure,
   confirmLedgerFact,
   editLedgerFact,
   generateNarrativeMap,
@@ -20,7 +22,11 @@ import { ApiError } from '../api/errors'
 import { requireProjectId } from '../projects/projectRouting'
 import { loadResume, saveResume } from '../projects/resumeContext'
 import { AppShell } from '../shell/AppShell'
-import { navigateToWriteScene } from '../shell/modeNavigation'
+import { allScenes } from '../write/projectTree'
+import {
+  navigateToWriteBeat,
+  navigateToWriteScene,
+} from '../shell/modeNavigation'
 import { CastPanel } from './CastPanel'
 import { CharacterProfile } from './CharacterProfile.tsx'
 import { FactCard } from './FactCard'
@@ -31,6 +37,8 @@ import { LedgerViewSwitcher } from './LedgerViewSwitcher'
 import { NarrativeMapCard } from './NarrativeMapCard'
 import { StoryAtlas } from './StoryAtlas'
 import { StoryOverviewCard } from './StoryOverviewCard'
+import { StructurePanel } from './structure/StructurePanel'
+import { structureErrorMessage } from './structure/structureErrors'
 import { ThreadsPanel } from './ThreadsPanel'
 import {
   DEFAULT_FILTERS,
@@ -64,22 +72,14 @@ function sceneLabel(project: Project, sceneId: string): string {
   return sceneId
 }
 
-/** Episode scenes in doc order for the T7.18 As-of control — location, or
- * `Scene {n}` (1-based) when the scene has no location set yet. */
+/** Episode scenes in story order for the T7.18 As-of control — location,
+ * or `Scene {n}` (1-based story position) when the scene has no location set
+ * yet. */
 function episodeSceneOptions(project: Project): AsOfSceneOption[] {
-  const options: AsOfSceneOption[] = []
-  for (const season of project.seasons) {
-    for (const episode of season.episodes) {
-      for (const scene of episode.scenes) {
-        const location = (scene as { location?: string }).location
-        options.push({
-          id: scene.id,
-          label: location || `Scene ${scene.index + 1}`,
-        })
-      }
-    }
-  }
-  return options
+  return allScenes(project).map((scene, i) => ({
+    id: scene.id,
+    label: scene.location || `Scene ${i + 1}`,
+  }))
 }
 
 /** Threads live on the first (only) episode — design doc "Narrative Promises"
@@ -128,6 +128,8 @@ export function LedgerScreen() {
   const narrativeMapRunStatus = narrativeMapRun?.status
   const narrativeMapRunErrorCode = narrativeMapRun?.errorCode
   const narrativeMapRunRetryAllowed = narrativeMapRun?.retryAllowed
+  const [structureBusy, setStructureBusy] = useState(false)
+  const [structureError, setStructureError] = useState<string | null>(null)
   const [castPanelOpen, setCastPanelOpen] = useState(false)
   // Session-only (design spec §UI): no persistence, resets on reload.
   const [asOfScene, setAsOfScene] = useState<string | null>(null)
@@ -450,6 +452,25 @@ export function LedgerScreen() {
             ? err.message
             : 'could not generate the narrative map',
       )
+    }
+  }
+
+  async function handleCheckStructure(lens: StructureLens) {
+    if (!project || structureBusy) return
+    setStructureBusy(true)
+    setStructureError(null)
+    try {
+      // The route returns the updated project (saved check + new head), so
+      // the next If-Match is current without a refetch.
+      setProject(
+        await checkStructure(project.id, lens, {
+          expectedHeadSnapshotId: project.headSnapshotId,
+        }),
+      )
+    } catch (err) {
+      setStructureError(structureErrorMessage(err))
+    } finally {
+      setStructureBusy(false)
     }
   }
 
@@ -861,6 +882,14 @@ export function LedgerScreen() {
                   threads={threads}
                   onJumpToScene={handleJumpToScene}
                   onClose={handleBrowseInAtlas}
+                />
+              ) : view === 'structure' ? (
+                <StructurePanel
+                  project={project}
+                  busy={structureBusy}
+                  error={structureError}
+                  onCheck={handleCheckStructure}
+                  onOpenBeat={navigateToWriteBeat}
                 />
               ) : null}
             </section>

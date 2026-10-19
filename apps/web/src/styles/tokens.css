@@ -103,10 +103,24 @@
   --tr-write-dot-ext:#4FA877;
   --tr-write-dot-other:#C4C0B8;
 
+  /* Import board (§2a "Breaking the Board"): index-card paper and rules,
+     card shadows, motion, card sizes. Values from the approved prototype. */
+  --tr-board-paper:#FFFEFB;
+  --tr-board-rule:rgb(65 96 138 / 0.1);
+  --tr-board-rule-top:rgb(91 121 166 / 0.55);
+  --tr-shadow-card-board: 0 1px 1px rgb(38 39 43 / 0.05), 0 3px 8px rgb(38 39 43 / 0.06);
+  --tr-shadow-card-lift: 0 2px 4px rgb(38 39 43 / 0.06), 0 16px 32px rgb(38 39 43 / 0.16);
+  --tr-motion-spring: cubic-bezier(.34,1.42,.64,1);
+  --tr-motion-settle: cubic-bezier(.2,0,0,1);
+  --tr-motion-deal: 620ms;
+  --tr-motion-flight: 760ms;
+  --tr-motion-string: 700ms;
+  --tr-card-board-w: 150px;
+  --tr-card-board-h: 106px;
+
   /* Layout: Plan mode board (§5) panel/card widths. */
-  --tr-panel-story-layers: 232px;
   --tr-panel-inspector: 296px;
-  --tr-card-scene: 214px;
+  --tr-panel-plan: 400px; /* Plan scene panel (redesign 2026-10-13) */
 
   /* Layout: Ledger CAST rail (§7b). */
   --tr-panel-ledger-filters:236px;
@@ -208,6 +222,21 @@
   --color-tr-write-dot-ext: var(--tr-write-dot-ext);
   --color-tr-write-dot-other: var(--tr-write-dot-other);
 
+  --color-tr-board-paper: var(--tr-board-paper);
+  --color-tr-board-rule: var(--tr-board-rule);
+  --color-tr-board-rule-top: var(--tr-board-rule-top);
+  --shadow-card-board: var(--tr-shadow-card-board);
+  --shadow-card-lift: var(--tr-shadow-card-lift);
+  /* ease-spring / ease-settle utilities; --duration-* are read by the
+     board's Web Animations (boardMotion.ts). */
+  --ease-spring: var(--tr-motion-spring);
+  --ease-settle: var(--tr-motion-settle);
+  --duration-deal: var(--tr-motion-deal);
+  --duration-flight: var(--tr-motion-flight);
+  --duration-string: var(--tr-motion-string);
+  --spacing-card-board-w: var(--tr-card-board-w);
+  --spacing-card-board-h: var(--tr-card-board-h);
+
   /* ease-standard utility + 160ms as the default transition duration. */
   --ease-standard: var(--tr-motion-ease-standard);
   --default-transition-duration: var(--tr-motion-duration-standard);
@@ -218,12 +247,11 @@
   --container-command-bar: var(--tr-command-bar);
 
   /* w-panel-* / h-shell-height — Tailwind v4 --spacing-* backs w-/h-/p-/m-/gap. */
-  --spacing-panel-story-layers: var(--tr-panel-story-layers);
   --spacing-panel-write-outline: var(--tr-panel-write-outline);
   --spacing-panel-candidate-dock: var(--tr-panel-candidate-dock);
   --spacing-panel-inspector: var(--tr-panel-inspector);
+  --spacing-panel-plan: var(--tr-panel-plan);
   --spacing-panel-ledger-filters: var(--tr-panel-ledger-filters);
-  --spacing-card-scene: var(--tr-card-scene);
   --spacing-shell-height: var(--tr-shell-height);
 
   /* outline-selected (Tailwind v4's --outline-width-* namespace backs

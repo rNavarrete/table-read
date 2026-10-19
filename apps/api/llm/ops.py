@@ -41,7 +41,9 @@ registry only here; T7.28 owns its prompt/pipeline wiring.
 
 from __future__ import annotations
 
+import tomllib
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Literal
 
 from pydantic import BaseModel
@@ -55,6 +57,7 @@ from schemas import (
     InferredNarrativeMapSynthesis,
     InferredNarrativeSceneAnalysisBatch,
     InferredStoryOverview,
+    InferredStructureCheck,
     InitialSceneSkeleton,
     InstructionSuggestions,
     LedgerExtraction,
@@ -63,6 +66,7 @@ from schemas import (
     RegeneratedElements,
     SegmentedScene,
     StoryEntities,
+    StructureCheckVerification,
 )
 
 Role = Literal["writer", "classifier", "import_worker", "import_analyst"]
@@ -314,6 +318,31 @@ _OPS: tuple[LlmOp, ...] = (
         effort="low",
         retry_schema_once=False,
     ),
+    # Structure checklist (spec 2026-10-11): one synchronous POST runs one
+    # check plus one verify, so the ceilings stay small and nothing streams.
+    # Both keep the default one schema retry (rule 9).
+    LlmOp(
+        "check_structure",
+        "InferredStructureCheck",
+        InferredStructureCheck,
+        "import_analyst",
+        "Judge each stage of one story structure against the script's breakdown.",
+        max_tokens=16_384,
+        call_timeout_seconds=150.0,
+        adaptive_thinking=True,
+        effort="medium",
+    ),
+    LlmOp(
+        "verify_structure_check",
+        "StructureCheckVerification",
+        StructureCheckVerification,
+        "writer",
+        "Judge whether each cited excerpt shows the claimed structure stage.",
+        max_tokens=8_192,
+        call_timeout_seconds=90.0,
+        adaptive_thinking=True,
+        effort="low",
+    ),
     # Import story breakdown: per-scene beat segmentation on Sonnet. Historical
     # note: T6.1 moved segment_scene writer→classifier for temperature=0; the
     # import worker prioritizes quality while keeping repeatable scene work
@@ -362,3 +391,11 @@ _OPS: tuple[LlmOp, ...] = (
 )
 
 OP_REGISTRY: dict[str, LlmOp] = {op.name: op for op in _OPS}
+
+MODELS_CONFIG_PATH = Path(__file__).resolve().parents[3] / "config" / "models.toml"
+
+
+def model_pins() -> dict[str, str]:
+    """Role -> pinned model id, from config/models.toml."""
+    with MODELS_CONFIG_PATH.open("rb") as f:
+        return tomllib.load(f)["models"]

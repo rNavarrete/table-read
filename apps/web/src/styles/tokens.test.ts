@@ -21,6 +21,12 @@ function themeKeyFor(name: string): string {
   if (name === '--tr-motion-ease-standard') return '--ease-standard'
   if (name === '--tr-motion-duration-standard')
     return '--default-transition-duration'
+  // Import board motion: easings back ease-* utilities; durations sit under
+  // --duration-* for the board's Web Animations.
+  if (name === '--tr-motion-spring' || name === '--tr-motion-settle')
+    return name.replace('--tr-motion-', '--ease-')
+  if (name.startsWith('--tr-motion-'))
+    return name.replace('--tr-motion-', '--duration-')
   // Tailwind v4's --container-* namespace backs max-w-* utilities. The Write
   // redesign's script sheet and command bar are max-widths too, not colors —
   // without these the fallthrough would demand a --color-tr-* alias.

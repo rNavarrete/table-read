@@ -29,14 +29,17 @@ Logging is IDs + counts only — never script/plan/fact content (hard rule 5).
 
 from __future__ import annotations
 
+import contextvars
 import copy
 import hashlib
 import json
 import logging
+import os
+import time
 from collections.abc import Callable, Generator
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, as_completed, wait
 from dataclasses import asdict, dataclass
-from typing import cast
+from typing import Any, cast
 
 from pydantic import BaseModel, ValidationError
 
@@ -48,6 +51,7 @@ from drama_manager.promises import merge_narrative_promises
 from fountain import acts
 from fountain.characters import (
     cues_from_scenes,
+    is_shooting_script,
     merge_characters_into_bible,
     merge_inferred_entities,
     normalize_known_by,
@@ -57,6 +61,17 @@ from fountain.entity_inference import (
     ENTITY_INFER_USER_CHAR_BUDGET,
     chunk_entity_scene_summaries,
     combine_story_entities,
+)
+from fountain.found import (
+    acts_found,
+    cast_found,
+    cast_read_found,
+    facts_found,
+    flags_found,
+    overview_found,
+    scene_found,
+    scenes_found,
+    threads_found,
 )
 from fountain.object_states import detect_object_conflicts, infer_object_states
 from fountain.parse import (
@@ -69,7 +84,9 @@ from fountain.parse import (
     strip_screenplay_front_matter,
 )
 from fountain.timeline import merge_timeline_anchors, slugline_time
+from import_diagnostics import ImportUnit, import_unit_context
 from llm.errors import SchemaInvalidLlmError, classify_llm_unavailable_reason
+from llm.ops import OP_REGISTRY, model_pins
 from llm.protocol import LlmClient
 from schemas import (
     ConsistencyScan,
@@ -97,7 +114,55 @@ STAGE_INFERRING_PROMISES = "inferring_promises"
 STAGE_INFERRING_OVERVIEW = "inferring_overview"
 STAGE_EXTRACTING_FACTS = "extracting_facts"
 STAGE_CHECKING_CONSISTENCY = "checking_consistency"
-IMPORT_LLM_CONCURRENCY = 4
+
+
+def _env_concurrency(name: str) -> int | None:
+    """Env var `name` as a call cap, clamped to 1-16; None when it is unset or
+    not a number (a bad value falls back rather than failing startup)."""
+    try:
+        return min(max(int(os.environ[name]), 1), 16)
+    except (KeyError, ValueError):
+        return None
+
+
+def _import_concurrency() -> int:
+    """`TABLEREAD_IMPORT_CONCURRENCY`: calls each per-scene stage keeps in
+    flight. Default 8 (it was a fixed 4), clamped to 1-16."""
+    value = _env_concurrency("TABLEREAD_IMPORT_CONCURRENCY")
+    return 8 if value is None else value
+
+
+IMPORT_LLM_CONCURRENCY = _import_concurrency()
+
+
+def _model_concurrency() -> dict[str, int]:
+    """Per-model overrides of IMPORT_LLM_CONCURRENCY, by model family: rate
+    limits are per model. `TABLEREAD_IMPORT_CONCURRENCY_SONNET` / `_HAIKU`,
+    same clamp; an unset or bad one is left out."""
+    caps = {
+        family: _env_concurrency(f"TABLEREAD_IMPORT_CONCURRENCY_{family.upper()}")
+        for family in ("sonnet", "haiku")
+    }
+    return {family: cap for family, cap in caps.items() if cap is not None}
+
+
+IMPORT_MODEL_CONCURRENCY = _model_concurrency()
+
+
+def _stage_concurrency(op: str) -> int:
+    """The cap for a fan-out of `op` calls: the IMPORT_MODEL_CONCURRENCY entry
+    for the family of the op's model (its role's pin in config/models.toml),
+    else IMPORT_LLM_CONCURRENCY."""
+    model = model_pins()[OP_REGISTRY[op].role]
+    for family, cap in IMPORT_MODEL_CONCURRENCY.items():
+        if family in model:
+            return cap
+    return IMPORT_LLM_CONCURRENCY
+
+
+# `TABLEREAD_IMPORT_OVERLAP=0` runs the late stages one after another again
+# (see analyze_import's late-stage comment); anything else overlaps them.
+IMPORT_OVERLAP = os.environ.get("TABLEREAD_IMPORT_OVERLAP") != "0"
 
 
 @dataclass(frozen=True)
@@ -112,7 +177,18 @@ class ImportStageProgress:
     total: int
 
 
-ImportPipelineEvent = ImportStageStarted | ImportStageProgress
+@dataclass(frozen=True)
+class ImportFound:
+    """What a stage found (§9.3 `found`): `data` is one `ProjectImportFound`
+    payload from `fountain.found`; `cached` marks a result reused from a
+    checkpoint."""
+
+    stage: str
+    data: dict
+    cached: bool = False
+
+
+ImportPipelineEvent = ImportStageStarted | ImportStageProgress | ImportFound
 ImportCheckpointWriter = Callable[[str, dict | list, int | None], None]
 
 
@@ -208,6 +284,7 @@ def analyze_import(
         STAGE_PARSING_SCENES,
         {"sceneCount": len(spans)},
     )
+    yield ImportFound(STAGE_PARSING_SCENES, scenes_found(spans))
     yield ImportStageProgress(STAGE_PARSING_SCENES, 1, 1)
 
     yield ImportStageStarted(STAGE_SEGMENTING_BEATS)
@@ -238,10 +315,19 @@ def analyze_import(
             ),
         ),
         stage=STAGE_SEGMENTING_BEATS,
+        workers=_stage_concurrency("segment_scene"),
         existing_results=cached_beats,
-        # Every call carries `split_source`; without warming, the first four
-        # workers each write it.
-        warm_cache_first=True,
+        # Every call carries `split_source`; without a prewarm, every worker
+        # of the first wave writes it.
+        prewarm=_prewarm(
+            llm,
+            "segment_scene",
+            cached_beats,
+            lambda index: render.build_segment_prompt(
+                project_doc, spans[index].lines, run_nonce
+            ),
+            split_source,
+        ),
         on_result=lambda index, unit: None
         if index in failed_segments
         else _write_checkpoint(
@@ -250,6 +336,7 @@ def analyze_import(
             {"beats": _dump_imported_beats(unit[0]), "reading": unit[1]},
             index,
         ),
+        found=lambda index, unit: scene_found(index, *unit, index in failed_segments),
     )
 
     # ── Infer the total act partition after all scenes have their semantic
@@ -265,7 +352,11 @@ def analyze_import(
         None if infer_format else acts.acts_from_markers(spans, project_doc["format"])
     )
     retried_acts = False
-    if cached_scene_acts is not None and (cached_format is not None or not infer_format):
+    infer_act_breaks = _unit(STAGE_INFERRING_ACTS, None, llm.infer_act_breaks, pooled=False)
+    acts_cached = cached_scene_acts is not None and (
+        cached_format is not None or not infer_format
+    )
+    if acts_cached:
         scene_acts = cached_scene_acts
         if infer_format:
             project_doc = {**project_doc, "format": cached_format}
@@ -289,7 +380,7 @@ def analyze_import(
         system, user = render.build_act_inference_prompt(
             project_doc, summaries, run_nonce, **prompt_kwargs
         )
-        inferred = llm.infer_act_breaks(
+        inferred = infer_act_breaks(
             system=system,
             user_message=user,
             prompt_version=render.PROMPT_VERSION,
@@ -305,7 +396,7 @@ def analyze_import(
                     run_nonce,
                     **prompt_kwargs,
                 )
-                inferred = llm.infer_act_breaks(
+                inferred = infer_act_breaks(
                     system=retry_system,
                     user_message=retry_user,
                     prompt_version=render.PROMPT_VERSION,
@@ -342,7 +433,7 @@ def analyze_import(
                     first_error.diagnostics,
                     run_nonce,
                 )
-                repaired = llm.infer_act_breaks(
+                repaired = infer_act_breaks(
                     system=retry_system,
                     user_message=retry_user,
                     prompt_version=render.PROMPT_VERSION,
@@ -381,6 +472,7 @@ def analyze_import(
         fmt["runtimeMinutes"],
         render.PROMPT_VERSION,
     )
+    yield ImportFound(STAGE_INFERRING_ACTS, acts_found(fmt, scene_acts), cached=acts_cached)
 
     # ── Assemble the episode doc with deterministic ids, carrying each beat's
     # unassigned ranges so they can be flagged. ──────────────────────────────
@@ -430,6 +522,7 @@ def analyze_import(
         )
 
     new_doc, episode_id = _install_scenes(project_doc, scene_docs)
+    scene_index_by_id = {scene["id"]: scene["index"] for scene in scene_docs}
     beat_index = {b["id"]: b for s in scene_docs for b in s["beats"]}
     known_ids = set(beat_index) | {s["id"] for s in scene_docs}
 
@@ -438,6 +531,38 @@ def analyze_import(
     bible = new_doc.setdefault("seriesBible", {})
     speaker_names = cues_from_scenes(scene_docs)
     characters = merge_characters_into_bible(bible, speaker_names)
+
+    # One whole-episode payload for ledger extraction, built once and reused
+    # verbatim by every scene call, so the prompt prefix stays byte-identical
+    # and caches (§ measured at ~0.1x input per warm call). Extraction is the
+    # op that most needs it: who already knows a fact, and whether a later
+    # scene contradicts it, are not answerable from the target scene alone.
+    episode_source = render.build_episode_source_block(scene_docs, run_nonce)
+
+    # ── Facts prewarm, started now on its own thread. The extraction prefix
+    # (tool, system prompt, `episode_source`) is fixed once acts have set the
+    # format and the scenes are assembled. The cast sits in the user turn,
+    # after the cache breakpoint, so a prewarm sent with the interim cast
+    # (cue speakers) writes the same entry the facts calls read. The facts
+    # stage waits on it before fanning out. ─────────────────────────────────
+    scene_hashes = [_scene_text_hash(scene) for scene in scene_docs]
+    cached_extractions = _load_extract_checkpoints(checkpoint, scene_hashes)
+    send_facts_prewarm = _prewarm(
+        llm,
+        "extract_ledger_facts",
+        cached_extractions,
+        lambda index: render.build_extract_prompt(
+            new_doc, episode_id, scene_docs[index], [], characters, run_nonce
+        ),
+        episode_source,
+    )
+    facts_prewarm: Callable[[], None] | None = None
+    if send_facts_prewarm is not None:
+        prewarm_pool = ThreadPoolExecutor(max_workers=1)
+        facts_prewarm = prewarm_pool.submit(
+            _unit(STAGE_EXTRACTING_FACTS, None, send_facts_prewarm)
+        ).result
+        prewarm_pool.shutdown(wait=False)
 
     # ── Entity inference (§5a, T7.15): import_worker (Sonnet) calls over compact
     # scene summaries + the cue-derived speaker floor, merged into the bible
@@ -466,6 +591,7 @@ def analyze_import(
         len(summary_chunks),
         StoryEntities,
     )
+    entities_cached = all(part is not None for part in entity_parts)
     # WARNING (not INFO): uvicorn's default app log level often hides INFO,
     # and these lines are the only signal that chunking ran on a large import.
     _logger.warning(
@@ -481,7 +607,7 @@ def analyze_import(
     scene_docs_by_id = {scene["id"]: scene for scene in scene_docs}
     speaker_keys = {name.casefold() for name in speaker_names}
 
-    def _infer_entity_chunk(chunk_index: int, chunk: list[dict]) -> StoryEntities:
+    def _chunk_speakers(chunk: list[dict]) -> list[str]:
         chunk_scene_docs = [
             scene_docs_by_id[summary["id"]]
             for summary in chunk
@@ -490,11 +616,14 @@ def analyze_import(
         # The whole script decides what is a shot ("RAY 18"): a chunk's own
         # few headings and cue counts cannot, so skip its check and keep only
         # names the whole-script pass kept.
-        chunk_speakers = [
+        return [
             name
             for name in cues_from_scenes(chunk_scene_docs, shooting_script=False)
             if name.casefold() in speaker_keys
         ]
+
+    def _infer_entity_chunk(chunk_index: int, chunk: list[dict]) -> StoryEntities:
+        chunk_speakers = _chunk_speakers(chunk)
         system, user = render.build_entity_prompt(
             new_doc, chunk, chunk_speakers, run_nonce
         )
@@ -512,7 +641,9 @@ def analyze_import(
             system=system,
             user_message=user,
             prompt_version=render.PROMPT_VERSION,
-            # Same prefix the segmentation loop already warmed. Chunking here
+            # The segmentation payload again, but under the entity prompt's
+            # own tools and system text, so a cache entry of its own (written
+            # by this stage's prewarm), not segmentation's. Chunking here
             # bounds the OUTPUT (three chunks returned 14.6k output tokens on
             # a 27-scene script against an 8192 ceiling), but each chunk can
             # now see the whole cast when deciding names and aliases.
@@ -526,15 +657,33 @@ def analyze_import(
         summary_chunks,
         _infer_entity_chunk,
         stage=STAGE_INFERRING_ENTITIES,
+        workers=_stage_concurrency("infer_story_entities"),
+        per_scene=False,
         existing_results=entity_parts,
         # Every chunk carries `split_source` under the entity prompt's own
-        # tools and system text: warm it once so the other chunks read it.
-        warm_cache_first=True,
+        # tools and system text: write that entry once, before the fan-out.
+        # Not started back with the facts prewarm: this stage starts right
+        # after acts anyway and has to wait for the write either way.
+        prewarm=_prewarm(
+            llm,
+            "infer_story_entities",
+            entity_parts,
+            lambda index: render.build_entity_prompt(
+                new_doc,
+                summary_chunks[index],
+                _chunk_speakers(summary_chunks[index]),
+                run_nonce,
+            ),
+            split_source,
+        ),
         on_result=lambda index, part: _write_checkpoint(
             checkpoint_writer,
             STAGE_INFERRING_ENTITIES,
             part.model_dump(by_alias=True, mode="json"),
             index,
+        ),
+        found=lambda index, _part: cast_read_found(
+            [scene_index_by_id[summary["id"]] for summary in summary_chunks[index]]
         ),
     )
     entities = combine_story_entities([cast(StoryEntities, part) for part in entity_parts])
@@ -547,6 +696,16 @@ def analyze_import(
         bible, entities, content
     )
     _episode_ref(new_doc, episode_id)["relationshipStates"] = relationship_states
+    yield ImportFound(
+        STAGE_INFERRING_ENTITIES,
+        cast_found(
+            characters,
+            scene_docs,
+            # The decision `cues_from_scenes(scene_docs)` made over the same lines.
+            is_shooting_script(line for span in spans for line in span.lines),
+        ),
+        cached=entities_cached,
+    )
     _logger.info(
         "import_infer_entities characters=%d relationships=%d world_elements=%d "
         "chunks=%d prompt_version=%s",
@@ -557,24 +716,43 @@ def analyze_import(
         render.PROMPT_VERSION,
     )
 
-    # ── Narrative promises (P2, T7.20): one import_analyst (Opus) call over a
-    # beat-complete semantic spine with bounded server-selected evidence excerpts.
-    # The fuller cast is resolved first, so thread owners and scene motivations can
-    # name any character entities just minted without replaying a full screenplay.
-    # Merges threads onto the episode, motivations onto matching scenes, and
-    # new (non-duplicate) world rules onto the bible — never overwriting or
-    # duplicating a locked rule's text (drama_manager.promises). Same
-    # schema-invalid-after-retry atomic-failure contract as every other
-    # import LLM stage.
-    # ─────────────────────────────────────────────────────────────────────
-    yield ImportStageStarted(STAGE_INFERRING_PROMISES)
+    # ── Late stages: narrative promises (threads), story overview, and ledger
+    # extraction -> consistency scan. Threads and overview read the beats and
+    # cast, facts the scenes and cast, consistency the facts: none reads
+    # threads or overview. So in overlap mode (the default, IMPORT_OVERLAP)
+    # the three branches start together right here, and the slowest one, not
+    # their sum, sets the import's length. Every prompt is built on this
+    # thread before its call starts, and each result is checkpointed on this
+    # thread as it lands. Merges run in the order below (threads, overview,
+    # facts assembly, consistency), and events are yielded in that order
+    # (§9.3), facts held back until overview's are out. A failed call is held
+    # the same way and raised once its own stage opens, so the run stops at
+    # the stage that failed.
+    # TABLEREAD_IMPORT_OVERLAP=0 runs them one after another, each prompt
+    # built after the previous merge; the prompts are byte-identical either
+    # way (test_import_overlap.py). ──────────────────────────────────────────
     known_cast = [c["name"] for c in characters if c.get("name")]
     existing_world_rule_texts = [r["text"] for r in bible.get("worldRules") or [] if r.get("text")]
+    # Every late checkpoint loads before anything runs: overlap starts all
+    # three branches at once, and a resumed import never re-calls a finished
+    # unit. A saved scan never saw the facts of a scene still to extract.
     narrative_promises = _load_model_checkpoint(
         checkpoint, STAGE_INFERRING_PROMISES, NarrativePromises
     )
-    if narrative_promises is None:
-        yield ImportStageProgress(STAGE_INFERRING_PROMISES, 0, 2)
+    story_overview = _load_model_checkpoint(
+        checkpoint, STAGE_INFERRING_OVERVIEW, InferredStoryOverview
+    )
+    scan = (
+        None
+        if any(unit is None for unit in cached_extractions)
+        else _load_model_checkpoint(checkpoint, STAGE_CHECKING_CONSISTENCY, ConsistencyScan)
+    )
+    promises_cached = narrative_promises is not None
+    overview_cached = story_overview is not None
+    scan_cached = scan is not None
+    failed_extractions: set[int] = set()
+
+    def promises_prompt() -> tuple[str, str]:
         promises_spine = _promises_prompt_spine(scene_docs)
         system, user = render.build_promises_prompt(
             new_doc,
@@ -591,171 +769,313 @@ def analyze_import(
             len(user),
             render.PROMPT_VERSION,
         )
-        yield ImportStageProgress(STAGE_INFERRING_PROMISES, 1, 2)
-        narrative_promises = llm.infer_narrative_promises(
-            system=system, user_message=user, prompt_version=render.PROMPT_VERSION
-        )
-        _write_checkpoint(
-            checkpoint_writer,
-            STAGE_INFERRING_PROMISES,
-            narrative_promises.model_dump(by_alias=True, mode="json"),
-        )
-    merge_narrative_promises(new_doc, episode_id, narrative_promises)
-    yield ImportStageProgress(STAGE_INFERRING_PROMISES, 2, 2)
-    _logger.info(
-        "import_infer_promises threads=%d scene_motivations=%d world_rules=%d prompt_version=%s",
-        len(narrative_promises.threads),
-        len(narrative_promises.scene_motivations),
-        len(narrative_promises.world_rules),
-        render.PROMPT_VERSION,
-    )
+        return system, user
 
-    # ── Story overview (T7.28): one import_analyst (Opus) call after promises so the
-    # synopsis can reflect thread/motivation tone without depending on the
-    # fact wall. Merges Episode.storyOverview; backfills empty premises from
-    # the logline; preserves locked overview (drama_manager.overview). ─────
-    yield ImportStageStarted(STAGE_INFERRING_OVERVIEW)
-    scene_spine, known_beats = _overview_prompt_inputs(scene_docs)
-    story_overview = _load_model_checkpoint(
-        checkpoint, STAGE_INFERRING_OVERVIEW, InferredStoryOverview
-    )
-    if story_overview is None:
-        yield ImportStageProgress(STAGE_INFERRING_OVERVIEW, 0, 1)
-        system, user = render.build_overview_prompt(
-            new_doc,
-            scene_spine,
-            known_beats,
-            run_nonce,
-            known_cast=known_cast,
-        )
-        story_overview = llm.infer_story_overview(
-            system=system, user_message=user, prompt_version=render.PROMPT_VERSION
-        )
-        _write_checkpoint(
-            checkpoint_writer,
-            STAGE_INFERRING_OVERVIEW,
-            story_overview.model_dump(by_alias=True, mode="json"),
-        )
-    merge_story_overview(new_doc, episode_id, story_overview)
-    yield ImportStageProgress(STAGE_INFERRING_OVERVIEW, 1, 1)
-    _logger.info(
-        "import_infer_overview outline=%d beat_sheet=%d prompt_version=%s",
-        len(story_overview.outline),
-        len(story_overview.beat_sheet),
-        render.PROMPT_VERSION,
-    )
-
-    # ── Ledger extraction (§4 step 2): each import-derived fact gets the
-    # status facts found while writing get (`_to_ledger_fact`). Fresh ledger
-    # → no existing facts to contradict. ─────────────────────────────────────
-    yield ImportStageStarted(STAGE_EXTRACTING_FACTS)
-    scene_hashes = [_scene_text_hash(scene) for scene in scene_docs]
-    cached_extractions = _load_extract_checkpoints(checkpoint, scene_hashes)
-    if any(unit is None for unit in cached_extractions):
-        # A saved scan never saw this scene's facts.
-        checkpoint = {}
-    # One whole-episode payload, built once and reused verbatim by every scene
-    # call, so the prompt prefix stays byte-identical and caches (§ measured at
-    # ~0.1x input per warm call). Extraction is the op that most needs it: who
-    # already knows a fact, and whether a later scene contradicts it, are not
-    # answerable from the target scene alone.
-    episode_source = render.build_episode_source_block(scene_docs, run_nonce)
-    failed_extractions: set[int] = set()
-    extractions = yield from _run_ordered_parallel(
-        scene_docs,
-        _continue_past_schema_failure(
-            lambda index, scene: _extract_one(
-                index, scene, new_doc, episode_id, characters, llm, run_nonce,
-                episode_source,
-            ),
-            STAGE_EXTRACTING_FACTS,
-            failed_extractions,
-            lambda _scene: LedgerExtraction(new_facts=[], contradictions=[]),
-        ),
-        stage=STAGE_EXTRACTING_FACTS,
-        existing_results=cached_extractions,
-        # Same race as segmentation — every call carries `episode_source`.
-        warm_cache_first=True,
-        on_result=lambda index, extraction: None
-        if index in failed_extractions
-        else _write_checkpoint(
-            checkpoint_writer,
-            STAGE_EXTRACTING_FACTS,
+    def scan_prompt(new_facts: list[dict], characters: list[dict]) -> tuple[str, str]:
+        fact_summaries = [
             {
-                "sceneHash": scene_hashes[index],
-                "extraction": extraction.model_dump(by_alias=True, mode="json"),
-            },
-            index,
-        ),
-    )
-    new_facts: list[dict] = []
-    fact_minter = IdMinter([], "fact-")
-    for extraction in extractions:
-        for ef in extraction.new_facts:
-            fact = _to_ledger_fact(ef, fact_minter.mint(), beat_index)
-            normalized, characters = normalize_known_by(
-                fact["knownBy"], characters, content
-            )
-            fact["knownBy"] = normalized
-            resolved_events = []
-            for event in fact["knowledgeEvents"]:
-                event_character_ids, characters = normalize_known_by(
-                    event["characterNames"], characters, content
-                )
-                resolved_events.append(
-                    {
-                        "sceneId": event["sceneId"],
-                        "characterIds": event_character_ids,
-                        "kind": event["kind"],
-                        "quote": event["quote"],
-                    }
-                )
-            fact["knowledgeEvents"] = resolved_events
-            new_facts.append(fact)
-    bible["characters"] = characters
-
-    # ── Object custody / location continuity (T7.26, "simpler MVP"): a
-    # deterministic pass over the just-extracted fact text, no new LLM
-    # call. Stored on the episode; conflicts become open flags below. ──────
-    object_states = infer_object_states(new_facts)
-    _episode_ref(new_doc, episode_id)["objectStates"] = object_states
-
-    # ── Consistency scan (§4 step 3): one sweep across the imported episode. ──
-    yield ImportStageStarted(STAGE_CHECKING_CONSISTENCY)
-    scene_summaries = _entity_scene_summaries(scene_docs)
-    fact_summaries = [
-        {
-            "id": fact["id"],
-            "fact": fact["fact"],
-            "factType": fact["factType"],
-            "sourceSpan": fact["sourceSpan"],
-            "knownBy": fact["knownBy"],
-            "audienceKnows": fact["audienceKnows"],
-        }
-        for fact in new_facts
-    ]
-    scan = _load_model_checkpoint(
-        checkpoint, STAGE_CHECKING_CONSISTENCY, ConsistencyScan
-    )
-    if scan is None:
-        yield ImportStageProgress(STAGE_CHECKING_CONSISTENCY, 0, 1)
-        system, user = render.build_scan_prompt(
+                "id": fact["id"],
+                "fact": fact["fact"],
+                "factType": fact["factType"],
+                "sourceSpan": fact["sourceSpan"],
+                "knownBy": fact["knownBy"],
+                "audienceKnows": fact["audienceKnows"],
+            }
+            for fact in new_facts
+        ]
+        return render.build_scan_prompt(
             new_doc,
             "imported script",
-            scene_summaries,
+            _entity_scene_summaries(scene_docs),
             fact_summaries,
             characters,
             run_nonce,
         )
-        scan = llm.scan_consistency(
-            system=system, user_message=user, prompt_version=render.PROMPT_VERSION
+
+    drain = _Drain() if IMPORT_OVERLAP else None
+    # Single calls get their own pool, so threads and overview (Opus) never
+    # queue behind facts calls, nor the scan behind either of them.
+    solo = drain.pool(3) if drain is not None else None
+
+    def start[R: BaseModel](
+        stage: str, call: Callable[..., R], prompt: Callable[[], tuple[str, str]]
+    ) -> Callable[[], R]:
+        """One single-call stage's result, as a thunk. Overlap: the prompt is
+        built and the call started now. Serial: both happen when the thunk is
+        called, after the previous stage's merge."""
+
+        def save(result: R) -> None:
+            _write_checkpoint(
+                checkpoint_writer, stage, result.model_dump(by_alias=True, mode="json")
+            )
+
+        def send(system: str, user: str) -> R:
+            return call(system=system, user_message=user, prompt_version=render.PROMPT_VERSION)
+
+        if drain is None:
+
+            def run_now() -> R:
+                result = _unit(stage, None, send, pooled=False)(*prompt())
+                save(result)
+                return result
+
+            return run_now
+        future = drain.submit(cast(ThreadPoolExecutor, solo), save, send, *prompt(), stage=stage)
+        return lambda: drain.until(future)
+
+    extractions = list(cached_extractions)
+    missing_facts = [index for index, unit in enumerate(extractions) if unit is None]
+    landed_facts: list[int] = []  # overlap: indexes in the order their calls finished
+    fact_errors: list[BaseException] = []  # overlap: held until the facts stage
+    assembled: tuple[list[dict], list[dict]] | None = None
+    get_scan: Callable[[], ConsistencyScan] | None = None
+
+    def save_extraction(index: int, extraction: LedgerExtraction) -> None:
+        if index not in failed_extractions:
+            _write_checkpoint(
+                checkpoint_writer,
+                STAGE_EXTRACTING_FACTS,
+                {
+                    "sceneHash": scene_hashes[index],
+                    "extraction": extraction.model_dump(by_alias=True, mode="json"),
+                },
+                index,
+            )
+
+    def extraction_found(index: int, extraction: LedgerExtraction) -> dict:
+        return facts_found(index, extraction, index in failed_extractions)
+
+    def assemble_and_start_scan() -> None:
+        nonlocal assembled, get_scan
+        assembled = _assemble_facts(
+            cast(list[LedgerExtraction], extractions), characters, content, beat_index
         )
-        _write_checkpoint(
-            checkpoint_writer,
-            STAGE_CHECKING_CONSISTENCY,
-            scan.model_dump(by_alias=True, mode="json"),
+        if scan is None:
+            facts_now, cast_now = assembled
+            get_scan = start(
+                STAGE_CHECKING_CONSISTENCY,
+                llm.scan_consistency,
+                lambda: scan_prompt(facts_now, cast_now),
+            )
+
+    try:
+        get_promises = (
+            None
+            if promises_cached
+            else start(STAGE_INFERRING_PROMISES, llm.infer_narrative_promises, promises_prompt)
         )
-    yield ImportStageProgress(STAGE_CHECKING_CONSISTENCY, 1, 1)
+        get_overview = (
+            None
+            if overview_cached
+            else start(
+                STAGE_INFERRING_OVERVIEW,
+                llm.infer_story_overview,
+                lambda: render.build_overview_prompt(
+                    new_doc,
+                    *_overview_prompt_inputs(scene_docs),
+                    run_nonce,
+                    known_cast=known_cast,
+                ),
+            )
+        )
+        if drain is not None:
+            # Every facts prompt is built here, before any call starts. The
+            # threads and overview merges that run while these calls are in
+            # flight never touch what they read (title, format, scene text,
+            # cast).
+            fact_prompts = {
+                index: render.build_extract_prompt(
+                    new_doc, episode_id, scene_docs[index], [], characters, run_nonce
+                )
+                for index in missing_facts
+            }
+            extract_prebuilt = _continue_past_schema_failure(
+                lambda index, prompt: _extract_one(
+                    index,
+                    scene_docs[index],
+                    new_doc,
+                    episode_id,
+                    characters,
+                    llm,
+                    run_nonce,
+                    episode_source,
+                    prompt=prompt,
+                ),
+                STAGE_EXTRACTING_FACTS,
+                failed_extractions,
+                lambda _prompt: LedgerExtraction(new_facts=[], contradictions=[]),
+            )
+
+            def on_fact(index: int) -> Callable[[LedgerExtraction], None]:
+                def handle(extraction: LedgerExtraction) -> None:
+                    save_extraction(index, extraction)
+                    extractions[index] = extraction
+                    if drain.failed:
+                        # Saved for a resume, never shown: serial's fan-out
+                        # shows nothing that lands after a failure either.
+                        return
+                    landed_facts.append(index)
+                    if len(landed_facts) == len(missing_facts):
+                        assemble_and_start_scan()
+
+                return handle
+
+            def on_fact_error(error: BaseException) -> None:
+                # Raised once the facts stage opens, after threads and
+                # overview have merged and shown what they found, as in
+                # serial. Scenes not yet started are cancelled; those in
+                # flight still land and are saved.
+                fact_errors.append(error)
+                facts_pool.shutdown(wait=False, cancel_futures=True)
+
+            # Same rule as `_run_ordered_parallel`: one prewarm, then every
+            # scene at once (facts_prewarm is None unless 2+ are outstanding).
+            if facts_prewarm is not None:
+                facts_prewarm()
+            facts_pool = drain.pool(_stage_concurrency("extract_ledger_facts"))
+            for index in missing_facts:
+                drain.submit(
+                    facts_pool,
+                    on_fact(index),
+                    extract_prebuilt,
+                    index,
+                    fact_prompts[index],
+                    stage=STAGE_EXTRACTING_FACTS,
+                    scene=index,
+                    on_error=on_fact_error,
+                )
+            if not missing_facts:
+                assemble_and_start_scan()
+
+        # ── Narrative promises (P2, T7.20): one import_analyst (Opus) call over
+        # a beat-complete semantic spine. The fuller cast is resolved first, so
+        # thread owners and scene motivations can name any character entities
+        # just minted without replaying a full screenplay. Merges threads onto
+        # the episode, motivations onto matching scenes, and new
+        # (non-duplicate) world rules onto the bible — never overwriting or
+        # duplicating a locked rule's text (drama_manager.promises). Same
+        # schema-invalid-after-retry atomic-failure contract as every other
+        # import LLM stage. ─────────────────────────────────────────────────
+        yield ImportStageStarted(STAGE_INFERRING_PROMISES)
+        if get_promises is not None:
+            yield ImportStageProgress(STAGE_INFERRING_PROMISES, 0, 2)
+            yield ImportStageProgress(STAGE_INFERRING_PROMISES, 1, 2)
+            narrative_promises = get_promises()
+        narrative_promises = cast(NarrativePromises, narrative_promises)
+        merge_narrative_promises(new_doc, episode_id, narrative_promises)
+        yield ImportFound(
+            STAGE_INFERRING_PROMISES,
+            threads_found(_episode_ref(new_doc, episode_id)["threads"], scene_index_by_id),
+            cached=promises_cached,
+        )
+        yield ImportStageProgress(STAGE_INFERRING_PROMISES, 2, 2)
+        _logger.info(
+            "import_infer_promises threads=%d scene_motivations=%d world_rules=%d "
+            "prompt_version=%s",
+            len(narrative_promises.threads),
+            len(narrative_promises.scene_motivations),
+            len(narrative_promises.world_rules),
+            render.PROMPT_VERSION,
+        )
+
+        # ── Story overview (T7.28): one import_analyst (Opus) call over the
+        # beats, format and cast. It never reads threads or motivations (its
+        # prompt is built from the scene spine alone), so it does not wait on
+        # promises in overlap mode. Merges Episode.storyOverview; backfills
+        # empty premises from the logline; preserves a locked overview
+        # (drama_manager.overview). ─────────────────────────────────────────
+        yield ImportStageStarted(STAGE_INFERRING_OVERVIEW)
+        if get_overview is not None:
+            yield ImportStageProgress(STAGE_INFERRING_OVERVIEW, 0, 1)
+            story_overview = get_overview()
+        story_overview = cast(InferredStoryOverview, story_overview)
+        merge_story_overview(new_doc, episode_id, story_overview)
+        yield ImportFound(
+            STAGE_INFERRING_OVERVIEW,
+            overview_found(
+                _episode_ref(new_doc, episode_id).get("storyOverview") or {},
+                scene_index_by_id,
+            ),
+            cached=overview_cached,
+        )
+        yield ImportStageProgress(STAGE_INFERRING_OVERVIEW, 1, 1)
+        _logger.info(
+            "import_infer_overview outline=%d beat_sheet=%d prompt_version=%s",
+            len(story_overview.outline),
+            len(story_overview.beat_sheet),
+            render.PROMPT_VERSION,
+        )
+
+        # ── Ledger extraction (§4 step 2): each import-derived fact gets the
+        # status facts found while writing get (`_to_ledger_fact`). Fresh
+        # ledger → no existing facts to contradict. ───────────────────────────
+        yield ImportStageStarted(STAGE_EXTRACTING_FACTS)
+        if drain is None:
+            extractions = yield from _run_ordered_parallel(
+                scene_docs,
+                _continue_past_schema_failure(
+                    lambda index, scene: _extract_one(
+                        index, scene, new_doc, episode_id, characters, llm, run_nonce,
+                        episode_source,
+                    ),
+                    STAGE_EXTRACTING_FACTS,
+                    failed_extractions,
+                    lambda _scene: LedgerExtraction(new_facts=[], contradictions=[]),
+                ),
+                stage=STAGE_EXTRACTING_FACTS,
+                workers=_stage_concurrency("extract_ledger_facts"),
+                existing_results=cached_extractions,
+                # Same race as segmentation — every call carries `episode_source`.
+                prewarm=facts_prewarm,
+                on_result=save_extraction,
+                found=extraction_found,
+            )
+            assemble_and_start_scan()
+        else:
+            # The calls started with threads; their events go out now, the
+            # ones already landed first, in the order they landed.
+            yield from _stage_opening(STAGE_EXTRACTING_FACTS, cached_extractions, extraction_found)
+            emitted = 0
+            while emitted < len(missing_facts):
+                while emitted == len(landed_facts):
+                    if fact_errors:
+                        raise fact_errors[0]
+                    drain.step()
+                index = landed_facts[emitted]
+                emitted += 1
+                yield ImportFound(
+                    STAGE_EXTRACTING_FACTS,
+                    extraction_found(index, cast(LedgerExtraction, extractions[index])),
+                )
+                yield ImportStageProgress(
+                    STAGE_EXTRACTING_FACTS,
+                    len(scene_docs) - len(missing_facts) + emitted,
+                    len(scene_docs),
+                )
+        new_facts, characters = cast(tuple[list[dict], list[dict]], assembled)
+        bible["characters"] = characters
+
+        # ── Object custody / location continuity (T7.26, "simpler MVP"): a
+        # deterministic pass over the just-extracted fact text, no new LLM
+        # call. Stored on the episode; conflicts become open flags below. ──────
+        object_states = infer_object_states(new_facts)
+        _episode_ref(new_doc, episode_id)["objectStates"] = object_states
+
+        # ── Consistency scan (§4 step 3): one sweep across the imported
+        # episode. ───────────────────────────────────────────────────────────
+        yield ImportStageStarted(STAGE_CHECKING_CONSISTENCY)
+        if get_scan is not None:
+            yield ImportStageProgress(STAGE_CHECKING_CONSISTENCY, 0, 1)
+            scan = get_scan()
+        scan = cast(ConsistencyScan, scan)
+        yield ImportStageProgress(STAGE_CHECKING_CONSISTENCY, 1, 1)
+    except BaseException:
+        if drain is not None:
+            drain.salvage()
+        raise
+    finally:
+        if drain is not None:
+            drain.close()
 
     flag_minter = IdMinter([], "flag-")
     raw_flags: list[dict] = []
@@ -830,6 +1150,7 @@ def analyze_import(
             }
         )
 
+    yield ImportFound(STAGE_CHECKING_CONSISTENCY, flags_found(raw_flags), cached=scan_cached)
     return ImportAnalysis(new_doc=new_doc, new_facts=new_facts, raw_flags=raw_flags)
 
 
@@ -1091,28 +1412,97 @@ def _load_model_unit_checkpoints[T: BaseModel](
     return results
 
 
+def _prewarm(
+    llm: LlmClient,
+    op: str,
+    results: list,
+    prompt: Callable[[int], tuple[str, str]],
+    cache_prefix: str,
+) -> Callable[[], None] | None:
+    """A `prewarm` for a per-unit stage: `op`'s exact request for the first
+    OUTSTANDING unit (so a checkpointed resume warms with work it still has to
+    do), its prompt built now, on the generator's thread. None when fewer than
+    two units are outstanding: a lone call writes its own cache entry."""
+    missing = [index for index, result in enumerate(results) if result is None]
+    if len(missing) < 2:
+        return None
+    system, user = prompt(missing[0])
+    return lambda: llm.prewarm_cache(
+        op, system=system, user_message=user, cache_prefix=cache_prefix
+    )
+
+
+def _unit[R](
+    stage: str, scene: int | None, fn: Callable[..., R], *, pooled: bool = True
+) -> Callable[..., R]:
+    """`fn` as one import unit, for whichever thread runs it: it runs in a copy
+    of the context it was made in (so the import run id reaches pool workers,
+    which do not inherit context vars), with its model calls tagged with
+    `stage`, `scene` and, when `pooled`, the ms from now until it starts (the
+    wait for a free worker). Make one per submission: a context copy can run
+    on one thread at a time."""
+    context = contextvars.copy_context()
+    made = time.monotonic()
+
+    def run(*args: Any, **kwargs: Any) -> R:
+        queue_ms = round((time.monotonic() - made) * 1000) if pooled else None
+
+        def call() -> R:
+            with import_unit_context(ImportUnit(stage, scene, queue_ms)):
+                return fn(*args, **kwargs)
+
+        return context.run(call)
+
+    return run
+
+
+def _stage_opening[R](
+    stage: str, results: list[R | None], found: Callable[[int, R], dict] | None
+) -> Generator[ImportPipelineEvent, None, None]:
+    """A per-unit stage's opening frames: each checkpointed unit's `found`
+    (`cached=True`), then progress over what is already done."""
+    if found is not None:
+        for index, result in enumerate(results):
+            if result is not None:
+                yield ImportFound(stage, found(index, result), cached=True)
+    yield ImportStageProgress(
+        stage, sum(result is not None for result in results), len(results)
+    )
+
+
 def _run_ordered_parallel[T, R](
     items: list[T],
     worker: Callable[[int, T], R],
     *,
     stage: str,
+    workers: int,
+    per_scene: bool = True,
     existing_results: list[R | None] | None = None,
     on_result: Callable[[int, R], None] | None = None,
-    warm_cache_first: bool = False,
+    found: Callable[[int, R], dict] | None = None,
+    prewarm: Callable[[], None] | None = None,
 ) -> Generator[ImportPipelineEvent, None, list[R]]:
     """Run per-scene LLM work concurrently while returning results by source index.
 
-    On failure, pending futures are cancelled and the executor is not allowed to
-    wait for unrelated in-flight calls. Already-running HTTP calls cannot be
-    killed, but this generator raises immediately and emits no later progress.
+    At most `workers` calls run at once. Each item runs as an import unit
+    (`_unit`) of `stage`, tagged with its index as the scene when `per_scene`.
 
-    `warm_cache_first` runs the first outstanding item alone before fanning
-    out. Set it when the worker sends a shared cached prefix: otherwise the
-    first IMPORT_LLM_CONCURRENCY calls all start before any cache entry
-    exists and each pays a full cache write. Measured on a real 60-page
-    import: three redundant 30k-token writes per loop, about $0.18 each on
-    the Sonnet import worker. The cost is one scene of serial latency; the
-    saving is every redundant write in that loop.
+    On failure, calls not yet started are cancelled and the generator emits no
+    later progress. Already-running HTTP calls cannot be killed, so it waits for
+    them and checkpoints each one that succeeded before raising.
+
+    `prewarm` writes the shared cached prefix before the fan-out; it runs once,
+    synchronously, when more than one item is outstanding. Set it when the
+    worker sends a shared cached prefix: otherwise the first `workers` calls
+    all start before any cache entry exists and each pays a full cache write
+    (measured on a real 60-page import: three redundant 30k-token writes per
+    loop, about $0.18 each on the Sonnet import worker). It replaced running
+    the first item alone, which cost one whole call of serial latency per
+    stage (27.6 s on a 68-scene import); a prewarm generates nothing, so it
+    costs only the prefill.
+
+    `found` builds each result's `ImportFound` payload: checkpointed results
+    first (`cached=True`), then each new result just before its progress frame.
     """
     if not items:
         return []
@@ -1123,7 +1513,7 @@ def _run_ordered_parallel[T, R](
         list(existing_results) if existing_results is not None else [None] * len(items)
     )
     done = sum(result is not None for result in results)
-    yield ImportStageProgress(stage, done, len(items))
+    yield from _stage_opening(stage, results, found)
     missing = [
         (index, item)
         for index, item in enumerate(items)
@@ -1132,23 +1522,13 @@ def _run_ordered_parallel[T, R](
     if not missing:
         return [cast(R, result) for result in results]
 
-    # Warm the shared prefix on one call before fanning out. Uses the first
-    # OUTSTANDING item rather than index 0, so a checkpointed resume warms
-    # with work it actually has to do instead of redoing a finished scene.
-    if warm_cache_first and len(missing) > 1:
-        warm_index, warm_item = missing[0]
-        warm_result = worker(warm_index, warm_item)
-        if on_result is not None:
-            on_result(warm_index, warm_result)
-        results[warm_index] = warm_result
-        done += 1
-        yield ImportStageProgress(stage, done, len(items))
-        missing = missing[1:]
+    if prewarm is not None and len(missing) > 1:
+        prewarm()
 
-    pool = ThreadPoolExecutor(max_workers=IMPORT_LLM_CONCURRENCY)
+    pool = ThreadPoolExecutor(max_workers=workers)
     try:
         futures = {
-            pool.submit(worker, index, item): index
+            pool.submit(_unit(stage, index if per_scene else None, worker), index, item): index
             for index, item in missing
         }
         for future in as_completed(futures):
@@ -1158,6 +1538,8 @@ def _run_ordered_parallel[T, R](
                 on_result(index, result)
             results[index] = result
             done += 1
+            if found is not None:
+                yield ImportFound(stage, found(index, result))
             yield ImportStageProgress(stage, done, len(items))
     except BaseException:
         # A provider request can fail while other submitted calls have already
@@ -1178,6 +1560,86 @@ def _run_ordered_parallel[T, R](
     else:
         pool.shutdown(wait=True)
     return [cast(R, result) for result in results]
+
+
+class _Drain:
+    """Model calls running on worker pools, whose results the generator's own
+    thread handles (`step`, `until`) as each one lands. Workers only call the
+    model; each result's handler (checkpoint writes, bookkeeping) runs on the
+    thread that owns the DB session, as soon as that call finishes.
+
+    A failed call is held, not raised where it lands: the generator may be
+    waiting on an earlier stage, which must still finish and be reported
+    first (§9.3). `until` raises a call's own error; a call submitted with
+    `on_error` hands its error there instead."""
+
+    def __init__(self) -> None:
+        self._pools: list[ThreadPoolExecutor] = []
+        self._handlers: dict[
+            Future, tuple[Callable[[Any], None], Callable[[BaseException], None] | None]
+        ] = {}
+        self.failed = False
+
+    def pool(self, workers: int) -> ThreadPoolExecutor:
+        pool = ThreadPoolExecutor(max_workers=workers)
+        self._pools.append(pool)
+        return pool
+
+    def submit(
+        self,
+        pool: ThreadPoolExecutor,
+        handler: Callable[[Any], None],
+        fn: Callable[..., Any],
+        /,
+        *args: Any,
+        stage: str,
+        scene: int | None = None,
+        on_error: Callable[[BaseException], None] | None = None,
+    ) -> Future:
+        future = pool.submit(_unit(stage, scene, fn), *args)
+        self._handlers[future] = (handler, on_error)
+        return future
+
+    def step(self) -> None:
+        """Wait for at least one call, then handle every call that has
+        finished. A failed call sets `failed` (so nothing that needs every
+        result starts) and is held for `until` or its `on_error`."""
+        done, _pending = wait(self._handlers, return_when=FIRST_COMPLETED)
+        for future in done:
+            handler, on_error = self._handlers.pop(future)
+            if future.cancelled():
+                continue
+            error = future.exception()
+            if error is None:
+                handler(future.result())
+                continue
+            self.failed = True
+            if on_error is not None:
+                on_error(error)
+
+    def until(self, future: Future) -> Any:
+        """Handle landing calls until `future` has been handled; its result,
+        or its error."""
+        while future in self._handlers:
+            self.step()
+        return future.result()
+
+    def salvage(self) -> None:
+        """After a failure: cancel calls not yet started, wait for in-flight
+        ones (already paid for) and handle each that succeeded, so its
+        checkpoint lands before the caller re-raises and a retry never pays
+        for it twice."""
+        self.failed = True
+        for pool in self._pools:
+            pool.shutdown(wait=True, cancel_futures=True)
+        for future, (handler, _on_error) in list(self._handlers.items()):
+            if not future.cancelled() and future.exception() is None:
+                handler(future.result())
+        self._handlers.clear()
+
+    def close(self) -> None:
+        for pool in self._pools:
+            pool.shutdown(wait=True)
 
 
 _UNIT_FAILED_EXPLANATIONS = {
@@ -1285,14 +1747,18 @@ def _extract_one(
     llm: LlmClient,
     run_nonce: str,
     episode_source: str | None = None,
+    prompt: tuple[str, str] | None = None,
 ) -> LedgerExtraction:
     """Extract facts for one scene, with the whole episode as cached context.
 
     `episode_source` is built once per run and passed unchanged to every call
     (see `render.build_episode_source_block`). It must not be rebuilt here: a
     per-call rebuild would still be byte-identical today, but it invites a
-    future per-call detail to creep in and silently kill the cache."""
-    system, user = render.build_extract_prompt(
+    future per-call detail to creep in and silently kill the cache.
+
+    `prompt` is the scene's `(system, user)` when the caller built it already
+    (overlap mode builds every prompt on the generator's thread)."""
+    system, user = prompt or render.build_extract_prompt(
         new_doc, episode_id, scene, [], characters, run_nonce
     )
     try:
@@ -1324,6 +1790,44 @@ def _extract_one(
         )
 
 
+def _assemble_facts(
+    extractions: list[LedgerExtraction],
+    characters: list[dict],
+    content: str,
+    beat_index: dict,
+) -> tuple[list[dict], list[dict]]:
+    """Ledger facts from every scene's extraction, in scene order, with
+    `knownBy` and knowledge-event names resolved against `characters`, and
+    that cast, grown by any knower minted on the way. Pure: the caller
+    installs the cast on the bible, after the threads merge (which resolves
+    names against the cast as it stood before facts)."""
+    new_facts: list[dict] = []
+    fact_minter = IdMinter([], "fact-")
+    for extraction in extractions:
+        for ef in extraction.new_facts:
+            fact = _to_ledger_fact(ef, fact_minter.mint(), beat_index)
+            normalized, characters = normalize_known_by(
+                fact["knownBy"], characters, content
+            )
+            fact["knownBy"] = normalized
+            resolved_events = []
+            for event in fact["knowledgeEvents"]:
+                event_character_ids, characters = normalize_known_by(
+                    event["characterNames"], characters, content
+                )
+                resolved_events.append(
+                    {
+                        "sceneId": event["sceneId"],
+                        "characterIds": event_character_ids,
+                        "kind": event["kind"],
+                        "quote": event["quote"],
+                    }
+                )
+            fact["knowledgeEvents"] = resolved_events
+            new_facts.append(fact)
+    return new_facts, characters
+
+
 _ENTITY_PROMPT_EARLY_LINES = 40
 
 
@@ -1333,9 +1837,11 @@ _OVERVIEW_SCRIPT_EXCERPT_LINES = 12
 def _overview_prompt_inputs(scene_docs: list[dict]) -> tuple[list[dict], list[dict]]:
     """Richest compact spine + beat inventory for `infer_story_overview`.
 
-    Scene-level `whatHappens` is empty at import assembly; roll up beat
-    plan fields and a short script excerpt so the overview model sees
-    story action, not only locations. Full scriptText stays out of the
+    Rolls up every beat's plan fields (finer than the scene's own one- or
+    two-sentence reading from segmentation) and a short script excerpt, so
+    the overview model sees story action, not only locations. Reads beats
+    only, never threads or motivations, which is what lets overview run
+    alongside promises (`analyze_import`). Full scriptText stays out of the
     prompt (token + slugline-paste risk); excerpts are inert-wrapped by
     the renderer.
     """

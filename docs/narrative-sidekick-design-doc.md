@@ -159,7 +159,7 @@ The **script canvas is the hero**: a formatted teleplay page on a warm ivory sur
 
 An **infinite canvas** planning workspace — story structure as manipulable objects, borrowing interaction grammar from collaborative design tools:
 
-- **Story Layers panel (left):** the hierarchy as layers — series bible, season arc, episodes, storylines, scenes, beats. Selecting a layer focuses the canvas; visibility toggles declutter.
+- **Story Layers panel (left):** the hierarchy as layers — series bible, season arc, episodes, storylines, scenes, beats. Selecting a layer focuses the canvas; visibility toggles declutter. (Plan redesign 2026-10-13: retired; its jobs moved to the act headers, the Episode view and the highlight bar — `docs/superpowers/specs/2026-10-13-plan-redesign-design.md`)
 - **Acts and episodes as frames**; **scenes and beats as structured cards/components** placed inside them — selectable, draggable to reorder, color-coded by storyline (A/B/C).
 - **Connector lines** overlay relationships: setup → payoff, continuity dependencies (from ledger facts), character-arc threads across scenes. Toggleable per relationship type.
 - **Inspector panel (right):** properties of the selected scene/beat — storyline, act, location, the turn (what changes), audience learns/feels, per-character objective/stakes/obstacle, affected ledger facts, and lock state. Edits here are structural edits; anything requiring regeneration routes through Review.
@@ -203,7 +203,7 @@ Output format is fixed to **teleplay** (Fountain-style sluglines, ACTION, CHARAC
 
 This makes the tool useful for the dominant professional workflow — extending an existing show — not just filling blank pages.
 
-**Import is the one explicit exception to "review before any AI-authored structural change."** The writer's single trigger is **Create & analyze script**; for PDF, that trigger is available only after the extract → confirm-source step. Once pressed, the v1 pipeline (deterministic verbatim scene split + model-proposed beat boundaries) persists the imported scenes/beats atomically as the project's one root snapshot. The trade is deliberate and bounded: no model-generated text ever replaces the source (coverage is server-validated and byte-identical), the imported structure remains fully reviewable and reversible afterward in Plan/Undo, and every imported fact still enters the Ledger as `pending_review`. This preserves the existing v1 import contract rather than forcing a second full-script preview/apply copy.
+**Import is the one explicit exception to "review before any AI-authored structural change."** The writer's single trigger is **Create & analyze script**; for PDF, that trigger is available only after the extract → confirm-source step. Once pressed, the v1 pipeline (deterministic verbatim scene split + model-proposed beat boundaries) persists the imported scenes/beats atomically as the project's one root snapshot. The trade is deliberate and bounded: no model-generated text ever replaces the source (coverage is server-validated and byte-identical), the imported structure remains fully reviewable and reversible afterward in Plan/Undo, and every imported fact enters the Ledger with the status a fact found while writing gets: `active` at confidence ≥ 0.8 with its quote found on the page, otherwise `pending_review` (owner decision 2026-10-11; data contract §4 `POST /projects/{pid}/import` step 3). This preserves the existing v1 import contract rather than forcing a second full-script preview/apply copy.
 
 ### 4.9 Inspiration affordances
 

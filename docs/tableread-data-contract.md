@@ -103,6 +103,10 @@ export const Beat = z.object({
   scriptLocked: z.boolean().default(false),
 })
 
+// Story order is (act, index), ties in array order — never a scene's position
+// in `scenes`: Plan moves rewrite act/index and leave the array alone. Every
+// reader (Write, Ledger, export, prompts) follows it; a scene's number is its
+// 1-based position in it.
 export const Scene = z.object({
   id: Id,
   index: z.number().int().min(0),
@@ -261,6 +265,45 @@ export const NarrativeMap = z.object({
   locked: z.boolean().default(false),
 })
 
+// Structure checklist (spec 2026-10-11). TV act structure is derived in the
+// web from storyOverview.beatSheet and never stored, so it is not a lens here.
+export const StructureLens = z.enum(['heros_journey', 'story_circle', 'save_the_cat'])
+// One enum over the three AI structures' stages (12 + 8 + 15); the server
+// checks each stage belongs to the requested lens. Hero's Journey reuses
+// HeroJourneyStageName's values; Story Circle ids are prefixed `circle_`.
+export const StructureStageName = z.enum([
+  ...HeroJourneyStageName.options,
+  'circle_you', 'circle_need', 'circle_go', 'circle_search',
+  'circle_find', 'circle_take', 'circle_return', 'circle_change',
+  'opening_image', 'theme_stated', 'set_up', 'catalyst', 'debate',
+  'break_into_two', 'b_story', 'fun_and_games', 'midpoint',
+  'bad_guys_close_in', 'all_is_lost', 'dark_night_of_the_soul',
+  'break_into_three', 'finale', 'final_image',
+])
+// `unverified` is server-set: the verifier did not support the cited beat, or
+// returned no verdict for it ("Couldn't verify" in the UI).
+export const StructureStageStatus = z.enum(['hit', 'thin', 'missing', 'unverified'])
+export const StructureStage = z.object({
+  stage: StructureStageName,
+  status: StructureStageStatus,
+  beatId: Id.nullable(), // null for missing
+  sceneId: Id.nullable(), // server-filled from the beat
+  reason: z.string(),
+  evidenceQuote: z.string().min(1).max(200).nullable(), // server-quoted from the beat's own text
+})
+export const StructureCheck = z.object({
+  lens: StructureLens,
+  applies: z.boolean(), // false: `rationale` is the "doesn't fit" note and `stages` is []
+  rationale: z.string(),
+  stages: z.array(StructureStage), // canonical order for the lens
+  // SHA-256 (lowercase hex) of, over scenes by (act, index) then beats by index,
+  // sceneId + "\x1f" + beatId + "\x1f" + (scriptText ?? "") + "\x1e".
+  // The web recomputes it to show the stale line.
+  sourceHash: z.string().min(1),
+  checkedAt: z.string(),
+  promptVersion: z.string(),
+})
+
 export const StoryThread = z.object({
   id: Id,
   label: z.string(),
@@ -334,6 +377,10 @@ export const Episode = z.object({
   storyOverview: StoryOverview.nullable().default(null),
   // T7.32 evidence-grounded structural map — null when not yet inferred.
   narrativeMap: NarrativeMap.nullable().default(null),
+  // Structure checklist — at most one per lens; a new check replaces that
+  // lens's entry. A list, not a keyed map (check-contract can't diff an
+  // enum-keyed record). Defaults to [] so pre-existing docs validate.
+  structureChecks: z.array(StructureCheck).default([]),
 })
 
 export const Season = z.object({
@@ -717,10 +764,65 @@ export const ProjectImportStageName = z.enum([
   'saving',
 ])
 
+// §9.3 `found` payloads: per-unit import results for the live import board.
+// Indexes are 0-based positions in the server's scene split; data is
+// post-merge where a merge exists and never carries `scriptText`.
+const NonNeg = z.number().int().nonnegative()
+export const ImportFoundScene = z.object({
+  index: NonNeg,
+  slugline: z.string(),
+  lineCount: NonNeg,
+  intExt: z.enum(['int', 'ext', 'other']),
+})
+// A segmented beat's reading fields (T9.17), in scene order; never `scriptText`.
+export const ImportFoundBeat = z.object({
+  whatHappens: z.string(),
+  audienceLearns: z.string(),
+  audienceFeels: z.string(),
+})
+
+export const ProjectImportFound = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('scenes'), scenes: z.array(ImportFoundScene) }),
+  z.object({
+    kind: z.literal('scene'),
+    index: NonNeg,
+    beatCount: NonNeg,
+    whatHappens: z.string(),
+    failed: z.boolean(),
+    beats: z.array(ImportFoundBeat).default([]),
+  }),
+  z.object({ kind: z.literal('acts'), format: ShowFormat, sceneActs: z.array(NonNeg) }),
+  z.object({ kind: z.literal('castRead'), sceneIndexes: z.array(NonNeg) }),
+  z.object({
+    kind: z.literal('cast'),
+    total: NonNeg,
+    characters: z.array(z.object({ name: z.string(), sceneCount: NonNeg })),
+  }),
+  z.object({
+    kind: z.literal('threads'),
+    threads: z.array(
+      z.object({
+        label: z.string(),
+        status: z.enum(['open', 'paid_off', 'abandoned']),
+        setupSceneIndex: NonNeg.nullable(),
+        payoffSceneIndex: NonNeg.nullable(),
+      }),
+    ),
+  }),
+  z.object({
+    kind: z.literal('overview'),
+    logline: z.string(),
+    beatSheet: z.array(z.object({ label: z.string(), sceneIndex: NonNeg.nullable() })),
+  }),
+  z.object({ kind: z.literal('facts'), index: NonNeg, factCount: NonNeg, secretCount: NonNeg, failed: z.boolean() }),
+  z.object({ kind: z.literal('flags'), contradictions: NonNeg, tensions: NonNeg, other: NonNeg }),
+])
+
 // §9.3 SSE progress: `stage` events announce each named stage, `progress`
-// events report monotonic item counts within a stage (`done <= total`), then
-// exactly one terminal `complete` or `failed`. `error` matches the
-// canonical `{code, message, details?}` envelope.
+// events report monotonic item counts within a stage (`done <= total`),
+// `found` events (additive) carry per-unit results, then exactly one
+// terminal `complete` or `failed`. `error` matches the canonical
+// `{code, message, details?}` envelope.
 export const ProjectImportProgressEvent = z.discriminatedUnion('type', [
   z.object({ type: z.literal('stage'), name: ProjectImportStageName }),
   z.object({
@@ -728,6 +830,12 @@ export const ProjectImportProgressEvent = z.discriminatedUnion('type', [
     stage: ProjectImportStageName,
     done: z.number().int().nonnegative(),
     total: z.number().int().nonnegative(),
+  }),
+  z.object({
+    type: z.literal('found'),
+    stage: ProjectImportStageName,
+    cached: z.boolean().default(false),
+    data: ProjectImportFound,
   }),
   z.object({ type: z.literal('complete'), result: ProjectImportResult }),
   z.object({
@@ -1093,6 +1201,39 @@ export const ConsistencyScan = z.object({
     }),
   ),
 })
+
+// Structure checklist: check_structure (import_analyst, effort medium). Judges
+// each stage of one structure against the import's breakdown. The model never
+// writes quotes or sceneId and never says `unverified`. The server checks every
+// stage of the lens appears exactly once, belongs to the lens, and that hit/thin
+// cite an existing beatId (a beat cited on a missing stage is dropped); one
+// retry, then SCHEMA_INVALID_LLM.
+export const InferredStructureCheck = z.object({
+  applies: z.boolean(),
+  rationale: z.string(),
+  stages: z.array(
+    z.object({
+      stage: StructureStageName,
+      status: z.enum(['hit', 'thin', 'missing']),
+      beatId: Id.nullable(),
+      reason: z.string(),
+    }),
+  ),
+})
+
+// verify_structure_check (writer, effort low). One verdict per hit/thin claim,
+// judged only against the cited beat's excerpt. `supported` is declared last so
+// the model reasons before it answers. Unsupported or unanswered stages become
+// `unverified`; they are never dropped.
+export const StructureCheckVerification = z.object({
+  stages: z.array(
+    z.object({
+      stage: StructureStageName,
+      reason: z.string(),
+      supported: z.boolean(),
+    }),
+  ),
+})
 ```
 
 ## 3. Storage (SQLite via SQLAlchemy, MVP)
@@ -1124,7 +1265,7 @@ Defined transactions:
 - `GET /projects` -> `ProjectSummary[]` sorted by `updatedAt` descending. `pendingReviewCount` counts Ledger facts with `status: "pending_review"`. `setupState` is `"ready"` iff the project has at least one scene containing at least one beat; otherwise `"incomplete"`. Summaries must not include full writer text fields such as `premise` or `seasons`.
 - `POST /projects` `ProjectCreateRequest` with required `Idempotency-Key` header → `Project` — in one transaction: creates the project (minimal bible scaffolded, plus optional writer-supplied foundation) **and its root snapshot** (`parent_id: null`, `doc` = initial state, `ledger` = `[]`, `flags` = `[]`), setting `headSnapshotId` to it. `headSnapshotId` is therefore never null after creation — previews, undo, and forks always have an anchor. Character seeds contain no IDs; the server assigns `char-*`, sets `locked: false`, maps supplied `traits` or `""` (also into `summary` when traits are supplied), initializes `aliases` to `[]`, and initializes `embodiment`, `presentation`, `hiding`, `seriesArc`, and `bio` to `""` (empty `summary` when no seed traits). Project creation performs no LLM call. Same idempotency key + same canonical request hash replays the 201 response; same key + different hash returns 409 `IDEMPOTENCY_CONFLICT`; failed transactions persist no key.
 - `GET /projects/{pid}` → `Project`
-- `PATCH /projects/{pid}` — JSON-patch body for direct writer edits (no regeneration); creates snapshot. Patches touching **structural plan fields** (scene/episode `whatHappens`, `premise`, storyline summaries) additionally trigger `scan_consistency` and return `{project, consistencyFlags}` — the "Save field only" path skips Review, never the flagging promise. Changing a scene's `act` is a non-text structural correction: it creates one normal snapshot but runs no LLM/extraction/consistency call. Patches into locked ranges, including a stale attempt to change a locked scene's act, → 409 `LOCKED_OBJECT`.
+- `PATCH /projects/{pid}` — JSON-patch body for direct writer edits (no regeneration); creates snapshot. Patches touching **structural plan fields** (scene/episode `whatHappens`, `premise`, storyline summaries) additionally trigger `scan_consistency` and return `{project, consistencyFlags}` — the "Save field only" path skips Review, never the flagging promise. Changing a scene's `act` is a non-text structural correction: it creates one normal snapshot but runs no LLM/extraction/consistency call. Patches into locked ranges, including a stale attempt to change a locked scene's act or `index` (a reorder that would shift a locked scene, or any scene of a locked episode), → 409 `LOCKED_OBJECT`.
 - `POST /projects/{pid}/undo` → `Project` (moves head to parent snapshot)
 - `GET /projects/{pid}/snapshots` → `SnapshotSummary[]` (adoption A5) — up to 20 proper ancestors of the current head, nearest parent first. Each entry is `{id, instruction, ts}` for the undo-timeline dropdown. Does not include the current head.
 - `POST /projects/{pid}/restore` `{snapshotId}` → `Project` (adoption A5) — restore doc+ledger+flags from that ancestor; same CAS/`If-Match` rules as undo. Non-ancestor or current head → 409 `VALIDATION`.
@@ -1137,7 +1278,18 @@ Defined transactions:
   5. One snapshot committing doc + ledger + flags together; partial failure rolls back all of it. The one exception is a single scene unit that still fails after its rule-9 retry, which degrades instead of failing the import (§9.3 below, T9.11).
 - `POST /projects/import/extract-pdf` multipart `file` (`application/pdf`) → `PdfExtractResult` — pre-project PDF extraction only. It creates no project, snapshot, ledger row, or idempotency record, and never calls the LLM. Text-layer extraction uses `pypdf`; OCR uses pypdfium2-rendered pages plus Tesseract. On success, the client treats the editable result as `source.format: "text"` for the existing create-and-import path. Response wire shape is `{text, method, pageCount, warnings}` where `method` is `"text_layer"` or `"ocr"`. Reject missing/non-PDF, oversize/page-cap, unreadable, or empty extraction with `{error: {code: "VALIDATION", message}}`; if Tesseract is unavailable when OCR is required, return `{error: {code: "UNAVAILABLE", message}}`.
 - `POST /projects/{pid}/narrative-map` (with `If-Match`) starts or resumes one idempotent, source-versioned Narrative Map run and returns `NarrativeMapRun`; `GET /projects/{pid}/narrative-map/runs/latest` and `GET .../runs/{runId}` read it back. The run carries status/phase/progress, `retryAllowed`, token and cost fields, and two writer-facing diagnostic lists — both defaulted `[]`, both about the writer's own script and never logged: `rejectionDiagnostics[{code, path, reason}]` says why the evidence gate refused a **rejected** run, and `removedClaims[{action, path, subject, reason}]` says what the gate pruned from a **completed** map before publishing it (`subject` in the writer's terms — "C.J.'s arc summary" — `reason` in the verifier's). Advisories appear in neither: nothing was done to the map on their account. Checkpoints stay server-internal. `retryAllowed` is true on a **completed** run when its map lists `unanalyzedSceneIds` (or the run predates the current analysis version); the same `POST` then re-reads only those scenes, reusing every analysed scene packet, and rebuilds and re-verifies the story-wide map, which costs new model calls. A run in which no scene could be analysed is rejected (`no_scene_analyzed`) before any synthesis call. A **failed** run's `errorCode` says whether the same `POST` resumes it from its checkpoints: `LLM_TIMEOUT` (our deadline, the SDK's timeout, or a 504) and `WORKER_INTERRUPTED` resume only after a 10-minute grace, since the provider may still be working; `LLM_UNAVAILABLE` (429, 529, other 5xx, a non-timeout connection error) resumes at once; `SCHEMA_INVALID_LLM` resumes only when the synthesis call failed, reusing every saved scene packet and re-running synthesis with the same prompt, then verification; `LLM_REQUEST_REFUSED` (any other 4xx, e.g. an exhausted credit balance) and `INTERNAL_ERROR` (a server bug) are terminal for that analysis version. A **rejected** `EVIDENCE_REJECTED` run stays blocked unless one of the saved-analysis repairs applies.
+- `POST /projects/{pid}/structure-checks/{lens}` `{}` (with `If-Match`) → `Project` — runs one structure check (`check_structure`, then `verify_structure_check` over the hit/thin stages) and saves it in `episode.structureChecks` with one snapshot, replacing that lens's entry. `lens` is a `StructureLens`; anything else, `tv_act_structure` included, is 400 `VALIDATION`. An episode with no beats is 409 `STRUCTURE_CHECK_NOT_READY`; a stale `If-Match` is 409 `CONFLICT_STALE_HEAD`; a failed op after its retry is 502 `SCHEMA_INVALID_LLM` and saves nothing; provider errors and timeouts are 503 `LLM_UNAVAILABLE`. Allowed on a locked episode: it changes nothing outside `episode.structureChecks`. Saved checks are read from the project doc; there is no GET.
 - `POST /projects/import` `ProjectImportCreateRequest` with required `Idempotency-Key` header → **SSE** (§9.3 atomic create-and-import — the import-wizard analogue of `POST /projects` above): reuses the same parse/import pipeline as `POST /projects/{pid}/import`, but creates the project **and** its imported state in one DB transaction — every core LLM/parsing stage runs before that single write, never an empty root followed by an import child. A scene unit — one scene's `segment_scene` or `extract_ledger_facts` call — whose output still fails schema validation after its rule-9 retry does not fail the import (T9.11): a failed segmentation keeps the scene's verbatim text as a single beat with every description field empty (the server writes nothing for it), a failed extraction yields zero facts for that scene, and each files one open `tension` `ConsistencyFlag` on that scene (`objectType: "scene"`, explanation code `[segmentation_failed]` or `[extraction_failed]`). Such a unit is not saved as a checkpoint, so a resumed attempt asks the model again and reruns every later stage rather than reusing results saved without that unit. Act inference and every whole-script stage (`inferring_entities`, `inferring_promises`, `inferring_overview`, `checking_consistency`) stay required: their failure, and any provider error (timeout, unavailable), still ends the stream `failed` and persists nothing. Events: `stage {type: "stage", name}` announces each named stage in order (`parsing_scenes`, `segmenting_beats`, `inferring_acts`, `inferring_entities`, `inferring_promises`, `inferring_overview`, `extracting_facts`, `checking_consistency`, `saving`); `progress {type: "progress", stage, done, total}` may appear after a stage starts to report monotonic item progress within that stage, with `0 <= done <= total`. Scene progress is emitted for `segmenting_beats` and `extracting_facts`; singleton analysis stages emit no per-scene progress. The stream then emits exactly one terminal `complete {type: "complete", result: ProjectImportResult}` or `failed {type: "failed", error}`. `ProjectImportResult` is `{project, newFacts, consistencyFlags}` — the same shape `POST /projects/{pid}/import` returns. `POST /projects/{pid}/narrative-map` is an explicit post-import run (`import_analyst` scene and synthesis passes, independent `writer`-role verification) over the saved import analysis that writes a second snapshot; a timeout there never invalidates or re-runs the source import. Idempotency mirrors `POST /projects`: a hash conflict is rejected with a plain 409 `IDEMPOTENCY_CONFLICT` JSON response _before_ the stream opens (never a mid-stream surprise); a same-key/same-hash replay opens a stream whose only frame is the terminal `complete` with the original result; a failed transaction leaves no key, so a retry with the same key runs normally. That retry reuses a failed attempt's saved per-scene results only when the scene's text still matches and `PROMPT_VERSION` and `config/models.toml` are unchanged; an unfinished attempt expires 7 days after its last activity and is deleted, saved results included, when the next import starts (T9.5).
+  - **`found {type: "found", stage, cached, data: ProjectImportFound}`** carries per-unit results for the live import board. **Additive; clients ignore unknown event types.** Payloads are built from data already in memory (no LLM calls, no DB writes), are post-merge where a merge exists, and never contain `scriptText`; the server logs each frame as stage, kind and counts only. Indexes are 0-based positions in the server's scene split (`scene-{index+1}` is the eventual id). Units reused from a resumed attempt's checkpoints are re-emitted with `cached: true` (default `false`). One kind per `data`:
+    - `scenes` (`parsing_scenes`) — once, after the split: `{index, slugline, lineCount, intExt}` per scene.
+    - `scene` (`segmenting_beats`) — once per segmented scene, in completion order: `beatCount`, `whatHappens` (the segmenter's scene reading), `failed: true` when the unit degraded (T9.11), and `beats` (T9.17, additive, default `[]`): each final beat's `whatHappens`, `audienceLearns` and `audienceFeels`, in scene order, post-merge, for the board's reading view. A beat's position in the array is its order; there are no beat ids yet. `beats` carries **only those three reading fields — never `scriptText` or any other script source text**; a failed unit sends `beats: []` (its one beat holds only the scene's verbatim text). A cached re-emit carries the same beats.
+    - `acts` (`inferring_acts`) — once, after the acts merge: the resolved `format` and each scene's act number in `sceneActs`.
+    - `castRead` (`inferring_entities`) — once per finished entity chunk: the scene indexes it covered.
+    - `cast` (`inferring_entities`) — once, after the entities merge: `total` characters and the top 12 by `sceneCount` (scenes where the character speaks, using the whole-script shooting-script decision).
+    - `threads` (`inferring_promises`) — once: each thread's `label`, `status`, and setup/payoff scene indexes (`null` when absent).
+    - `overview` (`inferring_overview`) — once: the `logline` and beat sheet items with their scene index (`null` when unanchored).
+    - `facts` (`extracting_facts`) — once per extracted scene, in completion order: `factCount`, `secretCount` (facts hidden from the audience), and `failed: true` when the unit degraded (T9.11).
+    - `flags` (`checking_consistency`) — once: counts of `contradictions`, `tensions` and `other` flags.
 - `GET /projects/{pid}/export.fountain` → `text/plain`
 - `GET /projects/{pid}/export.json` → `PersistedState` (adoption A6) — the full fixture-shaped envelope (`project`, `ledger`, `snapshots`, `consistencyFlags`, `changeSets`, `suggestionHistory`). Privacy §7.1 "export-everything"; Settings UI offers the download. Round-trip: export → purge → re-seed from export restores project doc and ledger byte-identical.
 - `DELETE /projects/{pid}` — purges every project-scoped row across **all six DB tables plus embeddings**: `projects`, `snapshots`, `ledger_facts`, `change_sets` (including stored previews — they contain generated script text and instructions), `consistency_flags`, `suggestion_history`, and the embedding blobs stored with suggestion history (privacy §7.1). One transaction; the purge test asserts zero remaining rows per table. ("All six DB tables plus embeddings" is the canonical phrasing — build plan and test plan use it verbatim.) The same transaction deletes the import run that created the project and every import run of the same script that has failed or has been idle for more than 10 minutes, since saved import units hold verbatim script text; a run that may still be in progress is left to the 7-day expiry (T9.5).
@@ -1192,7 +1344,7 @@ Defined transactions:
 
 - `POST /projects/{pid}/suggest` `{context: "scene"|"beat", targetId, surface: "command_bar"|"scene_premise"|"tune", draftScript?}` → `{suggestions: string[3]}` (adoption A4) — contextual instruction chips; click inserts only, never auto-executes. Context bundle includes scene plan + latest accepted beat script (+ optional unsaved `draftScript`). Dedup against `suggestion_history`.
 
-**Error shape (all endpoints):** `{error: {code, message, details?}}`. Codes: `LOCKED_OBJECT`, `SCHEMA_INVALID_LLM` (after retry), `NOT_FOUND`, `VALIDATION`, `LLM_UNAVAILABLE`, `UNAVAILABLE`, `PREVIEW_STALE`, `CONFLICT_STALE_PROPOSAL`, `CONFLICT_STALE_HEAD`, `IDEMPOTENCY_CONFLICT`.
+**Error shape (all endpoints):** `{error: {code, message, details?}}`. Codes: `LOCKED_OBJECT`, `SCHEMA_INVALID_LLM` (after retry), `NOT_FOUND`, `VALIDATION`, `LLM_UNAVAILABLE`, `UNAVAILABLE`, `PREVIEW_STALE`, `CONFLICT_STALE_PROPOSAL`, `CONFLICT_STALE_HEAD`, `IDEMPOTENCY_CONFLICT`, `STRUCTURE_CHECK_NOT_READY` (409: the episode has no beats to check).
 
 **Optimistic concurrency:** every project-mutating write (PATCH, accept, ledger confirm/reject/edit/batch, flag dismiss, import, undo, restore, Change Set apply) goes through an atomic compare-and-swap on `projects.head_snapshot_id` (`UPDATE … WHERE head_snapshot_id = :expected`). Clients SHOULD send `If-Match: <headSnapshotId>` on those mutations; when present and stale, the server returns 409 `CONFLICT_STALE_HEAD` and persists nothing. When omitted, the server still CAS-guards against the head observed at read time so two concurrent writers that both loaded H cannot both commit children of H. Change Set apply additionally rejects when `preview.basedOnSnapshotId` ≠ current head (`PREVIEW_STALE` — re-preview required) before the CAS.
 

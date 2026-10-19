@@ -194,6 +194,31 @@ const TOKEN_GROUPS: TokenGroup[] = [
     ],
   },
   {
+    title: 'Import board',
+    tokens: [
+      {
+        cssVar: '--tr-board-paper',
+        description: 'index card paper',
+        kind: 'color',
+      },
+      { cssVar: '--tr-board-rule', description: 'card rules', kind: 'color' },
+      {
+        cssVar: '--tr-board-rule-top',
+        description: 'card header rule',
+        kind: 'color',
+      },
+      { cssVar: '--tr-shadow-card-board', kind: 'shadow' },
+      { cssVar: '--tr-shadow-card-lift', kind: 'shadow' },
+      { cssVar: '--tr-motion-spring', kind: 'motion' },
+      { cssVar: '--tr-motion-settle', kind: 'motion' },
+      { cssVar: '--tr-motion-deal', kind: 'motion' },
+      { cssVar: '--tr-motion-flight', kind: 'motion' },
+      { cssVar: '--tr-motion-string', kind: 'motion' },
+      { cssVar: '--tr-card-board-w', kind: 'width' },
+      { cssVar: '--tr-card-board-h', kind: 'width' },
+    ],
+  },
+  {
     title: 'Overview panel',
     tokens: [
       { cssVar: '--tr-overview-expand-bg', kind: 'color' },
@@ -309,23 +334,19 @@ const TOKEN_GROUPS: TokenGroup[] = [
         kind: 'width',
       },
       {
-        cssVar: '--tr-panel-story-layers',
-        description: 'Plan mode Story Layers panel width (UI spec §4)',
+        cssVar: '--tr-panel-inspector',
+        description:
+          'Import board reading view; Ledger fact drawer and Story Atlas side column width',
         kind: 'width',
       },
       {
-        cssVar: '--tr-panel-inspector',
-        description: 'Plan mode inspector width (UI spec §4)',
+        cssVar: '--tr-panel-plan',
+        description: 'Plan scene panel width (2026-10-13)',
         kind: 'width',
       },
       {
         cssVar: '--tr-panel-ledger-filters',
         description: 'Ledger mode filter rail width (UI spec §6)',
-        kind: 'width',
-      },
-      {
-        cssVar: '--tr-card-scene',
-        description: 'Plan mode scene card width (UI spec §4)',
         kind: 'width',
       },
       {

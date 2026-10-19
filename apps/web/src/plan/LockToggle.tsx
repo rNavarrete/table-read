@@ -23,6 +23,10 @@ export interface LockToggleProps {
   label: string
   onChange: (next: boolean) => void
   disabled?: boolean
+  /** Defaults to `lock-toggle`, the lock-and-regenerate recipe's target
+   * (first match in the DOM). Only the scene toggle may keep it; beat
+   * toggles pass `beat-lock-toggle-{id}` / `script-lock-toggle-{id}`. */
+  testId?: string
 }
 
 /**
@@ -38,6 +42,7 @@ export function LockToggle({
   label,
   onChange,
   disabled,
+  testId = 'lock-toggle',
 }: LockToggleProps) {
   return (
     <button
@@ -45,7 +50,7 @@ export function LockToggle({
       role="switch"
       aria-checked={locked}
       disabled={disabled}
-      data-testid="lock-toggle"
+      data-testid={testId}
       onClick={() => onChange(!locked)}
       className={
         'inline-flex items-center gap-2 rounded-chip border px-3 py-1.5 text-13 transition-colors motion-reduce:transition-none disabled:opacity-50' +

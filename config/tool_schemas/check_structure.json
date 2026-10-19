@@ -1,0 +1,93 @@
+{
+  "type": "object",
+  "properties": {
+    "applies": {
+      "type": "boolean"
+    },
+    "rationale": {
+      "type": "string"
+    },
+    "stages": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "stage": {
+            "type": "string",
+            "enum": [
+              "ordinary_world",
+              "call_to_adventure",
+              "refusal",
+              "meeting_the_mentor",
+              "crossing_the_threshold",
+              "tests_allies_enemies",
+              "approach",
+              "ordeal",
+              "reward",
+              "road_back",
+              "resurrection",
+              "return_with_elixir",
+              "circle_you",
+              "circle_need",
+              "circle_go",
+              "circle_search",
+              "circle_find",
+              "circle_take",
+              "circle_return",
+              "circle_change",
+              "opening_image",
+              "theme_stated",
+              "set_up",
+              "catalyst",
+              "debate",
+              "break_into_two",
+              "b_story",
+              "fun_and_games",
+              "midpoint",
+              "bad_guys_close_in",
+              "all_is_lost",
+              "dark_night_of_the_soul",
+              "break_into_three",
+              "finale",
+              "final_image"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "hit",
+              "thin",
+              "missing"
+            ]
+          },
+          "beatId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "stage",
+          "status",
+          "beatId",
+          "reason"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "applies",
+    "rationale",
+    "stages"
+  ],
+  "additionalProperties": false
+}

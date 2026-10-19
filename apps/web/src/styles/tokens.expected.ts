@@ -65,6 +65,22 @@ export const EXPECTED_TOKENS: Record<string, string> = {
   '--tr-ledger-secret-badge': '#F0E2C8',
   '--tr-ledger-secret-ink': '#9A6B2F',
 
+  // Import board (§2a) — card paper, rules, shadows, motion, card sizes
+  '--tr-board-paper': '#FFFEFB',
+  '--tr-board-rule': 'rgb(65 96 138 / 0.1)',
+  '--tr-board-rule-top': 'rgb(91 121 166 / 0.55)',
+  '--tr-shadow-card-board':
+    '0 1px 1px rgb(38 39 43 / 0.05), 0 3px 8px rgb(38 39 43 / 0.06)',
+  '--tr-shadow-card-lift':
+    '0 2px 4px rgb(38 39 43 / 0.06), 0 16px 32px rgb(38 39 43 / 0.16)',
+  '--tr-motion-spring': 'cubic-bezier(.34,1.42,.64,1)',
+  '--tr-motion-settle': 'cubic-bezier(.2,0,0,1)',
+  '--tr-motion-deal': '620ms',
+  '--tr-motion-flight': '760ms',
+  '--tr-motion-string': '700ms',
+  '--tr-card-board-w': '150px',
+  '--tr-card-board-h': '106px',
+
   // Overview panel accents
   '--tr-overview-expand-bg': '#F6F4F1',
   '--tr-overview-icon-bg': '#E6EBF5',
@@ -94,9 +110,8 @@ export const EXPECTED_TOKENS: Record<string, string> = {
   '--tr-panel-write-outline': '296px',
   '--tr-command-bar': '560px',
   '--tr-script-page': '680px',
-  '--tr-panel-story-layers': '232px',
   '--tr-panel-inspector': '296px',
-  '--tr-card-scene': '214px',
+  '--tr-panel-plan': '400px',
   '--tr-panel-ledger-filters': '236px',
 
   '--tr-outline-selected': '2px',

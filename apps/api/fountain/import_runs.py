@@ -24,7 +24,9 @@ from storage.models import ImportRunRow, ImportRunUnitRow, ProjectRow
 # 2026-10-11.1 moved the cast step to `medium` effort and a larger ceiling;
 # 2026-10-11.2 stopped numbered shooting-script shots ("RAY 18") minting cast;
 # 2026-10-11.3 counts stacked-extension repeats so numbered speakers survive.
-IMPORT_ANALYSIS_VERSION = "2026-10-11.3"
+# 2026-10-12.1 strips plain PDF title pages and no longer cuts real scenes at a
+# mid-script FADE IN, which changes the scene split.
+IMPORT_ANALYSIS_VERSION = "2026-10-12.1"
 # Saved units hold verbatim script text, so an unfinished run is not kept
 # indefinitely for a retry that may never come.
 UNFINISHED_RUN_RETENTION = timedelta(days=7)

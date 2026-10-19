@@ -139,6 +139,39 @@ def test_extract_retries_one_provider_invalid_request_without_logging_script(cap
     assert "PRIVATE_SCRIPT_TEXT" not in joined
 
 
+def test_extract_never_reissues_a_spend_limit_refusal():
+    """A spend limit the org set is a 400 too, but a second request fails the
+    same way, so it is not the transient 400 `_extract_one` reissues."""
+    response = httpx.Response(
+        400,
+        request=httpx.Request("POST", "https://api.anthropic.com/v1/messages"),
+        json={
+            "type": "error",
+            "error": {
+                "type": "invalid_request_error",
+                "message": "You have reached your specified workspace API usage limits.",
+            },
+        },
+    )
+
+    class _OverLimit:
+        calls = 0
+
+        def extract_ledger_facts(self, **_kwargs):
+            self.calls += 1
+            raise anthropic.BadRequestError(
+                message="bad request", response=response, body=response.json()
+            )
+
+    llm = _OverLimit()
+    scene = {"id": "scene-1", "beats": [{"id": "beat-1-1", "scriptText": "x"}]}
+    with pytest.raises(anthropic.BadRequestError):
+        pipeline._extract_one(
+            0, scene, {"title": "T", "format": NEW_PROJECT_BODY["format"]}, "ep-1", [], llm, "n"
+        )
+    assert llm.calls == 1
+
+
 def test_parallel_failure_checkpoints_completed_in_flight_results():
     second_worker_started = threading.Event()
     saved: list[tuple[int, str]] = []
@@ -155,6 +188,7 @@ def test_parallel_failure_checkpoints_completed_in_flight_results():
         [0, 1],
         worker,
         stage="extracting_facts",
+        workers=2,
         on_result=lambda index, result: saved.append((index, result)),
     )
 
@@ -198,9 +232,9 @@ def _drain_analysis(gen):
 class _OutOfOrderImportLlm(MockLlmClient):
     """Coordinates the CONCURRENT scene workers to finish out of source order.
 
-    Scene 1 is the cache-warming call and runs alone before the fan-out, so
-    the race that matters is between the scenes that follow it: scene 3 is
-    made to complete before scene 2.
+    With two workers, scenes 1 and 2 start together; scene 2 holds its worker
+    until scene 3 (which starts once scene 1 frees the other) has begun, so
+    scene 3 completes before scene 2.
     """
 
     def __init__(self) -> None:
@@ -221,7 +255,7 @@ class _OutOfOrderImportLlm(MockLlmClient):
     ):
         del system, prompt_version
         if "Alpha waits." in user_message:
-            scene = "one"  # the warm call — runs alone, always first
+            scene = "one"  # returns at once, freeing a worker for scene 3
         elif "Beta waits." in user_message:
             scene = "two"
             self._scene_three_started.wait(0.5)
@@ -626,7 +660,7 @@ def test_out_of_order_scene_workers_preserve_source_order(unlocked_project, monk
         pipeline.analyze_import(unlocked_project["project"], [], src, llm)
     )
 
-    # Scene 1 warms the cache alone; 3 then completes before 2.
+    # Scene 1 finishes first; 3 then completes before 2.
     assert llm.segment_completed == ["one", "three", "two"]
     scenes = analysis.new_doc["seasons"][0]["episodes"][0]["scenes"]
     assert [(scene["id"], scene["location"]) for scene in scenes] == [
@@ -2030,34 +2064,28 @@ def test_a_chunk_never_rejudges_numbered_speakers_on_its_own_headings(
         json={"format": "fountain", "content": src},
     )
 
-    assert len(floors) == 2
+    # Two chunks, plus the prewarm's copy of the first chunk's prompt.
+    assert len(floors) == 3
     assert all("Number 6" in floor for floor in floors)
 
 
 class _ConcurrentEntitiesLlm(MockLlmClient):
-    """The first cast chunk runs alone to warm the shared cached prefix; every
-    later chunk must be in flight together, or the barrier times out and the
-    import fails."""
+    """A prewarm writes the shared cached prefix; then every cast chunk must be
+    in flight together, or the barrier times out and the import fails."""
 
     def __init__(self) -> None:
         super().__init__()
-        self._entity_calls = 0
-        self._entity_lock = threading.Lock()
-        self._rest_together = threading.Barrier(2, timeout=5)
+        self._all_together = threading.Barrier(3, timeout=5)
 
     def infer_story_entities(self, **kwargs):
-        with self._entity_lock:
-            self._entity_calls += 1
-            first = self._entity_calls == 1
-        if not first:
-            self._rest_together.wait()
+        self._all_together.wait()
         return super().infer_story_entities(**kwargs)
 
 
 def test_import_runs_entity_chunks_concurrently(monkeypatch):
     """Run one after another, three cast chunks were 4m20s of a 10m30s real
-    import. They are independent, so after the cache-warming first chunk the
-    rest run at the same time."""
+    import. They are independent, so after a prewarm writes the shared cache
+    entry, all of them run at the same time."""
     import fountain.entity_inference as entity_inference
 
     monkeypatch.setattr(entity_inference, "ENTITY_INFER_USER_CHAR_BUDGET", 800)
@@ -2460,16 +2488,38 @@ def test_segmentation_and_extraction_prefixes_are_independent(unlocked_project):
     assert '"sceneIndex"' in seg
 
 
-def test_cache_warming_runs_one_scene_before_fanning_out(unlocked_project):
-    """Without warming, every concurrent worker pays a full cache write.
+class _AllAtOnceLlm(MockLlmClient):
+    """Every scene's segment and extract call must be in flight together: a
+    scene run alone first (the old cache warm-up) leaves the barrier one
+    short, it times out, and the import fails."""
+
+    def __init__(self, scenes: int) -> None:
+        super().__init__()
+        self._segment_together = threading.Barrier(scenes, timeout=5)
+        self._extract_together = threading.Barrier(scenes, timeout=5)
+
+    def segment_scene(self, **kwargs):
+        self._segment_together.wait()
+        return super().segment_scene(**kwargs)
+
+    def extract_ledger_facts(self, **kwargs):
+        self._extract_together.wait()
+        return super().extract_ledger_facts(**kwargs)
+
+
+@pytest.mark.parametrize("overlap", [True, False])
+def test_each_fan_out_prewarms_once_then_runs_every_scene_together(
+    unlocked_project, monkeypatch, overlap
+):
+    """Without a prewarm, every concurrent worker pays a full cache write.
 
     The first IMPORT_LLM_CONCURRENCY calls all start before any cache entry
     exists, so each writes the shared prefix instead of reading it. On a real
-    60-page import that was three redundant 30k-token writes per loop.
-
-    Asserted through progress frames because they are the observable
-    signal that one scene completed alone before the rest began.
+    60-page import that was three redundant 30k-token writes per loop. The
+    prewarm writes it once with no output; no scene waits on another.
     """
+    monkeypatch.setattr(pipeline, "IMPORT_OVERLAP", overlap)
+    monkeypatch.setattr(pipeline, "ENTITY_INFER_MAX_SCENES_PER_CHUNK", 1)
     src = "\n".join(
         [
             "INT. ALPHA - DAY",
@@ -2480,25 +2530,23 @@ def test_cache_warming_runs_one_scene_before_fanning_out(unlocked_project):
             "Gamma waits.",
         ]
     )
-    llm = MockLlmClient()
+    llm = _AllAtOnceLlm(3)
     llm.set_responses("segment_scene", one_beat_per_scene(src))
     llm.set_response("extract_ledger_facts", extraction())
     llm.set_response("scan_consistency", scan())
 
-    events, analysis = _drain_analysis(
+    _events, analysis = _drain_analysis(
         pipeline.analyze_import(unlocked_project["project"], [], src, llm)
     )
 
-    for stage in (pipeline.STAGE_SEGMENTING_BEATS, pipeline.STAGE_EXTRACTING_FACTS):
-        frames = [
-            (e.done, e.total)
-            for e in events
-            if isinstance(e, pipeline.ImportStageProgress) and e.stage == stage
-        ]
-        # 0 -> 1 (the lone warm call) -> the rest.
-        assert frames == [(0, 3), (1, 3), (2, 3), (3, 3)], stage
+    for op in ("segment_scene", "infer_story_entities", "extract_ledger_facts"):
+        assert llm.invocation_count(f"prewarm_cache:{op}") == 1, op
+        assert llm.invocation_count(op) == 3, op
+    # Single calls have nothing to share a cache entry with.
+    for op in ("infer_narrative_promises", "infer_story_overview", "scan_consistency"):
+        assert llm.invocation_count(f"prewarm_cache:{op}") == 0, op
 
-    # Warming must not disturb the ordering guarantee.
+    # Concurrency must not disturb the ordering guarantee.
     scenes = analysis.new_doc["seasons"][0]["episodes"][0]["scenes"]
     assert [s["location"] for s in scenes] == [
         "INT. ALPHA - DAY",
@@ -2508,7 +2556,7 @@ def test_cache_warming_runs_one_scene_before_fanning_out(unlocked_project):
 
 
 def test_a_single_scene_import_does_not_warm(unlocked_project):
-    """Warming a one-item loop is pure latency for no saved write."""
+    """Prewarming a one-item loop is pure latency for no saved write."""
     src = "INT. ALPHA - DAY\nAlpha waits.\n"
     llm = MockLlmClient()
     llm.set_responses("segment_scene", one_beat_per_scene(src))
@@ -2525,6 +2573,8 @@ def test_a_single_scene_import_does_not_warm(unlocked_project):
         and e.stage == pipeline.STAGE_SEGMENTING_BEATS
     ]
     assert frames == [(0, 1), (1, 1)]
+    for op in ("segment_scene", "infer_story_entities", "extract_ledger_facts"):
+        assert llm.invocation_count(f"prewarm_cache:{op}") == 0, op
 
 
 def test_entity_inference_chunks_share_one_cached_prefix(unlocked_project):
