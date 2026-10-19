@@ -18,7 +18,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from fountain import pipeline
-from fountain.parse import split_into_scenes
+from fountain.parse import normalize_and_slice, split_into_scenes
 from llm.dependency import get_llm_client
 from llm.errors import LlmTimeoutError, SchemaInvalidLlmError
 from llm.mock import MockLlmClient
@@ -28,6 +28,7 @@ from schemas import (
     InferredActBreaks,
     LedgerExtraction,
     NarrativePromises,
+    Project,
     SegmentedScene,
     StoryEntities,
 )
@@ -2799,3 +2800,162 @@ def test_extraction_cannot_mint_a_knower_the_script_never_names(unlocked_project
     names = [c["name"] for c in analysis.new_doc["seriesBible"]["characters"]]
     assert "Zelda Fitzgerald" not in names
     assert len(analysis.new_facts[0]["knownBy"]) == 1
+
+
+# ── T10.1 scene turns and character-side beats ──────────────────────────────
+
+_TURN_SOURCE = "INT. BAR - NIGHT\nDan pours.\nMarta watches.\nThe door bangs."
+
+
+def _acted_segmentation() -> SegmentedScene:
+    def beat(start: int, actor: str, verb: str, target: str, reaction: str) -> dict:
+        return {
+            "kind": "beat",
+            "startLine": start,
+            "whatHappens": "w",
+            "audienceLearns": "l",
+            "audienceFeels": "f",
+            "actor": actor,
+            "actionVerb": verb,
+            "target": target,
+            "reaction": reaction,
+        }
+
+    return SegmentedScene.model_validate(
+        {
+            "segments": [
+                beat(1, "MARTA", "probes", "Dan", "he deflects to the debts"),
+                # Unknown actor; "Vega" names three of the fixture's Vegas.
+                beat(3, "Ghost", "haunts", "Vega", ""),
+                beat(4, "", "", "", ""),
+            ],
+            "sceneValueAtStake": "trust",
+            "sceneChargeIn": "positive",
+            "sceneChargeOut": "negative",
+            "sceneWhyNow": "The audit lands tomorrow.",
+        }
+    )
+
+
+def test_import_resolves_beat_actors_and_stores_the_scene_turn(unlocked_project, caplog):
+    llm = MockLlmClient()
+    llm.set_responses("segment_scene", [_acted_segmentation()])
+    llm.set_response("extract_ledger_facts", extraction())
+    llm.set_response("scan_consistency", scan())
+
+    with caplog.at_level("INFO", logger="fountain.pipeline"):
+        _events, analysis = _drain_analysis(
+            pipeline.analyze_import(unlocked_project["project"], [], _TURN_SOURCE, llm)
+        )
+
+    scene = analysis.new_doc["seasons"][0]["episodes"][0]["scenes"][0]
+    assert (scene["valueAtStake"], scene["chargeIn"], scene["chargeOut"], scene["whyNow"]) == (
+        "trust",
+        "positive",
+        "negative",
+        "The audit lands tomorrow.",
+    )
+    beats = scene["beats"]
+    # Ids and indices exactly as before T10.1.
+    assert [(b["id"], b["index"]) for b in beats] == [
+        ("beat-1-1", 0),
+        ("beat-1-2", 1),
+        ("beat-1-3", 2),
+    ]
+    actions = [
+        (b["actorCharacterId"], b["actionVerb"], b["targetCharacterId"], b["reaction"])
+        for b in beats
+    ]
+    assert actions == [
+        ("char-marta", "probes", "char-dan", "he deflects to the debts"),
+        # Unknown and ambiguous names stay null; the verb is kept.
+        (None, "haunts", None, ""),
+        (None, "", None, ""),
+    ]
+    Project.model_validate(analysis.new_doc)
+
+    (record,) = [r for r in caplog.records if r.msg.startswith("import_beat_characters")]
+    assert record.args[:2] == (2, 2)
+    logged = " ".join(r.getMessage() for r in caplog.records)
+    for writer_text in ("MARTA", "Ghost", "Vega", "probes", "haunts", "deflects", "audit"):
+        assert writer_text not in logged
+
+
+def _turn_checkpoint_unit():
+    span = split_into_scenes(_TURN_SOURCE)[0]
+    normalized = normalize_and_slice(span, _acted_segmentation())
+    saved = {
+        "beats": pipeline._dump_imported_beats(normalized.beats),
+        "reading": normalized.reading,
+    }
+    # Exactly as the checkpoint store hands it back.
+    return span, normalized, json.loads(json.dumps(saved))
+
+
+def test_segment_checkpoint_round_trips_beat_actions_and_turn():
+    span, normalized, saved = _turn_checkpoint_unit()
+    (loaded,) = pipeline._load_segment_checkpoints(
+        {pipeline.STAGE_SEGMENTING_BEATS: {"0": saved}}, [span]
+    )
+    assert loaded == (normalized.beats, normalized.reading)
+
+
+def test_a_pre_t10_1_segment_checkpoint_resumes_with_defaults(unlocked_project):
+    span, _normalized, saved = _turn_checkpoint_unit()
+    for beat in saved["beats"]:
+        for key in ("actor", "action_verb", "target", "reaction"):
+            del beat[key]
+    for key in ("valueAtStake", "chargeIn", "chargeOut", "whyNow"):
+        del saved["reading"][key]
+    llm = MockLlmClient()
+    llm.set_response("extract_ledger_facts", extraction())
+    llm.set_response("scan_consistency", scan())
+
+    _events, analysis = _drain_analysis(
+        pipeline.analyze_import(
+            unlocked_project["project"],
+            [],
+            _TURN_SOURCE,
+            llm,
+            checkpoint={pipeline.STAGE_SEGMENTING_BEATS: {"0": saved}},
+        )
+    )
+
+    assert llm.invocation_count("segment_scene") == 0  # resumed, not re-segmented
+    scene = analysis.new_doc["seasons"][0]["episodes"][0]["scenes"][0]
+    assert (scene["valueAtStake"], scene["chargeIn"], scene["chargeOut"], scene["whyNow"]) == (
+        "",
+        None,
+        None,
+        "",
+    )
+    assert {
+        (b["actorCharacterId"], b["actionVerb"], b["targetCharacterId"], b["reaction"])
+        for b in scene["beats"]
+    } == {(None, "", None, "")}
+    assert scene["beats"][0]["whatHappens"] == "w"
+
+
+def test_beat_names_resolve_without_minting():
+    characters = [
+        {"id": "char-marta", "name": "Marta Vega", "aliases": ["Mar"]},
+        {"id": "char-dan", "name": "Dan Vega", "aliases": []},
+    ]
+    beats = [{"id": f"beat-1-{i}"} for i in range(1, 5)]
+    resolved, unresolved = pipeline._resolve_beat_characters(
+        [
+            (beats[0], "Mar", "DAN VEGA"),  # alias, case-folded name
+            (beats[1], "Ghost", ""),  # unknown; no target named
+            (beats[2], "Vega", "Marta"),  # ambiguous suffix; prefix match
+            (beats[3], "  ", ""),  # nothing named
+        ],
+        characters,
+    )
+    assert (resolved, unresolved) == (3, 2)
+    assert [(b.get("actorCharacterId"), b.get("targetCharacterId")) for b in beats] == [
+        ("char-marta", "char-dan"),
+        (None, None),
+        (None, "char-marta"),
+        (None, None),
+    ]
+    assert len(characters) == 2

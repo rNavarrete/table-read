@@ -385,8 +385,17 @@ def _default_responses() -> dict[str, BaseModel]:
                     "whatHappens": "Marta confronts Dan with the transfer record.",
                     "audienceLearns": "Marta has proof of the transfer.",
                     "audienceFeels": "Tense anticipation.",
+                    # T10.1: the beat from the character's side, as names.
+                    "actor": "Marta",
+                    "actionVerb": "confronts",
+                    "target": "Dan",
+                    "reaction": "deflects to the bar's debts",
                 }
             ],
+            sceneValueAtStake="trust",
+            sceneChargeIn="positive",
+            sceneChargeOut="negative",
+            sceneWhyNow="The transfer record surfaced this morning.",
         ),
         # §9.4 guided-setup scene skeleton: one diverse scene-addition set,
         # motivations referencing the fixture's own characters so tests can

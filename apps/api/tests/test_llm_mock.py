@@ -36,6 +36,18 @@ def test_calls_ignore_input_content():
     assert a == b
 
 
+def test_segment_scene_returns_beat_actions_and_the_scene_turn():
+    """T10.1: the mock fills every new segment_scene field, deterministically."""
+    result = MockLlmClient().segment_scene(**_CALL_KWARGS)
+    beat = result.segments[0]
+    assert (beat.actor, beat.action_verb, beat.target) == ("Marta", "confronts", "Dan")
+    assert beat.reaction
+    assert result.scene_value_at_stake == "trust"
+    assert (result.scene_charge_in, result.scene_charge_out) == ("positive", "negative")
+    assert result.scene_why_now
+    assert result == MockLlmClient().segment_scene(**_CALL_KWARGS)
+
+
 def test_set_response_overrides_the_default_for_that_op_only():
     client = MockLlmClient()
     original_tune = client.tune_beat(**_CALL_KWARGS)
