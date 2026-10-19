@@ -10,7 +10,7 @@ test('AI controls go invisible and the dock dims while a script textarea is focu
   await page.goto('/?project=proj-longpour&scene=scene-3')
 
   const nextBeat = page.getByRole('button', { name: 'Next Beat' })
-  const commandBar = page.getByPlaceholder('Tell the scene where to go…')
+  const commandBar = page.getByPlaceholder('Whisper the next move…')
   const dock = page.getByTestId('candidate-dock')
 
   await expect(nextBeat).toBeVisible()
@@ -26,7 +26,13 @@ test('AI controls go invisible and the dock dims while a script textarea is focu
     })
   await expect(firstCardAccept).toBeVisible({ timeout: 15_000 })
 
-  await page.getByTestId('beat-beat-3-1').click()
+  // Written beats render formatted (UI spec §4); clicking one opens its
+  // plain-text editor, which takes focus.
+  await page
+    .getByTestId('beat-row-beat-3-1')
+    .getByRole('button', { name: /click to edit/ })
+    .click()
+  await expect(page.getByTestId('beat-beat-3-1')).toBeFocused()
 
   await expect(nextBeat).toBeHidden()
   await expect(commandBar).toBeHidden()

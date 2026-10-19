@@ -182,6 +182,8 @@ function BeatRow({
                 : `Beat ${index + 1} — click to edit`
             }
             onActivate={readOnly ? undefined : startEditing}
+            tabIndex={locked ? 0 : undefined}
+            className="peer"
           />
         ) : (
           <textarea
@@ -224,8 +226,8 @@ function BeatRow({
           </p>
         ) : null}
         {locked && (
-          <p className="mt-1 text-12 text-tr-text-muted">
-            Locked — unlock to edit
+          <p className="pointer-events-none max-h-0 overflow-hidden text-13 text-tr-text-muted opacity-0 transition-all peer-focus:max-h-6 peer-focus:opacity-100 motion-reduce:transition-none">
+            Locked — click the lock to edit
           </p>
         )}
       </div>

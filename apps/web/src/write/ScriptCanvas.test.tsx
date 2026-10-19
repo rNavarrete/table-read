@@ -327,7 +327,7 @@ describe('ScriptCanvas', () => {
     )
     await user.click(screen.getByTestId('formatted-script'))
     expect(screen.queryByTestId('beat-optimistic-pending-accept')).toBeNull()
-    expect(screen.queryByText('Locked — unlock to edit')).toBeNull()
+    expect(screen.queryByText('Locked — click the lock to edit')).toBeNull()
   })
 
   it('beats in a locked scene or a locked episode are read-only (effective locks)', async () => {
@@ -347,7 +347,9 @@ describe('ScriptCanvas', () => {
     }
     expect(screen.queryByTestId('beat-b-1')).toBeNull()
     expect(screen.queryByTestId('beat-b-2')).toBeNull()
-    expect(screen.getAllByText('Locked — unlock to edit')).toHaveLength(2)
+    expect(screen.getAllByText('Locked — click the lock to edit')).toHaveLength(
+      2,
+    )
   })
 
   it("picks up the server's text after a refetch, unless the row holds its own", async () => {
@@ -406,8 +408,11 @@ describe('ScriptCanvas', () => {
     expect(screen.getByTestId('formatted-script').textContent).toContain(
       "Dan doesn't know yet.",
     )
-    expect(screen.getByText('Locked — unlock to edit')).not.toBeNull()
+    // UI spec §4: caret placement reveals the hint (CSS peer-focus), so the
+    // locked block must take focus without becoming an editor.
     await user.click(screen.getByTestId('formatted-script'))
+    expect(document.activeElement).toBe(screen.getByTestId('formatted-script'))
+    expect(screen.getByText('Locked — click the lock to edit')).not.toBeNull()
     expect(screen.queryByTestId('beat-beat-1-2')).toBeNull()
   })
 })

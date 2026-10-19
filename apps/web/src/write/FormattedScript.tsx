@@ -21,6 +21,8 @@ export interface FormattedScriptProps {
   'aria-label'?: string
   className?: string
   onActivate?: () => void
+  /** Focusable without activating (locked beats: focus reveals the lock hint). */
+  tabIndex?: number
 }
 
 /**
@@ -32,13 +34,14 @@ export function FormattedScript({
   'aria-label': ariaLabel,
   className = '',
   onActivate,
+  tabIndex,
 }: FormattedScriptProps) {
   const lines = parseFountainLines(text)
 
   return (
     <div
       role={onActivate ? 'button' : undefined}
-      tabIndex={onActivate ? 0 : undefined}
+      tabIndex={tabIndex ?? (onActivate ? 0 : undefined)}
       aria-label={ariaLabel}
       data-testid="formatted-script"
       className={
