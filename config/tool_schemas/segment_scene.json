@@ -23,6 +23,22 @@
               },
               "audienceFeels": {
                 "type": "string"
+              },
+              "actor": {
+                "default": "",
+                "type": "string"
+              },
+              "actionVerb": {
+                "default": "",
+                "type": "string"
+              },
+              "target": {
+                "default": "",
+                "type": "string"
+              },
+              "reaction": {
+                "default": "",
+                "type": "string"
               }
             },
             "required": [
@@ -30,7 +46,11 @@
               "startLine",
               "whatHappens",
               "audienceLearns",
-              "audienceFeels"
+              "audienceFeels",
+              "actor",
+              "actionVerb",
+              "target",
+              "reaction"
             ],
             "additionalProperties": false
           },
@@ -73,6 +93,46 @@
     "sceneSocialSituation": {
       "default": "",
       "type": "string"
+    },
+    "sceneValueAtStake": {
+      "default": "",
+      "type": "string"
+    },
+    "sceneChargeIn": {
+      "default": null,
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "positive",
+            "negative",
+            "mixed"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "sceneChargeOut": {
+      "default": null,
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "positive",
+            "negative",
+            "mixed"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "sceneWhyNow": {
+      "default": "",
+      "type": "string"
     }
   },
   "required": [
@@ -80,7 +140,11 @@
     "sceneWhatHappens",
     "sceneAudienceLearns",
     "sceneAudienceFeels",
-    "sceneSocialSituation"
+    "sceneSocialSituation",
+    "sceneValueAtStake",
+    "sceneChargeIn",
+    "sceneChargeOut",
+    "sceneWhyNow"
   ],
   "additionalProperties": false
 }

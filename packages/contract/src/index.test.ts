@@ -14,6 +14,8 @@ import {
   Secret,
   StructureCheck,
   StructureStage,
+  Scene,
+  SegmentedScene,
 } from './index'
 
 // Placeholder scaffold test — real schema tests land in T0.2.
@@ -543,5 +545,88 @@ describe('StructureCheck', () => {
       scenes: [],
     })
     expect(episode.structureChecks).toEqual([])
+  })
+})
+
+describe('T10.1 scene turn and beat actions', () => {
+  const beat = {
+    id: 'beat-3-1',
+    index: 0,
+    whatHappens: 'w',
+    audienceLearns: 'l',
+    audienceFeels: 'f',
+  }
+  const scene = {
+    id: 'scene-3',
+    index: 2,
+    act: 1,
+    location: 'INT. BAR - NIGHT',
+    time: 'NIGHT',
+    socialSituation: '',
+    whatHappens: '',
+    audienceLearns: '',
+    audienceFeels: '',
+    motivations: [],
+    beats: [beat],
+  }
+  it('defaults the new fields on a pre-T10.1 scene', () => {
+    const parsed = Scene.parse(scene)
+    expect(parsed).toMatchObject({
+      valueAtStake: '',
+      chargeIn: null,
+      chargeOut: null,
+      whyNow: '',
+    })
+    expect(parsed.beats[0]).toMatchObject({
+      actorCharacterId: null,
+      actionVerb: '',
+      targetCharacterId: null,
+      reaction: '',
+    })
+  })
+  it('round-trips the new fields and rejects an unknown charge', () => {
+    const full = {
+      ...scene,
+      valueAtStake: 'trust',
+      chargeIn: 'negative',
+      chargeOut: 'mixed',
+      whyNow: 'The audit lands tomorrow.',
+      beats: [
+        {
+          ...beat,
+          actorCharacterId: 'char-marta',
+          actionVerb: 'probes',
+          targetCharacterId: 'char-dan',
+          reaction: 'deflects',
+        },
+      ],
+    }
+    expect(Scene.parse(full)).toMatchObject(full)
+    expect(Scene.safeParse({ ...full, chargeIn: 'up' }).success).toBe(false)
+  })
+  it('parses a pre-0.52.0 segment_scene response with defaults', () => {
+    const parsed = SegmentedScene.parse({
+      segments: [
+        {
+          kind: 'beat',
+          startLine: 1,
+          whatHappens: 'w',
+          audienceLearns: 'l',
+          audienceFeels: 'f',
+        },
+      ],
+    })
+    expect(parsed.segments[0]).toMatchObject({
+      actor: '',
+      actionVerb: '',
+      target: '',
+      reaction: '',
+    })
+    expect(parsed).toMatchObject({
+      sceneValueAtStake: '',
+      sceneChargeIn: null,
+      sceneChargeOut: null,
+      sceneWhyNow: '',
+    })
   })
 })

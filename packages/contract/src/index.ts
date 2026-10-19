@@ -127,8 +127,22 @@ export const Beat = z.object({
   audienceFeels: z.string(),
   scriptText: z.string().default(''),
   scriptLocked: z.boolean().default(false),
+  // T10.1 — the beat from the character's side: who drives it, the tactic as
+  // an action verb, whom it is aimed at, and how they answer. Import fills
+  // them (segment_scene returns names; the server resolves them to ids, and an
+  // unknown or ambiguous name stays null). Authored and generated beats leave
+  // them empty; read-only in the UI.
+  actorCharacterId: Id.nullable().default(null),
+  actionVerb: z.string().default(''),
+  targetCharacterId: Id.nullable().default(null),
+  reaction: z.string().default(''),
 })
 export type Beat = z.infer<typeof Beat>
+
+// T10.1 — a value's charge as a scene opens or closes (McKee / Story Grid
+// polarity; "mixed" is their +/−).
+export const Charge = z.enum(['positive', 'negative', 'mixed'])
+export type Charge = z.infer<typeof Charge>
 
 export const Scene = z.object({
   id: Id,
@@ -144,6 +158,14 @@ export const Scene = z.object({
   audienceFeels: z.string(),
   motivations: z.array(Motivation),
   beats: z.array(Beat),
+  // T10.1 — the scene's turn: the value at stake, its charge as the scene
+  // opens and closes, and the pressure that forces the scene now. Import
+  // readings only (authored scenes leave them empty); whether the scene turns
+  // is derived where shown (both charges set and different), never stored.
+  valueAtStake: z.string().default(''),
+  chargeIn: Charge.nullable().default(null),
+  chargeOut: Charge.nullable().default(null),
+  whyNow: z.string().default(''),
 })
 export type Scene = z.infer<typeof Scene>
 
@@ -1692,6 +1714,13 @@ const SegmentedSceneBeat = z.object({
   whatHappens: z.string(),
   audienceLearns: z.string(),
   audienceFeels: z.string(),
+  // T10.1 — the beat from the character's side, defaulted so a pre-0.52.0
+  // response still parses. `actor` / `target` are names as the script gives
+  // them ('' when none); the server resolves them to character ids.
+  actor: z.string().default(''),
+  actionVerb: z.string().default(''),
+  target: z.string().default(''),
+  reaction: z.string().default(''),
 })
 
 const SegmentedSceneUnassigned = z.object({
@@ -1718,6 +1747,12 @@ export const SegmentedScene = z.object({
   sceneAudienceLearns: z.string().default(''),
   sceneAudienceFeels: z.string().default(''),
   sceneSocialSituation: z.string().default(''),
+  // T10.1 — the scene's turn (see `Scene.valueAtStake`), defaulted like the
+  // four above so a pre-0.52.0 response still parses.
+  sceneValueAtStake: z.string().default(''),
+  sceneChargeIn: Charge.nullable().default(null),
+  sceneChargeOut: Charge.nullable().default(null),
+  sceneWhyNow: z.string().default(''),
 })
 export type SegmentedScene = z.infer<typeof SegmentedScene>
 

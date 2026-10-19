@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from schemas import PersistedState, ProjectSummary
+from schemas import PersistedState, ProjectSummary, Scene, SegmentedScene
 
 FIXTURE_PATH = Path(__file__).resolve().parents[3] / "docs" / "tableread-fixture.json"
 
@@ -81,3 +81,100 @@ def test_inferred_act_breaks_rejects_empty_starts():
 
     with pytest.raises(ValidationError):
         InferredActBreaks.model_validate({"starts": []})
+
+
+# ── T10.1 scene turn and beat actions ───────────────────────────────────────
+
+_PRE_T10_1_SCENE = {
+    "id": "scene-3",
+    "index": 2,
+    "act": 1,
+    "location": "INT. BAR - NIGHT",
+    "time": "NIGHT",
+    "socialSituation": "",
+    "whatHappens": "",
+    "audienceLearns": "",
+    "audienceFeels": "",
+    "motivations": [],
+    "beats": [
+        {
+            "id": "beat-3-1",
+            "index": 0,
+            "whatHappens": "w",
+            "audienceLearns": "l",
+            "audienceFeels": "f",
+        }
+    ],
+}
+
+
+def test_pre_t10_1_scene_loads_with_turn_and_action_defaults():
+    scene = Scene.model_validate(_PRE_T10_1_SCENE)
+    assert (scene.value_at_stake, scene.charge_in, scene.charge_out, scene.why_now) == (
+        "",
+        None,
+        None,
+        "",
+    )
+    beat = scene.beats[0]
+    assert (
+        beat.actor_character_id,
+        beat.action_verb,
+        beat.target_character_id,
+        beat.reaction,
+    ) == (None, "", None, "")
+
+
+def test_scene_turn_and_beat_actions_round_trip_and_reject_unknown_charge():
+    full = {
+        **_PRE_T10_1_SCENE,
+        "valueAtStake": "trust",
+        "chargeIn": "negative",
+        "chargeOut": "mixed",
+        "whyNow": "The audit lands tomorrow.",
+        "beats": [
+            {
+                **_PRE_T10_1_SCENE["beats"][0],
+                "actorCharacterId": "char-marta",
+                "actionVerb": "probes",
+                "targetCharacterId": "char-dan",
+                "reaction": "deflects",
+            }
+        ],
+    }
+    dumped = Scene.model_validate(full).model_dump(by_alias=True, mode="json")
+    assert {k: dumped[k] for k in ("valueAtStake", "chargeIn", "chargeOut", "whyNow")} == {
+        "valueAtStake": "trust",
+        "chargeIn": "negative",
+        "chargeOut": "mixed",
+        "whyNow": "The audit lands tomorrow.",
+    }
+    assert dumped["beats"][0]["actionVerb"] == "probes"
+    assert dumped["beats"][0]["targetCharacterId"] == "char-dan"
+    with pytest.raises(ValidationError):
+        Scene.model_validate({**full, "chargeIn": "up"})
+
+
+def test_pre_0_52_segment_scene_response_parses_with_defaults():
+    parsed = SegmentedScene.model_validate(
+        {
+            "segments": [
+                {
+                    "kind": "beat",
+                    "startLine": 1,
+                    "whatHappens": "w",
+                    "audienceLearns": "l",
+                    "audienceFeels": "f",
+                }
+            ],
+            "sceneWhatHappens": "s",
+        }
+    )
+    beat = parsed.segments[0]
+    assert (beat.actor, beat.action_verb, beat.target, beat.reaction) == ("", "", "", "")
+    assert (
+        parsed.scene_value_at_stake,
+        parsed.scene_charge_in,
+        parsed.scene_charge_out,
+        parsed.scene_why_now,
+    ) == ("", None, None, "")

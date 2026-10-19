@@ -150,6 +150,20 @@ class Beat(_Base):
     audience_feels: str
     script_text: str = ""
     script_locked: bool = False
+    # T10.1 — the beat from the character's side (see the Zod `Beat`). Import
+    # fills them; an unresolved actor/target name stays None.
+    actor_character_id: Id | None = None
+    action_verb: str = ""
+    target_character_id: Id | None = None
+    reaction: str = ""
+
+
+class Charge(StrEnum):
+    """T10.1 — a value's charge as a scene opens or closes."""
+
+    positive = "positive"
+    negative = "negative"
+    mixed = "mixed"
 
 
 class StorylineId(StrEnum):
@@ -172,6 +186,12 @@ class Scene(_Base):
     audience_feels: str
     motivations: list[Motivation]
     beats: list[Beat]
+    # T10.1 — the scene's turn (see the Zod `Scene`): import readings only;
+    # whether it turns is derived where shown, never stored.
+    value_at_stake: str = ""
+    charge_in: Charge | None = None
+    charge_out: Charge | None = None
+    why_now: str = ""
 
 
 class EpisodeStoryline(_Base):
@@ -1584,6 +1604,11 @@ class SegmentedSceneBeat(_Base):
     what_happens: str
     audience_learns: str
     audience_feels: str
+    # T10.1 — names as the script gives them; the server resolves them.
+    actor: str = ""
+    action_verb: str = ""
+    target: str = ""
+    reaction: str = ""
 
 
 class SegmentedSceneUnassigned(_Base):
@@ -1601,6 +1626,11 @@ class SegmentedScene(_Base):
     scene_audience_learns: str = ""
     scene_audience_feels: str = ""
     scene_social_situation: str = ""
+    # T10.1 — the scene's turn, defaulted so a pre-0.52.0 response parses.
+    scene_value_at_stake: str = ""
+    scene_charge_in: Charge | None = None
+    scene_charge_out: Charge | None = None
+    scene_why_now: str = ""
 
 
 class ConsistencyScanFlag(_Base):
