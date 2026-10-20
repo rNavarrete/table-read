@@ -49,7 +49,7 @@ from drama_manager.structure_checks import StructureCheckNotReady, run_structure
 from drama_manager.structure_stages import STRUCTURE_STAGES
 from errors import ApiError
 from fountain import create_import, import_runs, pdf_extract
-from fountain.export import to_fountain
+from fountain.export import breakdown_filename, to_breakdown_csv, to_fountain
 from fountain.parse import CoverageError
 from fountain.pipeline import run_import
 from llm.dependency import get_llm_client, get_llm_client_provider
@@ -511,6 +511,26 @@ def dismiss_consistency_flag(
 def export_fountain(pid: str, session: Session = Depends(get_session)) -> str:
     project = _get_project_or_404(session, pid)
     return to_fountain(project.doc)
+
+
+@router.get("/{pid}/export.breakdown.csv", response_class=Response)
+def export_breakdown_csv(pid: str, session: Session = Depends(get_session)) -> Response:
+    """T10.10: one row per scene, board order. Read-only — no snapshot, no LLM.
+    The BOM lets Excel read the UTF-8 (em dashes, curly quotes) as UTF-8."""
+    project = _get_project_or_404(session, pid)
+    ledger = [
+        row.to_wire_dict()
+        for row in session.query(LedgerFactRow).filter_by(project_id=pid).all()
+    ]
+    return Response(
+        "\ufeff" + to_breakdown_csv(project.doc, ledger),
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="{breakdown_filename(project.doc.get("title", ""))}"'
+            )
+        },
+    )
 
 
 @router.get("/{pid}/export.json")

@@ -1,6 +1,13 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import {
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
+} from 'react'
 import type { SnapshotSummary } from 'contract'
 import {
+  exportBreakdownCsv,
   exportFountain,
   listProjectSnapshots,
   restoreProject,
@@ -101,6 +108,8 @@ export function AppShell({
   const [historyLoading, setHistoryLoading] = useState(false)
   const [history, setHistory] = useState<SnapshotSummary[] | null>(null)
   const historyRef = useRef<HTMLDivElement>(null)
+  const [exportOpen, setExportOpen] = useState(false)
+  const exportRef = useRef<HTMLDivElement>(null)
   // Read session stash during render (no effect): create navigates away, and
   // Review mutations re-render this shell as the parent of ReviewScreen.
   const draftDot = projectId ? hasDraftChangeSet(projectId) : false
@@ -138,6 +147,38 @@ export function AppShell({
     document.addEventListener('pointerdown', onPointerDown)
     return () => document.removeEventListener('pointerdown', onPointerDown)
   }, [historyOpen])
+
+  useEffect(() => {
+    if (!exportOpen) return
+    // UI spec §2 menu button: focus lands on the first item; outside click
+    // or Escape closes it (Escape hands focus back to Export).
+    exportRef.current
+      ?.querySelector<HTMLButtonElement>('[role="menuitem"]')
+      ?.focus()
+    function onPointerDown(event: PointerEvent) {
+      if (!exportRef.current?.contains(event.target as Node))
+        setExportOpen(false)
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    return () => document.removeEventListener('pointerdown', onPointerDown)
+  }, [exportOpen])
+
+  function onExportMenuKeyDown(event: ReactKeyboardEvent) {
+    const items = Array.from(
+      exportRef.current?.querySelectorAll<HTMLButtonElement>(
+        '[role="menuitem"]',
+      ) ?? [],
+    )
+    const at = items.indexOf(document.activeElement as HTMLButtonElement)
+    if (event.key === 'Escape') {
+      setExportOpen(false)
+      exportRef.current?.querySelector<HTMLButtonElement>('button')?.focus()
+    } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault()
+      const step = event.key === 'ArrowDown' ? 1 : -1
+      items[(at + step + items.length) % items.length]?.focus()
+    }
+  }
 
   async function openHistory() {
     if (!projectId || busy || !canUndo) return
@@ -214,16 +255,24 @@ export function AppShell({
     }
   }
 
-  async function handleExport() {
+  async function handleExport(kind: 'fountain' | 'breakdown') {
     if (!projectId || busy) return
+    setExportOpen(false)
     setBusy(true)
     try {
-      const text = await exportFountain(projectId)
-      const blob = new Blob([text], { type: 'text/plain;charset=utf-8' })
+      // Same safe-name rule as the server's Content-Disposition.
+      const name = projectTitle.replace(/[^\w.-]+/g, '_') || 'script'
+      const blob =
+        kind === 'fountain'
+          ? new Blob([await exportFountain(projectId)], {
+              type: 'text/plain;charset=utf-8',
+            })
+          : await exportBreakdownCsv(projectId)
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `${projectTitle.replace(/[^\w.-]+/g, '_') || 'script'}.fountain`
+      a.download =
+        kind === 'fountain' ? `${name}.fountain` : `${name}-breakdown.csv`
       a.click()
       URL.revokeObjectURL(url)
     } catch (err) {
@@ -349,21 +398,51 @@ export function AppShell({
               </div>
             )}
           </div>
-          <button
-            type="button"
-            disabled={!exportEnabled}
-            title={
-              exportEnabled ? 'Export Fountain' : 'Export (no project loaded)'
-            }
-            onClick={() => void handleExport()}
-            className={
-              exportEnabled
-                ? 'text-tr-text-muted hover:text-tr-text-secondary'
-                : 'cursor-not-allowed opacity-50'
-            }
+          <div
+            ref={exportRef}
+            className="relative flex items-center"
+            onKeyDown={onExportMenuKeyDown}
           >
-            Export
-          </button>
+            <button
+              type="button"
+              disabled={!exportEnabled}
+              aria-haspopup="menu"
+              aria-expanded={exportOpen}
+              title={exportEnabled ? 'Export' : 'Export (no project loaded)'}
+              onClick={() => setExportOpen((open) => !open)}
+              className={
+                exportEnabled
+                  ? 'text-tr-text-muted hover:text-tr-text-secondary'
+                  : 'cursor-not-allowed opacity-50'
+              }
+            >
+              Export
+            </button>
+            {exportOpen && exportEnabled && (
+              <div
+                role="menu"
+                aria-label="Export"
+                className="absolute right-0 top-full z-40 mt-2 w-56 rounded-card border border-tr-border bg-tr-surface-raised py-1 shadow-lift"
+              >
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => void handleExport('fountain')}
+                  className="block w-full px-3 py-2 text-left text-13 text-tr-text-primary hover:bg-tr-surface-clay"
+                >
+                  Fountain script
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => void handleExport('breakdown')}
+                  className="block w-full px-3 py-2 text-left text-13 text-tr-text-primary hover:bg-tr-surface-clay"
+                >
+                  Breakdown spreadsheet (.csv)
+                </button>
+              </div>
+            )}
+          </div>
           <button
             type="button"
             title="Settings"

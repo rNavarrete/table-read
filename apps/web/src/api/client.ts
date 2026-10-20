@@ -175,6 +175,14 @@ export async function exportFountain(projectId: string): Promise<string> {
   return res.text()
 }
 
+/** `GET /projects/{pid}/export.breakdown.csv` — one row per scene (T10.10).
+ * A Blob, not text: `res.text()` would drop the BOM Excel needs. */
+export async function exportBreakdownCsv(projectId: string): Promise<Blob> {
+  const res = await fetch(`${BASE}/projects/${projectId}/export.breakdown.csv`)
+  if (!res.ok) throw await toApiError(res)
+  return res.blob()
+}
+
 /** `GET /projects/{pid}/export.json` — full persisted-state envelope (A6). */
 export async function exportProjectJson(projectId: string): Promise<object> {
   return getJson<object>(`/projects/${projectId}/export.json`)
