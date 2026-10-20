@@ -5,18 +5,26 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AppShell } from './AppShell'
 import { setLeaveGuard } from './modeNavigation'
 
-const { listProjectSnapshotsMock, restoreProjectMock, undoProjectMock } =
-  vi.hoisted(() => ({
-    listProjectSnapshotsMock: vi.fn(),
-    restoreProjectMock: vi.fn(),
-    undoProjectMock: vi.fn(),
-  }))
+const {
+  exportBreakdownCsvMock,
+  exportFountainMock,
+  listProjectSnapshotsMock,
+  restoreProjectMock,
+  undoProjectMock,
+} = vi.hoisted(() => ({
+  exportBreakdownCsvMock: vi.fn(),
+  exportFountainMock: vi.fn(),
+  listProjectSnapshotsMock: vi.fn(),
+  restoreProjectMock: vi.fn(),
+  undoProjectMock: vi.fn(),
+}))
 
 const getLlmModeMock = vi.fn()
 let reloadMock: ReturnType<typeof vi.fn>
 
 vi.mock('../api/client', () => ({
-  exportFountain: vi.fn(),
+  exportBreakdownCsv: exportBreakdownCsvMock,
+  exportFountain: exportFountainMock,
   listProjectSnapshots: listProjectSnapshotsMock,
   restoreProject: restoreProjectMock,
   undoProject: undoProjectMock,
@@ -174,5 +182,122 @@ describe('AppShell', () => {
     } finally {
       setLeaveGuard(null)
     }
+  })
+
+  describe('Export menu (T10.10)', () => {
+    let downloads: string[]
+
+    beforeEach(() => {
+      downloads = []
+      URL.createObjectURL = vi.fn(() => 'blob:export')
+      URL.revokeObjectURL = vi.fn()
+      vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(
+        function (this: HTMLAnchorElement) {
+          downloads.push(this.download)
+        },
+      )
+    })
+
+    const shell = (projectId?: string) =>
+      render(
+        <AppShell
+          activeMode="Plan"
+          ledgerCount={0}
+          projectTitle="The Long Pour"
+          projectId={projectId}
+        >
+          <p>Mode content</p>
+        </AppShell>,
+      )
+
+    it('is disabled with no project loaded', () => {
+      shell()
+      const button = screen.getByRole('button', { name: 'Export' })
+      expect((button as HTMLButtonElement).disabled).toBe(true)
+      expect(button.getAttribute('title')).toBe('Export (no project loaded)')
+    })
+
+    it('offers the Fountain script and the breakdown spreadsheet', async () => {
+      const user = userEvent.setup()
+      shell('proj-1')
+      const button = screen.getByRole('button', { name: 'Export' })
+      expect(button.getAttribute('aria-haspopup')).toBe('menu')
+      expect(button.getAttribute('aria-expanded')).toBe('false')
+
+      await user.click(button)
+
+      expect(button.getAttribute('aria-expanded')).toBe('true')
+      const items = screen.getAllByRole('menuitem')
+      expect(items.map((item) => item.textContent)).toEqual([
+        'Fountain script',
+        'Breakdown spreadsheet (.csv)',
+      ])
+      expect(document.activeElement).toBe(items[0])
+    })
+
+    it('downloads the breakdown CSV under the project title and closes', async () => {
+      const user = userEvent.setup()
+      exportBreakdownCsvMock.mockResolvedValue(new Blob(['Scene\r\n']))
+      shell('proj-1')
+
+      await user.click(screen.getByRole('button', { name: 'Export' }))
+      await user.click(
+        screen.getByRole('menuitem', { name: 'Breakdown spreadsheet (.csv)' }),
+      )
+
+      await waitFor(() =>
+        expect(downloads).toEqual(['The_Long_Pour-breakdown.csv']),
+      )
+      expect(exportBreakdownCsvMock).toHaveBeenCalledExactlyOnceWith('proj-1')
+      expect(exportFountainMock).not.toHaveBeenCalled()
+      expect(screen.queryByRole('menu')).toBeNull()
+    })
+
+    it('downloads the Fountain script as before', async () => {
+      const user = userEvent.setup()
+      exportFountainMock.mockResolvedValue('INT. BAR - NIGHT')
+      shell('proj-1')
+
+      await user.click(screen.getByRole('button', { name: 'Export' }))
+      await user.click(
+        screen.getByRole('menuitem', { name: 'Fountain script' }),
+      )
+
+      await waitFor(() => expect(downloads).toEqual(['The_Long_Pour.fountain']))
+      expect(exportFountainMock).toHaveBeenCalledWith('proj-1')
+    })
+
+    it('moves with the arrow keys and closes on Escape, back on Export', async () => {
+      const user = userEvent.setup()
+      shell('proj-1')
+      const button = screen.getByRole('button', { name: 'Export' })
+      await user.click(button)
+      const [fountain, csv] = screen.getAllByRole('menuitem')
+
+      await user.keyboard('{ArrowDown}')
+      expect(document.activeElement).toBe(csv)
+      await user.keyboard('{ArrowDown}')
+      expect(document.activeElement).toBe(fountain)
+      await user.keyboard('{ArrowUp}')
+      expect(document.activeElement).toBe(csv)
+      await user.keyboard('{Escape}')
+
+      expect(screen.queryByRole('menu')).toBeNull()
+      expect(document.activeElement).toBe(button)
+    })
+
+    it('says so when the export fails', async () => {
+      const user = userEvent.setup()
+      exportBreakdownCsvMock.mockRejectedValue(new Error('Server error'))
+      shell('proj-1')
+
+      await user.click(screen.getByRole('button', { name: 'Export' }))
+      await user.click(
+        screen.getByRole('menuitem', { name: 'Breakdown spreadsheet (.csv)' }),
+      )
+
+      expect(await screen.findByText('Server error')).toBeTruthy()
+      expect(downloads).toEqual([])
+    })
   })
 })
