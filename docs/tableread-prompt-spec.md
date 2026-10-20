@@ -302,16 +302,18 @@ Server-side merge policy (Task 2): resolved characters extend existing rows with
 
 Purpose: import-time threads/motivations/world-rule read (narrative-promises P2 design doc; T7.19–T7.22), run once per import between `infer_story_entities` and `extract_ledger_facts` — after entities so motivations can name the resolved cast, before facts. Model: `import_analyst` role (`claude-opus-5-5`, `medium` effort) — import story breakdown.
 
-**Input (T7.20, bounded long-script read):** every segmented beat's semantic
-fields (`whatHappens`, `audienceLearns`, `audienceFeels`) in source order,
-plus a short server-selected `evidenceExcerpt` per scene, the resolved cast
-(names only), and existing `worldRules` text. The importer never resends the
-full screenplay at this stage: semantic coverage preserves late setup/payoff
-discovery while bounded excerpts support auditable quotes and keep the
-story-wide request reliable and cost-controlled. All input is
-`<source_data_{nonce}>`.
+**Input (T7.20, bounded long-script read):** every segmented beat's `beatId`
+and semantic fields (`whatHappens`, `audienceLearns`, `audienceFeels`) in
+source order, grouped by scene, plus the resolved cast (names only) and
+existing `worldRules` text. No screenplay text is sent at this stage — since
+PROMPT_VERSION 0.40.0 not even the per-scene evidence excerpt, because the
+model cites beats and the server derives quotes (below). Semantic coverage
+preserves late setup/payoff discovery while keeping the story-wide request
+reliable and cost-controlled. All input is `<source_data_{nonce}>`.
 
 **Output schema (`NarrativePromises`):** threads (setup→payoff arcs), **storylines** (T10.2), **secrets** (concealed→revealed arcs), per-scene motivations, and structured world rules. A secret is a thread with an asymmetry: `holderNames` vs `concealedFromNames`. A fact everyone knows is not a secret, so both sides are required; `revealedSceneId: null` means still concealed at end of episode. Motivations carry `statedObjective` (empty unless the character claims a different goal than their behaviour serves) and `concealed` (deliberate deception vs self-deception) — the stated/actual gap is the ulterior motive. Threads and motivations name characters by string, never id — same convention as `infer_story_entities`; the server resolves `ownerNames`/`characterName` against the existing bible and drops unresolvable owners/motivations (log counts only, never text — rule 5). `setupSceneId`/`payoffSceneId`/`sceneId`/`evidenceSceneId` are already-known scene ids the model selects from the input scene list, not free text, so they need no resolution.
+
+**Evidence is a beat id, never a quote (PROMPT_VERSION 0.40.0+).** Each claim cites the one beat that carries it — `setupBeatId`/`payoffBeatId` (threads), `establishedBeatId`/`revealedBeatId` (secrets), `evidenceBeatId` (world rules) — copied from the input spine and belonging to the scene cited for that claim, or `null` when no single beat carries it. The model writes no quote text. The server derives the stored `setupQuote`/`payoffQuote`, `establishedQuote`/`revealedQuote` and `evidenceQuote` from the cited beat's own `scriptText` (`drama_manager/promises.py`, `quote_for_beat`; data contract §1 `StoryThread`/`Secret`/`WorldRule`).
 
 ```json
 {
@@ -323,8 +325,8 @@ story-wide request reliable and cost-controlled. All input is
       "ownerNames": ["string"],
       "setupSceneId": "",
       "payoffSceneId": "or null",
-      "setupQuote": "<=200 chars",
-      "payoffQuote": "may be empty",
+      "setupBeatId": "beat id in setupSceneId, or null",
+      "payoffBeatId": "beat id in payoffSceneId, or null",
       "storyline": "A | B | C | D, or null"
     }
   ],
@@ -334,6 +336,19 @@ story-wide request reliable and cost-controlled. All input is
       "summary": "one sentence",
       "characterNames": ["string"],
       "sceneIds": [""]
+    }
+  ],
+  "secrets": [
+    {
+      "summary": "string",
+      "holderNames": ["string"],
+      "concealedFromNames": ["string"],
+      "audienceKnows": true,
+      "establishedSceneId": "",
+      "revealedSceneId": "or null",
+      "concealmentSceneIds": [""],
+      "establishedBeatId": "beat id in establishedSceneId, or null",
+      "revealedBeatId": "beat id in revealedSceneId, or null"
     }
   ],
   "sceneMotivations": [
@@ -358,7 +373,7 @@ story-wide request reliable and cost-controlled. All input is
       "cost": "string",
       "exception": "string",
       "evidenceSceneId": "or null",
-      "evidenceQuote": "string"
+      "evidenceBeatId": "beat id in evidenceSceneId, or null"
     }
   ]
 }
@@ -371,7 +386,12 @@ ids and attach to the episode (re-import replaces prior import-minted threads
 for that episode, same as scenes — v1 has no thread locking);
 `secrets` mint `secret-*` ids and attach to the episode alongside threads, with `holderNames`/`concealedFromNames` resolved like `ownerNames` and unresolvable rows dropped; `sceneMotivations` write onto the matching `Scene.motivations` array;
 `worldRules` append new rules into the bible's `worldRules` and never overwrite
-a `locked: true` rule. Schema-invalid after one retry surfaces
+a `locked: true` rule. Each cited beat becomes a stored quote: the beat's first
+spoken line, else its first line that is not a slugline or character cue. A
+beat outside the cited scene, or a line under three words or that is only a cue
+or transition, stores an empty quote and a null beat id; a quote cited by more
+than one thread or secret is cleared from all of them. Stored world rules keep
+only `evidenceQuote`, not the beat id. Schema-invalid after one retry surfaces
 `SCHEMA_INVALID_LLM`, import fails atomically (rule 9).
 
 **Storylines (T10.2, `PROMPT_VERSION 0.53.0`):** the prompt asks for the
