@@ -203,10 +203,8 @@ export function EpisodeView({
   })
   const craftCount = craftScenes.reduce((n, s) => n + s.n, 0)
   const firstCraft = craftScenes[0]?.sig
-  // Goes once the contract's Episode.craftCheckedAt lands: read it directly.
-  const checkedAt =
-    (episode as Episode & { craftCheckedAt?: string | null }).craftCheckedAt ??
-    null
+  // Missing from a raw PATCH doc, which omits defaulted keys.
+  const checkedAt = episode.craftCheckedAt ?? null
 
   const section = (
     id: Extract<PlanSectionId, `ep-${string}`>,
