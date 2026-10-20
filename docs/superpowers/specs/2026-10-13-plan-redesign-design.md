@@ -59,11 +59,12 @@ The writer comes to Plan for four jobs:
 
 ### 4.2 Scene card (the import board's index card)
 
-- Size `--tr-card-board-w/h` (150×106), the import board's `IndexCard` face: ruled paper, number · INT/EXT dot · cleaned place title (full slug in the tooltip and panel), 4-line `whatHappens` reading, bottom row of beat ticks (amber = beat with a story note, hollow = import note), ↗ set up / ↘ paid off counts, ◆ secret, `TURN` / `ACT OUT` tags.
+- Size `--tr-card-board-w/h` (150×106), the import board's `IndexCard` face: ruled paper, number · INT/EXT dot · cleaned place title (full slug in the peek and panel), 4-line `whatHappens` reading, bottom row of beat ticks (amber = beat with a story note, hollow = import note), ↗ set up / ↘ paid off counts, ◆ secret, `TURN` / `ACT OUT` tags.
 - Chips: amber **⚑n** for story notes, a quiet neutral chip for import-only notes (same `consistency-flag-badge` testid), lock glyph, coral unsaved dot.
 - At most one **tape** above the card: its relation to the selection ("↘ pays off 12", amber "⚠ order with 15") or the active highlight's label. No callout boxes on cards.
 - Selected: coral-soft fill + inset coral ring. Related to selection: dashed sky outline + tape. Focus: separate 2px sky outline offset 4px, visible on a selected card too.
 - Double-click opens the scene in Write (unchanged). Beat cards leave the board; beats live in the panel.
+- **Peek** (T10.14; owner request: cards truncate and must be readable in full). The card read in full beside it — number · place, the whole slug (script font), the whole `whatHappens`, and the T10.12 readings (Turns, Clash, Who knows) when the scene has them. It opens after resting the pointer on a card for 400 ms, or at once when a card takes keyboard focus (arrows/Home/End), never from a click (which selects) or during a drag. It closes on leaving the card and the peek (120 ms grace, so the pointer can move onto it), blur, scroll or Esc. Esc on a hover peek only closes it; on a focus peek it closes and goes on to Plan (back to the Episode view), so keyboard users never press twice. It sits right of the card, or left where the window ends, in a portal so the board's scroll box can't clip it. Visual only (`aria-hidden`; the card's label already names the scene), no request. It replaces the native `title` tooltip.
 
 ### 4.3 Act frames
 
