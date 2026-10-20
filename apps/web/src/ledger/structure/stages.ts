@@ -51,6 +51,13 @@ export const STAGE_ORDER: Record<StructureLens, StructureStageName[]> = {
     'finale',
     'final_image',
   ],
+  turning_points: [
+    'tp_opportunity',
+    'tp_change_of_plans',
+    'tp_point_of_no_return',
+    'tp_major_setback',
+    'tp_climax',
+  ],
 }
 
 export const STAGE_LABELS: Record<StructureStageName, string> = {
@@ -89,4 +96,9 @@ export const STAGE_LABELS: Record<StructureStageName, string> = {
   break_into_three: 'Break into three',
   finale: 'Finale',
   final_image: 'Final image',
+  tp_opportunity: 'Opportunity',
+  tp_change_of_plans: 'Change of plans',
+  tp_point_of_no_return: 'Point of no return',
+  tp_major_setback: 'Major setback',
+  tp_climax: 'Climax',
 }

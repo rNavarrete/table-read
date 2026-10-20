@@ -538,6 +538,7 @@ export const StructureLens = z.enum([
   'heros_journey',
   'story_circle',
   'save_the_cat',
+  'turning_points',
 ])
 export type StructureLens = z.infer<typeof StructureLens>
 
@@ -566,6 +567,11 @@ export const StructureStageName = z.enum([
   'break_into_three',
   'finale',
   'final_image',
+  'tp_opportunity',
+  'tp_change_of_plans',
+  'tp_point_of_no_return',
+  'tp_major_setback',
+  'tp_climax',
 ])
 export type StructureStageName = z.infer<typeof StructureStageName>
 
@@ -577,6 +583,16 @@ export const StructureStageStatus = z.enum([
 ])
 export type StructureStageStatus = z.infer<typeof StructureStageStatus>
 
+// Where a stage's beat sits against its lens's expected window (T10.5).
+// Server-derived, separate from status; null when not placed.
+export const StructurePlacement = z.enum([
+  'in_window',
+  'early',
+  'late',
+  'out_of_order',
+])
+export type StructurePlacement = z.infer<typeof StructurePlacement>
+
 export const StructureStage = z.object({
   stage: StructureStageName,
   status: StructureStageStatus,
@@ -584,6 +600,11 @@ export const StructureStage = z.object({
   sceneId: Id.nullable(),
   reason: z.string(),
   evidenceQuote: z.string().min(1).max(200).nullable(),
+  // Server-derived (T10.5), never from the model; defaulted so older checks load.
+  positionPct: z.number().min(0).max(100).nullable().default(null),
+  expectedPct: z.number().nullable().default(null),
+  windowPct: z.number().nullable().default(null),
+  placement: StructurePlacement.nullable().default(null),
 })
 export type StructureStage = z.infer<typeof StructureStage>
 
