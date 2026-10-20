@@ -430,6 +430,15 @@ test('an act change that plays a payoff first shows the Order note, and Undo the
   }
 })
 
+/** This harness always runs the mock LLM, so AppShell shows its demo banner,
+ * from its own /health call: it can land after the board and push the screen
+ * down. A click pressed before it and released after it is lost, and a drag
+ * started first loses its target (Playwright's retry of the unsteady hover
+ * scrolls the source to the bottom edge). Wait for it before either. */
+function waitForBanner(page: Page) {
+  return expect(page.getByTestId('mock-llm-banner')).toBeVisible()
+}
+
 test('the episode chart draws a block per scene and a block selects its scene (T3.7)', async ({
   page,
 }) => {
@@ -439,6 +448,7 @@ test('the episode chart draws a block per scene and a block selects its scene (T
   await expect(chart.locator('svg')).toHaveAttribute('aria-hidden', 'true')
   await expect(chart).toContainText('the board below lists every scene')
 
+  await waitForBanner(page)
   await chart.getByTestId('chart-block-scene-3').click()
   await expect(page.getByTestId('scene-card-scene-3')).toHaveAttribute(
     'aria-pressed',
@@ -466,6 +476,7 @@ function actOrder(page: Page, act: number) {
  * source is centred first, clear of the sticky header, so `to` (its row or
  * the next) is in view too: a scroll after mousedown drops the drag. */
 async function dragOver(page: Page, from: Locator, to: Locator, x: number) {
+  await waitForBanner(page)
   await from.evaluate((el) => el.scrollIntoView({ block: 'center' }))
   await from.hover()
   await page.mouse.down()
@@ -517,7 +528,29 @@ test('a drop inserts where it lands, with a coral bar, and ⌥→ steps a card a
 
 test('a move past a locked scene is refused on the target and sends nothing (T3.8)', async ({
   page,
+  request,
 }) => {
+  // Its own setup, so it passes alone too: scene-5 last in act 3, scene-6
+  // alone in act 4 and locked (their fixture places). Scenes 4 and 5 in the
+  // array (it never reorders) are scene-5 and scene-6. Through `request`, so
+  // the page's PATCH count starts at 0; scene-6 stays locked, as it is after
+  // the lock test above.
+  const set = (i: number, field: string, value: unknown) => ({
+    op: 'replace',
+    path: `/seasons/0/episodes/0/scenes/${i}/${field}`,
+    value,
+  })
+  const setup = await request.patch('/api/v1/projects/proj-longpour', {
+    data: [
+      set(4, 'act', 3),
+      set(4, 'index', 4),
+      set(5, 'act', 4),
+      set(5, 'index', 5),
+      set(5, 'locked', true),
+    ],
+  })
+  expect(setup.ok()).toBeTruthy()
+
   await page.setViewportSize({ width: 1280, height: 900 })
   let patches = 0
   page.on('request', (r) => {
@@ -525,7 +558,7 @@ test('a move past a locked scene is refused on the target and sends nothing (T3.
   })
   await page.goto('/plan?project=proj-longpour')
   const scene5 = page.getByTestId('scene-card-scene-5')
-  const scene6 = page.getByTestId('scene-card-scene-6') // locked above
+  const scene6 = page.getByTestId('scene-card-scene-6')
 
   // After scene-6 would shift it: the reason on the target, no bar, no drop.
   await dragOver(page, scene5, scene6, 130)
