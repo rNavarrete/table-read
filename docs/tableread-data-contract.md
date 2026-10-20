@@ -160,9 +160,18 @@ export const Scene = z.object({
 // T7.27 — episode story overview (logline, scene outline, named beat sheet,
 // two-paragraph synopsis). Import fills via infer_story_overview; model never
 // mints ids. Defaults to null so pre-existing docs validate.
+// T10.6 — story time (Genette's order). storyOrder is the scene's rank in
+// story chronology (0 = earliest), null on every row unless the import's
+// ranks are a full permutation of the outline rows that differs from script
+// order. anachrony is kept independently: a flashback can be marked without
+// a full order. Read-only import readings.
+export const Anachrony = z.enum(['none', 'flashback', 'flashforward'])
 export const StoryOverviewOutlineItem = z.object({
   sceneId: Id,
   summary: z.string(),
+  storyOrder: z.number().int().min(0).nullable().default(null),
+  storyTime: z.string().default(''), // "Day 1, night", "Eight years earlier"
+  anachrony: Anachrony.default('none'),
 })
 export const StoryOverviewBeatItem = z.object({
   beatId: Id,
@@ -176,8 +185,30 @@ export const StoryOverview = z.object({
   outline: z.array(StoryOverviewOutlineItem),
   beatSheet: z.array(StoryOverviewBeatItem),
   summary: z.string(),
+  // T10.6 — what the episode is about: the yes/no question the climax
+  // answers, the central argument as an arguable claim ("love requires
+  // surrender", not "love"), and the anti-theme the lead starts out embodying.
+  dramaticQuestion: z.string().default(''),
+  centralArgument: z.string().default(''),
+  antiTheme: z.string().default(''),
   provenance: z.enum(['inferred', 'writer_authored']).default('inferred'),
   locked: z.boolean().default(false),
+})
+
+// T10.6 — a principal's arc across one episode: want (conscious goal), need
+// (what they must learn or become), lie (the false belief), ghost (the past
+// wound behind it), the continuum the episode moves them along, and where
+// their head is at on it per scene (stops in scene order, one per scene).
+// Episode-scoped like threads; Season.characterArcs stays series-level.
+export const CharacterArcStop = z.object({ sceneId: Id, headAt: z.string() })
+export const EpisodeCharacterArc = z.object({
+  characterId: Id,
+  want: z.string(),
+  need: z.string(),
+  lie: z.string(),
+  ghost: z.string(),
+  continuumAxis: z.string(), // "trusting ↔ suspicious"
+  stops: z.array(CharacterArcStop),
 })
 
 // T7.32 - an evidence-grounded map of the episode's macro structure and
@@ -408,6 +439,8 @@ export const Episode = z.object({
   secrets: z.array(Secret).default([]),
   // T7.27 episode story overview — null when not yet inferred.
   storyOverview: StoryOverview.nullable().default(null),
+  // T10.6 — at most three principals' arcs, from infer_story_overview.
+  characterArcs: z.array(EpisodeCharacterArc).default([]),
   // T7.32 evidence-grounded structural map — null when not yet inferred.
   narrativeMap: NarrativeMap.nullable().default(null),
   // Structure checklist — at most one per lens; a new check replaces that
@@ -450,9 +483,26 @@ export const SourceSpan = z.object({
 // two-paragraph synopsis. outline.sceneId and beatSheet.beatId must name
 // ids from the imported partition; server drops unknowns and sets
 // provenance/locked on Episode.storyOverview.
+//
+// T10.6 (0.55.0) adds, all defaulted so a pre-0.55.0 response or checkpoint
+// parses: the About strings; per outline row storyOrder / storyTime /
+// anachrony; and up to three characterArcs named by characterName. The server
+// resolves names with fountain.characters.resolve_character_id and drops
+// unresolved arcs, keeps at most three (duplicate characters keep the first),
+// drops stops on unknown scenes, keeps one stop per scene (first wins) in
+// scene order, and nulls storyOrder on every row unless the ranks are a
+// permutation of 0..n−1 over the outline rows that differs from script order.
 export const InferredStoryOverview = z.object({
   logline: z.string(),
-  outline: z.array(z.object({ sceneId: Id, summary: z.string() })),
+  outline: z.array(
+    z.object({
+      sceneId: Id,
+      summary: z.string(),
+      storyOrder: z.number().int().min(0).nullable().default(null),
+      storyTime: z.string().default(''),
+      anachrony: Anachrony.default('none'),
+    }),
+  ),
   beatSheet: z.array(
     z.object({
       beatId: Id,
@@ -463,6 +513,22 @@ export const InferredStoryOverview = z.object({
     }),
   ),
   summary: z.string(),
+  dramaticQuestion: z.string().default(''),
+  centralArgument: z.string().default(''),
+  antiTheme: z.string().default(''),
+  characterArcs: z
+    .array(
+      z.object({
+        characterName: z.string(),
+        want: z.string(),
+        need: z.string(),
+        lie: z.string(),
+        ghost: z.string(),
+        continuumAxis: z.string(),
+        stops: z.array(CharacterArcStop),
+      }),
+    )
+    .default([]),
 })
 
 // T7.32 infer_narrative_map. The model names characters because import

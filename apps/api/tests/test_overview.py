@@ -569,3 +569,92 @@ def test_merge_normalizes_literal_backslash_n_in_summary():
     assert "\\n" not in summary
     assert "\n\n" in summary
     assert len([p for p in summary.split("\n\n") if p.strip()]) == 2
+
+
+# ── T10.6 contract: About, lead arcs and story time ─────────────────────────
+
+
+def test_pre_t10_6_overview_and_episode_load_with_defaults():
+    from schemas import Episode, StoryOverview
+
+    ov = StoryOverview.model_validate(
+        {
+            "logline": "l",
+            "outline": [{"sceneId": "scene-1", "summary": "s"}],
+            "beatSheet": [],
+            "summary": "s",
+        }
+    )
+    assert (ov.dramatic_question, ov.central_argument, ov.anti_theme) == ("", "", "")
+    row = ov.outline[0]
+    assert (row.story_order, row.story_time, row.anachrony) == (None, "", "none")
+    episode = Episode.model_validate(
+        {"id": "ep-1", "index": 0, "title": "t", "premise": "", "storylines": [], "scenes": []}
+    )
+    assert episode.character_arcs == []
+
+
+def test_t10_6_fields_round_trip_and_reject_bad_values():
+    import pytest
+    from pydantic import ValidationError
+
+    from schemas import Episode, StoryOverview
+
+    full = {
+        "logline": "l",
+        "outline": [
+            {
+                "sceneId": "scene-1",
+                "summary": "s",
+                "storyOrder": 1,
+                "storyTime": "Eight years earlier",
+                "anachrony": "flashback",
+            }
+        ],
+        "beatSheet": [],
+        "summary": "s",
+        "dramaticQuestion": "Will Marta learn the truth?",
+        "centralArgument": "Trust requires disclosure.",
+        "antiTheme": "Family covers for family.",
+    }
+    dumped = StoryOverview.model_validate(full).model_dump(by_alias=True, mode="json")
+    assert {k: dumped[k] for k in full} == full
+    for bad in ({"anachrony": "sideways"}, {"storyOrder": -1}):
+        with pytest.raises(ValidationError):
+            StoryOverview.model_validate({**full, "outline": [{**full["outline"][0], **bad}]})
+    arc = {
+        "characterId": "char-marta",
+        "want": "w",
+        "need": "n",
+        "lie": "l",
+        "ghost": "g",
+        "continuumAxis": "trusting ↔ suspicious",
+        "stops": [{"sceneId": "scene-1", "headAt": "trusting"}],
+    }
+    episode = Episode.model_validate(
+        {
+            "id": "ep-1",
+            "index": 0,
+            "title": "t",
+            "premise": "",
+            "storylines": [],
+            "scenes": [],
+            "characterArcs": [arc],
+        }
+    )
+    assert episode.model_dump(by_alias=True, mode="json")["characterArcs"] == [arc]
+
+
+def test_pre_0_55_overview_response_parses_with_defaults():
+    parsed = InferredStoryOverview.model_validate(
+        {
+            "logline": "l",
+            "outline": [{"sceneId": "scene-1", "summary": "s"}],
+            "beatSheet": [],
+            "summary": "s",
+        }
+    )
+    assert (parsed.dramatic_question, parsed.central_argument, parsed.anti_theme) == ("", "", "")
+    assert parsed.character_arcs == []
+    row = parsed.outline[0]
+    assert (row.story_order, row.story_time, row.anachrony) == (None, "", "none")

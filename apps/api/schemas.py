@@ -296,11 +296,23 @@ class Secret(_Base):
     locked: bool = False
 
 
+class Anachrony(StrEnum):
+    """T10.6 — a scene told out of story order (see the Zod `Anachrony`)."""
+
+    none = "none"
+    flashback = "flashback"
+    flashforward = "flashforward"
+
+
 class StoryOverviewOutlineItem(_Base):
     """T7.27 — one scene row in the episode outline."""
 
     scene_id: Id
     summary: str
+    # T10.6 — story time (see the Zod `StoryOverviewOutlineItem`).
+    story_order: int | None = Field(default=None, ge=0)
+    story_time: str = ""
+    anachrony: Anachrony = Anachrony.none
 
 
 class StoryOverviewBeatItem(_Base):
@@ -325,8 +337,31 @@ class StoryOverview(_Base):
     outline: list[StoryOverviewOutlineItem]
     beat_sheet: list[StoryOverviewBeatItem]
     summary: str
+    # T10.6 — what the episode is about (see the Zod `StoryOverview`).
+    dramatic_question: str = ""
+    central_argument: str = ""
+    anti_theme: str = ""
     provenance: StoryOverviewProvenance = StoryOverviewProvenance.inferred
     locked: bool = False
+
+
+class CharacterArcStop(_Base):
+    """T10.6 — where a principal's head is at in one scene."""
+
+    scene_id: Id
+    head_at: str
+
+
+class EpisodeCharacterArc(_Base):
+    """T10.6 — a principal's arc across one episode (see the Zod type)."""
+
+    character_id: Id
+    want: str
+    need: str
+    lie: str
+    ghost: str
+    continuum_axis: str
+    stops: list[CharacterArcStop]
 
 
 class NarrativeEvidence(_Base):
@@ -584,6 +619,8 @@ class Episode(_Base):
     threads: list[StoryThread] = []
     secrets: list[Secret] = []
     story_overview: StoryOverview | None = None
+    # T10.6 — up to three principals' arcs (infer_story_overview).
+    character_arcs: list[EpisodeCharacterArc] = []
     narrative_map: NarrativeMap | None = None
     # At most one per lens; a new check replaces that lens's entry.
     structure_checks: list[StructureCheck] = []
@@ -1329,6 +1366,23 @@ class NarrativePromises(_Base):
 class InferredOutlineItem(_Base):
     scene_id: Id
     summary: str
+    # T10.6 — the server keeps the ranks only when they are a full,
+    # non-identity permutation of the outline rows.
+    story_order: int | None = Field(default=None, ge=0)
+    story_time: str = ""
+    anachrony: Anachrony = Anachrony.none
+
+
+class InferredCharacterArc(_Base):
+    """T10.6 — a principal named as the script names them; resolved on merge."""
+
+    character_name: str
+    want: str
+    need: str
+    lie: str
+    ghost: str
+    continuum_axis: str
+    stops: list[CharacterArcStop]
 
 
 class InferredBeatSheetItem(_Base):
@@ -1348,6 +1402,11 @@ class InferredStoryOverview(_Base):
     outline: list[InferredOutlineItem]
     beat_sheet: list[InferredBeatSheetItem]
     summary: str
+    # T10.6 — defaulted so a pre-0.55.0 response or checkpoint parses.
+    dramatic_question: str = ""
+    central_argument: str = ""
+    anti_theme: str = ""
+    character_arcs: list[InferredCharacterArc] = []
 
 
 class InferredNarrativeEvidence(_Base):

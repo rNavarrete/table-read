@@ -9,6 +9,8 @@ import {
   StoryThread,
   WorldRule,
   Episode,
+  InferredStoryOverview,
+  StoryOverview,
   KnowledgeEvent,
   Motivation,
   Secret,
@@ -570,6 +572,85 @@ describe('Episode.secrets', () => {
     })
     expect(episode.storylines[0].id).toBe('D')
     expect(episode.scenes[0].storyline).toBe('D')
+  })
+})
+
+describe('T10.6 About, lead arcs and story time', () => {
+  const overview = {
+    logline: 'l',
+    outline: [{ sceneId: 'scene-1', summary: 's' }],
+    beatSheet: [],
+    summary: 's',
+  }
+  it('defaults the new fields on a pre-T10.6 overview and episode', () => {
+    expect(StoryOverview.parse(overview)).toMatchObject({
+      dramaticQuestion: '',
+      centralArgument: '',
+      antiTheme: '',
+      outline: [{ storyOrder: null, storyTime: '', anachrony: 'none' }],
+    })
+    const episode = Episode.parse({
+      id: 'ep-1',
+      index: 0,
+      title: 'Pilot',
+      premise: '',
+      storylines: [],
+      scenes: [],
+    })
+    expect(episode.characterArcs).toEqual([])
+  })
+  it('round-trips the new fields and rejects an unknown anachrony', () => {
+    const full = {
+      ...overview,
+      dramaticQuestion: 'Will Marta learn the truth?',
+      centralArgument: 'Trust requires disclosure.',
+      antiTheme: 'Family covers for family.',
+      outline: [
+        {
+          sceneId: 'scene-1',
+          summary: 's',
+          storyOrder: 1,
+          storyTime: 'Day 1, night',
+          anachrony: 'flashback',
+        },
+      ],
+    }
+    expect(StoryOverview.parse(full)).toMatchObject(full)
+    expect(
+      StoryOverview.safeParse({
+        ...full,
+        outline: [{ ...full.outline[0], anachrony: 'sideways' }],
+      }).success,
+    ).toBe(false)
+    const arc = {
+      characterId: 'char-marta',
+      want: 'w',
+      need: 'n',
+      lie: 'l',
+      ghost: 'g',
+      continuumAxis: 'trusting ↔ suspicious',
+      stops: [{ sceneId: 'scene-1', headAt: 'trusting' }],
+    }
+    const episode = Episode.parse({
+      id: 'ep-1',
+      index: 0,
+      title: 'Pilot',
+      premise: '',
+      storylines: [],
+      scenes: [],
+      characterArcs: [arc],
+    })
+    expect(episode.characterArcs).toEqual([arc])
+  })
+  it('parses a pre-0.55.0 infer_story_overview response with defaults', () => {
+    const parsed = InferredStoryOverview.parse(overview)
+    expect(parsed).toMatchObject({
+      dramaticQuestion: '',
+      centralArgument: '',
+      antiTheme: '',
+      characterArcs: [],
+      outline: [{ storyOrder: null, storyTime: '', anachrony: 'none' }],
+    })
   })
 })
 
