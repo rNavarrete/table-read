@@ -336,6 +336,7 @@ describe('belief state (knows vs suspects vs misinformed)', () => {
           characterIds: ['char-marta'],
           kind: 'suspects',
           quote: '',
+          belief: '',
         },
       ],
     })
@@ -353,6 +354,7 @@ describe('belief state (knows vs suspects vs misinformed)', () => {
           characterIds: ['char-marta'],
           kind: 'suspects',
           quote: '',
+          belief: '',
         },
       ],
     })
@@ -367,6 +369,7 @@ describe('belief state (knows vs suspects vs misinformed)', () => {
           characterIds: ['char-dan'],
           kind: 'misinformed',
           quote: '',
+          belief: '',
         },
       ],
     })
@@ -381,6 +384,7 @@ describe('belief state (knows vs suspects vs misinformed)', () => {
           characterIds: ['char-dan'],
           kind: 'suspects',
           quote: '',
+          belief: '',
         },
       ],
     })
@@ -398,6 +402,7 @@ describe('belief state (knows vs suspects vs misinformed)', () => {
             characterIds: ['char-marta'],
             kind: 'suspects',
             quote: '',
+            belief: '',
           },
         ],
       }),
@@ -409,6 +414,7 @@ describe('belief state (knows vs suspects vs misinformed)', () => {
             characterIds: ['char-marta'],
             kind: 'misinformed',
             quote: '',
+            belief: '',
           },
         ],
       }),

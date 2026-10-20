@@ -706,6 +706,10 @@ export const KnowledgeEvent = z.object({
   characterIds: z.array(Id).default([]),
   kind: KnowledgeEventKind,
   quote: z.string().default(''), // <=200 chars evidence
+  // T10.4 — for `suspects`/`misinformed`, what the character believes instead
+  // ("the money went to the bank"). The server blanks it on every
+  // other kind: a learner believes the fact itself, which the fact states.
+  belief: z.string().default(''),
 })
 export type KnowledgeEvent = z.infer<typeof KnowledgeEvent>
 
@@ -1662,6 +1666,8 @@ export const ExtractedKnowledgeEvent = z.object({
   characterNames: z.array(z.string()).default([]),
   kind: KnowledgeEventKind,
   quote: z.string().default(''),
+  // T10.4 — see `KnowledgeEvent.belief`; blanked server-side on other kinds.
+  belief: z.string().default(''),
 })
 export type ExtractedKnowledgeEvent = z.infer<typeof ExtractedKnowledgeEvent>
 

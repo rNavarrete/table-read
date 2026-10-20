@@ -624,6 +624,9 @@ export const KnowledgeEvent = z.object({
   characterIds: z.array(Id).default([]),
   kind: KnowledgeEventKind,
   quote: z.string().default(''), // <=200 chars evidence
+  // T10.4 — for suspects/misinformed, what the character believes instead
+  // ("the money went to the bank"); blanked server-side on other kinds.
+  belief: z.string().default(''),
 })
 
 export const LedgerFact = z.object({
@@ -1039,6 +1042,7 @@ export const ExtractedKnowledgeEvent = z.object({
   characterNames: z.array(z.string()).default([]),
   kind: KnowledgeEventKind,
   quote: z.string().default(''),
+  belief: z.string().default(''), // T10.4: see KnowledgeEvent.belief
 })
 
 // §5 extract_ledger_facts — model span has lines only; char offsets are computed server-side.

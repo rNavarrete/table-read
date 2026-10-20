@@ -85,13 +85,18 @@
                 "quote": {
                   "default": "",
                   "type": "string"
+                },
+                "belief": {
+                  "default": "",
+                  "type": "string"
                 }
               },
               "required": [
                 "sceneId",
                 "characterNames",
                 "kind",
-                "quote"
+                "quote",
+                "belief"
               ],
               "additionalProperties": false
             }

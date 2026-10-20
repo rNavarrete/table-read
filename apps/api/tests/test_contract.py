@@ -10,7 +10,14 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from schemas import PersistedState, ProjectSummary, Scene, SegmentedScene
+from schemas import (
+    ExtractedFact,
+    KnowledgeEvent,
+    PersistedState,
+    ProjectSummary,
+    Scene,
+    SegmentedScene,
+)
 
 FIXTURE_PATH = Path(__file__).resolve().parents[3] / "docs" / "tableread-fixture.json"
 
@@ -178,3 +185,45 @@ def test_pre_0_52_segment_scene_response_parses_with_defaults():
         parsed.scene_charge_out,
         parsed.scene_why_now,
     ) == ("", None, None, "")
+
+
+_PRE_T10_4_EXTRACTED_FACT = {
+    "fact": "Dan hid the money.",
+    "factType": "event",
+    "sourceSpan": {
+        "episodeId": "ep-1",
+        "sceneId": "scene-2",
+        "beatId": "beat-2-1",
+        "startLine": 1,
+        "endLine": 1,
+    },
+    "sourceText": "",
+    "knownBy": ["Dan"],
+    "knowledgeEvents": [{"sceneId": "scene-3", "characterNames": ["Marta"], "kind": "suspects"}],
+    "audienceKnows": True,
+    "confidence": 0.9,
+}
+
+
+def test_pre_t10_4_knowledge_and_extraction_load_with_defaults():
+    event = KnowledgeEvent.model_validate({"sceneId": "scene-3", "kind": "misinformed"})
+    assert event.belief == ""
+    fact = ExtractedFact.model_validate(_PRE_T10_4_EXTRACTED_FACT)
+    assert fact.knowledge_events[0].belief == ""
+
+
+def test_belief_round_trips():
+    extracted = {
+        **_PRE_T10_4_EXTRACTED_FACT,
+        "knowledgeEvents": [
+            {
+                "sceneId": "scene-3",
+                "characterNames": ["Marta"],
+                "kind": "suspects",
+                "quote": "",
+                "belief": "the money went to the bank",
+            }
+        ],
+    }
+    dumped = ExtractedFact.model_validate(extracted).model_dump(by_alias=True, mode="json")
+    assert dumped["knowledgeEvents"][0]["belief"] == "the money went to the bank"
