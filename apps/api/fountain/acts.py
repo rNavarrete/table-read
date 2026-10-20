@@ -28,6 +28,20 @@ def _tag_act(format_dict: dict) -> int | None:
     return _max_act(format_dict) + 1 if format_dict.get("tag") else None
 
 
+_ORDINALS = ("ONE", "TWO", "THREE", "FOUR", "FIVE", "SIX", "SEVEN", "EIGHT")
+
+
+def act_label(act: int, format_dict: dict) -> str:
+    """An act's display label, the web's `actLabel` (plan/planTree.ts): "COLD
+    OPEN" (act 0 under a cold open), "TAG" (the tag's act), else "ACT ONE"…"""
+    if format_dict.get("coldOpen") and act == 0:
+        return "COLD OPEN"
+    if act == _tag_act(format_dict):
+        return "TAG"
+    ordinal = act if format_dict.get("coldOpen") else act + 1
+    return f"ACT {_ORDINALS[ordinal - 1] if ordinal <= len(_ORDINALS) else ordinal}"
+
+
 def expand_act_starts(
     inferred: InferredActBreaks,
     *,
