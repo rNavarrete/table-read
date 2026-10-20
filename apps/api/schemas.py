@@ -243,6 +243,37 @@ class ThreadStatus(StrEnum):
     abandoned = "abandoned"
 
 
+# Shared by the Narrative Map's ThreadMovement and the thread ledger's
+# StoryThreadMovement (T10.3).
+class ThreadMovementPhase(StrEnum):
+    setup = "setup"
+    escalation = "escalation"
+    reversal = "reversal"
+    reveal = "reveal"
+    payoff = "payoff"
+    aftermath = "aftermath"
+
+
+class ThreadClosureLevel(StrEnum):
+    """T10.3 — how a paid-off thread is closed. See the Zod docstring."""
+
+    plot = "plot"
+    story = "story"
+    thematic = "thematic"
+    parametric = "parametric"
+
+
+class StoryThreadMovement(_Base):
+    """T10.3 — one scene where a thread appears and what changed for it.
+    Both the model's output row and the stored row; see the Zod docstring
+    for the server rules (drama_manager.promises)."""
+
+    scene_id: Id
+    beat_id: Id | None
+    phase: ThreadMovementPhase
+    summary: str
+
+
 class StoryThread(_Base):
     """T7.19 — a narrative setup/payoff arc, MVP-scoped to the episode it
     lives on. See packages/contract/src/index.ts's `StoryThread` docstring."""
@@ -256,13 +287,19 @@ class StoryThread(_Base):
     payoff_scene_id: Id | None = None
     setup_quote: str = ""
     payoff_quote: str = ""
-    # Server-derived on merge; the model never supplies these. See the Zod
-    # `StoryThread.setupBeatId` docstring for why a scene id is too coarse.
+    # From the model's beat citation on merge; the server derives the quote
+    # from that beat. See the Zod `StoryThread.setupBeatId` docstring for when
+    # both are kept and why a scene id is too coarse.
     setup_beat_id: Id | None = None
     payoff_beat_id: Id | None = None
     locked: bool = False
     # T10.2 — kept only when that storyline survived the import merge.
     storyline: StorylineId | None = None
+    # T10.3 — movements in scene order, closure level (null unless paid off)
+    # and the setup's second job.
+    movements: list[StoryThreadMovement] = []
+    closure_level: ThreadClosureLevel | None = None
+    second_job: str = ""
 
 
 class Provenance(StrEnum):
@@ -407,15 +444,6 @@ class SceneTurn(_Base):
     evidence_quote: str = Field(min_length=1, max_length=200)
 
 
-class ThreadMovementPhase(StrEnum):
-    setup = "setup"
-    escalation = "escalation"
-    reversal = "reversal"
-    reveal = "reveal"
-    payoff = "payoff"
-    aftermath = "aftermath"
-
-
 class ThreadMovement(_Base):
     thread_id: Id
     beat_id: Id
@@ -503,6 +531,7 @@ class StructureLens(StrEnum):
     heros_journey = "heros_journey"
     story_circle = "story_circle"
     save_the_cat = "save_the_cat"
+    turning_points = "turning_points"
 
 
 class StructureStageName(StrEnum):
@@ -541,6 +570,11 @@ class StructureStageName(StrEnum):
     break_into_three = "break_into_three"
     finale = "finale"
     final_image = "final_image"
+    tp_opportunity = "tp_opportunity"
+    tp_change_of_plans = "tp_change_of_plans"
+    tp_point_of_no_return = "tp_point_of_no_return"
+    tp_major_setback = "tp_major_setback"
+    tp_climax = "tp_climax"
 
 
 class StructureStageStatus(StrEnum):
@@ -550,6 +584,15 @@ class StructureStageStatus(StrEnum):
     unverified = "unverified"
 
 
+# Where a stage's beat sits against its lens's expected window (T10.5).
+# Server-derived, separate from status; None when not placed.
+class StructurePlacement(StrEnum):
+    in_window = "in_window"
+    early = "early"
+    late = "late"
+    out_of_order = "out_of_order"
+
+
 class StructureStage(_Base):
     stage: StructureStageName
     status: StructureStageStatus
@@ -557,6 +600,11 @@ class StructureStage(_Base):
     scene_id: Id | None
     reason: str
     evidence_quote: str | None = Field(min_length=1, max_length=200)
+    # Server-derived (T10.5), never from the model; defaulted so older checks load.
+    position_pct: float | None = Field(default=None, ge=0, le=100)
+    expected_pct: float | None = None
+    window_pct: float | None = None
+    placement: StructurePlacement | None = None
 
 
 class StructureCheck(_Base):
@@ -1263,6 +1311,10 @@ class InferredThread(_Base):
     payoff_beat_id: Id | None
     # T10.2 — the letter of the storyline this thread belongs to.
     storyline: StorylineId | None = None
+    # T10.3 — defaulted so a pre-0.56.0 response or checkpoint parses.
+    movements: list[StoryThreadMovement] = []
+    closure_level: ThreadClosureLevel | None = None
+    second_job: str = ""
 
 
 class InferredStoryline(_Base):

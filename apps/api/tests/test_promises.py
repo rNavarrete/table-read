@@ -990,3 +990,208 @@ def test_storyline_merge_logs_counts_never_text(caplog):
     )
     assert any("thread_storylines_dropped=1" in m for m in messages)
     assert not any("SECRET" in m or "Marta" in m for m in messages)
+
+
+# ── thread ledger (T10.3) ────────────────────────────────────────────────
+
+
+def _ledger_doc() -> dict:
+    """Three scenes whose array order differs from story order (act, index),
+    each with two beats."""
+    return _doc(
+        scenes=[
+            {
+                "id": f"scene-{n}",
+                "act": act,
+                "index": index,
+                "motivations": [],
+                "beats": [
+                    {"id": f"beat-{n}-1", "index": 0, "scriptText": ""},
+                    {"id": f"beat-{n}-2", "index": 1, "scriptText": ""},
+                ],
+            }
+            for n, act, index in ((1, 1, 0), (2, 2, 2), (3, 1, 1))
+        ]
+    )
+
+
+def _movement(scene_id: str, phase: str, beat_id: str | None = None, **overrides) -> dict:
+    return {
+        "sceneId": scene_id,
+        "beatId": beat_id,
+        "phase": phase,
+        "summary": f"{phase} in {scene_id}.",
+        **overrides,
+    }
+
+
+def _merged_thread(doc: dict, **thread_overrides) -> dict:
+    merge_narrative_promises(doc, "ep-1", promises(threads=[_thread(**thread_overrides)]))
+    return _episode(doc)["threads"][0]
+
+
+def test_movements_drop_scenes_not_in_the_episode():
+    thread = _merged_thread(
+        _ledger_doc(),
+        movements=[_movement("scene-nope", "escalation"), _movement("scene-3", "reversal")],
+    )
+
+    assert [(m["sceneId"], m["phase"]) for m in thread["movements"]] == [
+        ("scene-3", "reversal")
+    ]
+
+
+def test_a_movement_beat_outside_its_scene_becomes_null():
+    thread = _merged_thread(
+        _ledger_doc(),
+        movements=[
+            _movement("scene-3", "escalation", "beat-1-1"),
+            _movement("scene-2", "reveal", "beat-nope"),
+            _movement("scene-1", "setup", "beat-1-2"),
+        ],
+    )
+
+    assert {m["sceneId"]: m["beatId"] for m in thread["movements"]} == {
+        "scene-1": "beat-1-2",
+        "scene-3": None,
+        "scene-2": None,
+    }
+
+
+def test_movements_sort_by_scene_order_then_beat_index():
+    """Story order is (act, index), not the array: scene-3 plays second."""
+    thread = _merged_thread(
+        _ledger_doc(),
+        movements=[
+            _movement("scene-2", "payoff", "beat-2-1"),
+            _movement("scene-3", "reversal", "beat-3-2"),
+            _movement("scene-1", "escalation", "beat-1-2"),
+            _movement("scene-3", "escalation", "beat-3-1"),
+            _movement("scene-1", "setup", None),
+        ],
+    )
+
+    assert [(m["sceneId"], m["phase"]) for m in thread["movements"]] == [
+        ("scene-1", "setup"),
+        ("scene-1", "escalation"),
+        ("scene-3", "escalation"),
+        ("scene-3", "reversal"),
+        ("scene-2", "payoff"),
+    ]
+
+
+def test_one_movement_per_scene_and_phase_keeps_the_first():
+    thread = _merged_thread(
+        _ledger_doc(),
+        movements=[
+            _movement("scene-3", "escalation", "beat-3-2", summary="First."),
+            _movement("scene-3", "escalation", "beat-3-1", summary="Second."),
+            _movement("scene-3", "reveal", "beat-3-1", summary="Other phase."),
+        ],
+    )
+
+    assert [(m["phase"], m["summary"]) for m in thread["movements"]] == [
+        ("reveal", "Other phase."),
+        ("escalation", "First."),
+    ]
+
+
+def test_setup_and_payoff_scenes_need_not_be_movements():
+    thread = _merged_thread(
+        _ledger_doc(),
+        status="paid_off",
+        payoffSceneId="scene-2",
+        movements=[_movement("scene-3", "escalation")],
+    )
+
+    assert thread["setupSceneId"] == "scene-1" and thread["payoffSceneId"] == "scene-2"
+    assert [m["sceneId"] for m in thread["movements"]] == ["scene-3"]
+
+
+def test_closure_level_and_second_job_are_kept_on_a_paid_off_thread():
+    thread = _merged_thread(
+        _ledger_doc(),
+        status="paid_off",
+        payoffSceneId="scene-2",
+        closureLevel="thematic",
+        secondJob="Gets a laugh at Dan's expense.",
+    )
+
+    assert thread["closureLevel"] == "thematic"
+    assert thread["secondJob"] == "Gets a laugh at Dan's expense."
+
+
+def test_closure_level_is_null_unless_the_thread_is_paid_off():
+    for status in ("open", "abandoned"):
+        thread = _merged_thread(_ledger_doc(), status=status, closureLevel="plot")
+        assert thread["closureLevel"] is None, status
+
+
+def test_an_old_response_or_checkpoint_without_the_ledger_defaults():
+    """A pre-0.56.0 response or promises checkpoint has no movements,
+    closureLevel or secondJob on its threads."""
+    old = {
+        "threads": [_thread()],
+        "secrets": [],
+        "sceneMotivations": [],
+        "worldRules": [],
+    }
+    result = NarrativePromises.model_validate(old)
+    assert result.threads[0].movements == []
+    assert result.threads[0].closure_level is None
+    assert result.threads[0].second_job == ""
+
+    doc = _ledger_doc()
+    merge_narrative_promises(doc, "ep-1", result)
+    thread = _episode(doc)["threads"][0]
+    assert (thread["movements"], thread["closureLevel"], thread["secondJob"]) == (
+        [],
+        None,
+        "",
+    )
+
+
+def test_an_old_stored_thread_parses_with_ledger_defaults():
+    from schemas import StoryThread
+
+    thread = StoryThread.model_validate(
+        {
+            "id": "thread-1",
+            "label": "x",
+            "summary": "x",
+            "status": "open",
+            "setupSceneId": "scene-1",
+        }
+    )
+    assert (thread.movements, thread.closure_level, thread.second_job) == ([], None, "")
+
+
+def test_thread_ledger_merge_logs_counts_never_text(caplog):
+    with caplog.at_level(logging.INFO, logger="drama_manager.promises"):
+        merge_narrative_promises(
+            _ledger_doc(),
+            "ep-1",
+            promises(
+                threads=[
+                    _thread(
+                        status="open",
+                        closureLevel="story",
+                        secondJob="SECRET SECOND JOB",
+                        movements=[
+                            _movement("scene-nope", "escalation", summary="SECRET A"),
+                            _movement("scene-3", "reveal", "beat-1-1", summary="SECRET B"),
+                            _movement("scene-3", "reveal", summary="SECRET C"),
+                            _movement("scene-2", "payoff", summary="SECRET D"),
+                        ],
+                    )
+                ]
+            ),
+        )
+
+    messages = [r.getMessage() for r in caplog.records]
+    assert any(
+        "movements=2 movement_scenes_unknown=1 movement_beats_nulled=1 "
+        "movements_repeated=1 closure_levels_nulled=1" in m
+        for m in messages
+    )
+    assert not any("SECRET" in m for m in messages)

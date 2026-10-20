@@ -59,6 +59,9 @@ function thread(overrides: Partial<StoryThread> = {}): StoryThread {
     payoffBeatId: null,
     locked: false,
     storyline: null,
+    movements: [],
+    closureLevel: null,
+    secondJob: '',
     ...overrides,
   }
 }
@@ -171,6 +174,127 @@ describe('ThreadsPanel', () => {
     expect(screen.getByTestId('threads-group-open')).not.toBeNull()
     expect(screen.getByTestId('threads-group-paid_off')).not.toBeNull()
     expect(screen.getByTestId('threads-group-abandoned')).not.toBeNull()
+  })
+
+  it('lists a thread’s movements in order with scene number, phase and what changed (T10.3)', async () => {
+    const user = userEvent.setup()
+    const onJumpToScene = vi.fn()
+    render(
+      <ThreadsPanel
+        project={project()}
+        threads={[
+          thread({
+            movements: [
+              {
+                sceneId: 'scene-3',
+                beatId: null,
+                phase: 'setup',
+                summary: 'Marty drops it.',
+              },
+              {
+                sceneId: 'scene-11',
+                beatId: 'beat-11-1',
+                phase: 'escalation',
+                summary: '',
+              },
+            ],
+          }),
+        ]}
+        onJumpToScene={onJumpToScene}
+        onClose={vi.fn()}
+      />,
+    )
+
+    const rows = screen
+      .getByTestId('thread-movements-thread-a1')
+      .querySelectorAll('li')
+    expect([...rows].map((li) => li.textContent)).toEqual([
+      'Scene 1sets up— Marty drops it.',
+      'Scene 2escalates',
+    ])
+    await user.click(screen.getByRole('button', { name: 'Scene 2' }))
+    expect(onJumpToScene).toHaveBeenCalledWith('scene-11')
+  })
+
+  it('a paid-off thread states the gap and how it is closed (T10.3)', () => {
+    render(
+      <ThreadsPanel
+        project={project()}
+        threads={[
+          thread({
+            status: 'paid_off',
+            payoffSceneId: 'scene-11',
+            closureLevel: 'thematic',
+          }),
+          thread({
+            id: 'thread-c3',
+            status: 'paid_off',
+            payoffSceneId: 'scene-11',
+          }),
+        ]}
+        onJumpToScene={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByTestId('thread-closure-thread-a1').textContent).toBe(
+      'pays off 1 scene later · closed thematically',
+    )
+    expect(screen.getByTestId('thread-closure-thread-c3').textContent).toBe(
+      'pays off 1 scene later',
+    )
+  })
+
+  it('an open thread has no gap or closure line; the second job shows when set (T10.3)', () => {
+    render(
+      <ThreadsPanel
+        project={project()}
+        threads={[
+          thread({ secondJob: 'Gets a laugh at Biff.' }),
+          thread({ id: 'thread-d4' }),
+        ]}
+        onJumpToScene={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    )
+
+    expect(screen.queryByTestId('thread-closure-thread-a1')).toBeNull()
+    expect(screen.getByTestId('thread-second-job-thread-a1').textContent).toBe(
+      'Second job Gets a laugh at Biff.',
+    )
+    expect(screen.queryByTestId('thread-second-job-thread-d4')).toBeNull()
+    expect(screen.queryByTestId('thread-movements-thread-d4')).toBeNull()
+  })
+
+  it('the gap reads the same scene, plural and earlier, and nothing off the project (T10.3)', () => {
+    const p = project()
+    p.seasons[0].episodes[0].scenes.push({
+      id: 'scene-40',
+      index: 39,
+      beats: [],
+    } as unknown as Project['seasons'][0]['episodes'][0]['scenes'][0])
+    const paid = (id: string, setupSceneId: string, payoffSceneId: string) =>
+      thread({ id, status: 'paid_off', setupSceneId, payoffSceneId })
+    render(
+      <ThreadsPanel
+        project={p}
+        threads={[
+          paid('thread-same', 'scene-3', 'scene-3'),
+          paid('thread-back', 'scene-11', 'scene-3'),
+          paid('thread-far', 'scene-3', 'scene-40'),
+          paid('thread-gone', 'scene-3', 'scene-99'),
+        ]}
+        onJumpToScene={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    )
+
+    const line = (id: string) =>
+      screen.queryByTestId(`thread-closure-${id}`)?.textContent ?? null
+    expect(line('thread-same')).toBe('pays off in the same scene')
+    expect(line('thread-back')).toBe('pays off 1 scene earlier')
+    expect(line('thread-far')).toBe('pays off 2 scenes later')
+    expect(line('thread-gone')).toBeNull()
   })
 
   it('calls onClose when Close is clicked', async () => {

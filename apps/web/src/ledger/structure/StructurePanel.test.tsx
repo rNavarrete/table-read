@@ -205,6 +205,125 @@ describe('StructurePanel', () => {
     expect(onOpenBeat).toHaveBeenCalledOnce()
   })
 
+  it('states where each placed Turning Points stage lands, in words', async () => {
+    const user = userEvent.setup()
+    const placed = (
+      stage: string,
+      beat: number,
+      positionPct: number,
+      expectedPct: number,
+      windowPct: number,
+      placement: string,
+    ) => ({
+      stage,
+      status: 'hit',
+      beatId: `beat-${beat}-1`,
+      sceneId: `scene-${beat}`,
+      reason: `${stage} reason`,
+      evidenceQuote: null,
+      positionPct,
+      expectedPct,
+      windowPct,
+      placement,
+    })
+    const check = {
+      lens: 'turning_points',
+      applies: true,
+      rationale: 'Marta’s story.',
+      sourceHash: 'hash-old',
+      checkedAt: '2026-10-19T00:00:00Z',
+      promptVersion: '0.55.0',
+      stages: [
+        placed('tp_opportunity', 1, 3.6, 11, 7, 'early'),
+        placed('tp_change_of_plans', 3, 52.4, 32, 11, 'late'),
+        placed('tp_point_of_no_return', 2, 47.6, 51, 12, 'out_of_order'),
+        {
+          ...placed('tp_major_setback', 3, 70, 74, 8, 'in_window'),
+          status: 'unverified',
+          placement: null,
+        },
+        {
+          ...missing('tp_climax'),
+          positionPct: null,
+          expectedPct: 89,
+          windowPct: 5,
+          placement: null,
+        },
+      ],
+    } as StructureCheck
+    renderPanel({
+      project: project({ structureChecks: [check] }),
+      hashScenes: async () => 'hash-old',
+    })
+    await user.selectOptions(pick(), 'turning_points')
+
+    const line = (stage: string) =>
+      screen.queryByTestId(`structure-placement-${stage}`)?.textContent ?? null
+    expect(line('tp_opportunity')).toBe(
+      'at 4% · expected 11% ± 7 · earlier than usual',
+    )
+    expect(line('tp_change_of_plans')).toBe(
+      'at 52% · expected 32% ± 11 · later than usual',
+    )
+    expect(line('tp_point_of_no_return')).toBe(
+      'at 48% · expected 51% ± 12 · comes before the change of plans',
+    )
+    expect(line('tp_major_setback')).toBeNull()
+    expect(line('tp_climax')).toBeNull()
+    expect(screen.getByTestId('structure-panel').textContent).not.toMatch(
+      /score|grade|fail/i,
+    )
+  })
+
+  it('shows the window alone for an in-window stage', async () => {
+    const user = userEvent.setup()
+    const stage = {
+      ...missing('midpoint'),
+      status: 'thin',
+      beatId: 'beat-2-1',
+      sceneId: 'scene-2',
+      positionPct: 48.2,
+      expectedPct: 50,
+      windowPct: 8,
+      placement: 'in_window',
+    }
+    renderPanel({
+      project: project({
+        structureChecks: [
+          storyCircle({
+            lens: 'save_the_cat',
+            stages: [stage] as StructureCheck['stages'],
+          }),
+        ],
+      }),
+      hashScenes: async () => 'hash-old',
+    })
+    await user.selectOptions(pick(), 'save_the_cat')
+    expect(screen.getByTestId('structure-placement-midpoint').textContent).toBe(
+      'at 48% · expected 50% ± 8',
+    )
+  })
+
+  it('shows no placement for a check saved before windows existed', async () => {
+    const user = userEvent.setup()
+    renderPanel({
+      project: project({ structureChecks: [storyCircle()] }),
+      hashScenes: async () => 'hash-old',
+    })
+    await user.selectOptions(pick(), 'story_circle')
+    expect(screen.getAllByTestId(/^structure-row-circle_/)).toHaveLength(8)
+    expect(screen.queryAllByTestId(/^structure-placement-/)).toHaveLength(0)
+  })
+
+  it('offers a Turning Points check', async () => {
+    const user = userEvent.setup()
+    const { onCheck } = renderPanel()
+    await user.selectOptions(pick(), 'turning_points')
+    expect(screen.getByRole('heading').textContent).toBe('Turning Points')
+    await user.click(screen.getByTestId('structure-check-button'))
+    expect(onCheck).toHaveBeenCalledWith('turning_points')
+  })
+
   it('shows the doesn’t-fit note and switches to TV act structure', async () => {
     const user = userEvent.setup()
     renderPanel({

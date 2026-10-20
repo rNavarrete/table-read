@@ -333,7 +333,17 @@ reliable and cost-controlled. All input is `<source_data_{nonce}>`.
       "payoffSceneId": "or null",
       "setupBeatId": "beat id in setupSceneId, or null",
       "payoffBeatId": "beat id in payoffSceneId, or null",
-      "storyline": "A | B | C | D, or null"
+      "storyline": "A | B | C | D, or null",
+      "movements": [
+        {
+          "sceneId": "",
+          "beatId": "beat id in sceneId, or null",
+          "phase": "setup | escalation | reversal | reveal | payoff | aftermath",
+          "summary": "one line: what changed for the thread here"
+        }
+      ],
+      "closureLevel": "plot | story | thematic | parametric, or null",
+      "secondJob": "string, empty when the setup does nothing else"
     }
   ],
   "storylines": [
@@ -418,6 +428,30 @@ response or checkpoint, which parses with `storylines: []` — the episode is
 left as import built it: every scene `A`, `storylines: []`. Logs carry counts
 only (rule 5).
 
+**Thread ledger (T10.3, `PROMPT_VERSION 0.56.0`):** each thread also lists its
+`movements` — every scene where it moves, in scene order, each with the
+`sceneId`, the `beatId` of that scene where it moves (or null), the `phase`
+(setup, escalation, reversal, reveal, payoff, aftermath — the Narrative Map's
+`ThreadMovementPhase`) and a one-line `summary` of what changed. Levitz's test is
+named in plain words: each appearance must advance the thread, so a scene that
+only mentions or restates it is not a movement. A payoff in stages is several
+`payoff` movements; `payoffSceneId` stays the final one. A movement's beat says
+where it happens, not evidence, so it may repeat the setup or payoff beat. A
+paid-off thread's `closureLevel` says how it is closed — `plot` (the question is
+answered on screen), `story` (answered by consequence), `thematic` (answered by
+meaning rather than event), `parametric` (answered by form: a repeated image, a
+callback) — and is null for any other thread. `secondJob` is what the setup does
+when it is planted besides planting (a laugh, a characterization, a reveal), or
+empty. Server merge (`drama_manager.promises`): a movement whose scene is not in
+the episode is dropped; a `beatId` not in that scene becomes null; the first row
+per (scene, phase) is kept; rows sort by scene order (act, index) then beat index,
+a row with no beat first in its scene; the setup and payoff scenes need not
+appear as movements; `closureLevel` on a thread whose status is not `paid_off`
+becomes null; summaries and `secondJob` lose a dangling closing quote like other
+prose. All three fields default, so a pre-0.56.0 response or checkpoint parses
+with no movements, no closure level and no second job. Logs carry counts only
+(rule 5).
+
 ## 6. `suggest_instructions`
 
 Purpose: 3 diverse scene/beat instruction suggestions ("Inspire me" / empty-field carousels). Model: `classifier` role. Output: `{"suggestions": ["", "", ""]}`. Server deduplicates against `suggestionHistory` embeddings (cosine > 0.85 → regenerate; MVP exact-text when embeddings absent).
@@ -474,7 +508,7 @@ Server rules: for starts `s₁…sₙ`, the server derives each end as `sᵢ₊�
 
 The synchronized `infer_act_breaks` operation uses the `import_analyst` role (Opus 5.5, `medium` effort). It runs only when the script's printed act markers are absent or invalid (data contract §4 import step 2: missing, partial, conflicting, or inconsistent with `format.actCount`/`coldOpen`); a script whose markers state a valid partition gets its acts from the server with no model call. After all scenes are segmented, its input contains compact scene summaries in source order: zero-based `sceneIndex`, heading/location, and each segmented beat's `whatHappens`, `audienceLearns`, and `audienceFeels`, plus the selected format's `runtimeMinutes`, `actCount`, `coldOpen`, and `tag`. The renderer places this structured payload inside the nonce-wrapped `<source_data kind="import_scene_summaries">` boundary; imported and model-derived summary text is never interpolated outside `drama_manager/render.py`. With a format given, the prompt asks for `format: null`.
 
-**TAG (`PROMPT_VERSION 0.55.0`, T10.7):** a tag is the act after the last act (`actCount + 1` with a cold open, `actCount` without). When the format has one, the prompt names that act number and says to start it only at the last scene or scenes that follow the final act's climax as a short coda, and to omit it when the script has none; when it has none, the prompt says never to start one (it used to say "Do not infer a TAG; tag assignment is outside this operation"). The format-less prompt says the same in terms of the `tag` it returns. A printed `TAG` opens the tag with no model call when the markers state the partition (data contract §4 import step 2).
+**TAG (`PROMPT_VERSION 0.57.0`, T10.7):** a tag is the act after the last act (`actCount + 1` with a cold open, `actCount` without). When the format has one, the prompt names that act number and says to start it only at the last scene or scenes that follow the final act's climax as a short coda, and to omit it when the script has none; when it has none, the prompt says never to start one (it used to say "Do not infer a TAG; tag assignment is outside this operation"). The format-less prompt says the same in terms of the `tag` it returns. A printed `TAG` opens the tag with no model call when the markers state the partition (data contract §4 import step 2).
 
 **FORMAT (import with no format, `PROMPT_VERSION 0.50.0`; owner decision 2026-10-11):** the import wizard no longer asks for a format, so `infer_act_breaks` also returns one. It always runs on this path, even when the script prints its acts. The payload adds `sceneCount`, `sourceCharacters`, and `printedStructure` (`{actCount, coldOpen, tag}` read by the server from the script's markers, or null when it prints no act marker at all). The server reads it from the whole script, front matter included, since a leading `TEASER` or `ACT ONE` often sits above `FADE IN:` (`fountain/acts.printed_structure`): the act count is the highest act printed (`END OF ACT n` names act n; mixed-case lines are not markers), there is a cold open when a `TEASER`/`COLD OPEN` is printed or a scene heading precedes the first `ACT ONE`, and a tag when a `TAG` is printed. The count, cold open and tag stand even when the markers state no full partition (a heading stripped with the front matter or damaged by OCR, or only `END OF ACT` lines). The prompt asks for `format` — genre (drama, comedy, dramedy); `runtimeMinutes` as the screen time the script plays at (about a minute per page of 1,500–2,000 characters; network half-hour about 22–30, hour about 42–60, feature usually 90–150); `actCount` 1–6; `coldOpen`; `tag`; and `serialization` (0 self-contained, 1 heavily serialized; a standalone feature is 0) — then the act starts for that structure. A printed structure is stated as fixed ("use actCount N, coldOpen B and tag T exactly"), and the server overrides the returned `actCount`/`coldOpen`/`tag` with it regardless; it takes the acts from the markers when they state a full partition, and otherwise expands the model's starts against the overridden format. With no act marker, the prompt says the script prints no act breaks and notes a feature film usually has three acts and no cold open. Until this stage decides it, the shared system prompt's SHOW FORMAT block reads "Format: not yet known; it is read from the script during import" in place of the genre/runtime/acts lines.
 
@@ -595,11 +629,12 @@ a source-scene jump.
 ### 5e. Structure check (structure checklist, spec 2026-10-11)
 
 The writer checks the script against one structure at a time from the Ledger
-Structure tab: `heros_journey`, `story_circle` or `save_the_cat`
-(`StructureLens`). TV act structure needs no model call; the web reads it from
-the import's beat sheet. One click runs one structure: one check call, then one
-verify call. Ships with `PROMPT_VERSION 0.51.0`; sign-off is a hand check on
-real scripts, not `make evals` (owner decision 2026-10-11).
+Structure tab: `heros_journey`, `story_circle`, `save_the_cat` or
+`turning_points` (`StructureLens`). TV act structure needs no model call; the
+web reads it from the import's beat sheet. One click runs one structure: one
+check call, then one verify call. Ships with `PROMPT_VERSION 0.51.0` (Turning
+Points: `0.55.0`, T10.5); sign-off is a hand check on real scripts, not
+`make evals` (owner decision 2026-10-11).
 
 **Check:** `check_structure` uses `import_analyst` (`claude-opus-5-5`), adaptive
 thinking at medium effort, one strict tool, not streamed. It reads the import's
@@ -609,7 +644,12 @@ existing breakdown, never the raw script, in these `<source_data>` blocks:
 - `story_overview`: `{logline, summary, beatSheet[{beatId, label, sceneId, act}]}`
 - `story_threads`: `[{id, label, summary, status, setupBeatId, payoffBeatId}]`
 - `scene_spine`: `[{sceneId, act, heading, whatHappens, audienceLearns, beats[{beatId, whatHappens}]}]`
-- `required_stages`: `[{stage, label}]`, the lens's stages in canonical order
+- `required_stages`: `[{stage, label, definition?}]`, the lens's stages in canonical
+  order; `definition` only on the Turning Points stages (TRIPOD's: opportunity, the
+  introductory event once setting and protagonist are in place; change of plans,
+  the main goal is defined and the action builds; point of no return, the
+  protagonist commits fully to the goal; major setback, everything falls apart;
+  climax, the main story's final event and resolution)
 - on retry only, `structure_check_repairs`: the failed checks as `{code, ...ids}`.
 
 It returns `InferredStructureCheck`: `applies`, a one-sentence `rationale`, and
@@ -620,7 +660,11 @@ fit (e.g. an ensemble with no single protagonist for the Hero's Journey),
 are kept; verification is skipped. **Save the Cat** gets one extra sentence: it
 is a feature-film template, a TV episode may compress or skip beats, and the
 model may say it doesn't fit. The import's ban on Save the Cat labels in the
-beat sheet (§5c) is unchanged.
+beat sheet (§5c) is unchanged. **Turning Points** gets one extra sentence: the
+turning points mark one protagonist's main story, each stage is judged against
+its definition, and an episode with no single protagonist arc (an ensemble, or
+several stories of equal weight) gets `applies: false`. The model is never told
+the expected positions: it finds the beats, the server places them.
 
 **Validation and retry:** the server checks every stage of the lens appears
 exactly once and belongs to that lens, and that hit/thin cite an existing beat;
@@ -631,12 +675,14 @@ failure is retried once inside the LLM client, as for every op. A failure of
 these checks gets one retry with the diagnostics in `structure_check_repairs`,
 then `SCHEMA_INVALID_LLM` (rule 9). The server, not the model, fills `sceneId`
 from the cited beat and `evidenceQuote` from that beat's own `scriptText`
-(null when the beat has none).
+(null when the beat has none). After verification it also derives each stage's
+`positionPct`, `expectedPct`, `windowPct` and `placement` (T10.5; rules and
+windows in data contract §1 `StructureStage`); none of these reach the model.
 
 **Verify:** `verify_structure_check` uses the independent `writer` role
 (`claude-sonnet-5-5`), adaptive thinking at low effort. It receives one
-`claims` block, `[{stage, label, status, claim, beatId, excerpt}]`, for the hit
-and thin stages only. Each `excerpt` is the cited beat's `scriptText`, or its
+`claims` block, `[{stage, label, definition?, status, claim, beatId, excerpt}]`
+(`definition` as in `required_stages`), for the hit and thin stages only. Each `excerpt` is the cited beat's `scriptText`, or its
 `whatHappens` when the beat has no script yet (the check reads `whatHappens`,
 so a plan-only beat is a fair citation), capped at 2,000 characters so the
 verifier sees the whole beat (520, the Narrative Map verifier's cap, cut off

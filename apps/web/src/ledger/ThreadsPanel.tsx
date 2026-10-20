@@ -1,6 +1,7 @@
 import type { Project, StoryThread } from 'contract'
 import { Card } from '../plan/Card'
 import { Chip, type ChipHue } from '../plan/Chip'
+import { PHASE_WORD } from '../plan/story'
 import { findScene, sceneNumber } from '../write/projectTree'
 
 export interface ThreadsPanelProps {
@@ -24,6 +25,55 @@ const STATUS_HUES: Record<ThreadStatus, ChipHue> = {
   open: 'amber',
   paid_off: 'sage',
   abandoned: 'neutral',
+}
+
+const CLOSURE_WORDS: Record<
+  NonNullable<StoryThread['closureLevel']>,
+  string
+> = {
+  plot: 'closed on screen',
+  story: 'closed by consequence',
+  thematic: 'closed thematically',
+  parametric: 'closed by form',
+}
+
+/** T10.3: how far the payoff lands from the setup in story order — "pays off
+ * 12 scenes later" — or null when either scene is not in the project. */
+function payoffGap(project: Project, thread: StoryThread): string | null {
+  const setup = sceneNumber(project, thread.setupSceneId)
+  const payoff = thread.payoffSceneId
+    ? sceneNumber(project, thread.payoffSceneId)
+    : null
+  if (setup === null || payoff === null) return null
+  const gap = payoff - setup
+  if (gap === 0) return 'pays off in the same scene'
+  const n = Math.abs(gap)
+  return `pays off ${n} scene${n === 1 ? '' : 's'} ${gap > 0 ? 'later' : 'earlier'}`
+}
+
+/** T10.3: a paid-off thread's gap and how it is closed ("pays off 12 scenes
+ * later · closed thematically"); nothing for any other thread. */
+function ClosureLine({
+  project,
+  thread,
+}: {
+  project: Project
+  thread: StoryThread
+}) {
+  if (thread.status !== 'paid_off') return null
+  const parts = [
+    payoffGap(project, thread),
+    thread.closureLevel && CLOSURE_WORDS[thread.closureLevel],
+  ].filter(Boolean)
+  if (parts.length === 0) return null
+  return (
+    <p
+      className="text-12 text-tr-text-secondary"
+      data-testid={`thread-closure-${thread.id}`}
+    >
+      {parts.join(' · ')}
+    </p>
+  )
 }
 
 /** "THE GARAGE" if the scene has a location, else "Scene {n}" (1-based
@@ -188,7 +238,53 @@ export function ThreadsPanel({
                               </span>
                             )}
                           </div>
+                          <ClosureLine project={project} thread={thread} />
                         </div>
+                        {thread.secondJob && (
+                          <p
+                            className="text-13 text-tr-text-secondary"
+                            data-testid={`thread-second-job-${thread.id}`}
+                          >
+                            <span className="text-12 text-tr-text-muted">
+                              Second job
+                            </span>{' '}
+                            {thread.secondJob}
+                          </p>
+                        )}
+                        {(thread.movements ?? []).length > 0 && (
+                          <div className="flex flex-col gap-1">
+                            <span className="text-12 text-tr-text-muted">
+                              Moves
+                            </span>
+                            <ol
+                              className="flex flex-col gap-1"
+                              data-testid={`thread-movements-${thread.id}`}
+                            >
+                              {thread.movements.map((movement, i) => (
+                                <li
+                                  key={`${movement.sceneId}:${movement.phase}:${i}`}
+                                  className="flex flex-wrap items-baseline gap-1.5 text-13 text-tr-text-secondary"
+                                >
+                                  <button
+                                    type="button"
+                                    className="text-13 text-tr-sky underline-offset-2 hover:underline"
+                                    onClick={() =>
+                                      onJumpToScene(movement.sceneId)
+                                    }
+                                  >
+                                    {`Scene ${sceneNumber(project, movement.sceneId) ?? '?'}`}
+                                  </button>
+                                  <span className="text-tr-text-primary">
+                                    {PHASE_WORD[movement.phase]}
+                                  </span>
+                                  {movement.summary && (
+                                    <span>— {movement.summary}</span>
+                                  )}
+                                </li>
+                              ))}
+                            </ol>
+                          </div>
+                        )}
                       </li>
                     ))}
                   </ul>

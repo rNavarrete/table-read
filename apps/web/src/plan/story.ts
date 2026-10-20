@@ -9,6 +9,7 @@ import type {
   Secret,
   StoryOverviewBeatItem,
   StoryThread,
+  ThreadMovementPhase,
 } from 'contract'
 import { tvActStages } from '../ledger/structure/tvActStructure'
 import { plural } from '../projects/wizard/board/boardText'
@@ -350,12 +351,28 @@ export function castFromDialogue(
 
 // ── What it touches ─────────────────────────────────────────────────────
 
+/** T10.3: a thread movement's phase as a verb ("Scene 4 · escalates"). */
+export const PHASE_WORD: Record<ThreadMovementPhase, string> = {
+  setup: 'sets up',
+  escalation: 'escalates',
+  reversal: 'reverses',
+  reveal: 'reveals',
+  payoff: 'pays off',
+  aftermath: 'aftermath',
+}
+
 export interface SceneThread {
   thread: StoryThread
-  role: 'sets_up' | 'pays_off'
-  /** sets_up → the payoff scene, pays_off → the setup scene; null when there
-   * is none or it is not a scene in this episode ("Never paid off"). */
+  /** `moves`: the thread has a movement here (T10.3) but is neither set up
+   * nor paid off in this scene. */
+  role: 'sets_up' | 'pays_off' | 'moves'
+  /** sets_up → the payoff scene, pays_off and moves → the setup scene; null
+   * when there is none or it is not a scene in this episode ("Never paid
+   * off"). */
   otherSceneId: string | null
+  /** T10.3: the phases of this scene's movements for the thread, in stored
+   * order; [] when it has none here. */
+  phases: ThreadMovementPhase[]
 }
 
 export function threadsForScene(
@@ -366,17 +383,31 @@ export function threadsForScene(
     id && episode.scenes.some((s) => s.id === id) ? id : null
   const out: SceneThread[] = []
   for (const thread of episode.threads ?? []) {
-    if (thread.setupSceneId === sceneId)
+    const phases = (thread.movements ?? [])
+      .filter((m) => m.sceneId === sceneId)
+      .map((m) => m.phase)
+    const setsUp = thread.setupSceneId === sceneId
+    const paysOff = thread.payoffSceneId === sceneId
+    if (setsUp)
       out.push({
         thread,
         role: 'sets_up',
         otherSceneId: known(thread.payoffSceneId ?? null),
+        phases,
       })
-    if (thread.payoffSceneId === sceneId)
+    if (paysOff)
       out.push({
         thread,
         role: 'pays_off',
         otherSceneId: known(thread.setupSceneId),
+        phases,
+      })
+    if (!setsUp && !paysOff && phases.length > 0)
+      out.push({
+        thread,
+        role: 'moves',
+        otherSceneId: known(thread.setupSceneId),
+        phases,
       })
   }
   return out

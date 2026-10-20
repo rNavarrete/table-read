@@ -1657,6 +1657,78 @@ def test_import_tags_scenes_and_threads_with_inferred_storylines(db_session, moc
     assert episode["threads"][0]["storyline"] == "B"
 
 
+def test_import_stores_thread_movements_closure_and_second_job(db_session, mock_llm):
+    """T10.3: the promises call's thread ledger lands on the stored thread —
+    movements filtered and in scene order, the closure level of a paid-off
+    thread, and the setup's second job."""
+    created = client.post(
+        "/api/v1/projects",
+        json=NEW_PROJECT_BODY,
+        headers={"Idempotency-Key": "00000000-0000-4000-8000-0000000000a3"},
+    ).json()
+    pid = created["id"]
+
+    src = (
+        "INT. LAB - NIGHT\n\nMARTY\nDoc, are you there?\n\n"
+        "EXT. CLOCK TOWER - NIGHT\n\nDOC\nGreat Scott!\n"
+    )
+    mock_llm.set_responses("segment_scene", one_beat_per_scene(src))
+    mock_llm.set_response(
+        "infer_narrative_promises",
+        promises(
+            threads=[
+                {
+                    "label": "The lightning strike",
+                    "summary": "Doc has to catch the bolt.",
+                    "status": "paid_off",
+                    "ownerNames": ["Doc"],
+                    "setupSceneId": "scene-1",
+                    "payoffSceneId": "scene-2",
+                    "setupBeatId": None,
+                    "payoffBeatId": None,
+                    "movements": [
+                        {
+                            "sceneId": "scene-2",
+                            "beatId": "beat-2-1",
+                            "phase": "payoff",
+                            "summary": "The bolt hits.",
+                        },
+                        {
+                            "sceneId": "scene-9",
+                            "beatId": None,
+                            "phase": "escalation",
+                            "summary": "Nowhere.",
+                        },
+                        {
+                            "sceneId": "scene-1",
+                            "beatId": "beat-2-1",
+                            "phase": "setup",
+                            "summary": "Marty calls for Doc.",
+                        },
+                    ],
+                    "closureLevel": "plot",
+                    "secondJob": "Tells us Marty is alone.",
+                }
+            ],
+        ),
+    )
+    mock_llm.set_response("extract_ledger_facts", extraction())
+    mock_llm.set_response("scan_consistency", scan())
+
+    client.post(f"/api/v1/projects/{pid}/import", json={"format": "fountain", "content": src})
+
+    stored = client.get(f"/api/v1/projects/{pid}").json()
+    thread = stored["seasons"][0]["episodes"][0]["threads"][0]
+    assert [
+        (m["sceneId"], m["beatId"], m["phase"], m["summary"]) for m in thread["movements"]
+    ] == [
+        ("scene-1", None, "setup", "Marty calls for Doc."),
+        ("scene-2", "beat-2-1", "payoff", "The bolt hits."),
+    ]
+    assert thread["closureLevel"] == "plot"
+    assert thread["secondJob"] == "Tells us Marty is alone."
+
+
 def test_import_drops_unresolvable_thread_owner_and_keeps_resolved(db_session, mock_llm):
     """Design doc: unresolvable owners/motivations are dropped (never mint a
     stand-in character), unlike `knownBy` normalization."""
