@@ -259,7 +259,9 @@ export type StoryThread = z.infer<typeof StoryThread>
 // `factId` links to the LedgerFact being concealed when there is one, so the
 // secret does not become a second, drifting copy of the truth. It is nullable
 // because a secret can be established before the fact is nailed down (a
-// character conceals something the ledger hasn't pinned yet).
+// character conceals something the ledger hasn't pinned yet). Import links
+// it by beat (T10.4): the one fact on the secret's establishing beat known
+// to its holders and not to those it is hidden from.
 //
 // `revealedSceneId: null` means still concealed at end of episode — the
 // direct analogue of an open thread, and the thing a writer most wants

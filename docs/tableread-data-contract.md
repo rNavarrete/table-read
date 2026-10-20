@@ -363,7 +363,10 @@ export const StoryThread = z.object({
 // no room for — who holds it and who is kept in the dark. A fact everyone
 // knows is not a secret, and `knownBy` alone cannot say whether the gap is
 // deliberate. `factId` links the concealed LedgerFact when one exists, so the
-// secret never becomes a second, drifting copy of the truth.
+// secret never becomes a second, drifting copy of the truth. Import links it
+// by beat (T10.4): the one fact on the secret's establishing beat (its scene
+// when the beat is null) known to every holder and to no one it is hidden
+// from; none or several, or a fact two secrets would claim, leave it null.
 // `revealedSceneId: null` = still concealed at end of episode.
 export const Secret = z.object({
   id: Id,
