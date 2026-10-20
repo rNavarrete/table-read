@@ -242,8 +242,11 @@ export function PlanScreen() {
   // MVP: exactly one season, one episode (data contract §1).
   const episode = project?.seasons[0]?.episodes[0]
   const model = useMemo(
-    () => (project && episode ? boardModel(project, episode, openFlags) : null),
-    [project, episode, openFlags],
+    () =>
+      project && episode
+        ? boardModel(project, episode, openFlags, ledger)
+        : null,
+    [project, episode, openFlags, ledger],
   )
   // Keys and their handlers act only while the board is on screen (not on
   // Loading, an error or guided setup).

@@ -17,9 +17,12 @@ import {
   knowledgeModes,
   landmarksForScene,
   notesForScene,
+  sceneClashes,
+  sceneTurn,
   secretsForScene,
   threadsForScene,
 } from '../story'
+import { AtAGlance } from './AtAGlance'
 import { BeatLadder } from './BeatLadder'
 import { DetailsSection } from './DetailsSection'
 import { PanelHeader, type JumpTarget } from './PanelHeader'
@@ -326,6 +329,13 @@ export function ScenePanel({
           </p>
         )}
         {notes?.(showBeat)}
+        <AtAGlance
+          turn={sceneTurn(scene)}
+          whyNow={scene.whyNow ?? ''}
+          clashes={sceneClashes(scene, characters)}
+          modes={modes}
+          characters={characters}
+        />
         <PanelSection
           id="scene"
           title="What the scene does"

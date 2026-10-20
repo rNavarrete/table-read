@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen, within } from '@testing-library/react'
+import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Scene, StoryOverviewBeatItem } from 'contract'
@@ -207,85 +207,21 @@ describe('WhatTheSceneDoes', () => {
     expect(onSuggest).toHaveBeenCalledTimes(1)
   })
 
-  describe('the turn (T10.1)', () => {
-    function turnRow() {
-      const term = screen.getByText('The turn')
-      return term.nextElementSibling as HTMLElement
-    }
-
-    it('states the value and its charges, spoken as words', () => {
-      render(
-        <WhatTheSceneDoes
-          {...props({
-            scene: scene({
-              valueAtStake: 'trust',
-              chargeIn: 'negative',
-              chargeOut: 'positive',
-            }),
-          })}
-        />,
-        { wrapper: WithDrafts },
-      )
-      const row = turnRow()
-      expect(row.textContent).toContain('Trust: ')
-      expect(within(row).getByText('− → +').getAttribute('aria-hidden')).toBe(
-        'true',
-      )
-      expect(within(row).getByText('negative to positive').className).toContain(
-        'sr-only',
-      )
-    })
-
-    it('reads "holds at" when the charge does not change', () => {
-      render(
-        <WhatTheSceneDoes
-          {...props({
-            scene: scene({
-              valueAtStake: 'trust',
-              chargeIn: 'mixed',
-              chargeOut: 'mixed',
-            }),
-          })}
-        />,
-        { wrapper: WithDrafts },
-      )
-      const row = turnRow()
-      expect(within(row).getByText('holds at ±')).not.toBeNull()
-      expect(within(row).getByText('holds at mixed')).not.toBeNull()
-    })
-
-    it('shows a partial reading as returned', () => {
-      render(
-        <WhatTheSceneDoes
-          {...props({ scene: scene({ chargeOut: 'negative' }) })}
-        />,
-        { wrapper: WithDrafts },
-      )
-      expect(turnRow().textContent).toBe('closes −closes negative')
-    })
-
-    it('shows Why now under the turn', () => {
-      render(
-        <WhatTheSceneDoes
-          {...props({
-            scene: scene({
-              valueAtStake: 'trust',
-              whyNow: 'The audit lands tomorrow.',
-            }),
-          })}
-        />,
-        { wrapper: WithDrafts },
-      )
-      expect(turnRow().textContent).toBe('Trust')
-      expect(screen.getByText('Why now').nextElementSibling?.textContent).toBe(
-        'The audit lands tomorrow.',
-      )
-    })
-
-    it('neither row shows on a scene with no turn reading', () => {
-      render(<WhatTheSceneDoes {...props()} />, { wrapper: WithDrafts })
-      expect(screen.queryByText('The turn')).toBeNull()
-      expect(screen.queryByText('Why now')).toBeNull()
-    })
+  it('leaves the turn and Why now to the panel header (T10.12)', () => {
+    render(
+      <WhatTheSceneDoes
+        {...props({
+          scene: scene({
+            valueAtStake: 'trust',
+            chargeIn: 'negative',
+            chargeOut: 'positive',
+            whyNow: 'The audit lands tomorrow.',
+          }),
+        })}
+      />,
+      { wrapper: WithDrafts },
+    )
+    expect(screen.queryByText('The turn')).toBeNull()
+    expect(screen.queryByText('Why now')).toBeNull()
   })
 })
