@@ -319,6 +319,17 @@ _Accept:_ schema homes agree, `check_contract` passes, defaults load; pytest: na
 **T10.7 Tag (`infer_act_breaks`).** A tag is the act after the last act (`actCount + 1` with a cold open, `actCount` without) when `format.tag`; printed TAG markers and model starts may open it, never when the format has no tag; every act label, the Act selector, act frames, the chart and Write's outline read TAG; the act-inference spec's §9 tag non-goal is lifted.
 _Accept:_ schema homes agree, `check_contract` passes; pytest: printed TAG, model tag start accepted only with `format.tag`, invalid start repaired not fabricated, other act rules unchanged; Vitest for `actLabel`, the selector and a board frame; substitute sign-off asked.
 
+**P2 (T10.8–T10.10).** Design: `docs/superpowers/specs/2026-10-19-breakdown-ledgers-p2-design.md` (owner directive "lets start on the P2 items", 2026-10-19). The research's per-show threshold calibration and published agreement metrics are not in P2 (reasons in the design). T10.8 and T10.9 change one LLM operation each and ask for the substitute sign-off; T10.10 changes no prompt.
+
+**T10.8 Exposition audit (`extract_ledger_facts`).** Facts gain `delivery` (stated / shown / implied) and `neededBySceneId` (validated against the episode); Plan's fact rows and Ledger's fact card show mode, speaker, delivery, the delivery-to-need gap and two observations ("As you know", told to someone who already knew), all derived client-side; Ledger gets an Exposition lens if the filter rail's lens model fits.
+_Accept:_ schema homes agree and `check_contract` passes; old docs/responses default; pytest: unknown `neededBySceneId` nulled, count-only logs; mock returns both fields; Vitest: mode and speaker from the source lines, each gap phrasing, both flags (present and absent); substitute sign-off asked.
+
+**T10.9 Kernels and choices (`segment_scene`).** Beats gain `kernel` and `pressureChoice` (null = not read), returned by the segmenter with the whole episode in view and carried through normalization and checkpoints; Plan's beat ladder tags and explains them.
+_Accept:_ schema homes agree and `check_contract` passes; old docs/checkpoints/responses load null; pytest: carriage incl. synthetic/absorbed beats, checkpoint round-trip; mock returns both; Vitest: tags and sentences, nothing for null/false; substitute sign-off asked.
+
+**T10.10 Breakdown export.** `GET /projects/{pid}/export.breakdown.csv`: one row per scene in board order with Story Grid's columns plus the ledgers' (turn, why now, story time, kernels, choices, wants, threads, secrets, facts, characters); Export becomes a menu with Fountain and the spreadsheet.
+_Accept:_ pytest on header, order, act labels (TAG, COLD OPEN), CSV quoting, empty cells, no-episode and unknown-project cases; works with or without T10.8/T10.9 fields; Vitest for the menu; no prompt or schema change beyond the endpoint's documentation.
+
 ## Sequencing & parallelism
 
 ```
