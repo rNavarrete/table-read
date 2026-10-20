@@ -817,3 +817,36 @@ def test_t10_6_merge_logs_counts_only(caplog):
     assert "stops_dropped=1 story_order_kept=3 story_order_nulled=0 anachronies=1" in text
     for writer_text in ("Nora", "Zed", "clings", "letter", "Day 1", "holding on"):
         assert writer_text not in text
+
+
+def test_overview_prompt_asks_for_about_arcs_and_story_time():
+    from drama_manager.render import PROMPT_VERSION, build_overview_prompt, new_nonce
+
+    _system, user = build_overview_prompt(
+        {"format": {"actCount": 4, "coldOpen": False, "tag": False}},
+        [],
+        [],
+        new_nonce(),
+        known_cast=["Nora"],
+    )
+    for field in (
+        "dramaticQuestion",
+        "centralArgument",
+        "antiTheme",
+        "characterArcs",
+        "up to three principals",
+        "want",
+        "need",
+        "lie",
+        "ghost",
+        "continuumAxis",
+        "headAt",
+        "storyOrder",
+        "storyTime",
+        "anachrony",
+        "flashback",
+        "flashforward",
+    ):
+        assert field in user, field
+    assert '"love requires surrender", not "love"' in user
+    assert PROMPT_VERSION == "0.55.0"

@@ -27,7 +27,12 @@ from typing import Any
 from drama_manager.structure_stages import STRUCTURE_NAMES, STRUCTURE_STAGES
 
 # Prompt spec §8 / hard rule 7: every template carries a PROMPT_VERSION (semver);
-# it is logged with each call and bumped on any template change. 0.54.0
+# it is logged with each call and bumped on any template change. 0.55.0
+# (T10.6) asks infer_story_overview what the episode is about (dramatic
+# question, central argument, anti-theme), up to three principals' arcs (want,
+# need, lie, ghost, a continuum and where each one's head is at per scene) and
+# each outline row's story time (story-order rank, a short label, flashback or
+# flashforward). 0.54.0
 # (T10.1) rewrites the §0 structural definitions from the craft breakdown
 # traditions — a scene turns on a value whose charge (positive, negative,
 # mixed) differs as it opens and closes; a beat is one exchange of action and
@@ -158,7 +163,7 @@ from drama_manager.structure_stages import STRUCTURE_NAMES, STRUCTURE_STAGES
 # 0.10.0 typed segment starts; 0.9.0 lock-aware narrative repair. Earlier:
 # 0.8.0 suggest; 0.7.0 scene skeleton; 0.6.0 continuity; 0.5.0 regenerate;
 # 0.4.0 blast; 0.3.0 tune; 0.2.0 candidate + §0 system prompt.
-PROMPT_VERSION = "0.54.0"
+PROMPT_VERSION = "0.55.0"
 
 
 def new_nonce() -> str:
@@ -577,7 +582,10 @@ def build_overview_prompt(
     excerpt) and beat inventory from the imported partition, plus show
     format and known cast names. Craft: concrete logline; scene-action
     outline (not slugline paraphrase); TV act-structure beat sheet of
-    turns; two specific synopsis paragraphs with names and stakes."""
+    turns; two specific synopsis paragraphs with names and stakes. T10.6
+    adds the About (dramatic question, central argument, anti-theme), up to
+    three lead arcs with per-scene head-at stops, and each outline row's
+    story time."""
     fmt = project.get("format") or {}
     format_block = {
         "genre": fmt.get("genre"),
@@ -625,7 +633,14 @@ def build_overview_prompt(
         "- outline: one short summary per scene_spine sceneId, in source "
         "order. Each summary is the story action of that scene "
         "(who does what / what changes) — not a paraphrase of location or "
-        "slugline. Do not invent scene ids.\n"
+        "slugline. Do not invent scene ids. Each row also places the scene in "
+        "story time: storyOrder is its rank when every outline row is sorted "
+        "by when it happens in the story (0 = earliest, each rank used once; "
+        "an episode told in order ranks its rows in source order); storyTime "
+        'is a short label from the page ("Day 1, night", "Eight years '
+        'earlier"), "" when the script gives no cue; anachrony is flashback '
+        "when the scene jumps back before the story's present, flashforward "
+        "when it jumps ahead of it, else none.\n"
         "- beatSheet: major TV teleplay turns for THIS format — TV act "
         "grammar ONLY. Allowed label examples (use only what the format "
         "supports): Cold Open or Teaser (when coldOpen); Act One Turn, "
@@ -652,7 +667,21 @@ def build_overview_prompt(
         "present tense; paragraph 1 = setup/world/inciting with names and "
         "concrete incidents; paragraph 2 = escalation/climax/resolution "
         "with the same specificity. Spoil the ending when the script has "
-        "one. No scene-by-scene laundry list and no vague crisis filler."
+        "one. No scene-by-scene laundry list and no vague crisis filler.\n"
+        "- dramaticQuestion: the yes/no question the episode's climax "
+        "answers, naming who it is about.\n"
+        "- centralArgument: the episode's claim about life as an arguable "
+        'statement, not a topic ("love requires surrender", not "love").\n'
+        "- antiTheme: the opposing claim the lead starts out embodying.\n"
+        "- characterArcs: up to three principals whose arc the episode "
+        "turns on, named from known_cast; fewer when fewer change. For each: "
+        "want (their conscious goal this episode), need (what they must "
+        "learn or become), lie (the false belief they hold), ghost (the past "
+        "wound behind it), continuumAxis (the line the episode moves them "
+        'along, as two poles: "trusting ↔ suspicious"), and stops — for each '
+        "scene_spine sceneId where they appear and their position matters, "
+        "headAt: one line on where their head is at on that continuum in that "
+        "scene. Leave a field \"\" rather than guess beyond the page."
     )
     return build_system_prompt(project, nonce), user
 
