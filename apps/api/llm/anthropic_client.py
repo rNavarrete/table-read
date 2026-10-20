@@ -62,6 +62,7 @@ from schemas import (
     NarrativeMapVerification,
     NarrativePromises,
     RegeneratedElements,
+    SceneMotivations,
     SegmentedScene,
     StoryEntities,
     StructureCheckVerification,
@@ -1016,6 +1017,16 @@ class AnthropicClient:
     ) -> NarrativePromises:
         return self._call(
             "infer_narrative_promises",
+            system=system,
+            user_message=user_message,
+            prompt_version=prompt_version,
+        )
+
+    def infer_scene_motivations(
+        self, *, system: str, user_message: str, prompt_version: str
+    ) -> SceneMotivations:
+        return self._call(
+            "infer_scene_motivations",
             system=system,
             user_message=user_message,
             prompt_version=prompt_version,

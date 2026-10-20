@@ -9,8 +9,8 @@ from __future__ import annotations
 import copy
 import logging
 
-from drama_manager.promises import merge_narrative_promises
-from schemas import NarrativePromises
+from drama_manager.promises import merge_narrative_promises, merge_scene_motivations
+from schemas import NarrativePromises, SceneMotivations
 
 
 def _character(cid: str, name: str, *, locked: bool = False, aliases=None) -> dict:
@@ -54,7 +54,6 @@ def _doc(*, characters=None, world_rules=None, scenes=None, threads=None) -> dic
 
 def promises(
     threads: list[dict] | None = None,
-    scene_motivations: list[dict] | None = None,
     world_rules: list[dict] | None = None,
     secrets: list[dict] | None = None,
     storylines: list[dict] | None = None,
@@ -63,11 +62,14 @@ def promises(
         {
             "threads": threads or [],
             "secrets": secrets or [],
-            "sceneMotivations": scene_motivations or [],
             "worldRules": world_rules or [],
             "storylines": storylines or [],
         }
     )
+
+
+def motivations(scene_motivations: list[dict]) -> SceneMotivations:
+    return SceneMotivations.model_validate({"sceneMotivations": scene_motivations})
 
 
 def _thread(**overrides) -> dict:
@@ -164,11 +166,11 @@ def test_merge_replaces_episodes_prior_import_threads():
 def test_merge_patches_scene_motivations_when_character_resolves():
     doc = _doc(characters=[_character("char-marta", "Marta Vega")])
 
-    result = merge_narrative_promises(
+    result = merge_scene_motivations(
         doc,
         "ep-1",
-        promises(
-            scene_motivations=[
+        motivations(
+            [
                 {
                     "sceneId": "scene-1",
                     "motivations": [
@@ -210,11 +212,11 @@ def test_merge_keeps_prior_motivations_when_none_resolve():
     ]
     doc = _doc(scenes=[{"id": "scene-1", "motivations": prior}])
 
-    result = merge_narrative_promises(
+    result = merge_scene_motivations(
         doc,
         "ep-1",
-        promises(
-            scene_motivations=[
+        motivations(
+            [
                 {
                     "sceneId": "scene-1",
                     "motivations": [
@@ -239,11 +241,11 @@ def test_merge_keeps_prior_motivations_when_none_resolve():
 def test_merge_ignores_motivations_for_unknown_scene():
     doc = _doc(characters=[_character("char-marta", "Marta Vega")])
 
-    result = merge_narrative_promises(
+    result = merge_scene_motivations(
         doc,
         "ep-1",
-        promises(
-            scene_motivations=[
+        motivations(
+            [
                 {
                     "sceneId": "scene-nope",
                     "motivations": [
@@ -450,11 +452,11 @@ def test_merge_skips_a_secret_established_in_an_unknown_scene():
 
 def test_merge_records_an_ulterior_motive_as_a_stated_actual_gap():
     doc = _doc(characters=_CAST)
-    result = merge_narrative_promises(
+    result = merge_scene_motivations(
         doc,
         "ep-1",
-        promises(
-            scene_motivations=[
+        motivations(
+            [
                 {
                     "sceneId": "scene-1",
                     "motivations": [
@@ -484,11 +486,11 @@ def test_merge_normalizes_a_stated_objective_that_matches_the_real_one():
     would stop meaning anything.
     """
     doc = _doc(characters=_CAST)
-    result = merge_narrative_promises(
+    result = merge_scene_motivations(
         doc,
         "ep-1",
-        promises(
-            scene_motivations=[
+        motivations(
+            [
                 {
                     "sceneId": "scene-1",
                     "motivations": [

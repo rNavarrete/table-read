@@ -12,6 +12,7 @@ EXPECTED_OPS = {
     "infer_act_breaks": "import_analyst",  # import story breakdown on Opus
     "infer_story_entities": "import_worker",  # bounded Sonnet extraction
     "infer_narrative_promises": "import_analyst",  # §5b
+    "infer_scene_motivations": "import_analyst",  # T10.11, beside promises
     "infer_story_overview": "import_analyst",  # §5c
     "infer_narrative_map": "writer",  # bounded post-import synthesis on Sonnet
     "infer_narrative_scene_analysis": "import_analyst",

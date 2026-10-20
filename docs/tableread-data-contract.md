@@ -1277,14 +1277,13 @@ export const StoryEntities = z.object({
   worldElements: z.array(InferredWorldElement),
 })
 
-// §5b infer_narrative_promises (T7.19) — import-time thread/motivation/
-// world-rule read, run after infer_story_entities and before
-// extract_ledger_facts. ownerNames/characterName are strings the server
-// resolves the same way infer_story_entities does; setupSceneId/
-// payoffSceneId/sceneId/evidenceSceneId are already-known scene ids, no
-// resolution needed. Server mints thread ids, writes sceneMotivations onto
-// matching Scene.motivations, and merges worldRules into the bible (append
-// new; never overwrite a locked rule).
+// §5b infer_narrative_promises (T7.19) — import-time thread/world-rule read,
+// run after infer_story_entities and before extract_ledger_facts.
+// ownerNames are strings the server resolves the same way
+// infer_story_entities does; setupSceneId/payoffSceneId/evidenceSceneId are
+// already-known scene ids, no resolution needed. Server mints thread ids and
+// merges worldRules into the bible (append new; never overwrite a locked
+// rule). Scene motivations are SceneMotivations' (below) since T10.11.
 //
 // Evidence is cited by beat, never quoted (PROMPT_VERSION 0.40.0+). The model
 // names the one beat that carries each claim — a beatId from its input spine,
@@ -1357,6 +1356,28 @@ export const NarrativePromises = z.object({
       revealedBeatId: Id.nullable(),
     }),
   ),
+  worldRules: z.array(
+    z.object({
+      text: z.string(),
+      limit: z.string(),
+      cost: z.string(),
+      exception: z.string(),
+      evidenceSceneId: Id.nullable(),
+      evidenceBeatId: Id.nullable(),
+    }),
+  ),
+})
+
+// §5b′ infer_scene_motivations (T10.11) — each character's scene-level
+// want, over the same beat spine and cast as infer_narrative_promises and
+// run beside it, inside the `inferring_promises` import stage. Split out
+// because, with motivations, T10.2/T10.3 made the promises tool's strict
+// grammar too large for the API ("The compiled grammar is too large"), which
+// refused every real import. characterName is a name the server resolves
+// against the cast (unresolvable rows dropped, counts only); sceneId comes
+// from the input scene list. The server writes a scene's resolved rows onto
+// Scene.motivations; a scene with none keeps what it had.
+export const SceneMotivations = z.object({
   sceneMotivations: z.array(
     z.object({
       sceneId: Id,
@@ -1370,16 +1391,6 @@ export const NarrativePromises = z.object({
           concealed: z.boolean(),
         }),
       ),
-    }),
-  ),
-  worldRules: z.array(
-    z.object({
-      text: z.string(),
-      limit: z.string(),
-      cost: z.string(),
-      exception: z.string(),
-      evidenceSceneId: Id.nullable(),
-      evidenceBeatId: Id.nullable(),
     }),
   ),
 })

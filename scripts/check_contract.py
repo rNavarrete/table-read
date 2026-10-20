@@ -121,6 +121,7 @@ SCHEMA_NAMES = [
     "InferredWorldElement",
     "StoryEntities",
     "NarrativePromises",
+    "SceneMotivations",
     "InferredStoryOverview",
     "InferredNarrativeMap",
     "InferredNarrativeSceneAnalysisBatch",

@@ -592,6 +592,9 @@ def test_nominal_call_estimate_uniform_one():
 
     core = filter_call_estimate(nominal_call_estimate(resolve_run_map(1)), CORE_EVAL_KEYS)
     assert core["totalNominal"] == 27
+    # T10.11: promises and scene motivations are two calls per run.
+    full = nominal_call_estimate(resolve_run_map(1))
+    assert full["narrativePromises"] == full["narrativePromisesMerge"] == 2
 
 
 def test_run_suite_report_carries_call_estimate(session_factory):

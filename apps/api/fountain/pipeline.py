@@ -48,7 +48,7 @@ from drama_manager import locks, render
 from drama_manager.ledger_policy import CONFIDENCE_FLOOR, IdMinter, locate_quote
 from drama_manager.narrative_map import NarrativeMapValidationError, merge_narrative_map
 from drama_manager.overview import merge_story_overview
-from drama_manager.promises import merge_narrative_promises
+from drama_manager.promises import merge_narrative_promises, merge_scene_motivations
 from fountain import acts
 from fountain.characters import (
     cues_from_scenes,
@@ -95,6 +95,7 @@ from schemas import (
     InferredStoryOverview,
     LedgerExtraction,
     NarrativePromises,
+    SceneMotivations,
     ShowFormat,
     StoryEntities,
 )
@@ -116,6 +117,10 @@ STAGE_INFERRING_PROMISES = "inferring_promises"
 STAGE_INFERRING_OVERVIEW = "inferring_overview"
 STAGE_EXTRACTING_FACTS = "extracting_facts"
 STAGE_CHECKING_CONSISTENCY = "checking_consistency"
+# Not a stage: infer_scene_motivations (T10.11) runs inside
+# `inferring_promises`, so the progress stages and their UI are unchanged;
+# this only keys its checkpoint and tags its calls.
+CHECKPOINT_SCENE_MOTIVATIONS = "inferring_motivations"
 
 
 def _env_concurrency(name: str) -> int | None:
@@ -766,6 +771,9 @@ def analyze_import(
     narrative_promises = _load_model_checkpoint(
         checkpoint, STAGE_INFERRING_PROMISES, NarrativePromises
     )
+    scene_motivations = _load_model_checkpoint(
+        checkpoint, CHECKPOINT_SCENE_MOTIVATIONS, SceneMotivations
+    )
     story_overview = _load_model_checkpoint(
         checkpoint, STAGE_INFERRING_OVERVIEW, InferredStoryOverview
     )
@@ -775,6 +783,7 @@ def analyze_import(
         else _load_model_checkpoint(checkpoint, STAGE_CHECKING_CONSISTENCY, ConsistencyScan)
     )
     promises_cached = narrative_promises is not None
+    motivations_cached = scene_motivations is not None
     overview_cached = story_overview is not None
     scan_cached = scan is not None
     failed_extractions: set[int] = set()
@@ -798,6 +807,11 @@ def analyze_import(
         )
         return system, user
 
+    def motivations_prompt() -> tuple[str, str]:
+        return render.build_motivations_prompt(
+            new_doc, _promises_prompt_spine(scene_docs), known_cast, run_nonce
+        )
+
     def scan_prompt(new_facts: list[dict], characters: list[dict]) -> tuple[str, str]:
         fact_summaries = [
             {
@@ -820,9 +834,9 @@ def analyze_import(
         )
 
     drain = _Drain() if IMPORT_OVERLAP else None
-    # Single calls get their own pool, so threads and overview (Opus) never
-    # queue behind facts calls, nor the scan behind either of them.
-    solo = drain.pool(3) if drain is not None else None
+    # Single calls get their own pool, so threads, motivations and overview
+    # (Opus) never queue behind facts calls, nor the scan behind any of them.
+    solo = drain.pool(4) if drain is not None else None
 
     def start[R: BaseModel](
         stage: str, call: Callable[..., R], prompt: Callable[[], tuple[str, str]]
@@ -894,6 +908,13 @@ def analyze_import(
             None
             if promises_cached
             else start(STAGE_INFERRING_PROMISES, llm.infer_narrative_promises, promises_prompt)
+        )
+        get_motivations = (
+            None
+            if motivations_cached
+            else start(
+                CHECKPOINT_SCENE_MOTIVATIONS, llm.infer_scene_motivations, motivations_prompt
+            )
         )
         get_overview = (
             None
@@ -982,18 +1003,26 @@ def analyze_import(
         # a beat-complete semantic spine. The fuller cast is resolved first, so
         # thread owners and scene motivations can name any character entities
         # just minted without replaying a full screenplay. Merges threads onto
-        # the episode, motivations onto matching scenes, and new
-        # (non-duplicate) world rules onto the bible — never overwriting or
-        # duplicating a locked rule's text (drama_manager.promises). Same
-        # schema-invalid-after-retry atomic-failure contract as every other
-        # import LLM stage. ─────────────────────────────────────────────────
+        # the episode and new (non-duplicate) world rules onto the bible —
+        # never overwriting or duplicating a locked rule's text
+        # (drama_manager.promises). Scene motivations are a second Opus call
+        # over the same spine (T10.11), started beside it and merged here,
+        # inside this stage. Both calls land before either merge, so a serial
+        # run builds the motivations prompt from the same doc overlap does.
+        # Same schema-invalid-after-retry atomic-failure contract as every
+        # other import LLM stage. ────────────────────────────────────────────
         yield ImportStageStarted(STAGE_INFERRING_PROMISES)
-        if get_promises is not None:
+        if get_promises is not None or get_motivations is not None:
             yield ImportStageProgress(STAGE_INFERRING_PROMISES, 0, 2)
             yield ImportStageProgress(STAGE_INFERRING_PROMISES, 1, 2)
+        if get_promises is not None:
             narrative_promises = get_promises()
+        if get_motivations is not None:
+            scene_motivations = get_motivations()
         narrative_promises = cast(NarrativePromises, narrative_promises)
+        scene_motivations = cast(SceneMotivations, scene_motivations)
         merge_narrative_promises(new_doc, episode_id, narrative_promises)
+        merge_scene_motivations(new_doc, episode_id, scene_motivations)
         yield ImportFound(
             STAGE_INFERRING_PROMISES,
             threads_found(_episode_ref(new_doc, episode_id)["threads"], scene_index_by_id),
@@ -1004,7 +1033,7 @@ def analyze_import(
             "import_infer_promises threads=%d scene_motivations=%d world_rules=%d "
             "prompt_version=%s",
             len(narrative_promises.threads),
-            len(narrative_promises.scene_motivations),
+            len(scene_motivations.scene_motivations),
             len(narrative_promises.world_rules),
             render.PROMPT_VERSION,
         )

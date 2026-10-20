@@ -18,7 +18,7 @@ from pathlib import Path
 
 from drama_manager import candidates, render
 from drama_manager.overview import merge_story_overview
-from drama_manager.promises import merge_narrative_promises
+from drama_manager.promises import merge_narrative_promises, merge_scene_motivations
 from evals.harness import EvalResult
 from evals.probes import FixtureCtx
 from evals.progress import ProgressFn, emit_attempt
@@ -31,6 +31,7 @@ from schemas import (
     InferredStoryOverview,
     LedgerExtraction,
     NarrativePromises,
+    SceneMotivations,
     StoryEntities,
 )
 
@@ -795,6 +796,22 @@ def _seed_promises_response() -> NarrativePromises:
                 "revealedBeatId": None,
             }
         ],
+        worldRules=[
+            {
+                "text": "The lighthouse lamp goes dark after the fourth warning flash.",
+                "limit": "Only three warning flashes before the lamp goes dark.",
+                "cost": "The harbor board doesn't forgive a fourth flash.",
+                "exception": "",
+                "evidenceSceneId": "scene-promises-1",
+                "evidenceBeatId": None,
+            }
+        ],
+    )
+
+
+def _seed_motivations_response() -> SceneMotivations:
+    """The planted motivation, for the dry run: since T10.11 its own call."""
+    return SceneMotivations(
         sceneMotivations=[
             {
                 "sceneId": "scene-promises-1",
@@ -810,27 +827,17 @@ def _seed_promises_response() -> NarrativePromises:
                 ],
             }
         ],
-        worldRules=[
-            {
-                "text": "The lighthouse lamp goes dark after the fourth warning flash.",
-                "limit": "Only three warning flashes before the lamp goes dark.",
-                "cost": "The harbor board doesn't forgive a fourth flash.",
-                "exception": "",
-                "evidenceSceneId": "scene-promises-1",
-                "evidenceBeatId": None,
-            }
-        ],
     )
 
 
-def _promises_text_blob(result: NarrativePromises) -> str:
+def _promises_text_blob(result: NarrativePromises, motivations: SceneMotivations) -> str:
     parts: list[str] = []
     for t in result.threads:
         parts.append(t.label)
         parts.append(t.summary)
         parts.extend(t.owner_names)
 
-    for sm in result.scene_motivations:
+    for sm in motivations.scene_motivations:
         for m in sm.motivations:
             parts.append(m.character_name)
             parts.append(m.objective)
@@ -888,13 +895,31 @@ def _world_rule_found(world_rules: list, planted: dict) -> bool:
     return False
 
 
+def _infer_promises_and_motivations(
+    client: LlmClient, project: dict, scene_summaries: list[dict], known_cast: list[str]
+) -> tuple[NarrativePromises, SceneMotivations]:
+    """One import's two calls over the fixture (T10.11 split motivations out
+    of the promises call), one run nonce for both as in the pipeline."""
+    nonce = render.new_nonce()
+    system, user = render.build_promises_prompt(project, scene_summaries, known_cast, [], nonce)
+    result = client.infer_narrative_promises(
+        system=system, user_message=user, prompt_version=render.PROMPT_VERSION
+    )
+    system, user = render.build_motivations_prompt(project, scene_summaries, known_cast, nonce)
+    motivations = client.infer_scene_motivations(
+        system=system, user_message=user, prompt_version=render.PROMPT_VERSION
+    )
+    return result, motivations
+
+
 def narrative_promises_eval(
     client: LlmClient, *, runs: int, on_progress: ProgressFn | None = None
 ) -> EvalResult:
-    """T7.22: `infer_narrative_promises` on the golden narrative-promises
-    fixture -- recall of the planted setup/payoff thread, the planted open
-    thread, the planted scene motivation, and the planted world rule (with
-    its `limit` field), hallucination-penalized like A2/T7.17."""
+    """T7.22: `infer_narrative_promises` and (T10.11) `infer_scene_motivations`
+    on the golden narrative-promises fixture -- recall of the planted
+    setup/payoff thread, the planted open thread, the planted scene
+    motivation, and the planted world rule (with its `limit` field),
+    hallucination-penalized like A2/T7.17."""
     planted = _promises_planted_spec()
     if not _PROMISES_FOUNTAIN.read_text().strip():
         return EvalResult(
@@ -911,6 +936,7 @@ def narrative_promises_eval(
 
     if isinstance(client, MockLlmClient):
         client.set_responses("infer_narrative_promises", [_seed_promises_response()])
+        client.set_responses("infer_scene_motivations", [_seed_motivations_response()])
 
     project, scene_summaries, known_cast = _promises_fixture_context()
     planted_threads = planted["plantedThreads"]
@@ -923,12 +949,9 @@ def narrative_promises_eval(
     for i in range(runs):
         emit_attempt(on_progress, family="narrative-promises", run=i + 1, runs=runs)
         t0 = time.monotonic()
-        system, user = render.build_promises_prompt(
-            project, scene_summaries, known_cast, [], render.new_nonce()
-        )
         try:
-            result: NarrativePromises = client.infer_narrative_promises(
-                system=system, user_message=user, prompt_version=render.PROMPT_VERSION
+            result, motivations = _infer_promises_and_motivations(
+                client, project, scene_summaries, known_cast
             )
         except (SchemaInvalidLlmError, LlmTimeoutError):
             recalls.append(0.0)
@@ -945,12 +968,12 @@ def narrative_promises_eval(
         found = 0
         found += sum(1 for p in planted_threads if _thread_found(result.threads, p))
         found += sum(
-            1 for p in planted_motivations if _motivation_found(result.scene_motivations, p)
+            1 for p in planted_motivations if _motivation_found(motivations.scene_motivations, p)
         )
         found += sum(1 for p in planted_world_rules if _world_rule_found(result.world_rules, p))
         recalls.append(found / max(1, total_planted))
 
-        blob = _promises_text_blob(result)
+        blob = _promises_text_blob(result, motivations)
         forbidden = planted.get("hallucinationGuard", {}).get("forbiddenWithoutBasis", [])
         if _matches_any(blob, forbidden) and found == 0:
             halluc_hits += 1
@@ -1012,7 +1035,8 @@ def narrative_promises_merge_eval(
     client: LlmClient, *, runs: int, on_progress: ProgressFn | None = None
 ) -> EvalResult:
     """T7.22: the planted thread/motivation/world-rule set run through the
-    real `merge_narrative_promises` path (T7.20), not just prompt output
+    real `merge_narrative_promises` / `merge_scene_motivations` paths (T7.20,
+    T10.11), not just prompt output
     shape -- the setup/payoff pair's payoff scene resolves, the open thread
     stays open, the planted motivation lands on its scene, and the planted
     world rule's `limit` field persists non-empty."""
@@ -1020,6 +1044,7 @@ def narrative_promises_merge_eval(
 
     if isinstance(client, MockLlmClient):
         client.set_responses("infer_narrative_promises", [_seed_promises_response()])
+        client.set_responses("infer_scene_motivations", [_seed_motivations_response()])
 
     project, scene_summaries, known_cast = _promises_fixture_context()
     scene_ids = [s["id"] for s in scene_summaries]
@@ -1030,12 +1055,9 @@ def narrative_promises_merge_eval(
     for i in range(runs):
         emit_attempt(on_progress, family="narrative-promises-merge", run=i + 1, runs=runs)
         t0 = time.monotonic()
-        system, user = render.build_promises_prompt(
-            project, scene_summaries, known_cast, [], render.new_nonce()
-        )
         try:
-            result: NarrativePromises = client.infer_narrative_promises(
-                system=system, user_message=user, prompt_version=render.PROMPT_VERSION
+            result, motivations = _infer_promises_and_motivations(
+                client, project, scene_summaries, known_cast
             )
         except (SchemaInvalidLlmError, LlmTimeoutError):
             attempts += checks_per_run
@@ -1052,6 +1074,7 @@ def narrative_promises_merge_eval(
         doc = merge_narrative_promises(
             _promises_doc_scaffold(scene_ids), "ep-promises-1", result
         )
+        merge_scene_motivations(doc, "ep-promises-1", motivations)
         episode = doc["seasons"][0]["episodes"][0]
         paid_off = next(
             (t for t in episode["threads"] if t["status"] == "paid_off"), None

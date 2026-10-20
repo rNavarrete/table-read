@@ -326,6 +326,7 @@ _STAGE_OF = {
     "infer_act_breaks": "inferring_acts",
     "infer_story_entities": "inferring_entities",
     "infer_narrative_promises": "inferring_promises",
+    "infer_scene_motivations": "inferring_motivations",  # its checkpoint key
     "infer_story_overview": "inferring_overview",
     "extract_ledger_facts": "extracting_facts",
     "scan_consistency": "checking_consistency",
@@ -348,8 +349,8 @@ def test_every_call_carries_the_run_id_and_its_unit_on_any_thread(monkeypatch, o
     for op, unit in calls:
         assert unit.stage == _STAGE_OF[op]
         on_generator_thread = op == "infer_act_breaks" or (
-            not overlap and op in ("infer_narrative_promises", "infer_story_overview",
-                                   "scan_consistency")
+            not overlap and op in ("infer_narrative_promises", "infer_scene_motivations",
+                                   "infer_story_overview", "scan_consistency")
         )
         assert (unit.queue_ms is None) == on_generator_thread
         assert unit.queue_ms is None or unit.queue_ms >= 0
@@ -500,6 +501,7 @@ def test_resume_after_a_facts_failure_recalls_neither_threads_nor_overview(db_se
 
     assert resumed[-1][0] == "complete"
     assert llm.invocation_count("infer_narrative_promises") == 1
+    assert llm.invocation_count("infer_scene_motivations") == 1
     assert llm.invocation_count("infer_story_overview") == 1
     # Four scenes saved on the first run; only scene 2 is asked again.
     assert llm.invocation_count("extract_ledger_facts") == 5
@@ -552,6 +554,47 @@ def test_a_failed_branch_saves_its_siblings_and_surfaces_its_own_error(db_sessio
     )
     assert saved_facts == 5
     assert llm.invocation_count("scan_consistency") == 0
+
+
+class _MotivationsFailLlm(_ScriptedLlm):
+    """T10.11: the motivations call fails validation (rule 9's retry already
+    spent) while threads is still running beside it."""
+
+    def __init__(self) -> None:
+        super().__init__({"infer_narrative_promises": 0.2})
+
+    def infer_scene_motivations(self, **kwargs):
+        raise SchemaInvalidLlmError("infer_scene_motivations")
+
+
+@pytest.mark.parametrize("overlap", [False, True], ids=["serial", "overlap"])
+def test_a_motivations_failure_stops_the_run_in_the_promises_stage(
+    db_session, monkeypatch, overlap
+):
+    """Motivations run inside `inferring_promises`, so that is where their
+    failure is reported, before threads are shown; the threads result is
+    saved, so a resume asks only for motivations again."""
+    monkeypatch.setattr(pipeline, "IMPORT_OVERLAP", overlap)
+    key = f"00000000-0000-4000-8000-0000000f1007{int(overlap)}"
+
+    events = _post(_MotivationsFailLlm(), key)
+
+    assert events[-1][0] == "failed"
+    assert events[-1][1]["error"]["code"] == "SCHEMA_INVALID_LLM"
+    assert [data["name"] for name, data in events if name == "stage"][-1] == (
+        "inferring_promises"
+    )
+    assert not {data["data"]["kind"] for name, data in events if name == "found"} & {
+        "threads",
+        "overview",
+        "facts",
+        "flags",
+    }
+    db_session.expire_all()
+    run = db_session.query(ImportRunRow).filter_by(idempotency_key=key).one()
+    assert run.status == "failed"
+    assert "inferring_promises" in run.checkpoint
+    assert "inferring_motivations" not in run.checkpoint
 
 
 class _SceneThreeOutageLlm(_ScriptedLlm):

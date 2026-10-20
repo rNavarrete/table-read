@@ -29,6 +29,7 @@ from schemas import (
     LedgerExtraction,
     NarrativePromises,
     Project,
+    SceneMotivations,
     SegmentedScene,
     StoryEntities,
 )
@@ -365,6 +366,8 @@ def test_import_into_project_with_locked_content_is_rejected_zero_rows(
     assert db_session.query(SnapshotRow).filter_by(project_id=PROJECT_ID).count() == before_snaps
     assert db_session.query(LedgerFactRow).filter_by(project_id=PROJECT_ID).count() == before_facts
     assert mock_llm.invocation_count("segment_scene") == 0
+    # T10.11's motivations call is refused with the rest (rule 2).
+    assert mock_llm.invocation_count("infer_scene_motivations") == 0
 
 
 # ── round-trip: reproduces scene/beat count + response shape ──────────────────
@@ -1226,7 +1229,6 @@ def overview(
 
 def promises(
     threads: list[dict] | None = None,
-    scene_motivations: list[dict] | None = None,
     world_rules: list[dict] | None = None,
     secrets: list[dict] | None = None,
     storylines: list[dict] | None = None,
@@ -1235,11 +1237,14 @@ def promises(
         {
             "threads": threads or [],
             "secrets": secrets or [],
-            "sceneMotivations": scene_motivations or [],
             "worldRules": world_rules or [],
             "storylines": storylines or [],
         }
     )
+
+
+def motivations(scene_motivations: list[dict]) -> SceneMotivations:
+    return SceneMotivations.model_validate({"sceneMotivations": scene_motivations})
 
 
 def test_import_merges_inferred_entities_and_resolves_alias_known_by(db_session, mock_llm):
@@ -1544,7 +1549,12 @@ def test_import_infers_thread_and_scene_motivations_after_entities(db_session, m
                     "payoffBeatId": None,
                 }
             ],
-            scene_motivations=[
+        ),
+    )
+    mock_llm.set_response(
+        "infer_scene_motivations",
+        motivations(
+            [
                 {
                     "sceneId": "scene-1",
                     "motivations": [
@@ -1558,7 +1568,7 @@ def test_import_infers_thread_and_scene_motivations_after_entities(db_session, m
                         }
                     ],
                 }
-            ],
+            ]
         ),
     )
     mock_llm.set_response("extract_ledger_facts", extraction())

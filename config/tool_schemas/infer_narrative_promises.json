@@ -275,57 +275,6 @@
         "additionalProperties": false
       }
     },
-    "sceneMotivations": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "properties": {
-          "sceneId": {
-            "type": "string"
-          },
-          "motivations": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "characterName": {
-                  "type": "string"
-                },
-                "objective": {
-                  "type": "string"
-                },
-                "stakes": {
-                  "type": "string"
-                },
-                "obstacle": {
-                  "type": "string"
-                },
-                "statedObjective": {
-                  "type": "string"
-                },
-                "concealed": {
-                  "type": "boolean"
-                }
-              },
-              "required": [
-                "characterName",
-                "objective",
-                "stakes",
-                "obstacle",
-                "statedObjective",
-                "concealed"
-              ],
-              "additionalProperties": false
-            }
-          }
-        },
-        "required": [
-          "sceneId",
-          "motivations"
-        ],
-        "additionalProperties": false
-      }
-    },
     "worldRules": {
       "type": "array",
       "items": {
@@ -380,7 +329,6 @@
     "threads",
     "storylines",
     "secrets",
-    "sceneMotivations",
     "worldRules"
   ],
   "additionalProperties": false

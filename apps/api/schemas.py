@@ -1431,8 +1431,15 @@ class NarrativePromises(_Base):
     # Defaults to [] so a pre-0.53.0 response or checkpoint parses.
     storylines: list[InferredStoryline] = []
     secrets: list[InferredSecret]
-    scene_motivations: list[InferredSceneMotivations]
     world_rules: list[InferredWorldRule]
+
+
+class SceneMotivations(_Base):
+    """T10.11 infer_scene_motivations — see packages/contract's
+    `SceneMotivations` docstring. Split from NarrativePromises, whose strict
+    grammar the API refused once T10.2/T10.3 grew it."""
+
+    scene_motivations: list[InferredSceneMotivations]
 
 
 class InferredOutlineItem(_Base):

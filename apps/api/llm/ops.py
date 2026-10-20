@@ -64,6 +64,7 @@ from schemas import (
     NarrativeMapVerification,
     NarrativePromises,
     RegeneratedElements,
+    SceneMotivations,
     SegmentedScene,
     StoryEntities,
     StructureCheckVerification,
@@ -206,8 +207,8 @@ _OPS: tuple[LlmOp, ...] = (
         "NarrativePromises",
         NarrativePromises,
         "import_analyst",
-        "Identify setup/payoff story threads and the episode's storylines "
-        "(A-D), fill scene motivations, and extract structured world rules "
+        "Identify setup/payoff story threads, secrets and the episode's "
+        "storylines (A-D), and extract structured world rules "
         "(limit/cost/exception) from the imported script, each with source "
         "evidence.",
         # The prompt carries every semantic beat plus bounded evidence. A
@@ -221,6 +222,23 @@ _OPS: tuple[LlmOp, ...] = (
         # real beats and a ~72k-char prompt, and this call timed out. Long
         # Opus responses stream so SSE pings hold the connection open, same
         # as infer_narrative_map_synthesis.
+        call_timeout_seconds=600.0,
+        stream_response=True,
+        effort="medium",
+    ),
+    # T10.11 — scene motivations, split from infer_narrative_promises: with
+    # them, T10.2/T10.3 grew that strict tool past the API's compiled-grammar
+    # limit. Same spine, cast, role and ceilings, so the read is the one the
+    # promises call made; it runs beside promises in the same import stage.
+    LlmOp(
+        "infer_scene_motivations",
+        "SceneMotivations",
+        SceneMotivations,
+        "import_analyst",
+        "Fill each character's scene-level motivations (objective, stakes, "
+        "obstacle, any stated cover objective) from the imported script, only "
+        "where the source establishes them.",
+        max_tokens=24_576,
         call_timeout_seconds=600.0,
         stream_response=True,
         effort="medium",

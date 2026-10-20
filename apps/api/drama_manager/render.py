@@ -27,7 +27,11 @@ from typing import Any
 from drama_manager.structure_stages import STAGE_DEFINITIONS, STRUCTURE_NAMES, STRUCTURE_STAGES
 
 # Prompt spec §8 / hard rule 7: every template carries a PROMPT_VERSION (semver);
-# it is logged with each call and bumped on any template change. 0.61.0
+# it is logged with each call and bumped on any template change. 0.62.0
+# (T10.11) moves scene motivations out of infer_narrative_promises into their
+# own call, infer_scene_motivations, over the same spine and cast: the
+# promises prompt no longer asks for them, and the new prompt carries the
+# motivation instructions the promises prompt had. 0.61.0
 # (T10.8) asks extract_ledger_facts how the audience receives each fact
 # (stated, shown or implied) and the first scene whose events need the
 # audience to know it. 0.60.0
@@ -188,7 +192,7 @@ from drama_manager.structure_stages import STAGE_DEFINITIONS, STRUCTURE_NAMES, S
 # 0.10.0 typed segment starts; 0.9.0 lock-aware narrative repair. Earlier:
 # 0.8.0 suggest; 0.7.0 scene skeleton; 0.6.0 continuity; 0.5.0 regenerate;
 # 0.4.0 blast; 0.3.0 tune; 0.2.0 candidate + §0 system prompt.
-PROMPT_VERSION = "0.61.0"
+PROMPT_VERSION = "0.62.0"
 
 
 def new_nonce() -> str:
@@ -555,7 +559,8 @@ def build_promises_prompt(
     mints or knows character ids), alongside the bible's existing
     world-rule text (so the model extends the rule set rather than
     re-deriving rules it already covers). Runs after `infer_story_entities`
-    so motivations/thread owners can resolve against the fuller cast.
+    so thread owners can resolve against the fuller cast. Scene motivations
+    are `build_motivations_prompt`'s (T10.11).
     """
     user = (
         source_data("import_story_spine", scene_spine, nonce)
@@ -565,21 +570,10 @@ def build_promises_prompt(
         + source_data("existing_world_rules", existing_world_rule_texts, nonce)
         + "\nIdentify narrative setup/payoff story threads across every beat in "
         "these scenes in source order (a thread may be open with only a setup — "
-        "do not invent a payoff that isn't on the page), fill each "
-        "character's scene-level motivations where the script supports it, "
+        "do not invent a payoff that isn't on the page), "
         "and extract structured world rules — a stated limit, its cost, "
         "and any exception — each citing the beat that states it. "
-        "The beat fields cover every scene. Only "
-        "return a scene motivation when the source establishes that "
-        "character's objective, stakes, and obstacle; omit unsupported or "
-        "routine scene entries rather than filling every scene.\n"
-        "For each motivation, set objective to what the character is actually "
-        "pursuing. Set statedObjective only when they claim to be pursuing "
-        "something different — the words they use to cover the real one — and "
-        "set concealed true when that difference is deliberate deception "
-        "rather than a want they cannot yet name. Leave statedObjective empty "
-        "when there is no gap; that is the common case, and an invented gap "
-        "is worse than none.\n"
+        "The beat fields cover every scene.\n"
         "Also identify secrets: something one character knows and is actively "
         "keeping from another. A secret needs both sides — who holds it "
         "(holderNames) and who is kept in the dark (concealedFromNames). If "
@@ -637,6 +631,40 @@ def build_promises_prompt(
     )
     return build_system_prompt(project, nonce), user
 
+
+
+def build_motivations_prompt(
+    project: dict,
+    scene_spine: list[dict],
+    known_cast: list[str],
+    nonce: str,
+) -> tuple[str, str]:
+    """`infer_scene_motivations` (T10.11): the same beat-complete semantic
+    spine and resolved cast as `build_promises_prompt`, and the motivation
+    instructions that prompt carried until 0.62.0. Split out because the
+    motivations table made the promises tool's strict grammar too large for
+    the API."""
+    user = (
+        source_data("import_story_spine", scene_spine, nonce)
+        + "\n"
+        + source_data("known_cast", known_cast, nonce)
+        + "\nFill each character's scene-level motivations across these scenes "
+        "where the script supports it. The beat fields cover every scene. Only "
+        "return a scene motivation when the source establishes that "
+        "character's objective, stakes, and obstacle; omit unsupported or "
+        "routine scene entries rather than filling every scene.\n"
+        "For each motivation, set objective to what the character is actually "
+        "pursuing. Set statedObjective only when they claim to be pursuing "
+        "something different — the words they use to cover the real one — and "
+        "set concealed true when that difference is deliberate deception "
+        "rather than a want they cannot yet name. Leave statedObjective empty "
+        "when there is no gap; that is the common case, and an invented gap "
+        "is worse than none.\n"
+        "Refer to every character only by a name string from known_cast, never "
+        "an id — the server resolves ids, not you. Use sceneId values from the "
+        "scenes above."
+    )
+    return build_system_prompt(project, nonce), user
 
 def build_overview_prompt(
     project: dict,

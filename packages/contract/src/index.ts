@@ -1037,6 +1037,7 @@ export const ProjectImportStageName = z.enum([
   'inferring_entities',
   // T7.19 — infer_narrative_promises runs after entities (so motivations
   // see the resolved cast) and before fact extraction (design doc "P2").
+  // T10.11 — infer_scene_motivations runs beside it inside this stage.
   'inferring_promises',
   // T7.27 — infer_story_overview runs after promises (motivations/threads
   // available for synopsis tone) and before fact extraction.
@@ -1374,18 +1375,19 @@ export const StoryEntities = z.object({
 })
 export type StoryEntities = z.infer<typeof StoryEntities>
 
-// T7.19 infer_narrative_promises — import-time threads/motivations/world-rule
-// read, run after infer_story_entities and before extract_ledger_facts
-// (design doc "LLM op: infer_narrative_promises"). Threads and world rules
-// name characters/scenes the same way infer_story_entities does elsewhere:
+// T7.19 infer_narrative_promises — import-time threads/world-rule read, run
+// after infer_story_entities and before extract_ledger_facts (design doc
+// "LLM op: infer_narrative_promises"). Threads and world rules name
+// characters/scenes the same way infer_story_entities does elsewhere:
 // `ownerNames` are strings the server resolves to `ownerCharacterIds`
 // (unresolvable owners dropped, counts only, never logged as text);
 // `setupSceneId`/`payoffSceneId`/`sceneId`/`evidenceSceneId` are already
 // server-known scene ids (the model sees the scene list, not raw text
 // offsets) so no name resolution is needed for those. Server mints thread
-// ids, writes `sceneMotivations` onto matching `Scene.motivations`, and
-// merges `worldRules` into the bible (append new; never overwrite a locked
-// rule).
+// ids and merges `worldRules` into the bible (append new; never overwrite a
+// locked rule). Scene motivations moved to their own op (SceneMotivations,
+// T10.11): with them, T10.2 and T10.3 made this strict tool's compiled
+// grammar too large for the API, which refused every real import.
 export const NarrativePromises = z.object({
   threads: z.array(
     z.object({
@@ -1457,23 +1459,6 @@ export const NarrativePromises = z.object({
       revealedBeatId: Id.nullable(),
     }),
   ),
-  sceneMotivations: z.array(
-    z.object({
-      sceneId: Id,
-      motivations: z.array(
-        z.object({
-          characterName: z.string(),
-          objective: z.string(),
-          stakes: z.string(),
-          obstacle: z.string(),
-          // Empty unless the character claims a different goal than the one
-          // their behaviour serves; the gap is the ulterior motive.
-          statedObjective: z.string(),
-          concealed: z.boolean(),
-        }),
-      ),
-    }),
-  ),
   worldRules: z.array(
     z.object({
       text: z.string(),
@@ -1494,6 +1479,33 @@ export const NarrativePromises = z.object({
   ),
 })
 export type NarrativePromises = z.infer<typeof NarrativePromises>
+
+// T10.11 infer_scene_motivations — each character's scene-level want, read
+// over the same beat spine and cast as infer_narrative_promises and run
+// beside it. `characterName` is a name the server resolves against the cast
+// (unresolvable rows dropped, counts only); `sceneId` comes from the supplied
+// scene list. The server writes a scene's resolved rows onto
+// `Scene.motivations`; a scene with none keeps what it had.
+export const SceneMotivations = z.object({
+  sceneMotivations: z.array(
+    z.object({
+      sceneId: Id,
+      motivations: z.array(
+        z.object({
+          characterName: z.string(),
+          objective: z.string(),
+          stakes: z.string(),
+          obstacle: z.string(),
+          // Empty unless the character claims a different goal than the one
+          // their behaviour serves; the gap is the ulterior motive.
+          statedObjective: z.string(),
+          concealed: z.boolean(),
+        }),
+      ),
+    }),
+  ),
+})
+export type SceneMotivations = z.infer<typeof SceneMotivations>
 
 // T7.27 infer_story_overview — import-time episode logline / outline /
 // beat sheet / two-paragraph synopsis. Model references existing sceneId /
