@@ -112,9 +112,11 @@ def merge_character(
         alias) into the target;
       - rewrites every characterId reference from source to target: ledger
         `knownBy`, relationship `between`, scene `motivations`, season
-        `characterArcs`, and episode storyline `characterIds` (deduping the
-        set-shaped ones so the merge never produces a duplicate id) — a
-        merge must leave no dangling reference to the removed source id;
+        `characterArcs`, episode storyline `characterIds` and episode
+        `characterArcs` (deduping the set-shaped ones so the merge never
+        produces a duplicate id; of two episode arcs for the merged pair the
+        first is kept) — a merge must leave no dangling reference to the
+        removed source id;
       - drops any relationship the merge collapsed into a self-reference
         (source and target were directly related);
       - removes the source character.
@@ -164,6 +166,13 @@ def merge_character(
                 for motivation in scene.get("motivations", []):
                     if motivation.get("characterId") == source_id:
                         motivation["characterId"] = target_id
+            if episode.get("characterArcs"):
+                arcs: list[dict] = []
+                for arc in episode["characterArcs"]:
+                    arc["characterId"] = repoint(arc["characterId"])
+                    if all(kept["characterId"] != arc["characterId"] for kept in arcs):
+                        arcs.append(arc)
+                episode["characterArcs"] = arcs
 
     new_ledger = copy.deepcopy(ledger)
     for fact in new_ledger:

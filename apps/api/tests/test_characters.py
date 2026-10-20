@@ -236,6 +236,39 @@ def test_merge_removes_source_character(db_session, seeded_project):
     assert "char-dan" in ids
 
 
+def test_merge_repoints_episode_arcs_and_keeps_the_first_of_a_pair():
+    from drama_manager.characters import merge_character
+
+    def arc(cid: str, want: str) -> dict:
+        return {"characterId": cid, "want": want, "stops": []}
+
+    doc = {
+        "seriesBible": {
+            "characters": [
+                {"id": "char-dan", "name": "Dan"},
+                {"id": "char-luz", "name": "Luz"},
+            ],
+            "relationships": [],
+        },
+        "seasons": [
+            {
+                "characterArcs": [],
+                "episodes": [
+                    {
+                        "storylines": [],
+                        "scenes": [],
+                        "characterArcs": [arc("char-luz", "first"), arc("char-dan", "second")],
+                    }
+                ],
+            }
+        ],
+    }
+
+    merged, _ = merge_character(doc, [], "char-luz", "char-dan")
+
+    assert merged["seasons"][0]["episodes"][0]["characterArcs"] == [arc("char-dan", "first")]
+
+
 def test_merge_into_self_returns_400_validation(db_session, seeded_project):
     before_snaps = _snap_count(db_session)
 
