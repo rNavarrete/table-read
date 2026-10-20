@@ -1128,7 +1128,7 @@ def test_closure_level_is_null_unless_the_thread_is_paid_off():
 
 
 def test_an_old_response_or_checkpoint_without_the_ledger_defaults():
-    """A pre-0.55.0 response or promises checkpoint has no movements,
+    """A pre-0.56.0 response or promises checkpoint has no movements,
     closureLevel or secondJob on its threads."""
     old = {
         "threads": [_thread()],

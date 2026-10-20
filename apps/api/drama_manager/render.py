@@ -24,14 +24,19 @@ import json
 import secrets
 from typing import Any
 
-from drama_manager.structure_stages import STRUCTURE_NAMES, STRUCTURE_STAGES
+from drama_manager.structure_stages import STAGE_DEFINITIONS, STRUCTURE_NAMES, STRUCTURE_STAGES
 
 # Prompt spec §8 / hard rule 7: every template carries a PROMPT_VERSION (semver);
-# it is logged with each call and bumped on any template change. 0.55.0
+# it is logged with each call and bumped on any template change. 0.56.0
 # (T10.3) asks infer_narrative_promises for each thread's movements (every
 # scene it moves in, the phase, what changed; an appearance that changes
 # nothing is not a movement), a paid-off thread's closure level (plot, story,
-# thematic, parametric) and the setup's second job. 0.54.0
+# thematic, parametric) and the setup's second job. 0.55.0
+# (T10.5) adds the Turning Points lens to check_structure: Hauge's five turning
+# points with TRIPOD's definitions in required_stages (and in the verifier's
+# claims), and applies false when the episode has no single protagonist arc.
+# The model is not told the expected windows; the server places the beats.
+# 0.54.0
 # (T10.1) rewrites the §0 structural definitions from the craft breakdown
 # traditions — a scene turns on a value whose charge (positive, negative,
 # mixed) differs as it opens and closes; a beat is one exchange of action and
@@ -162,7 +167,7 @@ from drama_manager.structure_stages import STRUCTURE_NAMES, STRUCTURE_STAGES
 # 0.10.0 typed segment starts; 0.9.0 lock-aware narrative repair. Earlier:
 # 0.8.0 suggest; 0.7.0 scene skeleton; 0.6.0 continuity; 0.5.0 regenerate;
 # 0.4.0 blast; 0.3.0 tune; 0.2.0 candidate + §0 system prompt.
-PROMPT_VERSION = "0.55.0"
+PROMPT_VERSION = "0.56.0"
 
 
 def new_nonce() -> str:
@@ -497,11 +502,13 @@ def build_promises_prompt(
 ) -> tuple[str, str]:
     """`infer_narrative_promises` (design doc
     `2026-07-16-narrative-promises-design.md`, T7.20): a beat-complete,
-    semantic scene spine with a short server-selected evidence excerpt for
-    each scene. This keeps the story-wide read bounded on feature-length
-    scripts while retaining all setup/payoff beats and auditable on-page
-    evidence. The cast is already resolved by entity inference (names only
-    — the model never mints or knows ids), alongside the bible's existing
+    semantic scene spine (each beat's `beatId` plus its semantic fields, no
+    script text), and the model cites beat ids as evidence; the server derives
+    each quote from the cited beat's text (`promises.quote_for_beat`). This
+    keeps the story-wide read bounded on feature-length scripts while
+    retaining all setup/payoff beats and auditable on-page evidence. The cast
+    is already resolved by entity inference (names only — the model never
+    mints or knows character ids), alongside the bible's existing
     world-rule text (so the model extends the rule set rather than
     re-deriving rules it already covers). Runs after `infer_story_entities`
     so motivations/thread owners can resolve against the fuller cast.
@@ -944,7 +951,11 @@ def build_structure_check_prompt(
 ) -> tuple[str, str]:
     """One structure check over the import's own breakdown (spec 2026-10-11)."""
     name = STRUCTURE_NAMES[lens]
-    stages = [{"stage": stage, "label": label} for stage, label in STRUCTURE_STAGES[lens]]
+    stages = [
+        {"stage": stage, "label": label}
+        | ({"definition": d} if (d := STAGE_DEFINITIONS.get(stage)) else {})
+        for stage, label in STRUCTURE_STAGES[lens]
+    ]
     user = (
         source_data("show_format", project.get("format") or {}, nonce)
         + "\n"
@@ -971,6 +982,12 @@ def build_structure_check_prompt(
             " Save the Cat is a feature-film template; a TV episode may compress or skip "
             "beats. Judge what is on the page, and set applies to false if the episode "
             "does not follow it."
+        )
+    if lens == "turning_points":
+        user += (
+            " Turning points mark one protagonist's main story; judge each stage against "
+            "its definition in required_stages. If the episode has no single protagonist "
+            "arc (an ensemble, or several stories of equal weight), set applies to false."
         )
     if diagnostics:
         user += (

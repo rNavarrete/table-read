@@ -297,10 +297,12 @@ export const NarrativeMap = z.object({
 
 // Structure checklist (spec 2026-10-11). TV act structure is derived in the
 // web from storyOverview.beatSheet and never stored, so it is not a lens here.
-export const StructureLens = z.enum(['heros_journey', 'story_circle', 'save_the_cat'])
-// One enum over the three AI structures' stages (12 + 8 + 15); the server
+// `turning_points` (T10.5) is Hauge's five turning points as TRIPOD defines them.
+export const StructureLens = z.enum(['heros_journey', 'story_circle', 'save_the_cat', 'turning_points'])
+// One enum over the four AI structures' stages (12 + 8 + 15 + 5); the server
 // checks each stage belongs to the requested lens. Hero's Journey reuses
-// HeroJourneyStageName's values; Story Circle ids are prefixed `circle_`.
+// HeroJourneyStageName's values; Story Circle ids are prefixed `circle_`,
+// Turning Points ids `tp_`.
 export const StructureStageName = z.enum([
   ...HeroJourneyStageName.options,
   'circle_you', 'circle_need', 'circle_go', 'circle_search',
@@ -309,10 +311,15 @@ export const StructureStageName = z.enum([
   'break_into_two', 'b_story', 'fun_and_games', 'midpoint',
   'bad_guys_close_in', 'all_is_lost', 'dark_night_of_the_soul',
   'break_into_three', 'finale', 'final_image',
+  'tp_opportunity', 'tp_change_of_plans', 'tp_point_of_no_return',
+  'tp_major_setback', 'tp_climax',
 ])
 // `unverified` is server-set: the verifier did not support the cited beat, or
 // returned no verdict for it ("Couldn't verify" in the UI).
 export const StructureStageStatus = z.enum(['hit', 'thin', 'missing', 'unverified'])
+// Where a stage's beat sits against the lens's expected window (T10.5). Separate
+// from `status`: status says whether the evidence holds, placement where it sits.
+export const StructurePlacement = z.enum(['in_window', 'early', 'late', 'out_of_order'])
 export const StructureStage = z.object({
   stage: StructureStageName,
   status: StructureStageStatus,
@@ -320,6 +327,25 @@ export const StructureStage = z.object({
   sceneId: Id.nullable(), // server-filled from the beat
   reason: z.string(),
   evidenceQuote: z.string().min(1).max(200).nullable(), // server-quoted from the beat's own text
+  // Server-derived (T10.5), never from the model; defaulted so older checks load.
+  // positionPct: the share of the episode's script text (sum of beat `scriptText`
+  // lengths, scenes by (act, index), beats by index — the act share bar's measure)
+  // before the cited beat's midpoint, rounded to 0.1; null without a beat or
+  // when the episode has no script text.
+  positionPct: z.number().min(0).max(100).nullable().default(null),
+  // The lens's expected position and tolerance (± percentage points); null for
+  // stages the lens does not place. Turning Points: TRIPOD's means ± SD,
+  // 11/32/51/74/89 ± 7/11/12/8/5. Save the Cat: Snyder's page targets over
+  // 110 pages for catalyst, break into two, midpoint, all is lost and break
+  // into three (10.9/22.7/50/68.2/77.3) ± 8; its other beats are unplaced.
+  // Hero's Journey and Story Circle are functional: nothing placed.
+  expectedPct: z.number().nullable().default(null),
+  windowPct: z.number().nullable().default(null),
+  // Only for placed hit/thin stages; null for missing, unverified and unplaced.
+  // out_of_order: the beat comes before an earlier placed hit/thin stage's beat
+  // in the lens order; else early/late outside expectedPct ± windowPct
+  // (inclusive); else in_window.
+  placement: StructurePlacement.nullable().default(null),
 })
 export const StructureCheck = z.object({
   lens: StructureLens,
@@ -1184,7 +1210,7 @@ export const NarrativePromises = z.object({
       // the episode are dropped; a beatId not in that scene → null; the first
       // row per (scene, phase) is kept; rows sort by scene order then beat
       // index; closureLevel → null unless status is 'paid_off'. Defaulted so a
-      // pre-0.55.0 response or checkpoint parses.
+      // pre-0.56.0 response or checkpoint parses.
       movements: z.array(StoryThreadMovement).default([]),
       closureLevel: ThreadClosureLevel.nullable().default(null),
       secondJob: z.string().default(''),
@@ -1328,7 +1354,8 @@ export const ConsistencyScan = z.object({
 
 // Structure checklist: check_structure (import_analyst, effort medium). Judges
 // each stage of one structure against the import's breakdown. The model never
-// writes quotes or sceneId and never says `unverified`. The server checks every
+// writes quotes, sceneId or the T10.5 position fields (it is not told the
+// windows) and never says `unverified`. The server checks every
 // stage of the lens appears exactly once, belongs to the lens, and that hit/thin
 // cite an existing beatId (a beat cited on a missing stage is dropped); one
 // retry, then SCHEMA_INVALID_LLM.
