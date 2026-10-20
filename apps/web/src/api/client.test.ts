@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { checkStructure, createProject, extractPdf } from './client'
+import { checkCraft, checkStructure, createProject, extractPdf } from './client'
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -128,6 +128,32 @@ describe('checkStructure', () => {
 
     const [url, init] = fetchSpy.mock.calls[0]
     expect(url).toBe('/api/v1/projects/proj-1/structure-checks/story_circle')
+    expect(init).toMatchObject({
+      method: 'POST',
+      body: '{}',
+      headers: expect.objectContaining({ 'If-Match': 'snap-1' }),
+    })
+  })
+})
+
+describe('checkCraft', () => {
+  it('posts an empty body to the craft-check path with If-Match', async () => {
+    const fetchSpy = vi.fn<typeof fetch>(
+      async () =>
+        new Response(
+          JSON.stringify({ id: 'proj-1', headSnapshotId: 'snap-2' }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        ),
+    )
+    vi.stubGlobal('fetch', fetchSpy)
+
+    await checkCraft('proj-1', { expectedHeadSnapshotId: 'snap-1' })
+
+    const [url, init] = fetchSpy.mock.calls[0]
+    expect(url).toBe('/api/v1/projects/proj-1/craft-check')
     expect(init).toMatchObject({
       method: 'POST',
       body: '{}',

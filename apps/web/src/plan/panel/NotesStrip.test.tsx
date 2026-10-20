@@ -316,6 +316,92 @@ describe('NotesStrip', () => {
     expect(screen.queryByTestId('notes-peek')).toBeNull()
   })
 
+  it('craft notes sit in a closed "Craft notes" group: the check, the line in the script font, why, vetted Read more links and Dismiss', async () => {
+    const user = userEvent.setup()
+    const craftScene = scene('scene-5', 4, [
+      {
+        ...beat('beat-5-1', 0),
+        scriptText:
+          'MARTA\nI am so angry with you.\nLoyalty always costs more than it pays.',
+      },
+    ])
+    const craftFlags = [
+      flag('flag-craft-nose', {
+        objectType: 'beat',
+        objectId: 'beat-5-1',
+        explanation:
+          '[craft_on_the_nose] “I am so angry with you.” — Marta names her anger instead of playing it.',
+      }),
+      flag('flag-craft-theme', {
+        objectType: 'beat',
+        objectId: 'beat-5-1',
+        explanation:
+          '[craft_theme_stated] “Loyalty always costs more than it pays.” — Marta says the episode’s argument in so many words.',
+      }),
+    ]
+    const props = renderStrip({
+      scene: craftScene,
+      notes: notesForScene([...FLAGS, ...craftFlags], craftScene),
+    })
+    const strip = screen.getByTestId('notes-strip')
+    expect(
+      within(strip).getByText('⚑ 3 notes · 2 craft · 2 from the import'),
+    ).not.toBeNull()
+    await user.click(screen.getByRole('button', { name: 'Show' }))
+
+    const group = screen.getByTestId('notes-craft-group') as HTMLDetailsElement
+    expect(group.open).toBe(false)
+    expect(strip.textContent).not.toMatch(/\[[a-z_]+\]/)
+    await user.click(within(group).getByText('Craft notes · 2'))
+    expect(group.open).toBe(true)
+
+    const nose = within(group).getByTestId('note-flag-craft-nose')
+    expect(nose.textContent).toContain("Says what they're doing")
+    expect(
+      within(nose).getByText('“I am so angry with you.”').className,
+    ).toContain('font-script')
+    expect(nose.textContent).toContain(
+      'Marta names her anger instead of playing it.',
+    )
+    const links = within(nose).getAllByRole('link') as HTMLAnchorElement[]
+    expect(links.map((a) => a.href)).toEqual([
+      'https://www.bfi.org.uk/features/guillermo-del-toros-advice-young-filmmakers-stay-untamed-irrational-stubborn',
+      'https://www.slashfilm.com/a-letter-from-david-mamet-to-the-writers-of-the-unit/',
+    ])
+    expect(links[0].textContent).toBe(
+      "Read more: Guillermo del Toro's advice for young filmmakers ↗",
+    )
+    expect(links[0].target).toBe('_blank')
+    expect(links[0].rel).toBe('noreferrer')
+
+    const theme = within(group).getByTestId('note-flag-craft-theme')
+    expect(theme.textContent).toContain('Says the theme out loud')
+    expect(within(theme).queryByRole('link')).toBeNull()
+    await user.click(within(theme).getByRole('button', { name: 'Dismiss' }))
+    expect(props.onDismiss).toHaveBeenCalledWith('flag-craft-theme')
+  })
+
+  it('reads "n craft notes" when there are only craft notes', () => {
+    const craftScene = scene('scene-5', 4, [
+      { ...beat('beat-5-1', 0), scriptText: 'MARTA\nI am so angry.' },
+    ])
+    renderStrip({
+      scene: craftScene,
+      notes: notesForScene(
+        [
+          flag('flag-craft', {
+            objectType: 'beat',
+            objectId: 'beat-5-1',
+            explanation: '[craft_on_the_nose] “I am so angry.” — Too plain.',
+          }),
+        ],
+        craftScene,
+      ),
+    })
+    expect(screen.getByText('1 craft note')).not.toBeNull()
+    expect(screen.queryByTestId('notes-peek')).toBeNull()
+  })
+
   it('Dismiss is disabled while a write is in flight; Change the act while the act is locked', async () => {
     const user = userEvent.setup()
     renderStrip({ busy: true, actLocked: true })

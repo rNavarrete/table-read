@@ -28,6 +28,11 @@ export interface EpisodeViewProps {
   onOpenLedgerThreads: () => void
   onSaveEpisodePremise: (value: string) => Promise<boolean>
   onSaveSeriesPremise: (value: string) => Promise<boolean>
+  /** The craft check's state. The open count comes from the model (a fixed
+   * line's note is already hidden) and the last check from the episode. */
+  craft: { dismissed: number; busy: boolean; error: string | null }
+  /** Check craft: the one model call in this view, on the click only. */
+  onCheckCraft: () => void
 }
 
 // PanelHeader's focus ring (no outline-none: the heading takes focus).
@@ -35,6 +40,18 @@ const FOCUS =
   'focus-visible:outline focus-visible:outline-selected focus-visible:outline-offset-2 focus-visible:outline-tr-sky'
 const QUIET = 'text-12 text-tr-text-primary'
 const LINK = `text-12 font-medium text-tr-sky underline underline-offset-2 ${FOCUS}`
+const VERB = `rounded-card border border-tr-border-strong px-3 py-1 text-13 text-tr-text-primary hover:bg-tr-surface-sunken disabled:cursor-not-allowed disabled:opacity-50 ${FOCUS}`
+
+const AGO = new Intl.RelativeTimeFormat('en', { numeric: 'auto' })
+/** "Checked just now" / "Checked 5 minutes ago" / "Checked yesterday". */
+function checkedAgo(iso: string): string {
+  const minutes = Math.round((Date.now() - new Date(iso).getTime()) / 60_000)
+  if (!(minutes >= 1)) return 'Checked just now'
+  if (minutes < 60) return `Checked ${AGO.format(-minutes, 'minute')}`
+  const hours = Math.round(minutes / 60)
+  if (hours < 24) return `Checked ${AGO.format(-hours, 'hour')}`
+  return `Checked ${AGO.format(-Math.round(hours / 24), 'day')}`
+}
 
 /** One scene row ("n · Place" and its lines); a button that selects the
  * scene, or plain text when the scene isn't on this board. */
@@ -125,8 +142,9 @@ function NoteRows({
  * The nothing-selected panel (spec §4.7): title, logline and format, the
  * import's About and lead arcs when it read them (T10.6), then
  * the episode read side by side — acts, open threads, the secret, notes by
- * scene, who's in it, and the premises. Everything is derived from the board
- * model; nothing here calls a model (rule 8). No tiles, no scores.
+ * scene, craft notes, who's in it, and the premises. Everything is derived
+ * from the board model. Nothing here calls a model (rule 8) except Check
+ * craft, and only on the writer's click. No tiles, no scores.
  */
 export function EpisodeView({
   project,
@@ -139,6 +157,8 @@ export function EpisodeView({
   onOpenLedgerThreads,
   onSaveEpisodePremise,
   onSaveSeriesPremise,
+  craft,
+  onCheckCraft,
 }: EpisodeViewProps) {
   const { open, setOpen } = useSectionOpenState()
   const { format } = project
@@ -176,6 +196,17 @@ export function EpisodeView({
     }))
   const notedScenes = signals.filter((s) => storyLines(s).length).length
   const importCount = signals.reduce((n, s) => n + s.importNotes.length, 0)
+  const craftScenes = model.order.flatMap((s) => {
+    const sig = model.signals.get(s.id)
+    const n = sig?.storyNotes.filter((note) => note.kind === 'craft').length
+    return sig && n ? [{ sig, n }] : []
+  })
+  const craftCount = craftScenes.reduce((n, s) => n + s.n, 0)
+  const firstCraft = craftScenes[0]?.sig
+  // Goes once the contract's Episode.craftCheckedAt lands: read it directly.
+  const checkedAt =
+    (episode as Episode & { craftCheckedAt?: string | null }).craftCheckedAt ??
+    null
 
   const section = (
     id: Extract<PlanSectionId, `ep-${string}`>,
@@ -447,6 +478,51 @@ export function EpisodeView({
           </div>
         ),
         notedScenes,
+      )}
+
+      {section(
+        'ep-craft',
+        'Craft notes',
+        <div className="flex flex-col items-start gap-1.5">
+          <p className={QUIET}>
+            The AI reads the dialogue for lines that say the theme out loud or
+            say what a character is doing. Its notes are a reading: dismiss any
+            that don&apos;t fit.
+          </p>
+          <button
+            type="button"
+            disabled={craft.busy || pending}
+            onClick={onCheckCraft}
+            className={VERB}
+          >
+            {craft.busy ? 'Checking…' : 'Check craft'}
+          </button>
+          {craft.error && (
+            <p role="alert" className="text-12 text-tr-danger">
+              {craft.error}
+            </p>
+          )}
+          {(checkedAt || craftCount > 0 || craft.dismissed > 0) && (
+            <p className="text-13 text-tr-text-primary">
+              {craftCount > 0
+                ? plural(craftCount, 'craft note')
+                : 'No craft notes'}
+              {craft.dismissed > 0 && ` · ${craft.dismissed} dismissed`}
+            </p>
+          )}
+          {firstCraft && (
+            <button
+              type="button"
+              onClick={() => onSelectScene(firstCraft.scene.id)}
+              className={LINK}
+            >
+              Go to the first: scene {firstCraft.number}
+            </button>
+          )}
+          <p className={QUIET}>
+            {checkedAt ? checkedAgo(checkedAt) : 'Not checked yet'}
+          </p>
+        </div>,
       )}
 
       {section(

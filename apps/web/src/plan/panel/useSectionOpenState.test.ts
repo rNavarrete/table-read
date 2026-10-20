@@ -25,6 +25,7 @@ describe('useSectionOpenState', () => {
       'ep-threads': true,
       'ep-secret': true,
       'ep-notes': true,
+      'ep-craft': true,
       'ep-cast': true,
       'ep-premise': false,
     })
@@ -72,6 +73,7 @@ describe('useSectionOpenState', () => {
         'ep-threads': true,
         'ep-secret': true,
         'ep-notes': true,
+        'ep-craft': true,
         'ep-cast': true,
         'ep-premise': false,
       },
