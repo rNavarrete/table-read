@@ -109,6 +109,7 @@ function episode(overrides: Partial<Episode> = {}): Episode {
     storyOverview: null,
     narrativeMap: null,
     structureChecks: [],
+    characterArcs: [],
     ...overrides,
   }
 }
@@ -646,6 +647,9 @@ describe('ScenePanel', () => {
         logline: '',
         outline: [],
         summary: '',
+        dramaticQuestion: '',
+        centralArgument: '',
+        antiTheme: '',
         provenance: 'inferred',
         locked: false,
         beatSheet: [

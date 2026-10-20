@@ -50,8 +50,20 @@ function overview(overrides: Partial<StoryOverview> = {}): StoryOverview {
     logline:
       'When Marty finds an empty lab, he must locate Doc before the plan collapses.',
     outline: [
-      { sceneId: 'scene-1', summary: 'Marty calls for Doc.' },
-      { sceneId: 'scene-2', summary: 'The chase begins.' },
+      {
+        sceneId: 'scene-1',
+        summary: 'Marty calls for Doc.',
+        storyOrder: null,
+        storyTime: '',
+        anachrony: 'none',
+      },
+      {
+        sceneId: 'scene-2',
+        summary: 'The chase begins.',
+        storyOrder: null,
+        storyTime: '',
+        anachrony: 'none',
+      },
     ],
     beatSheet: [
       {
@@ -64,6 +76,9 @@ function overview(overrides: Partial<StoryOverview> = {}): StoryOverview {
     ],
     summary:
       'Marty rushes into an empty lab looking for Doc.\n\nFinding no one, he realizes the plan is already slipping away.',
+    dramaticQuestion: '',
+    centralArgument: '',
+    antiTheme: '',
     provenance: 'inferred',
     locked: false,
     ...overrides,

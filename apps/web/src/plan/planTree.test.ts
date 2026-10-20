@@ -119,6 +119,7 @@ function project(scenes: Scene[]): Project {
             storyOverview: null,
             narrativeMap: null,
             structureChecks: [],
+            characterArcs: [],
           },
         ],
       },

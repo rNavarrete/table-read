@@ -148,6 +148,7 @@ function model(
     storyOverview: null,
     narrativeMap: null,
     structureChecks: [],
+    characterArcs: [],
     ...extra,
   }
   const project: Project = {

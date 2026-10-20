@@ -113,6 +113,7 @@ function episode(scenes: Scene[], overrides: Partial<Episode> = {}): Episode {
     storyOverview: null,
     narrativeMap: null,
     structureChecks: [],
+    characterArcs: [],
     ...overrides,
   }
 }
@@ -283,6 +284,9 @@ function overview(beatSheet: StoryOverviewBeatItem[]): StoryOverview {
     outline: [],
     beatSheet,
     summary: '',
+    dramaticQuestion: '',
+    centralArgument: '',
+    antiTheme: '',
     provenance: 'inferred',
     locked: false,
   }
@@ -631,6 +635,9 @@ describe('landmarksForScene', () => {
           landmark('beat-4-1', 'BREAK INTO TWO', 'scene-4'),
         ],
         summary: '',
+        dramaticQuestion: '',
+        centralArgument: '',
+        antiTheme: '',
         provenance: 'inferred',
         locked: false,
       },

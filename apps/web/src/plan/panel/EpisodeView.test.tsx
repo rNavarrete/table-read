@@ -234,11 +234,15 @@ function episode(overrides: Partial<Episode> = {}): Episode {
         },
       ],
       summary: '',
+      dramaticQuestion: '',
+      centralArgument: '',
+      antiTheme: '',
       provenance: 'inferred',
       locked: false,
     },
     narrativeMap: null,
     structureChecks: [],
+    characterArcs: [],
     ...overrides,
   }
 }
