@@ -27,7 +27,10 @@ from typing import Any
 from drama_manager.structure_stages import STAGE_DEFINITIONS, STRUCTURE_NAMES, STRUCTURE_STAGES
 
 # Prompt spec §8 / hard rule 7: every template carries a PROMPT_VERSION (semver);
-# it is logged with each call and bumped on any template change. 0.59.0
+# it is logged with each call and bumped on any template change. 0.60.0
+# (T10.8) asks extract_ledger_facts how the audience receives each fact
+# (stated, shown or implied) and the first scene whose events need the
+# audience to know it. 0.59.0
 # (T10.6) asks infer_story_overview what the episode is about (dramatic
 # question, central argument, anti-theme), up to three principals' arcs (want,
 # need, lie, ghost, a continuum and where each one's head is at per scene) and
@@ -180,7 +183,7 @@ from drama_manager.structure_stages import STAGE_DEFINITIONS, STRUCTURE_NAMES, S
 # 0.10.0 typed segment starts; 0.9.0 lock-aware narrative repair. Earlier:
 # 0.8.0 suggest; 0.7.0 scene skeleton; 0.6.0 continuity; 0.5.0 regenerate;
 # 0.4.0 blast; 0.3.0 tune; 0.2.0 candidate + §0 system prompt.
-PROMPT_VERSION = "0.59.0"
+PROMPT_VERSION = "0.60.0"
 
 
 def new_nonce() -> str:
@@ -1170,7 +1173,16 @@ def build_extract_prompt(
         "those two kinds, belief says in a few words what the character takes "
         "to be true instead — the hunch or the false version — as a plain "
         "statement (\"the money went to the bank\", not \"thinks the money "
-        "went to the bank\"). Leave belief empty for every other kind."
+        "went to the bank\"). Leave belief empty for every other kind. "
+        "For each fact, delivery is how the audience receives it: stated — "
+        "said outright, in dialogue, voice-over, an insert or a super; shown "
+        "— seen in the picture without anyone saying it; implied — left for "
+        "the audience to put together, two plus two (use implied only when "
+        "the scene never says it outright). neededBySceneId is the sceneId, "
+        "from the episode above, of the first scene whose events depend on "
+        "the audience knowing this fact — it can come before this scene, "
+        "when the script holds the fact back until later — or null when no "
+        "scene depends on it."
     )
     return build_system_prompt(project, nonce), user
 

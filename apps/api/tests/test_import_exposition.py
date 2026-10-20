@@ -1,10 +1,17 @@
-"""T10.8 exposition audit: facts carry `delivery` and `neededBySceneId`
-through storage (old rows and dev DBs read null)."""
+"""T10.8 exposition audit: import keeps each fact's `delivery` and a
+`neededBySceneId` that names a scene of the episode (anything else is
+nulled, counted in the log without the text), and storage carries both (old
+rows and dev DBs read null)."""
 
 from __future__ import annotations
 
+import logging
+
 from sqlalchemy import create_engine, inspect, text
 
+from fountain import pipeline
+from llm.mock import MockLlmClient
+from schemas import LedgerExtraction
 from storage import db
 from storage.models import LedgerFactRow
 
@@ -45,3 +52,55 @@ def test_storage_upgrade_adds_the_columns_to_an_old_dev_db(tmp_path, monkeypatch
 
     columns = {column["name"] for column in inspect(engine).get_columns("ledger_facts")}
     assert {"delivery", "needed_by_scene_id"} <= columns
+
+
+def _extracted(**read) -> dict:
+    return {
+        "fact": "Dan hid the money.",
+        "factType": "event",
+        "sourceSpan": {
+            "episodeId": "ep-1",
+            "sceneId": "scene-1",
+            "beatId": "beat-1-1",
+            "startLine": 1,
+            "endLine": 1,
+        },
+        "sourceText": "",
+        "knownBy": [],
+        "audienceKnows": True,
+        "confidence": 0.95,
+        **read,
+    }
+
+
+def test_import_keeps_delivery_and_nulls_a_need_outside_the_episode(caplog):
+    extraction = LedgerExtraction.model_validate(
+        {
+            "newFacts": [
+                _extracted(delivery="stated", neededBySceneId="scene-2"),
+                _extracted(delivery="implied", neededBySceneId="scene-99"),
+                _extracted(),
+            ],
+            "contradictions": [],
+        }
+    )
+
+    with caplog.at_level(logging.INFO, logger="fountain.pipeline"):
+        facts, _cast = pipeline._assemble_facts(
+            [extraction], [], "", {}, {"scene-1", "scene-2"}
+        )
+
+    assert [(f["delivery"], f["neededBySceneId"]) for f in facts] == [
+        ("stated", "scene-2"),
+        ("implied", None),
+        (None, None),
+    ]
+    assert "import_fact_needs nulled=1" in caplog.text
+    assert "scene-99" not in caplog.text and "money" not in caplog.text
+
+
+def test_the_mock_extraction_returns_a_delivery_and_a_need():
+    (fact,) = MockLlmClient().extract_ledger_facts(
+        system="", user_message="", prompt_version="test"
+    ).new_facts
+    assert (fact.delivery, fact.needed_by_scene_id) == ("shown", "scene-3")

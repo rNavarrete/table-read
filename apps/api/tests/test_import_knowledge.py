@@ -65,7 +65,7 @@ def test_a_belief_survives_only_on_suspects_and_misinformed(caplog):
     )
 
     with caplog.at_level(logging.INFO, logger="fountain.pipeline"):
-        (fact,), _cast = pipeline._assemble_facts([extracted], [], "", {})
+        (fact,), _cast = pipeline._assemble_facts([extracted], [], "", {}, set())
 
     assert [e["belief"] for e in fact["knowledgeEvents"]] == [
         "",

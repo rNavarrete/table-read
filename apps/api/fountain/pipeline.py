@@ -873,7 +873,11 @@ def analyze_import(
     def assemble_and_start_scan() -> None:
         nonlocal assembled, get_scan
         assembled = _assemble_facts(
-            cast(list[LedgerExtraction], extractions), characters, content, beat_index
+            cast(list[LedgerExtraction], extractions),
+            characters,
+            content,
+            beat_index,
+            set(scene_index_by_id),
         )
         if scan is None:
             facts_now, cast_now = assembled
@@ -1853,18 +1857,24 @@ def _assemble_facts(
     characters: list[dict],
     content: str,
     beat_index: dict,
+    scene_ids: set[str],
 ) -> tuple[list[dict], list[dict]]:
     """Ledger facts from every scene's extraction, in scene order, with
     `knownBy` and knowledge-event names resolved against `characters`, and
     that cast, grown by any knower minted on the way. Pure: the caller
     installs the cast on the bible, after the threads merge (which resolves
-    names against the cast as it stood before facts)."""
+    names against the cast as it stood before facts). A `neededBySceneId`
+    outside `scene_ids` (this episode's scenes) is nulled (T10.8)."""
     new_facts: list[dict] = []
     fact_minter = IdMinter([], "fact-")
     blanked = 0
+    unknown_needs = 0
     for extraction in extractions:
         for ef in extraction.new_facts:
             fact = _to_ledger_fact(ef, fact_minter.mint(), beat_index)
+            if fact["neededBySceneId"] is not None and fact["neededBySceneId"] not in scene_ids:
+                fact["neededBySceneId"] = None
+                unknown_needs += 1
             normalized, characters = normalize_known_by(
                 fact["knownBy"], characters, content
             )
@@ -1891,6 +1901,9 @@ def _assemble_facts(
             new_facts.append(fact)
     _logger.info(
         "import_fact_beliefs blanked=%d prompt_version=%s", blanked, render.PROMPT_VERSION
+    )
+    _logger.info(
+        "import_fact_needs nulled=%d prompt_version=%s", unknown_needs, render.PROMPT_VERSION
     )
     return new_facts, characters
 
@@ -2302,6 +2315,8 @@ def _to_ledger_fact(extracted, fact_id: str, beat_index: dict) -> dict:
         "knownBy": dump["knownBy"],
         "knowledgeEvents": dump["knowledgeEvents"],
         "audienceKnows": dump["audienceKnows"],
+        "delivery": dump["delivery"],
+        "neededBySceneId": dump["neededBySceneId"],
         "provenance": "inferred",
         "confidence": dump["confidence"],
         "status": "active" if active else "pending_review",

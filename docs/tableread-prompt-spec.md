@@ -235,6 +235,8 @@ Purpose: continuity extraction after each accepted change. Model: `classifier` r
         }
       ],
       "audienceKnows": true,
+      "delivery": "stated | shown | implied | null",
+      "neededBySceneId": "sceneId of the first scene that needs it, or null",
       "confidence": 0.0
     }
   ],
@@ -255,6 +257,8 @@ Purpose: continuity extraction after each accepted change. Model: `classifier` r
 `knowledgeEvents` (T7.23, optional, empty array is the common case) lets the model note a knowledge-state change for _this_ new fact beyond its baseline `knownBy` — e.g. a character learning it later in the same batch of scene beats. Names, not ids, same convention as `knownBy`; the server resolves each name the same way (`fountain.characters.normalize_known_by`) and drops unresolvable/audience tokens. First cut: this is the only extraction-time surface for knowledge transitions — a dedicated `infer_knowledge_events` classifier op is deferred until this proves insufficient (design doc T7.23).
 
 `belief` (`PROMPT_VERSION 0.57.0`, T10.4) says, for `suspects` and `misinformed`, what the character holds true instead, as a plain statement ("the money went to the bank"; the UI reads "Dan believes: …"); the server blanks it on every other kind. The model never names a secret: import links `Secret.factId` server-side by beat once threads and facts have both merged (owner decision 2026-10-19, so extraction keeps running beside threads) — see the T10.4 rules in `docs/superpowers/specs/2026-10-19-breakdown-ledgers-p1-design.md`.
+
+`delivery` and `neededBySceneId` (`PROMPT_VERSION 0.60.0`, T10.8, the exposition audit): delivery is how the audience receives the fact — **stated** (said outright: dialogue, voice-over, an insert or a super), **shown** (seen in the picture without anyone saying it) or **implied** (left for the audience to put together, two plus two; only when the scene never says it outright); `neededBySceneId` is the first scene, from the episode in the cached prefix, whose events depend on the audience knowing the fact — it may precede the delivering scene (delayed exposition) — or null. Import nulls a `neededBySceneId` that is not a scene of the episode and logs the count only (`import_fact_needs nulled=n`). Beat accept and Change Set re-extraction ask the same question but keep neither field (their facts read null): the delta has no episode list to check a scene against. Mode, speaker, the delivery-to-need gap and the two observations ("As you know", told to someone who already knew) are derived in the client from the source lines and the as-of knower fold, never asked of the model. Both fields default null, so a pre-0.60.0 response or checkpoint parses. `max_tokens` stays 16,384: the two fields add roughly 15–20 output tokens per fact, a few hundred on a dense scene.
 
 Server-side policy (not the model's job): `confidence < 0.8` → review queue, excluded from prompts; each contradiction becomes a **supersede proposal** — a new `pending_review` fact with `supersedes` set — the existing fact keeps `status: active` until the writer resolves it; `provenance`, `status`, and supersede links are always assigned server-side, never by the model.
 

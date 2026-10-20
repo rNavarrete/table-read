@@ -147,7 +147,8 @@ def _default_responses() -> dict[str, BaseModel]:
         # starts as just Marta) plus a knowledgeEvents entry showing Dan
         # learning it later, by name — exercising the extract-time
         # knowledge-transition path (design doc T7.23 acceptance #2). T10.4:
-        # Reyes suspects, with what he takes to be true instead.
+        # Reyes suspects, with what he takes to be true instead. T10.8: shown,
+        # and needed in the scene that shows it.
         "extract_ledger_facts": LedgerExtraction(
             newFacts=[
                 {
@@ -178,6 +179,8 @@ def _default_responses() -> dict[str, BaseModel]:
                         },
                     ],
                     "audienceKnows": True,
+                    "delivery": "shown",
+                    "neededBySceneId": "scene-3",
                     "confidence": 0.9,
                 }
             ],
