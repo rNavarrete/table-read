@@ -372,7 +372,9 @@ def analyze_import(
         yield ImportStageProgress(STAGE_INFERRING_ACTS, 0, 1)
         prompt_kwargs: dict = (
             {
-                "printed": (printed.act_count, printed.cold_open) if printed else None,
+                "printed": (
+                    (printed.act_count, printed.cold_open, printed.tag) if printed else None
+                ),
                 "source_chars": len(content),
             }
             if infer_format
@@ -410,6 +412,7 @@ def analyze_import(
                     **inferred_format,
                     "actCount": printed.act_count,
                     "coldOpen": printed.cold_open,
+                    "tag": printed.tag,
                 }
             project_doc = {**project_doc, "format": inferred_format}
         if printed is not None and printed.scene_acts is not None:

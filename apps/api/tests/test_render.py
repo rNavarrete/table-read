@@ -160,6 +160,7 @@ def test_act_inference_prompt_wraps_compact_summaries_and_format():
             "runtimeMinutes": 60,
             "actCount": 5,
             "coldOpen": True,
+            "tag": False,
         },
     }
     summaries = [
@@ -181,7 +182,23 @@ def test_act_inference_prompt_wraps_compact_summaries_and_format():
     assert "startSceneIndex" in user
     assert "Return starts only" in user
     assert "do not return scene ids, end indices, or per-scene assignments" in user
-    assert "Do not infer a TAG" in user
+    assert "This format has no tag: never start one." in user
+
+
+def test_act_inference_prompt_offers_the_tag_only_when_the_format_has_one():
+    """T10.7: the tag is act actCount + 1, started only at the short coda after
+    the final act's climax; a format with no tag never starts one."""
+    fmt = {"runtimeMinutes": 30, "actCount": 2, "coldOpen": False, "tag": True}
+    _system, user = render.build_act_inference_prompt(
+        {"title": "T", "format": fmt},
+        [{"sceneIndex": 0, "location": "INT. BAR", "beats": []}],
+        _NONCE,
+    )
+    assert "act values 0 through 1" in user
+    assert "This format has a tag, act 3: start it only at the last scene" in user
+    assert "omit it when the script has none" in user
+    assert '"tag": true' in user
+    assert "never start one" not in user
 
 
 def test_act_inference_prompt_omits_adversarial_title_but_preserves_format():
@@ -192,6 +209,7 @@ def test_act_inference_prompt_omits_adversarial_title_but_preserves_format():
             "runtimeMinutes": 60,
             "actCount": 5,
             "coldOpen": True,
+            "tag": False,
         },
     }
 
@@ -252,6 +270,7 @@ def test_act_inference_retry_prompt_contains_inert_diagnostics():
             "runtimeMinutes": 30,
             "actCount": 2,
             "coldOpen": False,
+            "tag": False,
         },
     }
     _system, user = render.build_act_inference_retry_prompt(
