@@ -39,7 +39,7 @@ function renderBar(props: Partial<ComponentProps<typeof HighlightBar>> = {}) {
 }
 
 describe('HighlightBar', () => {
-  it("offers None, Setups & payoffs, The secret, Continuity, Act shape and Who's in it, with scene counts; the active one is pressed", () => {
+  it("offers None, Setups & payoffs, The secret, Continuity, Act shape, Turns, Clashes, Who knows and Who's in it, with scene counts; the active one is pressed", () => {
     renderBar({ highlight: { kind: 'acts', who: null } })
     const group = screen.getByRole('group', { name: 'Highlight' })
     const buttons = within(group).getAllByRole('button')
@@ -49,6 +49,9 @@ describe('HighlightBar', () => {
       'The secret 0',
       'Continuity 0',
       'Act shape 5',
+      'Turns 1',
+      'Clashes 3',
+      'Who knows 0',
       "Who's in it 5",
     ])
     expect(buttons.map((b) => b.getAttribute('aria-pressed'))).toEqual([
@@ -57,6 +60,9 @@ describe('HighlightBar', () => {
       'false',
       'false',
       'true',
+      'false',
+      'false',
+      'false',
       'false',
     ])
   })

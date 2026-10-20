@@ -25,6 +25,9 @@ const KINDS: HighlightKind[] = [
   'secret',
   'continuity',
   'acts',
+  'turns',
+  'clash',
+  'knows',
   'who',
 ]
 

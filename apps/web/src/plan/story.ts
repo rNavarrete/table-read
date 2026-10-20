@@ -1,9 +1,11 @@
 import type {
   Beat,
   Character,
+  Charge,
   ConsistencyFlag,
   Episode,
   LedgerFact,
+  Motivation,
   Project,
   Scene,
   Secret,
@@ -545,6 +547,131 @@ export function knowledgeModes(
   }
 }
 
+// ── At a glance (T10.12) ────────────────────────────────────────────────
+
+const CHARGE: Record<Charge, { glyph: string; word: string }> = {
+  positive: { glyph: '+', word: 'positive' },
+  negative: { glyph: '−', word: 'negative' },
+  mixed: { glyph: '±', word: 'mixed' },
+}
+
+/** A scene's turn as the import read it (T10.1). Never a grade: it states
+ * the charges, it does not judge the turn. */
+export interface SceneTurn {
+  /** valueAtStake with its first letter capitalized; '' when unread. */
+  stake: string
+  /** [shown, spoken]: "− → +" / "negative to positive", "holds at −" when in
+   * and out match, one side alone as "opens …" / "closes …"; null when
+   * neither charge was read. */
+  charges: [string, string] | null
+  /** Both charges read and the same. */
+  holds: boolean
+}
+
+/** Null when the scene has neither a value at stake nor a charge. The turn
+ * fields default in the contract but can be missing from a raw PATCH doc,
+ * hence the falsy checks. */
+export function sceneTurn(scene: Scene): SceneTurn | null {
+  const stake = scene.valueAtStake
+    ? scene.valueAtStake[0].toUpperCase() + scene.valueAtStake.slice(1)
+    : ''
+  const from = scene.chargeIn ? CHARGE[scene.chargeIn] : null
+  const to = scene.chargeOut ? CHARGE[scene.chargeOut] : null
+  const holds = !!from && from === to
+  const charges: [string, string] | null =
+    from && to
+      ? holds
+        ? [`holds at ${from.glyph}`, `holds at ${from.word}`]
+        : [`${from.glyph} → ${to.glyph}`, `${from.word} to ${to.word}`]
+      : from
+        ? [`opens ${from.glyph}`, `opens ${from.word}`]
+        : to
+          ? [`closes ${to.glyph}`, `closes ${to.word}`]
+          : null
+  return stake || charges ? { stake, charges, holds } : null
+}
+
+/** Two characters whose wants in this scene collide; `a` comes first in
+ * the scene's want order. */
+export interface SceneClash {
+  a: Motivation
+  b: Motivation
+}
+
+const TITLES = new Set(['Mr', 'Mrs', 'Ms', 'Miss', 'Dr', 'Principal', 'Coach'])
+
+/** The words that name a character in prose: the full name and aliases,
+ * plus each capitalized word of 3+ letters in them that is not a title or a
+ * possessive ("Lisa's classmates" names the classmates, not Lisa). */
+function nameWords(character: Character): string[] {
+  const full = [character.name, ...(character.aliases ?? [])].filter(Boolean)
+  const words = full.flatMap((n) =>
+    n.split(/\s+/).filter((w) => /^[A-Z][\w-]{2,}$/.test(w) && !TITLES.has(w)),
+  )
+  return [...new Set([...full, ...words])]
+}
+
+/** A tape-short name: the first word that isn't a title ("Mr. Bergstrom" →
+ * "Bergstrom", "Marta Vega" → "Marta"), else the whole name. */
+function shortName(name: string): string {
+  return (
+    name.split(/\s+/).find((w) => w && !TITLES.has(w.replace(/\.$/, ''))) ??
+    name
+  )
+}
+
+const escapeRegExp = (text: string) =>
+  text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+/** `text` names `character` as a whole word ("Skinner's doubts" names
+ * Skinner; "Skinnerian" does not). */
+function names(text: string, character: Character | undefined): boolean {
+  if (!character || !text) return false
+  return nameWords(character).some((word) =>
+    new RegExp(`(?<!\\w)${escapeRegExp(word)}(?!\\w)`).test(text),
+  )
+}
+
+/** Wants that collide in this scene (T10.12): two characters who both want
+ * something here, where one's obstacle names the other, or each acts on the
+ * other in the scene's beats (actor → target, T10.1). A character's first
+ * want stands for them. Derived here, never asked of the model.
+ * ponytail: names are matched as words in free-text obstacles, so a
+ * nickname or pronoun the cast doesn't list is missed; an import field
+ * naming the opponent would replace it (a prompt and schema change). */
+export function sceneClashes(
+  scene: Scene,
+  characters: Character[],
+): SceneClash[] {
+  const seen = new Set<string>()
+  const first = (scene.motivations ?? []).filter(
+    (m) => !seen.has(m.characterId) && !!seen.add(m.characterId),
+  )
+  const acts = new Set(
+    (scene.beats ?? []).flatMap((b) =>
+      b.actorCharacterId && b.targetCharacterId
+        ? [`${b.actorCharacterId}>${b.targetCharacterId}`]
+        : [],
+    ),
+  )
+  const byId = new Map(characters.map((c) => [c.id, c]))
+  const out: SceneClash[] = []
+  for (let i = 0; i < first.length; i++) {
+    for (let j = i + 1; j < first.length; j++) {
+      const a = first[i]
+      const b = first[j]
+      const named =
+        names(a.obstacle, byId.get(b.characterId)) ||
+        names(b.obstacle, byId.get(a.characterId))
+      const mutual =
+        acts.has(`${a.characterId}>${b.characterId}`) &&
+        acts.has(`${b.characterId}>${a.characterId}`)
+      if (named || mutual) out.push({ a, b })
+    }
+  }
+  return out
+}
+
 // ── Exposition (T10.8) ──────────────────────────────────────────────────
 
 /** "As you know, Bob": told-you-so phrases, found case-insensitively in a
@@ -915,6 +1042,13 @@ export interface SceneSignals {
   scriptLength: number
   /** Order notes for this scene on either side of a problem, issue order. */
   orderNotes: OrderNote[]
+  /** sceneTurn(scene) (T10.12). */
+  turn: SceneTurn | null
+  /** sceneClashes(scene, characters) (T10.12). */
+  clashes: SceneClash[]
+  /** knowledgeModes against castIds (T10.12); null when no fact is in play
+   * or the ledger wasn't given. */
+  knowledge: KnowledgeModes | null
 }
 
 export interface ActLandmark {
@@ -992,11 +1126,13 @@ function markedLandmarks(
 }
 
 /** Everything the board, act headers, highlight bar and Episode view read,
- * derived once per project/flags change (PlanScreen memoizes it). */
+ * derived once per project/flags/ledger change (PlanScreen memoizes it).
+ * The ledger feeds only the Who knows lens. */
 export function boardModel(
   project: Project,
   episode: Episode,
   flags: readonly ConsistencyFlag[],
+  ledger: readonly LedgerFact[] = [],
 ): BoardModel {
   const order = boardOrder(episode.scenes)
   const ids = new Set(order.map((s) => s.id))
@@ -1020,6 +1156,9 @@ export function boardModel(
     )
     const wantIds = [...new Set(scene.motivations.map((m) => m.characterId))]
     const cued = new Set(castFromDialogue(scene, characters).map((c) => c.id))
+    const castIds = characters
+      .filter((c) => cued.has(c.id) || wantIds.includes(c.id))
+      .map((c) => c.id)
     return {
       scene,
       number: scene.index + 1,
@@ -1047,9 +1186,7 @@ export function boardModel(
       secret: secretsForScene(episode, scene.id, new Set())[0]?.role ?? null,
       landmark: marked.find((m) => m.sceneId === scene.id)?.label ?? null,
       actOut: order[i + 1]?.act !== scene.act && scene.act !== tag,
-      castIds: characters
-        .filter((c) => cued.has(c.id) || wantIds.includes(c.id))
-        .map((c) => c.id),
+      castIds,
       wantIds,
       scriptLength: scene.beats.reduce(
         (n, b) => n + (b.scriptText ?? '').length,
@@ -1074,6 +1211,11 @@ export function boardModel(
           },
         ]
       }),
+      turn: sceneTurn(scene),
+      clashes: sceneClashes(scene, characters),
+      knowledge: ledger.length
+        ? knowledgeModes(episode, ledger, scene.id, new Set(castIds))
+        : null,
     }
   })
 
@@ -1215,7 +1357,15 @@ export function selectionAnnouncement(
 // ── Highlights ──────────────────────────────────────────────────────────
 
 export type HighlightKind =
-  'none' | 'threads' | 'secret' | 'continuity' | 'acts' | 'who'
+  | 'none'
+  | 'threads'
+  | 'secret'
+  | 'continuity'
+  | 'acts'
+  | 'turns'
+  | 'clash'
+  | 'knows'
+  | 'who'
 export interface Highlight {
   kind: HighlightKind
   /** Character id for Who's in it; null otherwise or before one is chosen. */
@@ -1230,6 +1380,9 @@ export const HIGHLIGHT_LABELS: Record<HighlightKind, string> = {
   secret: 'The secret',
   continuity: 'Continuity',
   acts: 'Act shape',
+  turns: 'Turns',
+  clash: 'Clashes',
+  knows: 'Who knows',
   who: "Who's in it",
 }
 
@@ -1243,6 +1396,9 @@ export const HIGHLIGHT_TONE: Record<
   secret: 'secret',
   continuity: 'amber',
   acts: 'accent',
+  turns: 'accent',
+  clash: 'accent',
+  knows: 'secret',
   who: 'sky',
 }
 
@@ -1258,6 +1414,9 @@ export function highlightTape(
   if (!s || highlight.kind === 'none') return null
   const tone = HIGHLIGHT_TONE[highlight.kind]
   const tape = (text: string | null) => (text ? { text, tone } : null)
+  // Short names: a tape is one truncated line.
+  const short = (id: string) =>
+    shortName(model.characters.find((c) => c.id === id)?.name ?? id)
   switch (highlight.kind) {
     case 'threads': {
       const total = s.setsUp.length + s.paysOff.length
@@ -1293,6 +1452,38 @@ export function highlightTape(
               ? 'ACT SPLIT?'
               : null),
       )
+    case 'turns':
+      // T10.12: every scene with read charges states its turn; one that holds
+      // wears sky so the flat stretches show at a glance, stated, not graded.
+      return s.turn?.charges
+        ? {
+            text: [s.turn.stake, s.turn.charges[0]].filter(Boolean).join(' '),
+            tone: s.turn.holds ? 'sky' : tone,
+          }
+        : null
+    case 'clash': {
+      const [first, ...rest] = s.clashes
+      return tape(
+        first
+          ? `${short(first.a.characterId)} vs ${short(first.b.characterId)}` +
+              (rest.length ? ` +${rest.length}` : '')
+          : null,
+      )
+    }
+    case 'knows': {
+      // Who is in the dark, so the board traces one character's ignorance
+      // scene by scene: dramatic irony names the first character (+n), a
+      // mystery the audience. A scene with both shows its irony; the panel
+      // header states both.
+      const [first, ...more] = s.knowledge?.irony ?? []
+      return tape(
+        first
+          ? `${short(first)}${more.length ? ` +${more.length}` : ''} in the dark`
+          : s.knowledge?.mystery.length
+            ? 'Audience in the dark'
+            : null,
+      )
+    }
     case 'who': {
       // ponytail: presence = a dialogue cue or a recorded want; a character
       // who is in the scene but never speaks and wants nothing is missed.

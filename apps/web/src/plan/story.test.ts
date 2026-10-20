@@ -44,6 +44,8 @@ import {
   predictionTape,
   predictMove,
   relationTape,
+  sceneClashes,
+  sceneTurn,
   secretsForScene,
   selectionAnnouncement,
   threadsForScene,
@@ -2288,5 +2290,190 @@ describe('missing story data', () => {
     // Act shape still rings each act's last scene: position, not story data.
     expect(highlightCount(model, { kind: 'acts', who: null })).toBe(2)
     expect(castCounts(model)).toEqual([{ character: marta, scenes: 1 }])
+  })
+})
+
+describe('at a glance (T10.12)', () => {
+  const bergstrom = character('char-berg', 'Mr. Bergstrom', ['Bergstrom'])
+  const skinner = character('char-skinner', 'Principal Skinner')
+  const lisa = character('char-lisa', 'Lisa')
+  const classmates = character('char-class', "Lisa's classmates")
+  const cast = [bergstrom, skinner, lisa, classmates]
+  const wants = (rows: [string, string][]): Motivation[] =>
+    rows.map(([characterId, obstacle]) => ({ ...want(characterId), obstacle }))
+
+  it('states the turn: charges shown and spoken, holds, or one side alone', () => {
+    const turn = (o: Partial<Scene>) => sceneTurn(scene('scene-1', 0, o))
+    expect(
+      turn({
+        valueAtStake: 'trust',
+        chargeIn: 'negative',
+        chargeOut: 'positive',
+      }),
+    ).toEqual({
+      stake: 'Trust',
+      charges: ['− → +', 'negative to positive'],
+      holds: false,
+    })
+    expect(turn({ chargeIn: 'mixed', chargeOut: 'mixed' })).toEqual({
+      stake: '',
+      charges: ['holds at ±', 'holds at mixed'],
+      holds: true,
+    })
+    expect(turn({ chargeOut: 'negative' })?.charges).toEqual([
+      'closes −',
+      'closes negative',
+    ])
+    expect(turn({ valueAtStake: 'order' })).toEqual({
+      stake: 'Order',
+      charges: null,
+      holds: false,
+    })
+    expect(turn({})).toBeNull()
+  })
+
+  it("finds a clash when one want's obstacle names the other character", () => {
+    const s = scene('scene-1', 0, {
+      motivations: wants([
+        ['char-berg', "Skinner's doubts at first, then a silent class"],
+        ['char-skinner', 'The strange costume'],
+      ]),
+    })
+    const [clash, ...rest] = sceneClashes(s, cast)
+    expect(rest).toEqual([])
+    expect([clash.a.characterId, clash.b.characterId]).toEqual([
+      'char-berg',
+      'char-skinner',
+    ])
+  })
+
+  it('finds a clash when two characters act on each other in the beats', () => {
+    const s = scene('scene-1', 0, {
+      motivations: wants([
+        ['char-lisa', 'Her own nerves'],
+        ['char-berg', 'A class that will not answer'],
+      ]),
+      beats: [
+        beat('b1', 0, {
+          actorCharacterId: 'char-berg',
+          targetCharacterId: 'char-lisa',
+        }),
+        beat('b2', 1, {
+          actorCharacterId: 'char-lisa',
+          targetCharacterId: 'char-berg',
+        }),
+      ],
+    })
+    expect(sceneClashes(s, cast)).toHaveLength(1)
+  })
+
+  it('needs both sides to want something, and a real name, not a possessive or a title', () => {
+    const one = scene('scene-1', 0, {
+      motivations: wants([['char-lisa', "Bergstrom's gentle pressure"]]),
+    })
+    expect(sceneClashes(one, cast)).toEqual([])
+    const possessive = scene('scene-2', 1, {
+      motivations: wants([
+        ['char-class', 'Nothing much'],
+        ['char-skinner', "Lisa's hurt"],
+      ]),
+    })
+    // "Lisa's hurt" names Lisa, not "Lisa's classmates".
+    expect(sceneClashes(possessive, cast)).toEqual([])
+    const title = scene('scene-3', 2, {
+      motivations: wants([
+        ['char-lisa', 'The Principal of the thing'],
+        ['char-skinner', 'Paperwork'],
+      ]),
+    })
+    expect(sceneClashes(title, cast)).toEqual([])
+    const oneWay = scene('scene-4', 3, {
+      motivations: wants([
+        ['char-lisa', 'Nerves'],
+        ['char-berg', 'Silence'],
+      ]),
+      beats: [
+        beat('b1', 0, {
+          actorCharacterId: 'char-berg',
+          targetCharacterId: 'char-lisa',
+        }),
+      ],
+    })
+    expect(sceneClashes(oneWay, cast)).toEqual([])
+  })
+
+  it('tapes each lens: the turn (sky when it holds), the clash, the knowledge mode', () => {
+    const ep = episode([
+      scene('scene-1', 0, {
+        valueAtStake: 'recognition',
+        chargeIn: 'negative',
+        chargeOut: 'positive',
+        motivations: wants([
+          ['char-berg', 'Skinner at the door'],
+          ['char-skinner', 'A cowboy in the hall'],
+        ]),
+      }),
+      scene('scene-2', 1, {
+        valueAtStake: 'approval',
+        chargeIn: 'positive',
+        chargeOut: 'positive',
+      }),
+      scene('scene-3', 2, {
+        motivations: [want('char-lisa')],
+      }),
+    ])
+    const hidden = { ...fact('fact-1', 'scene-3', 'active'), knownBy: [] }
+    const model = boardModel(project(ep, {}, cast), ep, [], [hidden])
+    const turns: Highlight = { kind: 'turns', who: null }
+    expect(highlightTape(model, 'scene-1', turns)).toEqual({
+      text: 'Recognition − → +',
+      tone: 'accent',
+    })
+    expect(highlightTape(model, 'scene-2', turns)).toEqual({
+      text: 'Approval holds at +',
+      tone: 'sky',
+    })
+    expect(highlightTape(model, 'scene-3', turns)).toBeNull()
+    expect(highlightCount(model, turns)).toBe(2)
+
+    const clash: Highlight = { kind: 'clash', who: null }
+    expect(highlightTape(model, 'scene-1', clash)?.text).toBe(
+      'Bergstrom vs Skinner',
+    )
+    expect(highlightCount(model, clash)).toBe(1)
+
+    // Lisa is present (a want) and doesn't know a fact the audience does.
+    const knows: Highlight = { kind: 'knows', who: null }
+    expect(highlightTape(model, 'scene-3', knows)).toEqual({
+      text: 'Lisa in the dark',
+      tone: 'secret',
+    })
+    expect(highlightCount(model, knows)).toBe(1)
+    expect(highlightAnnouncement(model, knows)).toBe(
+      'Highlight: Who knows. 1 scene matches.',
+    )
+  })
+
+  it('Who knows names the audience for a mystery', () => {
+    const ep = episode([
+      scene('scene-1', 0, { motivations: [want('char-lisa')] }),
+    ])
+    const secret = {
+      ...fact('fact-1', 'scene-1', 'active'),
+      audienceKnows: false,
+      knownBy: ['char-lisa'],
+    }
+    const model = boardModel(project(ep, {}, cast), ep, [], [secret])
+    expect(
+      highlightTape(model, 'scene-1', { kind: 'knows', who: null })?.text,
+    ).toBe('Audience in the dark')
+  })
+
+  it('without a ledger, Who knows matches nothing', () => {
+    const ep = episode([
+      scene('scene-1', 0, { motivations: [want('char-lisa')] }),
+    ])
+    const model = boardModel(project(ep, {}, cast), ep, [])
+    expect(highlightCount(model, { kind: 'knows', who: null })).toBe(0)
   })
 })

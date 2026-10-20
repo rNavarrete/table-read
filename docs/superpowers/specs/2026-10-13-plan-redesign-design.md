@@ -88,6 +88,9 @@ The writer comes to Plan for four jobs:
 | The secret | scenes where the secret is set, kept or out | "◆ set / ◆ kept / ◇ out" |
 | Continuity | story continuity notes + live order problems | "⚑ continuity" / "⚠ order" |
 | Act shape | act outs, landmarks, act-split notes | "ACT OUT", landmark name, "ACT SPLIT?" |
+| Turns (T10.12) | scenes whose charges were read | "Value − → +" (accent); sky "Value holds at +" when the charge doesn't change, stated, never graded |
+| Clashes (T10.12) | scenes where two characters' wants collide: both want something there, and one's obstacle names the other or each acts on the other in its beats (derived in `story.ts`, no request) | "Bergstrom vs Skinner" (short names, "+n" for more) |
+| Who knows (T10.12) | scenes with dramatic irony or a mystery (`knowledgeModes`) | "Name +n in the dark", or "Audience in the dark" for a mystery (secret tone) |
 | Who's in it ▾ | a character's scenes (dialogue cues + recorded wants, labelled as such) | "NAME · wants" |
 
 - Every count means "scenes that match". Import-gap measures ("missing wants", "unconfirmed facts") are not highlights; facts are audited in Ledger.
@@ -105,6 +108,8 @@ The writer comes to Plan for four jobs:
 - **Act split:** Change the act · Looks right — dismiss.
 - **Order (computed, §4.8):** cannot be dismissed; clears when fixed. Go to scene n · Undo the move. A new order problem opens the strip.
 - **From the import · n** (collapsed group): plain-language text ("The import couldn't place script lines a–b and kept them in beat n"), never the raw `[model_unassigned]` marker. Open beat in Write · Looks right — dismiss.
+
+**At a glance** (T10.12; `data-testid="at-a-glance"`, renders only when the scene has one of its readings): the scene's answers to the craft checks before any section, read-only and derived with no request — **The turn** (value at stake and charges, the glyphs larger in accent ink, spoken as words), **Why now**, **Clash** (each colliding pair as two stacked "Name wants …" boxes with a "vs" chip between, labelled "From their wants and beats"), **Who knows** (a Dramatic irony / Mystery chip, then ● for who knows and ○ for who is in the dark, with a spoken sentence). The turn and Why now live only here.
 
 **Sections** (native `<details>`, open/closed persisted per viewer):
 1. **What the scene does** (steers Next Beat): what happens (15px, marked structural, auto-grow) with today's structural footer (**Open Review** / Save field only / Discard) and an explicit **Suggest…** button for the A4 chips; the landmark callout where the beat sheet marks one; **The audience** — Learns / Feels as a compact grid, each editable in place.

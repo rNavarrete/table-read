@@ -369,9 +369,17 @@ describe('ScenePanel', () => {
     renderPanel({
       ledger: [fact({ audienceKnows: false, knownBy: ['char-marta'] })],
     })
-    expect(screen.getByText('Mystery').parentElement?.textContent).toBe(
+    const touches = within(
+      document.getElementById('plan-section-touches') as HTMLElement,
+    )
+    expect(touches.getByText('Mystery').parentElement?.textContent).toBe(
       "Mystery — Marta Vega knows; the audience doesn't.",
     )
+    // T10.12: the panel header leads with the same reading.
+    const glance = within(screen.getByRole('region', { name: 'At a glance' }))
+    expect(
+      glance.getByText("Marta Vega knows; the audience doesn't."),
+    ).not.toBeNull()
   })
 
   it('reads under each fact how it reaches the audience (T10.8)', () => {
