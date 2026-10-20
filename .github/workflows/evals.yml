@@ -15,18 +15,15 @@
 # Best-effort / untested-here: committed unproven (no CI existed). Requires the
 # repo secret ANTHROPIC_API_KEY; the report artifact is uploaded for review. The
 # uploaded artifact is rule-5-safe (ids/counts/scores only — see harness.py).
+#
+# ON HOLD (owner, 2026-10-11; triggers off 2026-10-19): evals are paused until
+# they are redesigned (they hang and cost money for little signal), and the repo
+# has no ANTHROPIC_API_KEY secret, so every scheduled and push run failed before
+# calling the API. Only the manual trigger is left; restore `schedule` and
+# `push` (the trigger contract above) with the redesign.
 name: evals
 
 on:
-  schedule:
-    - cron: '0 7 * * *'
-  push:
-    branches: [main]
-    paths:
-      - apps/api/drama_manager/render.py
-      - config/models.toml
-      - config/tool_schemas/**
-      - docs/tableread-prompt-spec.md
   workflow_dispatch:
 
 jobs:
