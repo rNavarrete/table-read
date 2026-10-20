@@ -36,13 +36,16 @@ test('structure tab: a Turning Points check places its stages in words', async (
   await page.getByTestId('structure-pick').selectOption('turning_points')
   await page.getByTestId('structure-check-button').click()
   // The prompt-derived mock cites the seeded beats in order; the server places
-  // them by share of the fixture's script text.
+  // them by share of the episode's script text. Earlier specs in the run add
+  // beats to the shared project, so the share moves — check the wiring (a
+  // position against the lens's window), not a number; the placement rules
+  // are pinned in test_structure_windows.py and StructurePanel.test.tsx.
   await expect(
     page.getByTestId('structure-placement-tp_opportunity'),
-  ).toHaveText('at 9% · expected 11% ± 7')
+  ).toHaveText(/^at \d+% · expected 11% ± 7/)
   await expect(
     page.getByTestId('structure-placement-tp_major_setback'),
-  ).toContainText('earlier than usual')
+  ).toHaveText(/^at \d+% · expected 74% ± 8/)
   await expect(
     page.getByTestId('structure-placement-tp_point_of_no_return'),
   ).toHaveCount(0)
