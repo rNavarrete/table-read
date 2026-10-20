@@ -1028,17 +1028,10 @@ describe('expositionLine (T10.8)', () => {
     expect(expositionLine(proj, at([6, 6]))).not.toContain('As you know')
   })
 
-  it('notes a line told to someone who already knew it before this scene', () => {
+  it('names a listener who knew it all along the same as one who learns it here', () => {
     expect(
       expositionLine(proj, at([6, 6], { knownBy: ['char-dan', 'char-marta'] })),
-    ).toBe('Said by Dan Vega to Marta Vega · told to someone who already knew')
-    // Marta learns it here, and no one hears a line in the action.
-    expect(expositionLine(proj, at([6, 6], martaLearnsHere))).not.toContain(
-      'already knew',
-    )
-    expect(
-      expositionLine(proj, at([3, 3], { knownBy: ['char-dan', 'char-marta'] })),
-    ).toBe('In the action')
+    ).toBe('Said by Dan Vega to Marta Vega')
   })
 
   it('says nothing without source lines, a delivery or a need', () => {

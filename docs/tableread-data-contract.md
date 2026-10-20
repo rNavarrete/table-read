@@ -784,8 +784,8 @@ export const LedgerFact = z.object({
   // depend on the audience knowing the fact — earlier than the delivering
   // scene when the script withholds it; import nulls an id that is not a
   // scene of the episode. Mode, speaker, the delivery-to-need gap and the
-  // "As you know" / told-to-someone-who-knew observations are derived
-  // client-side from the source lines, never stored.
+  // "As you know" observation are derived client-side from the source
+  // lines, never stored.
   delivery: FactDelivery.nullable().default(null),
   neededBySceneId: Id.nullable().default(null),
   provenance: z.enum(['inferred', 'writer_confirmed', 'writer_authored']),

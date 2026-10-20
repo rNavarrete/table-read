@@ -30,7 +30,7 @@ Invariants carried from P0/P1: evidence-first, every new field defaulted (old do
 - **Gap**: scenes between delivery and need, in board order — "arrives 4 scenes before it's needed", "arrives in the scene that needs it", "needed 3 scenes before it arrives" (delayed exposition).
 - **Flags**, stated as observations:
   - "As you know" — the source lines match a short list of told-you-so phrases ("as you know", "as you're aware", "like I told you", "as I said", "you already know") _(call: a fixed list in one place, case-insensitive)_.
-  - "Told to someone who already knew" — delivered in dialogue, and every present knower other than the speaker already knew it before this scene (the existing as-of fold): the line is there for the audience.
+  - ~~"Told to someone who already knew"~~ — dropped (owner 2026-10-19): the import lists in-scene listeners in `knownBy`, so "knew before this scene" isn't recoverable; revisit with a knowledge-timing field.
 
 **Prompt.** For each fact, how the audience receives it (stated / shown / implied, with one-line definitions; "implied" only when the scene never says it outright) and the first scene whose events need the audience to know it, from the scene list, or null.
 

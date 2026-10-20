@@ -612,10 +612,11 @@ function sourceMode(
  * speaker from the cue; voice-over / off-screen from its extension; "to" the
  * present characters other than the speaker who know it as of this scene),
  * "In the action" or "In an insert or super" — then the model's `delivery`,
- * the gap in board order to the scene that needs it, and two observations:
- * a told-you-so phrase (AS_YOU_KNOW), and a spoken fact every present knower
- * but the speaker already knew before this scene (the as-of fold): the line
- * is there for the audience. Null when there is nothing to say. */
+ * the gap in board order to the scene that needs it, and "As you know" when
+ * the source lines hold a told-you-so phrase (AS_YOU_KNOW). Null when there
+ * is nothing to say. (A "told to someone who already knew" flag was dropped,
+ * owner 2026-10-19: import lists in-scene listeners in `knownBy`, so "knew
+ * before this scene" isn't recoverable.) */
 export function expositionLine(
   project: Project,
   fact: LedgerFact,
@@ -644,7 +645,6 @@ export function expositionLine(
     : ''
 
   let said: string | null = null
-  let toTheAudience = false
   if (typeof mode === 'object' && mode) {
     const name = cueName(mode.cue)
     const speaker = characters.find((c) => answersTo(c).includes(name))
@@ -653,7 +653,6 @@ export function expositionLine(
       ...castFromDialogue(scene, characters).map((c) => c.id),
     ]
     const now = knowersAsOf(fact, position, at)
-    const before = knowersAsOf(fact, position, at - 1)
     const heard = [...new Set(present)].filter(
       (id) => id !== speaker?.id && now.has(id),
     )
@@ -664,7 +663,6 @@ export function expositionLine(
         : ''
     const to = heard.map((id) => characterName(characters, id))
     said = `Said by ${speaker?.name ?? titleCase(name)}${voice}${to.length > 0 ? ` to ${nameList(to)}` : ''}`
-    toTheAudience = heard.length > 0 && heard.every((id) => before.has(id))
   }
 
   const need =
@@ -690,7 +688,6 @@ export function expositionLine(
     fact.delivery,
     gap,
     AS_YOU_KNOW.some((phrase) => quoted.includes(phrase)) && '"As you know"',
-    toTheAudience && 'told to someone who already knew',
   ].filter(Boolean)
   if (parts.length === 0) return null
   const line = parts.join(' · ')
