@@ -27,7 +27,10 @@ from typing import Any
 from drama_manager.structure_stages import STAGE_DEFINITIONS, STRUCTURE_NAMES, STRUCTURE_STAGES
 
 # Prompt spec §8 / hard rule 7: every template carries a PROMPT_VERSION (semver);
-# it is logged with each call and bumped on any template change. 0.62.0
+# it is logged with each call and bumped on any template change. 0.63.0
+# (T10.13) adds review_craft: Plan's writer-triggered craft notes, over the
+# episode's dialogue with the story overview's About and the cast, for lines
+# that state the theme outright or say what a character is doing. 0.62.0
 # (T10.11) moves scene motivations out of infer_narrative_promises into their
 # own call, infer_scene_motivations, over the same spine and cast: the
 # promises prompt no longer asks for them, and the new prompt carries the
@@ -192,7 +195,7 @@ from drama_manager.structure_stages import STAGE_DEFINITIONS, STRUCTURE_NAMES, S
 # 0.10.0 typed segment starts; 0.9.0 lock-aware narrative repair. Earlier:
 # 0.8.0 suggest; 0.7.0 scene skeleton; 0.6.0 continuity; 0.5.0 regenerate;
 # 0.4.0 blast; 0.3.0 tune; 0.2.0 candidate + §0 system prompt.
-PROMPT_VERSION = "0.62.0"
+PROMPT_VERSION = "0.63.0"
 
 
 def new_nonce() -> str:
@@ -663,6 +666,50 @@ def build_motivations_prompt(
         "Refer to every character only by a name string from known_cast, never "
         "an id — the server resolves ids, not you. Use sceneId values from the "
         "scenes above."
+    )
+    return build_system_prompt(project, nonce), user
+
+
+_CRAFT_ABOUT = ("logline", "dramaticQuestion", "centralArgument", "antiTheme")
+
+
+def build_craft_prompt(
+    project: dict,
+    overview: dict,
+    cast: list[str],
+    scenes: list[dict],
+    nonce: str,
+) -> tuple[str, str]:
+    """`review_craft` (T10.13): the episode's dialogue by beat
+    (`craft.craft_spine`), the cast by name, and the story overview's About
+    when the import read one (left out when it didn't, never sent empty).
+    The model cites a beat and copies the line; the server verifies it."""
+    about = {key: overview[key] for key in _CRAFT_ABOUT if overview.get(key)}
+    user = (
+        (source_data("story_overview", about, nonce) + "\n" if about else "")
+        + source_data("known_cast", cast, nonce)
+        + "\n"
+        + source_data("craft_spine", scenes, nonce)
+        + "\nRead the dialogue above the way a script reader would, and find "
+        "the lines a seasoned writer would flag in a note. Two kinds only.\n"
+        "theme_stated: a character states what the episode is about outright "
+        "— its theme or central argument (story_overview, when given), or a "
+        "moral the story should let the audience find for itself. A line that "
+        "only touches the theme, or a character arguing their side of the "
+        "drama, is not one.\n"
+        "on_the_nose: a character announces their own action, intention or "
+        "feeling instead of playing it (\"I'm so angry with you\", \"I'm going "
+        "to find out what you're hiding\"), or explains to another character "
+        "what both already know. Subtext, irony and a declaration the scene "
+        "has earned are not on the nose.\n"
+        "For each note give check, sceneId and beatId from the scenes above "
+        "(the beat whose dialogue holds the line); excerpt, the line copied "
+        "exactly as it appears there, at most 200 characters, never "
+        "paraphrased; and why, one plain sentence naming the character and "
+        "what the line does, never a scene number. Return at most 12 notes, "
+        "the clearest first. Most scripts have few: when nothing clearly "
+        "qualifies, return no notes. Refer to characters only by a name from "
+        "known_cast, never an id."
     )
     return build_system_prompt(project, nonce), user
 

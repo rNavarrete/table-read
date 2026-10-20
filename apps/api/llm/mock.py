@@ -343,7 +343,10 @@ def _default_responses() -> dict[str, BaseModel]:
                     "sceneId": "scene-3",
                     "beatId": "beat-3-1",
                     "excerpt": "You're the numbers person. I figured — you and me.",
-                    "why": "Dan spells out the partnership he wants instead of letting the offer do it.",
+                    "why": (
+                        "Dan spells out the partnership he wants instead of "
+                        "letting the offer do it."
+                    ),
                 }
             ]
         ),
