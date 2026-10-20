@@ -17,7 +17,7 @@ from drama_manager import locks, render
 
 # ponytail: move with step 4's Story Map deletion
 from drama_manager.narrative_map import _evidence_quote
-from drama_manager.structure_stages import STRUCTURE_STAGES
+from drama_manager.structure_stages import STAGE_DEFINITIONS, STRUCTURE_STAGES
 from llm.errors import SchemaInvalidLlmError
 from storage import snapshots
 
@@ -196,6 +196,7 @@ def run_structure_check(
         {
             "stage": s["stage"],
             "label": labels[s["stage"]],
+            **({"definition": d} if (d := STAGE_DEFINITIONS.get(s["stage"])) else {}),
             "status": s["status"],
             "claim": s["reason"],
             "beatId": s["beatId"],
