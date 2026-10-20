@@ -1375,6 +1375,7 @@ def test_import_resolves_knowledge_event_character_names_to_ids(db_session, mock
             "characterIds": [by_name["Marty"]["id"]],
             "kind": "learns",
             "quote": "Doc, are you there?",
+            "belief": "",
         }
     ]
 
@@ -1418,7 +1419,7 @@ def test_import_drops_audience_token_from_knowledge_event_characters(db_session,
 
     fact = body["newFacts"][0]
     assert fact["knowledgeEvents"] == [
-        {"sceneId": "scene-1", "characterIds": [], "kind": "learns", "quote": ""}
+        {"sceneId": "scene-1", "characterIds": [], "kind": "learns", "quote": "", "belief": ""}
     ]
 
 

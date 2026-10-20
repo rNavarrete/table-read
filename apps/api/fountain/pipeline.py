@@ -1854,6 +1854,7 @@ def _assemble_facts(
     names against the cast as it stood before facts)."""
     new_facts: list[dict] = []
     fact_minter = IdMinter([], "fact-")
+    blanked = 0
     for extraction in extractions:
         for ef in extraction.new_facts:
             fact = _to_ledger_fact(ef, fact_minter.mint(), beat_index)
@@ -1866,17 +1867,29 @@ def _assemble_facts(
                 event_character_ids, characters = normalize_known_by(
                     event["characterNames"], characters, content
                 )
+                # T10.4: a belief is what a suspecting or misinformed
+                # character holds instead; on any other kind it is noise.
+                keep = event["kind"] in _BELIEF_KINDS
+                blanked += bool(event["belief"]) and not keep
                 resolved_events.append(
                     {
                         "sceneId": event["sceneId"],
                         "characterIds": event_character_ids,
                         "kind": event["kind"],
                         "quote": event["quote"],
+                        "belief": event["belief"] if keep else "",
                     }
                 )
             fact["knowledgeEvents"] = resolved_events
             new_facts.append(fact)
+    _logger.info(
+        "import_fact_beliefs blanked=%d prompt_version=%s", blanked, render.PROMPT_VERSION
+    )
     return new_facts, characters
+
+
+_BELIEF_KINDS = frozenset({"suspects", "misinformed"})
+
 
 
 _ENTITY_PROMPT_EARLY_LINES = 40
