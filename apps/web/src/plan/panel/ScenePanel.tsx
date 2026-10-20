@@ -150,6 +150,12 @@ export function ScenePanel({
   // Present by dialogue cues only: labelled as such in sections 2 and 3.
   const alsoInScene = cast.filter((c) => !wantIds.has(c.id))
   const present = new Set([...wantIds, ...cast.map((c) => c.id)])
+  const headAt = (episode.characterArcs ?? []).flatMap((arc) => {
+    const stop = arc.stops.find((s) => s.sceneId === scene.id)
+    return stop && present.has(arc.characterId)
+      ? [{ characterId: arc.characterId, headAt: stop.headAt }]
+      : []
+  })
   const threads = threadsForScene(episode, scene.id)
   const secrets = secretsForScene(episode, scene.id, present)
   const facts = factsForScene(ledger, scene.id)
@@ -350,6 +356,7 @@ export function ScenePanel({
             motivations={scene.motivations}
             characters={characters}
             alsoInScene={alsoInScene}
+            headAt={headAt}
           />
         </PanelSection>
         <PanelSection

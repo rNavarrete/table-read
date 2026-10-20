@@ -154,4 +154,43 @@ describe('WhoWantsWhat', () => {
     ).not.toBeNull()
     expect(screen.getByText('· from dialogue cues')).not.toBeNull()
   })
+
+  it("Head at closes an arc character's card, or stands alone without a want", () => {
+    render(
+      <WhoWantsWhat
+        motivations={[motivation()]}
+        characters={characters}
+        alsoInScene={[characters[1], characters[2]]}
+        headAt={[
+          { characterId: 'char-marta', headAt: 'Suspicious, testing Dan.' },
+          { characterId: 'char-dan', headAt: 'Cornered.' },
+        ]}
+      />,
+    )
+    const [marta, dan] = screen.getAllByRole('listitem')
+    const terms = (el: HTMLElement) =>
+      within(el)
+        .getAllByRole('term')
+        .map((t) => t.textContent)
+    expect(terms(marta).at(-1)).toBe('Head at')
+    expect(within(marta).getByText('Suspicious, testing Dan.')).not.toBeNull()
+    expect(within(dan).getByText('Dan Vega')).not.toBeNull()
+    expect(terms(dan)).toEqual(['Head at'])
+    expect(within(dan).getByText('Cornered.')).not.toBeNull()
+    // Dan has a card now; only Luz is left to name from dialogue cues.
+    expect(
+      screen.getByText('Also in the scene: Luz Vega', { exact: false }),
+    ).not.toBeNull()
+  })
+
+  it('no arc stop in the scene: no Head at row', () => {
+    render(
+      <WhoWantsWhat
+        motivations={[motivation()]}
+        characters={characters}
+        alsoInScene={[]}
+      />,
+    )
+    expect(screen.queryByText('Head at')).toBeNull()
+  })
 })

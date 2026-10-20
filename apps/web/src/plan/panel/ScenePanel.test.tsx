@@ -332,6 +332,33 @@ describe('ScenePanel', () => {
     ).not.toBeNull()
   })
 
+  it("Who wants what: Head at for an arc character present, not one who isn't", () => {
+    const arc = (characterId: string, sceneId: string, headAt: string) => ({
+      characterId,
+      want: '',
+      need: '',
+      lie: '',
+      ghost: '',
+      continuumAxis: 'trusting ↔ suspicious',
+      stops: [{ sceneId, headAt }],
+    })
+    renderPanel({
+      episode: episode({
+        characterArcs: [
+          arc('char-marta', 'scene-1', 'Still trusts Dan.'),
+          // Dan is not in scene 1 (no want, no dialogue cue).
+          arc('char-dan', 'scene-1', 'Cornered.'),
+        ],
+      }),
+    })
+    const wants = within(
+      document.getElementById('plan-section-wants') as HTMLElement,
+    )
+    expect(wants.getByText('Head at')).not.toBeNull()
+    expect(wants.getByText('Still trusts Dan.')).not.toBeNull()
+    expect(wants.queryByText('Cornered.')).toBeNull()
+  })
+
   it('jump bar counts wants, touches and beats; no Notes without notes', () => {
     renderPanel({
       ledger: [

@@ -71,6 +71,22 @@ function SceneRow({
   )
 }
 
+/** Term / text rows; empty text leaves no row. */
+function Terms({ rows }: { rows: [string, string][] }) {
+  return (
+    <dl className="mt-1 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-13">
+      {rows
+        .filter(([, text]) => text)
+        .map(([term, text]) => (
+          <div key={term} className="contents">
+            <dt className="text-12 text-tr-text-primary">{term}</dt>
+            <dd className="text-tr-text-primary">{text}</dd>
+          </div>
+        ))}
+    </dl>
+  )
+}
+
 interface NoteLine {
   key: string
   text: string
@@ -106,7 +122,8 @@ function NoteRows({
 }
 
 /**
- * The nothing-selected panel (spec §4.7): title, logline and format, then
+ * The nothing-selected panel (spec §4.7): title, logline and format, the
+ * import's About and lead arcs when it read them (T10.6), then
  * the episode read side by side — acts, open threads, the secret, notes by
  * scene, who's in it, and the premises. Everything is derived from the board
  * model; nothing here calls a model (rule 8). No tiles, no scores.
@@ -129,6 +146,13 @@ export function EpisodeView({
   const genre = format.genre.charAt(0).toUpperCase() + format.genre.slice(1)
   const formatLine = `${genre} · ${format.runtimeMinutes} min · ${plural(format.actCount, 'act')}${format.coldOpen ? ' + cold open' : ''}${format.tag ? ' + tag' : ''}`
   const logline = episode.storyOverview?.logline?.trim()
+  // T10.6 — import readings, read-only; a section shows only when it has one.
+  const about = [
+    ['Question', episode.storyOverview?.dramaticQuestion],
+    ['Argument', episode.storyOverview?.centralArgument],
+    ['Anti-theme', episode.storyOverview?.antiTheme],
+  ].filter((row): row is [string, string] => !!row[1]?.trim())
+  const arcs = episode.characterArcs ?? []
 
   const live = model.threads.filter((t) => t.status !== 'abandoned')
   const openThreads = live.filter((t) => !scene(t.payoffSceneId))
@@ -191,6 +215,35 @@ export function EpisodeView({
         )}
         <p className="mt-1.5 text-12 text-tr-text-primary">{formatLine}</p>
       </div>
+
+      {about.length > 0 && section('ep-about', 'About', <Terms rows={about} />)}
+
+      {arcs.length > 0 &&
+        section(
+          'ep-arcs',
+          'Lead arcs',
+          <ul className="flex flex-col gap-2">
+            {arcs.map((arc) => (
+              <li
+                key={arc.characterId}
+                className="rounded-card border border-tr-border bg-tr-surface-raised p-3"
+              >
+                <p className="text-13 font-semibold text-tr-text-primary">
+                  {characterName(model.characters, arc.characterId)}
+                </p>
+                <Terms
+                  rows={[
+                    ['Wants', arc.want],
+                    ['Needs', arc.need],
+                    ['Lie', arc.lie],
+                    ['Ghost', arc.ghost],
+                    ['Continuum', arc.continuumAxis],
+                  ]}
+                />
+              </li>
+            ))}
+          </ul>,
+        )}
 
       {section(
         'ep-acts',
