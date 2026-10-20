@@ -243,7 +243,9 @@ def _default_responses() -> dict[str, BaseModel]:
         # (Marta finds the $40,000 transfer); no payoff yet in this one-episode
         # fixture, so status stays "open". Two storylines (T10.2): a one-scene
         # import keeps A only (B's scene-2 does not exist there and is dropped);
-        # two scenes or more keep both.
+        # two scenes or more keep both. Thread ledger (T10.3): planted in
+        # scene-1, escalated in scene-3 (a one-scene import keeps the setup
+        # only); open, so no closure level.
         "infer_narrative_promises": NarrativePromises(
             threads=[
                 {
@@ -256,6 +258,22 @@ def _default_responses() -> dict[str, BaseModel]:
                     "setupBeatId": None,
                     "payoffBeatId": None,
                     "storyline": "A",
+                    "movements": [
+                        {
+                            "sceneId": "scene-1",
+                            "beatId": "beat-1-1",
+                            "phase": "setup",
+                            "summary": "Marta spots the transfer on the statement.",
+                        },
+                        {
+                            "sceneId": "scene-3",
+                            "beatId": "beat-3-1",
+                            "phase": "escalation",
+                            "summary": "Dan's cover story about the money slips.",
+                        },
+                    ],
+                    "closureLevel": None,
+                    "secondJob": "Shows Marta reads the books closer than Dan thinks.",
                 }
             ],
             storylines=[

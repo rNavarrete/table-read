@@ -219,7 +219,50 @@ describe('StoryThread', () => {
       locked: false,
       // T10.2: untagged until an import merge keeps its storyline.
       storyline: null,
+      // T10.3: a pre-0.56.0 thread has no movements, closure or second job.
+      movements: [],
+      closureLevel: null,
+      secondJob: '',
     })
+  })
+
+  it('round-trips movements, a closure level and a second job (T10.3)', () => {
+    const thread = {
+      id: 'thread-1',
+      label: 'Sports Almanac temptation',
+      summary: 'Marty finds the almanac; will he use it?',
+      status: 'paid_off',
+      ownerCharacterIds: [],
+      setupSceneId: 'scene-1',
+      payoffSceneId: 'scene-3',
+      setupQuote: '',
+      payoffQuote: '',
+      setupBeatId: null,
+      payoffBeatId: null,
+      locked: false,
+      storyline: null,
+      movements: [
+        {
+          sceneId: 'scene-2',
+          beatId: 'beat-2-1',
+          phase: 'escalation',
+          summary: 'Biff takes it.',
+        },
+        { sceneId: 'scene-3', beatId: null, phase: 'payoff', summary: '' },
+      ],
+      closureLevel: 'thematic',
+      secondJob: 'A laugh at Marty’s greed.',
+    }
+    expect(StoryThread.parse(thread)).toEqual(thread)
+    expect(() =>
+      StoryThread.parse({
+        ...thread,
+        movements: [{ ...thread.movements[0], phase: 'climax' }],
+      }),
+    ).toThrow()
+    expect(() =>
+      StoryThread.parse({ ...thread, closureLevel: 'moral' }),
+    ).toThrow()
   })
 
   it('rejects a status outside open/paid_off/abandoned', () => {
@@ -291,7 +334,15 @@ describe('NarrativePromises', () => {
     }
     expect(NarrativePromises.parse(payload)).toEqual({
       ...payload,
-      threads: [{ ...payload.threads[0], storyline: null }],
+      threads: [
+        {
+          ...payload.threads[0],
+          storyline: null,
+          movements: [],
+          closureLevel: null,
+          secondJob: '',
+        },
+      ],
       storylines: [],
     })
   })
@@ -309,6 +360,9 @@ describe('NarrativePromises', () => {
           setupBeatId: null,
           payoffBeatId: null,
           storyline: 'D',
+          movements: [],
+          closureLevel: null,
+          secondJob: '',
         },
       ],
       storylines: [
@@ -336,6 +390,47 @@ describe('NarrativePromises', () => {
         storylines: [{ ...payload.storylines[0], letter: 'E' }],
       }),
     ).toThrow()
+  })
+})
+
+describe('NarrativePromises thread ledger (T10.3)', () => {
+  it('round-trips a thread with movements, closure level and second job', () => {
+    const payload = {
+      threads: [
+        {
+          label: 'x',
+          summary: 'x',
+          status: 'paid_off',
+          ownerNames: [],
+          setupSceneId: 'scene-1',
+          payoffSceneId: 'scene-2',
+          setupBeatId: null,
+          payoffBeatId: null,
+          storyline: null,
+          movements: [
+            {
+              sceneId: 'scene-1',
+              beatId: 'beat-1-1',
+              phase: 'setup',
+              summary: 'Planted.',
+            },
+            {
+              sceneId: 'scene-2',
+              beatId: null,
+              phase: 'payoff',
+              summary: 'Paid.',
+            },
+          ],
+          closureLevel: 'parametric',
+          secondJob: 'Gets a laugh.',
+        },
+      ],
+      storylines: [],
+      secrets: [],
+      sceneMotivations: [],
+      worldRules: [],
+    }
+    expect(NarrativePromises.parse(payload)).toEqual(payload)
   })
 })
 
@@ -642,7 +737,7 @@ describe('T10.6 About, lead arcs and story time', () => {
     })
     expect(episode.characterArcs).toEqual([arc])
   })
-  it('parses a pre-0.55.0 infer_story_overview response with defaults', () => {
+  it('parses a pre-0.57.0 infer_story_overview response with defaults', () => {
     const parsed = InferredStoryOverview.parse(overview)
     expect(parsed).toMatchObject({
       dramaticQuestion: '',
@@ -691,6 +786,37 @@ describe('StructureCheck', () => {
     expect(StructureStage.safeParse({ ...stage, stage: 'you' }).success).toBe(
       false,
     )
+  })
+  it('loads a pre-T10.5 stage with null position fields', () => {
+    expect(StructureStage.parse(stage)).toMatchObject({
+      positionPct: null,
+      expectedPct: null,
+      windowPct: null,
+      placement: null,
+    })
+  })
+  it('accepts a placed Turning Points stage and bounds positionPct', () => {
+    const placed = {
+      ...stage,
+      stage: 'tp_point_of_no_return',
+      positionPct: 48.2,
+      expectedPct: 51,
+      windowPct: 12,
+      placement: 'in_window',
+    }
+    expect(
+      StructureCheck.safeParse({
+        ...check,
+        lens: 'turning_points',
+        stages: [placed],
+      }).success,
+    ).toBe(true)
+    expect(
+      StructureStage.safeParse({ ...placed, positionPct: 101 }).success,
+    ).toBe(false)
+    expect(
+      StructureStage.safeParse({ ...placed, placement: 'on_time' }).success,
+    ).toBe(false)
   })
   it('defaults Episode.structureChecks to []', () => {
     const episode = Episode.parse({

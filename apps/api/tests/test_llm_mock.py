@@ -74,6 +74,18 @@ def test_narrative_promises_default_returns_two_storylines_and_a_thread_letter()
     assert result.threads[0].storyline == "A"
 
 
+def test_narrative_promises_default_returns_thread_movements():
+    """T10.3: deterministic movements on fixture scene ids, a second job,
+    and no closure level on the open thread."""
+    thread = MockLlmClient().infer_narrative_promises(**_CALL_KWARGS).threads[0]
+    assert [(m.scene_id, m.beat_id, str(m.phase)) for m in thread.movements] == [
+        ("scene-1", "beat-1-1", "setup"),
+        ("scene-3", "beat-3-1", "escalation"),
+    ]
+    assert thread.closure_level is None
+    assert thread.second_job
+
+
 def test_infer_act_breaks_can_be_overridden():
     from schemas import InferredActBreaks
 

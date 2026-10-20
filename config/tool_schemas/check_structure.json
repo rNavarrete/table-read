@@ -49,7 +49,12 @@
               "dark_night_of_the_soul",
               "break_into_three",
               "finale",
-              "final_image"
+              "final_image",
+              "tp_opportunity",
+              "tp_change_of_plans",
+              "tp_point_of_no_return",
+              "tp_major_setback",
+              "tp_climax"
             ]
           },
           "status": {

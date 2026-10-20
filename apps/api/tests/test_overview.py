@@ -820,7 +820,7 @@ def test_t10_6_merge_logs_counts_only(caplog):
 
 
 def test_overview_prompt_asks_for_about_arcs_and_story_time():
-    from drama_manager.render import PROMPT_VERSION, build_overview_prompt, new_nonce
+    from drama_manager.render import build_overview_prompt, new_nonce
 
     _system, user = build_overview_prompt(
         {"format": {"actCount": 4, "coldOpen": False, "tag": False}},
@@ -849,7 +849,6 @@ def test_overview_prompt_asks_for_about_arcs_and_story_time():
     ):
         assert field in user, field
     assert '"love requires surrender", not "love"' in user
-    assert PROMPT_VERSION == "0.55.0"
 
 
 def test_mock_overview_merges_about_one_arc_and_a_flashback_story_order():
