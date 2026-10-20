@@ -230,7 +230,8 @@ Purpose: continuity extraction after each accepted change. Model: `classifier` r
           "sceneId": "",
           "characterNames": ["string"],
           "kind": "learns | confirms | forgets | suspects | misinformed",
-          "quote": "may be empty"
+          "quote": "may be empty",
+          "belief": "suspects/misinformed only: what they believe instead; else empty"
         }
       ],
       "audienceKnows": true,
@@ -252,6 +253,8 @@ Purpose: continuity extraction after each accepted change. Model: `classifier` r
 `kind` distinguishes knowing from believing. Only `learns`/`confirms` add a character to the knower set and only `forgets` removes one; `suspects` (a hypothesis) and `misinformed` (a false belief) are recorded but never move `knownBy`, so an inference about what someone *thinks* can't quietly become canon and enter later generation prompts as established fact. The server owns that fold (`drama_manager/ledger_as_of.py`); the model just reports what the scene shows.
 
 `knowledgeEvents` (T7.23, optional, empty array is the common case) lets the model note a knowledge-state change for _this_ new fact beyond its baseline `knownBy` — e.g. a character learning it later in the same batch of scene beats. Names, not ids, same convention as `knownBy`; the server resolves each name the same way (`fountain.characters.normalize_known_by`) and drops unresolvable/audience tokens. First cut: this is the only extraction-time surface for knowledge transitions — a dedicated `infer_knowledge_events` classifier op is deferred until this proves insufficient (design doc T7.23).
+
+`belief` (`PROMPT_VERSION 0.57.0`, T10.4) says, for `suspects` and `misinformed`, what the character holds true instead, as a plain statement ("the money went to the bank"; the UI reads "Dan believes: …"); the server blanks it on every other kind. The model never names a secret: import links `Secret.factId` server-side by beat once threads and facts have both merged (owner decision 2026-10-19, so extraction keeps running beside threads) — see the T10.4 rules in `docs/superpowers/specs/2026-10-19-breakdown-ledgers-p1-design.md`.
 
 Server-side policy (not the model's job): `confidence < 0.8` → review queue, excluded from prompts; each contradiction becomes a **supersede proposal** — a new `pending_review` fact with `supersedes` set — the existing fact keeps `status: active` until the writer resolves it; `provenance`, `status`, and supersede links are always assigned server-side, never by the model.
 

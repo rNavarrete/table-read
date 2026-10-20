@@ -416,7 +416,10 @@ export const StoryThread = z.object({
 // no room for — who holds it and who is kept in the dark. A fact everyone
 // knows is not a secret, and `knownBy` alone cannot say whether the gap is
 // deliberate. `factId` links the concealed LedgerFact when one exists, so the
-// secret never becomes a second, drifting copy of the truth.
+// secret never becomes a second, drifting copy of the truth. Import links it
+// by beat (T10.4): the one fact on the secret's establishing beat (its scene
+// when the beat is null) known to every holder and to no one it is hidden
+// from; none or several, or a fact two secrets would claim, leave it null.
 // `revealedSceneId: null` = still concealed at end of episode.
 export const Secret = z.object({
   id: Id,
@@ -677,6 +680,9 @@ export const KnowledgeEvent = z.object({
   characterIds: z.array(Id).default([]),
   kind: KnowledgeEventKind,
   quote: z.string().default(''), // <=200 chars evidence
+  // T10.4 — for suspects/misinformed, what the character believes instead
+  // ("the money went to the bank"); blanked server-side on other kinds.
+  belief: z.string().default(''),
 })
 
 export const LedgerFact = z.object({
@@ -1092,6 +1098,7 @@ export const ExtractedKnowledgeEvent = z.object({
   characterNames: z.array(z.string()).default([]),
   kind: KnowledgeEventKind,
   quote: z.string().default(''),
+  belief: z.string().default(''), // T10.4: see KnowledgeEvent.belief
 })
 
 // §5 extract_ledger_facts — model span has lines only; char offsets are computed server-side.

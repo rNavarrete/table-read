@@ -27,6 +27,8 @@ import {
   highlightCount,
   highlightTape,
   importNoteText,
+  knowersAsOf,
+  knowledgeModes,
   landmarksForScene,
   linkifyNote,
   lockedMoveText,
@@ -789,6 +791,111 @@ describe('factsForScene', () => {
     )
     expect(shown.map((f) => f.id)).toEqual(['fact-01', 'fact-06'])
     expect(retired.map((f) => f.id)).toEqual(['fact-09', 'fact-10', 'fact-11'])
+  })
+})
+
+describe('knowledgeModes (T10.4)', () => {
+  const ep = (secrets: Secret[] = []) =>
+    episode([scene('scene-1', 0), scene('scene-2', 1), scene('scene-3', 2)], {
+      secrets,
+    })
+  const here = (overrides: Partial<LedgerFact> = {}): LedgerFact => ({
+    ...fact('fact-01', 'scene-2', 'active'),
+    ...overrides,
+  })
+  const event = (
+    sceneId: string,
+    kind: 'learns' | 'forgets' | 'misinformed',
+    who: string,
+  ) => ({ sceneId, characterIds: [who], kind, quote: '', belief: '' })
+  const present = new Set(['char-dan', 'char-marta'])
+
+  it('shows nothing when no fact is in play', () => {
+    expect(knowledgeModes(ep(), [], 'scene-2', present)).toBeNull()
+    expect(
+      knowledgeModes(
+        ep(),
+        [here({ status: 'rejected' }), fact('fact-02', 'scene-1', 'active')],
+        'scene-2',
+        present,
+      ),
+    ).toBeNull()
+  })
+
+  it('is a mystery when a present character knows what the audience does not', () => {
+    const ledger = [here({ audienceKnows: false, knownBy: ['char-dan'] })]
+    expect(knowledgeModes(ep(), ledger, 'scene-2', present)).toEqual({
+      mystery: ['char-dan'],
+      irony: [],
+      suspense: false,
+    })
+  })
+
+  it('is dramatic irony when a present character does not know, or is misinformed', () => {
+    const ledger = [
+      here({
+        knownBy: ['char-dan'],
+        knowledgeEvents: [event('scene-1', 'misinformed', 'char-marta')],
+      }),
+    ]
+    expect(knowledgeModes(ep(), ledger, 'scene-2', present)).toEqual({
+      mystery: [],
+      irony: ['char-marta'],
+      suspense: false,
+    })
+  })
+
+  it('can be both at once, and suspense only when it is neither', () => {
+    const both = [
+      here({ audienceKnows: false, knownBy: ['char-dan'] }),
+      here({ id: 'fact-02', knownBy: ['char-dan'] }),
+    ]
+    expect(knowledgeModes(ep(), both, 'scene-2', present)).toEqual({
+      mystery: ['char-dan'],
+      irony: ['char-marta'],
+      suspense: false,
+    })
+    const shared = [here({ knownBy: ['char-dan', 'char-marta'] })]
+    expect(knowledgeModes(ep(), shared, 'scene-2', present)).toEqual({
+      mystery: [],
+      irony: [],
+      suspense: true,
+    })
+  })
+
+  it('counts the fact of a secret the scene keeps, though it was established elsewhere', () => {
+    const kept = secret({
+      factId: 'fact-07',
+      establishedSceneId: 'scene-1',
+      concealmentSceneIds: ['scene-3'],
+    })
+    const ledger = [
+      { ...fact('fact-07', 'scene-1', 'active'), knownBy: ['char-dan'] },
+    ]
+    expect(knowledgeModes(ep([kept]), ledger, 'scene-3', present)).toEqual({
+      mystery: [],
+      irony: ['char-marta'],
+      suspense: false,
+    })
+  })
+
+  it('folds knowers as of the scene: later learning does not count, forgetting does', () => {
+    const order = new Map([
+      ['scene-1', 0],
+      ['scene-2', 1],
+      ['scene-3', 2],
+    ])
+    const told = here({
+      knownBy: ['char-dan'],
+      knowledgeEvents: [
+        event('scene-3', 'learns', 'char-marta'),
+        event('scene-2', 'forgets', 'char-dan'),
+        event('scene-9', 'learns', 'char-luz'),
+      ],
+    })
+    expect([...knowersAsOf(told, order, 0)]).toEqual(['char-dan'])
+    expect([...knowersAsOf(told, order, 1)]).toEqual([])
+    expect([...knowersAsOf(told, order, 2)]).toEqual(['char-marta'])
   })
 })
 

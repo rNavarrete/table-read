@@ -27,7 +27,10 @@ from typing import Any
 from drama_manager.structure_stages import STAGE_DEFINITIONS, STRUCTURE_NAMES, STRUCTURE_STAGES
 
 # Prompt spec §8 / hard rule 7: every template carries a PROMPT_VERSION (semver);
-# it is logged with each call and bumped on any template change. 0.56.0
+# it is logged with each call and bumped on any template change. 0.57.0
+# (T10.4) asks extract_ledger_facts for a belief on suspects/misinformed
+# knowledge events: what the character takes to be true instead, as a plain
+# statement. 0.56.0
 # (T10.3) asks infer_narrative_promises for each thread's movements (every
 # scene it moves in, the phase, what changed; an appearance that changes
 # nothing is not a movement), a paid-off thread's closure level (plot, story,
@@ -167,7 +170,7 @@ from drama_manager.structure_stages import STAGE_DEFINITIONS, STRUCTURE_NAMES, S
 # 0.10.0 typed segment starts; 0.9.0 lock-aware narrative repair. Earlier:
 # 0.8.0 suggest; 0.7.0 scene skeleton; 0.6.0 continuity; 0.5.0 regenerate;
 # 0.4.0 blast; 0.3.0 tune; 0.2.0 candidate + §0 system prompt.
-PROMPT_VERSION = "0.56.0"
+PROMPT_VERSION = "0.57.0"
 
 
 def new_nonce() -> str:
@@ -1112,7 +1115,13 @@ def build_extract_prompt(
         "new fact beyond who already knows it at the moment it's "
         "established, add a knowledgeEvents entry with this scene's id, "
         "that character's name (never an id), and a short quote; leave "
-        "knowledgeEvents empty otherwise — it is the common case."
+        "knowledgeEvents empty otherwise — it is the common case. A character "
+        "who only suspects the fact gets a suspects entry, and one who is "
+        "told or shown something false about it a misinformed entry; for "
+        "those two kinds, belief says in a few words what the character takes "
+        "to be true instead — the hunch or the false version — as a plain "
+        "statement (\"the money went to the bank\", not \"thinks the money "
+        "went to the bank\"). Leave belief empty for every other kind."
     )
     return build_system_prompt(project, nonce), user
 

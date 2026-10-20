@@ -590,6 +590,19 @@ describe('KnowledgeEvent kinds', () => {
       KnowledgeEvent.parse({ sceneId: 'scene-2', kind: 'overhears' }),
     ).toThrow()
   })
+
+  it('defaults belief so events saved before T10.4 parse, and keeps one', () => {
+    expect(
+      KnowledgeEvent.parse({ sceneId: 'scene-2', kind: 'misinformed' }).belief,
+    ).toBe('')
+    expect(
+      KnowledgeEvent.parse({
+        sceneId: 'scene-2',
+        kind: 'misinformed',
+        belief: 'the money went to the bank',
+      }).belief,
+    ).toBe('the money went to the bank')
+  })
 })
 
 describe('Secret', () => {

@@ -6,6 +6,7 @@ import {
   layoutFactArc,
   layoutFactNodes,
   relatedFactIds,
+  beliefLines,
   beliefStateFor,
   tallyBeliefs,
 } from './knowledgeGraph'
@@ -336,6 +337,7 @@ describe('belief state (knows vs suspects vs misinformed)', () => {
           characterIds: ['char-marta'],
           kind: 'suspects',
           quote: '',
+          belief: '',
         },
       ],
     })
@@ -353,6 +355,7 @@ describe('belief state (knows vs suspects vs misinformed)', () => {
           characterIds: ['char-marta'],
           kind: 'suspects',
           quote: '',
+          belief: '',
         },
       ],
     })
@@ -367,6 +370,7 @@ describe('belief state (knows vs suspects vs misinformed)', () => {
           characterIds: ['char-dan'],
           kind: 'misinformed',
           quote: '',
+          belief: '',
         },
       ],
     })
@@ -381,6 +385,7 @@ describe('belief state (knows vs suspects vs misinformed)', () => {
           characterIds: ['char-dan'],
           kind: 'suspects',
           quote: '',
+          belief: '',
         },
       ],
     })
@@ -398,6 +403,7 @@ describe('belief state (knows vs suspects vs misinformed)', () => {
             characterIds: ['char-marta'],
             kind: 'suspects',
             quote: '',
+            belief: '',
           },
         ],
       }),
@@ -409,6 +415,7 @@ describe('belief state (knows vs suspects vs misinformed)', () => {
             characterIds: ['char-marta'],
             kind: 'misinformed',
             quote: '',
+            belief: '',
           },
         ],
       }),
@@ -419,5 +426,34 @@ describe('belief state (knows vs suspects vs misinformed)', () => {
       suspects: 1,
       misinformed: 1,
     })
+  })
+
+  it('reads each suspicion or false belief in words, one line per character (T10.4)', () => {
+    const event = (
+      kind: 'learns' | 'suspects' | 'misinformed',
+      belief: string,
+    ) => ({
+      sceneId: 'scene-2',
+      characterIds: ['char-marta', 'char-doc'],
+      kind,
+      quote: '',
+      belief,
+    })
+    const f = fact({
+      knowledgeEvents: [
+        event('misinformed', 'the money went to the bank'),
+        event('suspects', 'Dan took it'),
+        event('learns', 'stray text the server would have blanked'),
+        event('suspects', ''),
+      ],
+    })
+    const nameOf = (id: string) => (id === 'char-marta' ? 'Marta' : 'Doc')
+    expect(beliefLines(f, nameOf)).toEqual([
+      'Marta believes: the money went to the bank',
+      'Doc believes: the money went to the bank',
+      'Marta suspects: Dan took it',
+      'Doc suspects: Dan took it',
+    ])
+    expect(beliefLines(fact(), nameOf)).toEqual([])
   })
 })
