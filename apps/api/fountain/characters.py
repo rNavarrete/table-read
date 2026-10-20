@@ -67,6 +67,10 @@ _TRANSITION_EXACT = frozenset(
         "OMITTED",
         "BLACKOUT",
         "BACK TO SCENE",
+        # One-word shots (multi-word ones: is_shot_heading).
+        "INSERT",
+        "ANGLE",
+        "POV",
         # Structural markers. A teleplay is full of all-caps lines that are
         # not people, and on a real 60-page import these were minting
         # characters called "Act One", "End Of Teaser" and "Main Titles" —
@@ -195,6 +199,29 @@ def is_action_line(name: str) -> bool:
     if len(tokens) < 2:
         return False
     return any(token.casefold() in _ACTION_VERBS for token in tokens)
+
+
+# Camera directions in caps ("ON BART", "CLOSE ON MRS. KRABAPPEL", "BART'S
+# POV", "REVERSE ANGLE"). With action directly under them they pass the
+# dialogue-follows test too, and on a real import "ON BART" minted first and
+# then absorbed BART by suffix, naming the lead "On Bart". Multi-word only,
+# like is_action_line, so a one-word name ("PAN") is never a shot.
+# ponytail: a word list; extend it when a script shows another shot word.
+_SHOT_HEADS = frozenset(
+    {
+        "on", "close", "closeup", "wide", "tight", "back", "insert", "push", "pull",
+        "extreme", "ecu", "cu", "mcu", "tracking", "aerial", "overhead", "establishing",
+    }
+)
+_SHOT_WORDS = frozenset({"angle", "pov"})
+
+
+def is_shot_heading(name: str) -> bool:
+    """A multi-word cue led by a shot word, or naming an angle or POV."""
+    tokens = [token.casefold() for token in re.findall(r"[A-Za-z]+", name or "")]
+    if len(tokens) < 2:
+        return False
+    return tokens[0] in _SHOT_HEADS or any(token in _SHOT_WORDS for token in tokens)
 
 
 _PARENTHETICAL_RE = re.compile(r"\s*\([^)]*\)")
@@ -494,7 +521,7 @@ def _cue_display_name(line: str) -> str | None:
     # row in the cast competing with the real characters.
     if is_generic_role(token):
         return None
-    if is_action_line(token):
+    if is_action_line(token) or is_shot_heading(token):
         return None
     if token.endswith(" TO") or token.endswith(" TO:"):
         return None

@@ -875,8 +875,47 @@ def test_a_caps_line_with_no_dialogue_under_it_is_not_a_speaker():
 def test_the_dialogue_rule_is_off_when_most_cues_have_a_blank_line_under_them():
     """Some PDF extraction puts a blank line between every cue and its
     dialogue; enforcing the rule there would empty the cast."""
-    lines = ["SAM", "", "Morning.", "", "JOSH", "", "Hi.", "", "WIDE ANGLE ON GARAGE", ""]
-    assert extract_character_cues(lines) == ["Sam", "Josh", "Wide Angle On Garage"]
+    lines = ["SAM", "", "Morning.", "", "JOSH", "", "Hi.", "", "DONNA", ""]
+    assert extract_character_cues(lines) == ["Sam", "Josh", "Donna"]
+
+
+def test_a_shot_heading_with_action_under_it_is_not_a_speaker():
+    """A real import had "ON BART" directly above an action line, so it passed
+    the dialogue-follows test, minted first, then absorbed BART by suffix:
+    the lead was named "On Bart". "ON DOOR" became a character too."""
+    lines = [
+        "INT. CLASSROOM - DAY",
+        "",
+        "ON BART",
+        "He grins at the class.",
+        "",
+        "BART",
+        "Ay caramba.",
+        "",
+        "CLOSE ON MRS. KRABAPPEL",
+        "She sighs.",
+        "",
+        "BART'S POV",
+        "The clock ticks.",
+        "",
+        "REVERSE ANGLE",
+        "The class stares back.",
+        "",
+        "INSERT",
+        "A note on the desk.",
+        "",
+        "ON DOOR",
+        "It swings open.",
+        "",
+        "LISA",
+        "Bart!",
+    ]
+    assert extract_character_cues(lines) == ["Bart", "Lisa"]
+    # Shots are camera words, not names: a one-word cue stays, whatever it is.
+    for shot in ["WIDE ANGLE ON GARAGE", "BACK ON LISA", "TIGHT ON DOOR", "ANGLE ON BART"]:
+        assert extract_character_cues([shot, "Rain on the roof."]) == [], shot
+    for name in ["PAN", "GLENN CLOSE", "MARY MARSH", "MRS. KRABAPPEL", "BACKSTROM"]:
+        assert extract_character_cues([name, "Hello."]) != [], name
 
 
 def test_a_role_anywhere_after_the_first_word_makes_the_phrase_generic():
