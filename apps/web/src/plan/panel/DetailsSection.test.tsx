@@ -30,7 +30,7 @@ function scene(overrides: Partial<Scene> = {}): Scene {
 function renderDetails(overrides: Partial<DetailsSectionProps> = {}) {
   const props: DetailsSectionProps = {
     scene: scene(),
-    showStoryline: false,
+    storylines: [],
     locked: false,
     saving: false,
     onSaveField: vi.fn().mockResolvedValue(true),
@@ -55,10 +55,42 @@ describe('DetailsSection', () => {
     expect(screen.queryByLabelText('Storyline')).toBeNull()
     cleanup()
 
-    renderDetails({ showStoryline: true })
+    renderDetails({
+      storylines: [{ id: 'A', summary: 'Marta.', characterIds: [] }],
+    })
     expect(
       (screen.getByLabelText('Storyline') as HTMLSelectElement).disabled,
     ).toBe(true)
+  })
+
+  it("shows the scene's storyline letter and that storyline's summary (T10.2)", () => {
+    renderDetails({
+      scene: scene({ storyline: 'D' }),
+      storylines: [
+        { id: 'A', summary: 'Marta pulls the thread.', characterIds: [] },
+        { id: 'D', summary: 'Reyes keeps dropping by.', characterIds: [] },
+      ],
+    })
+    const select = screen.getByLabelText('Storyline') as HTMLSelectElement
+    expect(select.value).toBe('D')
+    const describedBy = select.getAttribute('aria-describedby') ?? ''
+    expect(document.getElementById(describedBy)?.textContent).toBe(
+      'Reyes keeps dropping by.',
+    )
+    expect(screen.queryByText('Marta pulls the thread.')).toBeNull()
+  })
+
+  it('shows the letter alone when its storyline has no entry', () => {
+    // A scene in no inferred storyline stays A, even when import kept only B.
+    renderDetails({
+      storylines: [
+        { id: 'B', summary: 'Dan hides the money.', characterIds: [] },
+      ],
+    })
+    const select = screen.getByLabelText('Storyline') as HTMLSelectElement
+    expect(select.value).toBe('A')
+    expect(select.getAttribute('aria-describedby')).toBeNull()
+    expect(screen.queryByText('Dan hides the money.')).toBeNull()
   })
 
   it('editing location is silent: a plain Save, no structural footer (port from Inspector.test)', async () => {

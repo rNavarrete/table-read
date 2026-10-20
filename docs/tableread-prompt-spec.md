@@ -311,7 +311,7 @@ model cites beats and the server derives quotes (below). Semantic coverage
 preserves late setup/payoff discovery while keeping the story-wide request
 reliable and cost-controlled. All input is `<source_data_{nonce}>`.
 
-**Output schema (`NarrativePromises`):** threads (setup→payoff arcs), **secrets** (concealed→revealed arcs), per-scene motivations, and structured world rules. A secret is a thread with an asymmetry: `holderNames` vs `concealedFromNames`. A fact everyone knows is not a secret, so both sides are required; `revealedSceneId: null` means still concealed at end of episode. Motivations carry `statedObjective` (empty unless the character claims a different goal than their behaviour serves) and `concealed` (deliberate deception vs self-deception) — the stated/actual gap is the ulterior motive. Threads and motivations name characters by string, never id — same convention as `infer_story_entities`; the server resolves `ownerNames`/`characterName` against the existing bible and drops unresolvable owners/motivations (log counts only, never text — rule 5). `setupSceneId`/`payoffSceneId`/`sceneId`/`evidenceSceneId` are already-known scene ids the model selects from the input scene list, not free text, so they need no resolution.
+**Output schema (`NarrativePromises`):** threads (setup→payoff arcs), **storylines** (T10.2), **secrets** (concealed→revealed arcs), per-scene motivations, and structured world rules. A secret is a thread with an asymmetry: `holderNames` vs `concealedFromNames`. A fact everyone knows is not a secret, so both sides are required; `revealedSceneId: null` means still concealed at end of episode. Motivations carry `statedObjective` (empty unless the character claims a different goal than their behaviour serves) and `concealed` (deliberate deception vs self-deception) — the stated/actual gap is the ulterior motive. Threads and motivations name characters by string, never id — same convention as `infer_story_entities`; the server resolves `ownerNames`/`characterName` against the existing bible and drops unresolvable owners/motivations (log counts only, never text — rule 5). `setupSceneId`/`payoffSceneId`/`sceneId`/`evidenceSceneId` are already-known scene ids the model selects from the input scene list, not free text, so they need no resolution.
 
 **Evidence is a beat id, never a quote (PROMPT_VERSION 0.40.0+).** Each claim cites the one beat that carries it — `setupBeatId`/`payoffBeatId` (threads), `establishedBeatId`/`revealedBeatId` (secrets), `evidenceBeatId` (world rules) — copied from the input spine and belonging to the scene cited for that claim, or `null` when no single beat carries it. The model writes no quote text. The server derives the stored `setupQuote`/`payoffQuote`, `establishedQuote`/`revealedQuote` and `evidenceQuote` from the cited beat's own `scriptText` (`drama_manager/promises.py`, `quote_for_beat`; data contract §1 `StoryThread`/`Secret`/`WorldRule`).
 
@@ -326,7 +326,16 @@ reliable and cost-controlled. All input is `<source_data_{nonce}>`.
       "setupSceneId": "",
       "payoffSceneId": "or null",
       "setupBeatId": "beat id in setupSceneId, or null",
-      "payoffBeatId": "beat id in payoffSceneId, or null"
+      "payoffBeatId": "beat id in payoffSceneId, or null",
+      "storyline": "A | B | C | D, or null"
+    }
+  ],
+  "storylines": [
+    {
+      "letter": "A | B | C | D",
+      "summary": "one sentence",
+      "characterNames": ["string"],
+      "sceneIds": [""]
     }
   ],
   "secrets": [
@@ -384,6 +393,24 @@ or transition, stores an empty quote and a null beat id; a quote cited by more
 than one thread or secret is cleared from all of them. Stored world rules keep
 only `evidenceQuote`, not the beat id. Schema-invalid after one retry surfaces
 `SCHEMA_INVALID_LLM`, import fails atomically (rule 9).
+
+**Storylines (T10.2, `PROMPT_VERSION 0.53.0`):** the prompt asks for the
+episode's storylines the way a TV room breaks them — A the main story, B the
+second, C and D lesser strands or a runner — and fewer when the episode has
+fewer (a one-strand episode has only A; never padded to four). Each carries a
+one-sentence `summary`, `characterNames` (names from the cast, resolved like
+`ownerNames`; unresolved dropped) and the `sceneIds` that mainly serve it; a
+scene belongs to at most one. Each thread's `storyline` is the letter of the
+storyline it belongs to, or null. Server merge (`drama_manager.promises`): a
+repeated letter keeps its first entry; unknown scene ids are dropped; a scene
+listed under more than one letter keeps the earliest (A before B); a storyline
+left with no scenes is dropped. Each scene's `storyline` becomes its letter
+and a scene in no storyline stays `A`; `Episode.storylines` is the merged list
+in letter order; a thread keeps its letter only if that storyline survived,
+else null. When nothing survives — an empty `storylines`, or a pre-0.53.0
+response or checkpoint, which parses with `storylines: []` — the episode is
+left as import built it: every scene `A`, `storylines: []`. Logs carry counts
+only (rule 5).
 
 ## 6. `suggest_instructions`
 

@@ -241,7 +241,9 @@ def _default_responses() -> dict[str, BaseModel]:
         # the real prompt call). Fixture-consistent: the setup is the same
         # ledger beat MockLlmClient's extract_ledger_facts example references
         # (Marta finds the $40,000 transfer); no payoff yet in this one-episode
-        # fixture, so status stays "open".
+        # fixture, so status stays "open". Two storylines (T10.2): a one-scene
+        # import keeps A only (B's scene-2 does not exist there and is dropped);
+        # two scenes or more keep both.
         "infer_narrative_promises": NarrativePromises(
             threads=[
                 {
@@ -253,7 +255,22 @@ def _default_responses() -> dict[str, BaseModel]:
                     "payoffSceneId": None,
                     "setupBeatId": None,
                     "payoffBeatId": None,
+                    "storyline": "A",
                 }
+            ],
+            storylines=[
+                {
+                    "letter": "A",
+                    "summary": "Marta pulls the thread on the missing $40,000.",
+                    "characterNames": ["Marta", "Dan"],
+                    "sceneIds": ["scene-1", "scene-3"],
+                },
+                {
+                    "letter": "B",
+                    "summary": "Dan keeps the money hidden from his sister.",
+                    "characterNames": ["Dan"],
+                    "sceneIds": ["scene-2"],
+                },
             ],
             # Dan is the fixture's worked example of a stated/actual gap: he
             # says he is closing up, while what he is doing is keeping Marta

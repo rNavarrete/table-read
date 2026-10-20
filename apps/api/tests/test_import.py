@@ -1228,6 +1228,7 @@ def promises(
     scene_motivations: list[dict] | None = None,
     world_rules: list[dict] | None = None,
     secrets: list[dict] | None = None,
+    storylines: list[dict] | None = None,
 ) -> NarrativePromises:
     return NarrativePromises.model_validate(
         {
@@ -1235,6 +1236,7 @@ def promises(
             "secrets": secrets or [],
             "sceneMotivations": scene_motivations or [],
             "worldRules": world_rules or [],
+            "storylines": storylines or [],
         }
     )
 
@@ -1587,6 +1589,71 @@ def test_import_infers_thread_and_scene_motivations_after_entities(db_session, m
             "concealed": False,
         }
     ]
+
+
+def test_import_tags_scenes_and_threads_with_inferred_storylines(db_session, mock_llm):
+    """T10.2: the promises call's storylines land on the episode in letter
+    order with resolved characters, each scene takes its letter, and a
+    thread keeps the letter of a storyline that survived."""
+    created = client.post(
+        "/api/v1/projects",
+        json=NEW_PROJECT_BODY,
+        headers={"Idempotency-Key": "00000000-0000-4000-8000-0000000000a0"},
+    ).json()
+    pid = created["id"]
+
+    src = (
+        "INT. LAB - NIGHT\n\nMARTY\nDoc, are you there?\n\n"
+        "EXT. CLOCK TOWER - NIGHT\n\nDOC\nGreat Scott!\n"
+    )
+    mock_llm.set_responses("segment_scene", one_beat_per_scene(src))
+    mock_llm.set_response(
+        "infer_narrative_promises",
+        promises(
+            threads=[
+                {
+                    "label": "The lightning strike",
+                    "summary": "Doc has to catch the bolt.",
+                    "status": "open",
+                    "ownerNames": ["Doc"],
+                    "setupSceneId": "scene-2",
+                    "payoffSceneId": None,
+                    "setupBeatId": None,
+                    "payoffBeatId": None,
+                    "storyline": "B",
+                }
+            ],
+            storylines=[
+                {
+                    "letter": "B",
+                    "summary": "Doc rigs the clock tower.",
+                    "characterNames": ["Doc", "Nobody"],
+                    "sceneIds": ["scene-2"],
+                },
+                {
+                    "letter": "A",
+                    "summary": "Marty looks for Doc.",
+                    "characterNames": ["Marty"],
+                    "sceneIds": ["scene-1", "scene-9"],
+                },
+            ],
+        ),
+    )
+    mock_llm.set_response("extract_ledger_facts", extraction())
+    mock_llm.set_response("scan_consistency", scan())
+
+    body = client.post(
+        f"/api/v1/projects/{pid}/import", json={"format": "fountain", "content": src}
+    ).json()
+
+    by_name = {c["name"]: c["id"] for c in body["project"]["seriesBible"]["characters"]}
+    episode = body["project"]["seasons"][0]["episodes"][0]
+    assert episode["storylines"] == [
+        {"id": "A", "summary": "Marty looks for Doc.", "characterIds": [by_name["Marty"]]},
+        {"id": "B", "summary": "Doc rigs the clock tower.", "characterIds": [by_name["Doc"]]},
+    ]
+    assert [scene["storyline"] for scene in episode["scenes"]] == ["A", "B"]
+    assert episode["threads"][0]["storyline"] == "B"
 
 
 def test_import_drops_unresolvable_thread_owner_and_keeps_resolved(db_session, mock_llm):

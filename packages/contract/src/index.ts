@@ -130,11 +130,16 @@ export const Beat = z.object({
 })
 export type Beat = z.infer<typeof Beat>
 
+// T10.2 — a TV room's strands: A the main story, B the second, C and D
+// lesser strands or a runner. Import infers them (`infer_narrative_promises`).
+export const StorylineId = z.enum(['A', 'B', 'C', 'D'])
+export type StorylineId = z.infer<typeof StorylineId>
+
 export const Scene = z.object({
   id: Id,
   index: z.number().int().min(0),
   act: z.number().int().min(0), // 0 = cold open
-  storyline: z.enum(['A', 'B', 'C']).default('A'), // present in schema; UI tagging is v2
+  storyline: StorylineId.default('A'), // import infers it (T10.2); writer tagging is v2
   locked: z.boolean().default(false),
   location: z.string(),
   time: z.string(),
@@ -216,6 +221,9 @@ export const StoryThread = z.object({
   setupBeatId: Id.nullable().default(null),
   payoffBeatId: Id.nullable().default(null),
   locked: z.boolean().default(false),
+  // T10.2 — the episode storyline this thread belongs to, kept only when that
+  // storyline survived the import merge. Null = untagged.
+  storyline: StorylineId.nullable().default(null),
 })
 export type StoryThread = z.infer<typeof StoryThread>
 
@@ -577,7 +585,7 @@ export const Episode = z.object({
   seasonFunction: z.string().default(''),
   storylines: z.array(
     z.object({
-      id: z.enum(['A', 'B', 'C']),
+      id: StorylineId,
       summary: z.string(),
       characterIds: z.array(Id),
     }),
@@ -1242,8 +1250,27 @@ export const NarrativePromises = z.object({
       // shape the Narrative Map uses. Null = no beat carries it.
       setupBeatId: Id.nullable(),
       payoffBeatId: Id.nullable(),
+      // T10.2 — the letter of the storyline (below) this thread belongs to.
+      storyline: StorylineId.nullable().default(null),
     }),
   ),
+  // T10.2 — the episode's storylines as a TV room breaks them (A main, B
+  // second, C/D lesser strands or a runner), fewer when the episode has
+  // fewer. Characters are names the server resolves to ids; scene ids come
+  // from the supplied list, a scene under at most one letter. The server
+  // keeps the first entry per letter, drops unknown scene ids and storylines
+  // left with no scenes, and gives a scene listed twice its earliest letter
+  // (drama_manager.promises). Defaults to [] so a pre-0.53.0 response parses.
+  storylines: z
+    .array(
+      z.object({
+        letter: StorylineId,
+        summary: z.string(),
+        characterNames: z.array(z.string()),
+        sceneIds: z.array(Id),
+      }),
+    )
+    .default([]),
   // Concealment arcs. Names, not ids (server resolves), and scene ids chosen
   // from the supplied list. `revealedSceneId: null` = still concealed at end
   // of episode. The server mints ids and links `factId` where it can.
