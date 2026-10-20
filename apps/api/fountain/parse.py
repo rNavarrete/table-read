@@ -18,7 +18,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from schemas import SegmentedScene, SegmentedSceneBeat, SegmentedSceneUnassigned
+from schemas import Charge, SegmentedScene, SegmentedSceneBeat, SegmentedSceneUnassigned
 
 # Fountain scene heading (slugline): a line beginning (after optional leading
 # whitespace and an optional production scene number, "17 " / "A12 ") with a
@@ -85,6 +85,24 @@ class ImportedBeat:
     script_text: str
     unassigned: list[tuple[int, int]] = field(default_factory=list)
     review_issues: list[SegmentationIssue] = field(default_factory=list)
+    # T10.1 — the beat from the character's side, names as the model gave them
+    # (resolved to character ids after the entities stage).
+    actor: str = ""
+    action_verb: str = ""
+    target: str = ""
+    reaction: str = ""
+
+
+# Model-written text fields on a beat: each can leak tool markup (and is blanked).
+_BEAT_TEXT_FIELDS = (
+    "what_happens",
+    "audience_learns",
+    "audience_feels",
+    "actor",
+    "action_verb",
+    "target",
+    "reaction",
+)
 
 
 @dataclass(frozen=True)
@@ -124,8 +142,9 @@ class RepairScore:
 @dataclass(frozen=True)
 class NormalizedScene:
     beats: list[ImportedBeat]
-    # The scene-level fields, keyed as the scene doc wants them.
-    reading: dict[str, str]
+    # The scene-level fields, keyed as the scene doc wants them (the two
+    # charges are None when the model gave none).
+    reading: dict[str, str | None]
     score: RepairScore
     repair_ratio: float
     empty_output: bool
@@ -434,6 +453,10 @@ def normalize_and_slice(scene: SceneSpan, segmented: SegmentedScene) -> Normaliz
         "audienceLearns": segmented.scene_audience_learns,
         "audienceFeels": segmented.scene_audience_feels,
         "socialSituation": segmented.scene_social_situation,
+        "valueAtStake": segmented.scene_value_at_stake,
+        "chargeIn": _charge(segmented.scene_charge_in),
+        "chargeOut": _charge(segmented.scene_charge_out),
+        "whyNow": segmented.scene_why_now,
     }
     tool_markup = _blank_tool_markup(beats, reading)
     # Codes only: the retry prompt renders these as data, so it learns what
@@ -455,17 +478,22 @@ def normalize_and_slice(scene: SceneSpan, segmented: SegmentedScene) -> Normaliz
     )
 
 
-def _blank_tool_markup(beats: list[ImportedBeat], reading: dict[str, str]) -> bool:
+def _charge(value: Charge | None) -> str | None:
+    return None if value is None else value.value
+
+
+def _blank_tool_markup(beats: list[ImportedBeat], reading: dict[str, str | None]) -> bool:
     """Blank every model-written field holding leaked tool-call markup and flag
     its beat (the first beat for the scene reading). Whatever follows the tag
-    belongs to another field, so none of the field can be kept."""
+    belongs to another field, so none of the field can be kept. The charges are
+    enum values or None, so they never hold markup."""
     flagged: set[int] = set()
     for key, value in reading.items():
-        if _TOOL_MARKUP_RE.search(value):
+        if value is not None and _TOOL_MARKUP_RE.search(value):
             reading[key] = ""
             flagged.add(0)
     for index, beat in enumerate(beats):
-        for name in ("what_happens", "audience_learns", "audience_feels"):
+        for name in _BEAT_TEXT_FIELDS:
             if _TOOL_MARKUP_RE.search(getattr(beat, name)):
                 setattr(beat, name, "")
                 flagged.add(index)
@@ -517,6 +545,10 @@ class _FinalBeat:
     audience_feels: str
     unassigned: list[tuple[int, int]] = field(default_factory=list)  # 1-based scene ranges
     review_issues: list[SegmentationIssue] = field(default_factory=list)
+    actor: str = ""
+    action_verb: str = ""
+    target: str = ""
+    reaction: str = ""
 
 
 @dataclass
@@ -549,6 +581,10 @@ def _merge(scene: SceneSpan, claims: list[_Claim], *, flag_no_beats: bool) -> li
                 audience_learns=claim.payload.audience_learns,
                 audience_feels=claim.payload.audience_feels,
                 review_issues=list(claim.issues),
+                actor=claim.payload.actor,
+                action_verb=claim.payload.action_verb,
+                target=claim.payload.target,
+                reaction=claim.payload.reaction,
             )
             if pending_lead:
                 fb.start = pending_lead[0].start  # absorb leading unassigned runs
@@ -627,6 +663,10 @@ def _merge(scene: SceneSpan, claims: list[_Claim], *, flag_no_beats: bool) -> li
             what_happens=fb.what_happens,
             audience_learns=fb.audience_learns,
             audience_feels=fb.audience_feels,
+            actor=fb.actor,
+            action_verb=fb.action_verb,
+            target=fb.target,
+            reaction=fb.reaction,
             script_text="\n".join(scene.lines[fb.start - 1 : fb.end]),
             unassigned=[(abs_start + s, abs_start + e) for s, e in fb.unassigned],
             review_issues=[

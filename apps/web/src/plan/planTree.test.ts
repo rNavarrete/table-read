@@ -36,6 +36,10 @@ function beat(overrides: Partial<Beat> = {}): Beat {
     audienceFeels: '',
     scriptText: '',
     scriptLocked: false,
+    actorCharacterId: null,
+    actionVerb: '',
+    targetCharacterId: null,
+    reaction: '',
     ...overrides,
   }
 }
@@ -50,6 +54,10 @@ function scene(overrides: Partial<Scene> = {}): Scene {
     location: '',
     time: '',
     socialSituation: '',
+    valueAtStake: '',
+    chargeIn: null,
+    chargeOut: null,
+    whyNow: '',
     whatHappens: '',
     audienceLearns: '',
     audienceFeels: '',

@@ -101,7 +101,21 @@ export const Beat = z.object({
   audienceFeels: z.string(),
   scriptText: z.string().default(''),
   scriptLocked: z.boolean().default(false),
+  // T10.1 — the beat from the character's side: who drives it, the tactic as
+  // an action verb ("probes", never "talks"), whom it is aimed at, and how they
+  // answer. Import fills them from segment_scene; the server resolves the
+  // returned names to ids after the entities stage (unknown or ambiguous →
+  // null, verb and reaction kept). Authored and generated beats leave them
+  // empty; read-only in Plan. Defaulted so pre-existing docs validate.
+  actorCharacterId: Id.nullable().default(null),
+  actionVerb: z.string().default(''),
+  targetCharacterId: Id.nullable().default(null),
+  reaction: z.string().default(''),
 })
+
+// T10.1 — a value's charge as a scene opens or closes (McKee / Story Grid
+// polarity; "mixed" is their +/−).
+export const Charge = z.enum(['positive', 'negative', 'mixed'])
 
 // Story order is (act, index), ties in array order — never a scene's position
 // in `scenes`: Plan moves rewrite act/index and leave the array alone. Every
@@ -125,6 +139,16 @@ export const Scene = z.object({
   audienceFeels: z.string(),
   motivations: z.array(Motivation),
   beats: z.array(Beat),
+  // T10.1 — the scene's turn: the value at stake (one or two words), its
+  // charge as the scene opens and closes, and why it happens now (one
+  // sentence). Import readings from segment_scene, read-only in Plan; authored
+  // scenes leave them empty. Whether the scene turns (both charges set and
+  // different) is derived where shown, never stored. A charge without a value,
+  // or one charge without the other, is stored as returned.
+  valueAtStake: z.string().default(''),
+  chargeIn: Charge.nullable().default(null),
+  chargeOut: Charge.nullable().default(null),
+  whyNow: z.string().default(''),
 })
 
 // T7.19 — a narrative setup/payoff arc, MVP-scoped to the episode it lives
@@ -1221,6 +1245,14 @@ const SegmentedSceneBeat = z.object({
   whatHappens: z.string(),
   audienceLearns: z.string(),
   audienceFeels: z.string(),
+  // T10.1 (0.54.0) — the beat from the character's side. `actor` / `target`
+  // are names as the script gives them, '' when none; the server resolves them
+  // to Beat.actorCharacterId / targetCharacterId. Defaulted so a pre-0.54.0
+  // response still parses.
+  actor: z.string().default(''),
+  actionVerb: z.string().default(''),
+  target: z.string().default(''),
+  reaction: z.string().default(''),
 })
 const SegmentedSceneUnassigned = z.object({
   kind: z.literal('unassigned'),
@@ -1229,6 +1261,19 @@ const SegmentedSceneUnassigned = z.object({
 })
 export const SegmentedScene = z.object({
   segments: z.array(z.union([SegmentedSceneBeat, SegmentedSceneUnassigned])),
+  // Scene-level reading (0.41.0), from the same call that finds the beats;
+  // stored on the Scene under the unprefixed names. Defaulted so an older
+  // response still parses.
+  sceneWhatHappens: z.string().default(''),
+  sceneAudienceLearns: z.string().default(''),
+  sceneAudienceFeels: z.string().default(''),
+  sceneSocialSituation: z.string().default(''),
+  // T10.1 (0.54.0) — the scene's turn → Scene.valueAtStake / chargeIn /
+  // chargeOut / whyNow.
+  sceneValueAtStake: z.string().default(''),
+  sceneChargeIn: Charge.nullable().default(null),
+  sceneChargeOut: Charge.nullable().default(null),
+  sceneWhyNow: z.string().default(''),
 })
 
 // §8c scan_consistency

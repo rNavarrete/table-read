@@ -516,6 +516,115 @@ def test_an_attempt_with_markup_ranks_below_a_clean_one():
     assert clean.ranking_key() < marked.ranking_key()
 
 
+# ── T10.1 beat actions and the scene turn ────────────────────────────────────
+
+
+def _acted(beats: list[tuple[int, str, str, str, str]], **scene: object) -> SegmentedScene:
+    """Beats as (startLine, actor, actionVerb, target, reaction); scene-level
+    fields by their camelCase wire names."""
+    return SegmentedScene.model_validate(
+        {
+            "segments": [
+                {
+                    "kind": "beat",
+                    "startLine": start,
+                    "whatHappens": "w",
+                    "audienceLearns": "l",
+                    "audienceFeels": "f",
+                    "actor": actor,
+                    "actionVerb": verb,
+                    "target": target,
+                    "reaction": reaction,
+                }
+                for (start, actor, verb, target, reaction) in beats
+            ],
+            **scene,
+        }
+    )
+
+
+def _actions(beat) -> tuple[str, str, str, str]:
+    return (beat.actor, beat.action_verb, beat.target, beat.reaction)
+
+
+def test_beat_actions_and_scene_turn_ride_through_normalization():
+    scene = _scene("INT. BAR - NIGHT\nDan pours.\nMarta enters.")
+    normalized = normalize_and_slice(
+        scene,
+        _acted(
+            [(1, "DAN", "stalls", "", ""), (3, "Marta", "probes", "Dan", "he deflects")],
+            sceneValueAtStake="trust",
+            sceneChargeIn="positive",
+            sceneChargeOut="mixed",
+            sceneWhyNow="The audit lands tomorrow.",
+        ),
+    )
+    assert [_actions(b) for b in normalized.beats] == [
+        ("DAN", "stalls", "", ""),
+        ("Marta", "probes", "Dan", "he deflects"),
+    ]
+    reading = normalized.reading
+    assert (reading["valueAtStake"], reading["whyNow"]) == ("trust", "The audit lands tomorrow.")
+    # Plain strings, not enum members: the reading goes into a JSON checkpoint.
+    assert type(reading["chargeIn"]) is str and reading["chargeIn"] == "positive"
+    assert reading["chargeOut"] == "mixed"
+
+
+def test_a_pre_0_52_response_reads_as_empty_actions_and_no_turn():
+    normalized = normalize_and_slice(
+        _scene("INT. BAR - NIGHT\nDan pours."), _seg([(1, "a", "b", "c")])
+    )
+    assert _actions(normalized.beats[0]) == ("", "", "", "")
+    turn = ("valueAtStake", "chargeIn", "chargeOut", "whyNow")
+    assert [normalized.reading[key] for key in turn] == ["", None, None, ""]
+
+
+def test_synthetic_beat_has_empty_actions():
+    seg = _seg([], unassigned=[(1, "could not segment")])
+    normalized = normalize_and_slice(_scene(_LONG_SCENE), seg)
+    assert len(normalized.beats) == 1
+    assert _actions(normalized.beats[0]) == ("", "", "", "")
+
+
+def test_absorbed_runs_add_no_actions_and_keep_the_anchor_beats():
+    """A leading unassigned run joins the beat after it, duplicate-start beats
+    lose their metadata to an unassigned run, and the anchoring beat keeps
+    its own actions either way."""
+    scene = _scene("INT. BAR - NIGHT\nstray\nDan pours.\nMarta enters.")
+    seg = _acted(
+        [
+            (3, "Dan", "stalls", "Marta", ""),
+            (4, "Marta", "presses", "Dan", "x"),
+            (4, "Reyes", "threatens", "Dan", "y"),
+        ]
+    )
+    seg.segments.append(_seg([], unassigned=[(1, "front")]).segments[0])
+    normalized = normalize_and_slice(scene, seg)
+    assert [_actions(b) for b in normalized.beats] == [("Dan", "stalls", "Marta", "")]
+    assert normalized.beats[0].unassigned == [(1, 2), (4, 4)]
+
+
+def test_markup_in_a_beat_action_or_turn_field_is_blanked_and_flagged():
+    scene = _scene("INT. BAR - NIGHT\nDan pours.\nMarta enters.")
+    seg = _acted(
+        [(1, "Dan", _markup("."), "Marta", "ok"), (3, "Marta", "probes", "Dan", _markup(":"))],
+        sceneValueAtStake="trust",
+        sceneChargeIn="negative",
+        sceneWhyNow=_markup("."),
+    )
+    normalized = normalize_and_slice(scene, seg)
+    assert normalized.tool_markup is True and normalized.should_retry is True
+    assert _actions(normalized.beats[0]) == ("Dan", "", "Marta", "ok")
+    assert _actions(normalized.beats[1]) == ("Marta", "probes", "Dan", "")
+    assert normalized.reading["whyNow"] == ""
+    assert normalized.reading["valueAtStake"] == "trust"
+    assert normalized.reading["chargeIn"] == "negative"
+    assert [i.code for b in normalized.beats for i in b.review_issues] == [
+        "tool_markup",
+        "tool_markup",
+    ]
+
+
 # ── byte-identity reconstruction ────────────────────────────────────────────
 
 

@@ -46,7 +46,7 @@ def scenes_found(spans: list[SceneSpan]) -> dict:
 
 
 def scene_found(
-    index: int, beats: list[ImportedBeat], reading: dict[str, str], failed: bool
+    index: int, beats: list[ImportedBeat], reading: dict[str, str | None], failed: bool
 ) -> dict:
     return {
         "kind": "scene",

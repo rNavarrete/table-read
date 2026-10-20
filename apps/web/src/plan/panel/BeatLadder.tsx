@@ -1,7 +1,13 @@
-import type { Scene, StoryOverviewBeatItem, TimelineAnchor } from 'contract'
+import type {
+  Beat,
+  Character,
+  Scene,
+  StoryOverviewBeatItem,
+  TimelineAnchor,
+} from 'contract'
 import { Chip } from '../Chip'
 import { LockToggle } from '../LockToggle'
-import { isBeatEffectivelyLocked } from '../planTree'
+import { characterName, isBeatEffectivelyLocked } from '../planTree'
 import type { PlanNote } from '../story'
 import { PlanField, type BeatTextField } from './PlanField'
 import { draftKey } from './usePlanDrafts'
@@ -36,6 +42,39 @@ function NoteMarker({ notes }: { notes: PlanNote[] }) {
   )
 }
 
+/** T10.1: the import's reading of the beat from the character's side —
+ * "Marta probes Dan → he deflects". Missing parts are left out; no line at
+ * all without a verb. Read-only; the fields default in the contract but can
+ * be missing from a raw PATCH doc, hence the falsy checks. */
+function ActionLine({
+  beat,
+  characters,
+}: {
+  beat: Beat
+  characters: Character[]
+}) {
+  if (!beat.actionVerb) return null
+  const who = [
+    beat.actorCharacterId && characterName(characters, beat.actorCharacterId),
+    beat.actionVerb,
+    beat.targetCharacterId && characterName(characters, beat.targetCharacterId),
+  ]
+    .filter(Boolean)
+    .join(' ')
+  return (
+    <p className="text-13 text-tr-text-primary">
+      {who}
+      {beat.reaction && (
+        <>
+          <span aria-hidden="true"> → </span>
+          <span className="sr-only">, </span>
+          {beat.reaction}
+        </>
+      )}
+    </p>
+  )
+}
+
 const PLAN_FIELDS: { field: BeatTextField; label: string }[] = [
   { field: 'whatHappens', label: 'What happens' },
   { field: 'audienceLearns', label: 'Audience learns' },
@@ -44,6 +83,8 @@ const PLAN_FIELDS: { field: BeatTextField; label: string }[] = [
 
 export interface BeatLadderProps {
   scene: Scene
+  /** seriesBible.characters: names for each beat's action line. */
+  characters: Character[]
   episodeLocked: boolean
   /** The one expanded row (driven by PlanSelection). */
   selectedBeatId: string | null
@@ -70,14 +111,16 @@ export interface BeatLadderProps {
  * Section 4 (spec §4.6): the scene's beats as a ladder. Rows show the beat's
  * plan (`whatHappens`), not its first script line, and carry the note
  * marker, the cascaded lock, the beat-sheet landmark and "lands" on the last
- * beat. Opening a row edits the beat in place: plan fields, the Beat lock
- * (`beat.locked`, new), the Script lock and the script behind a disclosure.
+ * beat. Opening a row shows the beat's action line (T10.1), then edits the
+ * beat in place: plan fields, the Beat lock (`beat.locked`, new), the Script
+ * lock and the script behind a disclosure.
  * Fields are read-only when the beat is effectively locked; the lock
  * toggles stay live (lock fields are server-exempt) and only wait for a
  * save in flight.
  */
 export function BeatLadder({
   scene,
+  characters,
   episodeLocked,
   selectedBeatId,
   notes,
@@ -161,6 +204,7 @@ export function BeatLadder({
                 </button>
                 {expanded && (
                   <div className="flex flex-col gap-3 px-2 pb-3 pt-1">
+                    <ActionLine beat={beat} characters={characters} />
                     {PLAN_FIELDS.map(({ field, label }) => (
                       <PlanField key={field} {...fieldProps(field, label)} />
                     ))}

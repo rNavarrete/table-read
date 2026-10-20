@@ -26,10 +26,14 @@ TELEPLAY CONVENTIONS (Fountain)
 - Character cues in caps; parentheticals sparing; no camera direction unless asked
 
 STRUCTURAL DEFINITIONS
-- A scene turns on a value change for at least one character.
-- A beat is the smallest unit: character objectives constant within it; ~10
-  script lines max. Beat changes: entrance/exit, location shift, topic change,
-  emotional/power shift, objective change.
+- A scene turns on a value change for at least one character: a value is at
+  stake (trust, freedom, safety, love), and it is positive, negative or mixed
+  for them as the scene opens and as it closes.
+- A beat is one exchange of action and reaction: a character pursues one
+  tactic toward one objective, and someone or something answers. A new beat
+  starts when a character changes tactic or objective, someone enters or
+  exits, or the location changes. Most beats run under about ten script lines;
+  that is a size, not a boundary rule.
 
 HARD RULES
 - NEVER alter content marked LOCKED. Treat it as immutable constraint.
@@ -56,6 +60,8 @@ HARD RULES
 ```
 
 Do not include Western canon story examples in any prompt (design doc §6.4).
+
+The structural definitions follow the craft breakdown traditions (`PROMPT_VERSION 0.54.0`, T10.1): McKee's value-and-charge test for a scene, and Stanislavsky's bit / McKee's beat — one tactic and its answer — for a beat. "Topic change" and "emotional/power shift" are not boundary rules, and the ten-line figure is a size, not a cap. Every op reads them, generation included.
 
 ## 1. `generate_beat_candidates`
 
@@ -435,20 +441,34 @@ Purpose: Fountain/plain-text import → scenes/beats (MVP: single episode). **Tw
       "startLine": 1,
       "whatHappens": "",
       "audienceLearns": "",
-      "audienceFeels": ""
+      "audienceFeels": "",
+      "actor": "",
+      "actionVerb": "",
+      "target": "",
+      "reaction": ""
     },
     {
       "kind": "unassigned",
       "startLine": 8,
       "reason": ""
     }
-  ]
+  ],
+  "sceneWhatHappens": "",
+  "sceneAudienceLearns": "",
+  "sceneAudienceFeels": "",
+  "sceneSocialSituation": "",
+  "sceneValueAtStake": "",
+  "sceneChargeIn": null,
+  "sceneChargeOut": null,
+  "sceneWhyNow": ""
 }
 ```
 
+**Boundaries and readings (`PROMPT_VERSION 0.54.0`, T10.1).** The prompt states the §0 boundary rule — a new beat starts on a tactic or objective change, an entrance or exit, or a location change — and that a topic change while the tactic holds is not a new beat. Boundaries come from the target scene alone; the whole split script (cached prefix) informs only what a beat means. Per beat, besides `whatHappens / audienceLearns / audienceFeels`: `actor`, the character pursuing the tactic, named as the script names them; `actionVerb`, one present-tense transitive verb for the tactic as an actor would play it (probes, flatters, stonewalls, threatens), never a summary verb (talks, discusses); `target`, the character it is aimed at, or `""` when it is aimed at no one; `reaction`, how the target answers in a short clause, or `""`. Scene level, besides the four 0.41.0 fields: `sceneValueAtStake`, one or two words (trust, freedom, safety, love); `sceneChargeIn` / `sceneChargeOut`, `positive | negative | mixed` for the character the scene turns on, as it opens and as it closes; `sceneWhyNow`, one sentence on the pressure that forces the scene now rather than earlier or later. Every reading is grounded in the scene and left empty (a charge `null`) rather than padded; every new field defaults, so a pre-0.54.0 response parses. The server stores the scene fields on `Scene.valueAtStake / chargeIn / chargeOut / whyNow` as returned, and after the entities stage resolves `actor` / `target` against the final cast (aliases included) to `Beat.actorCharacterId / targetCharacterId`; an unknown or ambiguous name stays `null` and the verb and reaction are kept. Logs carry resolved/unresolved counts only.
+
 Server rules: for starts `s₁…sₙ`, the server derives each end as `sᵢ₊₁−1` and the final end as `K`, then slices `scriptText` verbatim. Whole segment objects are sorted by `startLine`; missing line 1 gets a synthetic unassigned prefix; out-of-bounds starts are discarded; duplicate starts collapse to one unassigned segment; no usable starts yields one whole-scene unassigned segment. Every selected repair is flagged with a stable reason code, and unassigned runs attach to the nearest beat, so coverage is always exactly `1..K` and semantic start errors never abort import.
 
-**Quality-gated semantic retry:** normalize the first attempt, then retry that scene exactly once when the output is empty, any start is duplicated, any beat metadata is discarded, `affectedLines / K > 0.05`, every segment is unassigned on a scene that is not a short establishing scene (`no_beats_returned`), or any scene-level or beat text field contains leaked tool-call markup (`tool_markup`). Normalize the retry too and select lexicographically by `(noSemanticBeat, toolMarkup, discardedBeatMetadata, affectedLines, maxBoundaryDisplacement, repairEventCount)`, where `noSemanticBeat` means no beat has a non-empty `whatHappens`; the first attempt wins an exact tie. The retry prompt includes only concrete repair codes/counts (including `no_beats_returned` / `tool_markup`) plus the same inert source block. A text field still holding markup in the selected attempt is stored as `""` and its beat (the first beat for scene-level fields) gets a `tool_markup` review flag. A short establishing scene, whose non-blank lines after the heading number at most 2 and hold at most 130 characters together, that comes back all unassigned gets no retry and no `no_beats_returned` flag; the character cap matters because native Fountain keeps a whole action paragraph on one line (threshold awaiting owner confirmation, T9.16). This is separate from rule 9's schema-invalid retry.
+**Quality-gated semantic retry:** normalize the first attempt, then retry that scene exactly once when the output is empty, any start is duplicated, any beat metadata is discarded, `affectedLines / K > 0.05`, every segment is unassigned on a scene that is not a short establishing scene (`no_beats_returned`), or any scene-level or beat text field (the T10.1 actor, verb, target, reaction, value and why-now fields included) contains leaked tool-call markup (`tool_markup`). Normalize the retry too and select lexicographically by `(noSemanticBeat, toolMarkup, discardedBeatMetadata, affectedLines, maxBoundaryDisplacement, repairEventCount)`, where `noSemanticBeat` means no beat has a non-empty `whatHappens`; the first attempt wins an exact tie. The retry prompt includes only concrete repair codes/counts (including `no_beats_returned` / `tool_markup`) plus the same inert source block. A text field still holding markup in the selected attempt is stored as `""` and its beat (the first beat for scene-level fields) gets a `tool_markup` review flag. A short establishing scene, whose non-blank lines after the heading number at most 2 and hold at most 130 characters together, that comes back all unassigned gets no retry and no `no_beats_returned` flag; the character cap matters because native Fountain keeps a whole action paragraph on one line (threshold awaiting owner confirmation, T9.16). This is separate from rule 9's schema-invalid retry.
 
 ### Import act inference
 

@@ -293,9 +293,17 @@
                     "audienceLearns": "Two months to foreclosure; Dan is weaponizing the crisis he caused.",
                     "audienceFeels": "Reluctant admiration for the audacity of it.",
                     "scriptText": "INT. THE LONG POUR - BAR - DAY\n\nTwo coffees. Dan slides a folded letter across the bar like it's a menu.\n\nDAN\nBank gave us sixty days. Dad's refinance, the balloon thing \u2014 it's a scam with a letterhead.\n\nMARTA\n(reading)\nSixty days.\n\nDAN\nYou're the numbers person. I figured \u2014 you and me. Vega and Vega.\n\nMarta folds the letter into a perfect square. Says nothing.",
-                    "scriptLocked": false
+                    "scriptLocked": false,
+                    "actorCharacterId": "char-dan",
+                    "actionVerb": "recruits",
+                    "targetCharacterId": "char-marta",
+                    "reaction": "Marta folds the letter into a perfect square and says nothing"
                   }
-                ]
+                ],
+                "valueAtStake": "trust",
+                "chargeIn": "mixed",
+                "chargeOut": "negative",
+                "whyNow": "Marta saw the $40,000 transfer last night; this morning is Dan's first chance to tell her before she has to ask."
               },
               {
                 "id": "scene-4",
@@ -925,9 +933,17 @@
                         "audienceLearns": "Two months to foreclosure; Dan is weaponizing the crisis he caused.",
                         "audienceFeels": "Reluctant admiration for the audacity of it.",
                         "scriptText": "INT. THE LONG POUR - BAR - DAY\n\nTwo coffees. Dan slides a folded letter across the bar like it's a menu.\n\nDAN\nBank gave us sixty days. Dad's refinance, the balloon thing \u2014 it's a scam with a letterhead.\n\nMARTA\n(reading)\nSixty days.\n\nDAN\nYou're the numbers person. I figured \u2014 you and me. Vega and Vega.\n\nMarta folds the letter into a perfect square. Says nothing.",
-                        "scriptLocked": false
+                        "scriptLocked": false,
+                        "actorCharacterId": "char-dan",
+                        "actionVerb": "recruits",
+                        "targetCharacterId": "char-marta",
+                        "reaction": "Marta folds the letter into a perfect square and says nothing"
                       }
-                    ]
+                    ],
+                    "valueAtStake": "trust",
+                    "chargeIn": "mixed",
+                    "chargeOut": "negative",
+                    "whyNow": "Marta saw the $40,000 transfer last night; this morning is Dan's first chance to tell her before she has to ask."
                   },
                   {
                     "id": "scene-4",

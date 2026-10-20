@@ -55,6 +55,7 @@ from fountain.characters import (
     merge_characters_into_bible,
     merge_inferred_entities,
     normalize_known_by,
+    resolve_character_id,
 )
 from fountain.entity_inference import (
     ENTITY_INFER_MAX_SCENES_PER_CHUNK,
@@ -478,6 +479,8 @@ def analyze_import(
     # unassigned ranges so they can be flagged. ──────────────────────────────
     scene_docs: list[dict] = []
     review_raw: list[tuple[str, SegmentationIssue]] = []
+    # (beat doc, actor name, target name): resolved once the cast is final.
+    beat_names: list[tuple[dict, str, str]] = []
     for si, (span, (beats, reading)) in enumerate(
         zip(spans, per_scene_results, strict=True), start=1
     ):
@@ -494,8 +497,13 @@ def analyze_import(
                     "audienceFeels": beat.audience_feels,
                     "scriptText": beat.script_text,
                     "scriptLocked": False,
+                    "actorCharacterId": None,
+                    "actionVerb": beat.action_verb,
+                    "targetCharacterId": None,
+                    "reaction": beat.reaction,
                 }
             )
+            beat_names.append((beat_docs[-1], beat.actor, beat.target))
             review_raw.extend((beat_id, issue) for issue in beat.review_issues)
         scene_docs.append(
             {
@@ -518,6 +526,10 @@ def analyze_import(
                 "audienceFeels": reading["audienceFeels"],
                 "motivations": [],
                 "beats": beat_docs,
+                "valueAtStake": reading["valueAtStake"],
+                "chargeIn": reading["chargeIn"],
+                "chargeOut": reading["chargeOut"],
+                "whyNow": reading["whyNow"],
             }
         )
 
@@ -713,6 +725,15 @@ def analyze_import(
         len(entities.relationships),
         len(entities.world_elements),
         len(summary_chunks),
+        render.PROMPT_VERSION,
+    )
+    # T10.1: each beat's actor/target names → character ids, against the cast
+    # the entities stage just settled (aliases included).
+    resolved_names, unresolved_names = _resolve_beat_characters(beat_names, characters)
+    _logger.info(
+        "import_beat_characters resolved=%d unresolved=%d prompt_version=%s",
+        resolved_names,
+        unresolved_names,
         render.PROMPT_VERSION,
     )
 
@@ -1254,6 +1275,26 @@ def _write_checkpoint(
         writer(stage, value, unit_index)
 
 
+def _resolve_beat_characters(
+    beat_names: list[tuple[dict, str, str]], characters: list[dict]
+) -> tuple[int, int]:
+    """Set each beat doc's `actorCharacterId` / `targetCharacterId` from the
+    names segmentation returned, without minting: an unknown or ambiguous name
+    stays None, and the verb and reaction are kept either way. Returns the
+    (resolved, unresolved) name counts — counts only, for the log (rule 5)."""
+    resolved = unresolved = 0
+    for beat_doc, actor, target in beat_names:
+        for key, name in (("actorCharacterId", actor), ("targetCharacterId", target)):
+            if not name.strip():
+                continue
+            beat_doc[key] = resolve_character_id(name.strip(), characters)
+            if beat_doc[key] is None:
+                unresolved += 1
+            else:
+                resolved += 1
+    return resolved, unresolved
+
+
 def _dump_imported_beats(beats: list[ImportedBeat]) -> list[dict]:
     return [asdict(beat) for beat in beats]
 
@@ -1282,6 +1323,11 @@ def _load_imported_beats(value: object) -> list[ImportedBeat] | None:
                         for pair in raw.get("unassigned", [])
                     ],
                     review_issues=issues,
+                    # Absent from a pre-0.54.0 checkpoint: load as empty.
+                    actor=str(raw.get("actor", "")),
+                    action_verb=str(raw.get("action_verb", "")),
+                    target=str(raw.get("target", "")),
+                    reaction=str(raw.get("reaction", "")),
                 )
             )
     except (KeyError, TypeError, ValueError):
@@ -1289,19 +1335,24 @@ def _load_imported_beats(value: object) -> list[ImportedBeat] | None:
     return beats
 
 
-_EMPTY_READING = {
+# Also the defaults a pre-0.54.0 checkpoint's reading loads with.
+_EMPTY_READING: dict[str, str | None] = {
     "whatHappens": "",
     "audienceLearns": "",
     "audienceFeels": "",
     "socialSituation": "",
+    "valueAtStake": "",
+    "chargeIn": None,
+    "chargeOut": None,
+    "whyNow": "",
 }
 
 
 def _load_segment_checkpoints(
     checkpoint: dict, spans: list[SceneSpan]
-) -> list[tuple[list[ImportedBeat], dict[str, str]] | None]:
+) -> list[tuple[list[ImportedBeat], dict[str, str | None]] | None]:
     scene_count = len(spans)
-    results: list[tuple[list[ImportedBeat], dict[str, str]] | None] = [None] * scene_count
+    results: list[tuple[list[ImportedBeat], dict[str, str | None]] | None] = [None] * scene_count
     units = checkpoint.get(STAGE_SEGMENTING_BEATS)
     if not isinstance(units, dict):
         return results
@@ -1691,7 +1742,7 @@ def _segment_one(
     llm: LlmClient,
     run_nonce: str,
     split_source: str | None = None,
-) -> tuple[list[ImportedBeat], dict[str, str]]:
+) -> tuple[list[ImportedBeat], dict[str, str | None]]:
     """Segment one scene, with the whole split script as cached context.
 
     `split_source` is built once per run and passed unchanged (see

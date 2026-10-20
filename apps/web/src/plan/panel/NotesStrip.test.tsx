@@ -20,6 +20,10 @@ function beat(id: string, index: number): Beat {
     audienceFeels: '',
     scriptText: '',
     scriptLocked: false,
+    actorCharacterId: null,
+    actionVerb: '',
+    targetCharacterId: null,
+    reaction: '',
   }
 }
 
@@ -33,6 +37,10 @@ function scene(id: string, index: number, beats: Beat[] = []): Scene {
     location: 'INT. THE LONG POUR - KITCHEN - NIGHT',
     time: 'Minutes later',
     socialSituation: '',
+    valueAtStake: '',
+    chargeIn: null,
+    chargeOut: null,
+    whyNow: '',
     whatHappens: '',
     audienceLearns: '',
     audienceFeels: '',

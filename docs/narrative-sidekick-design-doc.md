@@ -65,7 +65,7 @@ Fabula's two layers (story plan → script) extend to four for episodic work:
 
 A **scene** is defined (per McKee) by a value-charged turn. Each scene plan captures: what happens, what the audience learns, how the audience feels, the social situation, location, time, and **which storyline (A/B/C) it belongs to**.
 
-A **beat** is the smallest structural unit (per Stanislavsky's "unit"): a short section (~10 lines max) where character objectives remain constant. Beat boundaries: entrances/exits, location shifts, topic changes, emotional/power shifts, objective changes. Each beat plan captures: what happens, what the audience learns, how the audience feels.
+A **beat** is the smallest structural unit (per Stanislavsky's "bit", McKee's action/reaction exchange): one character pursues one tactic toward one objective and someone or something answers. Beat boundaries: a change of tactic or objective, an entrance or exit, a location change; a topic change while the tactic holds is not a new beat, and most beats run under ~10 lines as a size, not a rule (T10.1). Each beat plan captures: what happens, what the audience learns, how the audience feels; an imported beat also records who acts, the tactic as an action verb, whom it targets and the reaction.
 
 ### 3.2 The Drama Manager
 

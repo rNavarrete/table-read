@@ -2,7 +2,7 @@
 import { cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { Beat, ConsistencyFlag, Scene } from 'contract'
+import type { Beat, Character, ConsistencyFlag, Scene } from 'contract'
 import type { PlanNote } from '../story'
 import { BeatLadder, type BeatLadderProps } from './BeatLadder'
 import { WithDrafts } from './testDrafts'
@@ -22,6 +22,10 @@ function beat(overrides: Partial<Beat> = {}): Beat {
     audienceFeels: 'Unease.',
     scriptText: "INT. THE LONG POUR - NIGHT\n\nDAN\nWe're closed.",
     scriptLocked: false,
+    actorCharacterId: null,
+    actionVerb: '',
+    targetCharacterId: null,
+    reaction: '',
     ...overrides,
   }
 }
@@ -36,6 +40,10 @@ function scene(overrides: Partial<Scene> = {}): Scene {
     location: 'INT. THE LONG POUR - NIGHT',
     time: 'Night',
     socialSituation: '',
+    valueAtStake: '',
+    chargeIn: null,
+    chargeOut: null,
+    whyNow: '',
     whatHappens: 'Marta walks back in.',
     audienceLearns: '',
     audienceFeels: '',
@@ -72,6 +80,7 @@ function flag(overrides: Partial<ConsistencyFlag> = {}): ConsistencyFlag {
 function renderLadder(overrides: Partial<BeatLadderProps> = {}) {
   const props: BeatLadderProps = {
     scene: scene(),
+    characters: [],
     episodeLocked: false,
     selectedBeatId: null,
     notes: [],
@@ -287,5 +296,90 @@ describe('BeatLadder', () => {
   it('says so when the scene has no beats yet', () => {
     renderLadder({ scene: scene({ beats: [] }) })
     expect(screen.getByText('No beats yet.')).not.toBeNull()
+  })
+
+  describe('action line (T10.1)', () => {
+    function character(id: string, name: string): Character {
+      return {
+        id,
+        name,
+        locked: false,
+        aliases: [],
+        embodiment: '',
+        presentation: '',
+        hiding: '',
+        traits: '',
+        seriesArc: '',
+        summary: '',
+        bio: '',
+      }
+    }
+    const characters = [
+      character('char-marta', 'Marta Vega'),
+      character('char-dan', 'Dan Vega'),
+    ]
+
+    function openWith(overrides: Partial<Beat>) {
+      renderLadder({
+        characters,
+        selectedBeatId: 'beat-1-1',
+        scene: scene({ beats: [beat(overrides)] }),
+      })
+      return screen.getByLabelText('Beat 1.1: What happens').closest('li')!
+    }
+
+    it('reads actor, verb, target, then the reaction, above What happens', () => {
+      const row = openWith({
+        actorCharacterId: 'char-marta',
+        actionVerb: 'probes',
+        targetCharacterId: 'char-dan',
+        reaction: 'Dan deflects to the foreclosure letter',
+      })
+      const line = within(row).getByText(/Marta Vega probes Dan Vega/)
+      expect(line.textContent).toBe(
+        'Marta Vega probes Dan Vega → , Dan deflects to the foreclosure letter',
+      )
+      expect(within(line).getByText('→').getAttribute('aria-hidden')).toBe(
+        'true',
+      )
+      expect(
+        line.compareDocumentPosition(
+          within(row).getByLabelText('Beat 1.1: What happens'),
+        ) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy()
+    })
+
+    it('leaves out the parts the import could not read', () => {
+      const row = openWith({
+        actorCharacterId: null,
+        actionVerb: 'stonewalls',
+        targetCharacterId: 'char-marta',
+        reaction: '',
+      })
+      expect(within(row).getByText('stonewalls Marta Vega')).not.toBeNull()
+    })
+
+    it('shows no line without a verb', () => {
+      const row = openWith({
+        actorCharacterId: 'char-marta',
+        actionVerb: '',
+        targetCharacterId: 'char-dan',
+        reaction: 'he deflects',
+      })
+      expect(within(row).queryByText(/Marta Vega/)).toBeNull()
+      expect(within(row).queryByText(/he deflects/)).toBeNull()
+    })
+
+    it('a collapsed row shows no action line', () => {
+      renderLadder({
+        characters,
+        scene: scene({
+          beats: [
+            beat({ actorCharacterId: 'char-marta', actionVerb: 'probes' }),
+          ],
+        }),
+      })
+      expect(screen.queryByText(/probes/)).toBeNull()
+    })
   })
 })

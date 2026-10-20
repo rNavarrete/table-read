@@ -27,7 +27,16 @@ from typing import Any
 from drama_manager.structure_stages import STRUCTURE_NAMES, STRUCTURE_STAGES
 
 # Prompt spec §8 / hard rule 7: every template carries a PROMPT_VERSION (semver);
-# it is logged with each call and bumped on any template change. 0.53.0 asks
+# it is logged with each call and bumped on any template change. 0.54.0
+# (T10.1) rewrites the §0 structural definitions from the craft breakdown
+# traditions — a scene turns on a value whose charge (positive, negative,
+# mixed) differs as it opens and closes; a beat is one exchange of action and
+# reaction, and a new one starts on a tactic or objective change, an entrance
+# or exit, or a location change ("topic change", "emotional/power shift" and
+# the ~10-line cap as a boundary rule are gone) — and has segment_scene return
+# each beat from the character's side (actor, actionVerb, target, reaction)
+# and the scene's turn (value at stake, charge in and out, why now).
+# 0.53.0 asks
 # infer_narrative_promises for the episode's storylines (A-D, as a TV room
 # breaks them) and each thread's storyline letter (T10.2). 0.51.0 adds
 # check_structure and verify_structure_check (structure checklist). 0.50.0 lets
@@ -149,7 +158,7 @@ from drama_manager.structure_stages import STRUCTURE_NAMES, STRUCTURE_STAGES
 # 0.10.0 typed segment starts; 0.9.0 lock-aware narrative repair. Earlier:
 # 0.8.0 suggest; 0.7.0 scene skeleton; 0.6.0 continuity; 0.5.0 regenerate;
 # 0.4.0 blast; 0.3.0 tune; 0.2.0 candidate + §0 system prompt.
-PROMPT_VERSION = "0.53.0"
+PROMPT_VERSION = "0.54.0"
 
 
 def new_nonce() -> str:
@@ -214,10 +223,14 @@ def build_system_prompt(project: dict, nonce: str) -> str:
         "- Action lines: present tense, max ~4 lines per block\n"
         "- Character cues in caps; parentheticals sparing; no camera direction unless asked\n\n"
         "STRUCTURAL DEFINITIONS\n"
-        "- A scene turns on a value change for at least one character.\n"
-        "- A beat is the smallest unit: character objectives constant within it; ~10 "
-        "script lines max. Beat changes: entrance/exit, location shift, topic change, "
-        "emotional/power shift, objective change.\n\n"
+        "- A scene turns on a value change for at least one character: a value is "
+        "at stake (trust, freedom, safety, love), and it is positive, negative or "
+        "mixed for them as the scene opens and as it closes.\n"
+        "- A beat is one exchange of action and reaction: a character pursues one "
+        "tactic toward one objective, and someone or something answers. A new beat "
+        "starts when a character changes tactic or objective, someone enters or "
+        "exits, or the location changes. Most beats run under about ten script "
+        "lines; that is a size, not a boundary rule.\n\n"
         "HARD RULES\n"
         "- NEVER alter content marked LOCKED. Treat it as immutable constraint.\n"
         "- When a WRITER INSTRUCTION conflicts with LOCKED content, do not alter "
@@ -254,14 +267,24 @@ def build_segment_prompt(project: dict, scene_lines: list[str], nonce: str) -> t
         "you cannot confidently assign a source run to a beat. Do not transcribe "
         "the text and do not return end lines.\n"
         "The whole episode is available above as context. Decide the BOUNDARIES "
-        "from this scene alone — a beat break is an entrance, exit, topic "
-        "change, or shift in objective, all of which are visible here. Use the "
+        "from this scene alone — a new beat starts when a character changes "
+        "tactic or objective, someone enters or exits, or the location changes, "
+        "all of which are visible here. A change of topic while the tactic "
+        "holds is not a new beat. Use the "
         "rest of the episode only for what each beat MEANS: whether a line is "
         "planting something a later scene pays off, echoing something already "
         "established, or landing a reversal the audience has been waiting for. "
         "Say so in whatHappens / audienceLearns / audienceFeels when it is "
         "true, and do not invent a connection the episode does not support.\n"
-        "Then read the scene as a whole and fill the four scene-level fields. "
+        "Read each beat from the character's side too. actor: the character "
+        "pursuing the tactic, named as the script names them. actionVerb: one "
+        "present-tense transitive verb for the tactic as an actor would play "
+        "it — probes, flatters, stonewalls, threatens — never a summary verb "
+        "such as talks, discusses or has a conversation. target: the character "
+        "the tactic is aimed at, named as the script names them, or empty when "
+        "it is aimed at no one. reaction: how the target answers, in a short "
+        "clause, or empty.\n"
+        "Then read the scene as a whole and fill the scene-level fields. "
         "These are not a list of the beats again — they are what the scene "
         "adds up to. sceneWhatHappens: one or two sentences naming who wants "
         "what from whom and how it turns out; write it the way a writer would "
@@ -271,8 +294,14 @@ def build_segment_prompt(project: dict, scene_lines: list[str], nonce: str) -> t
         "sceneAudienceFeels: the intended feeling, in a few words. "
         "sceneSocialSituation: the kind of occasion this is — a briefing, an "
         "interrogation, a first date, a wake — the social frame the characters "
-        "are operating inside, in a short phrase. Ground all four in this "
-        "scene; leave one empty rather than padding it."
+        "are operating inside, in a short phrase. "
+        "sceneValueAtStake: the value the scene turns on, in one or two words "
+        "— trust, freedom, safety, love. sceneChargeIn / sceneChargeOut: "
+        "positive, negative or mixed, for the character the scene turns on, as "
+        "the scene opens and as it closes. sceneWhyNow: one sentence on the "
+        "pressure that forces this scene now rather than earlier or later, or "
+        "empty. Ground every scene-level field in this scene; leave one empty "
+        "(a charge null) rather than padding it."
     )
     return build_system_prompt(project, nonce), user
 
