@@ -1,7 +1,9 @@
+import type { Character } from 'contract'
 import type { DragEvent, KeyboardEvent, MouseEvent } from 'react'
 import { RULED } from '../projects/wizard/board/IndexCard'
 import { plural } from '../projects/wizard/board/boardText'
 import { sceneLocationType, sceneTypeDotClass } from '../write/sceneType'
+import { CardPeek, useCardPeek } from './CardPeek'
 import {
   cardTag,
   type CardTape,
@@ -44,6 +46,8 @@ export interface BoardCardProps {
   onDragOver: (after: boolean) => boolean
   onDragLeave: () => void
   onDrop: (after: boolean) => void
+  /** The bible cast, for the peek's clash names (Plan card peek). */
+  characters?: Character[]
 }
 
 // Literal class names: Tailwind only generates whole names it can see.
@@ -171,6 +175,7 @@ export function BoardCard({
   onDragOver,
   onDragLeave,
   onDrop,
+  characters = [],
 }: BoardCardProps) {
   const { scene, number, place } = signals
   const draggable = !locked && !pending
@@ -187,7 +192,11 @@ export function BoardCard({
     onOpenInWrite()
   }
 
+  // The full card on hover or keyboard focus; never while dragging.
+  const peek = useCardPeek(dragging)
+
   function handleDragStart(event: DragEvent) {
+    peek.close()
     if (!draggable) {
       event.preventDefault()
       return
@@ -215,148 +224,168 @@ export function BoardCard({
       : 'bg-tr-board-paper shadow-card-board hover:shadow-card-lift'
 
   return (
-    <div
-      role="button"
-      aria-pressed={selected}
-      aria-label={cardLabel(signals, locked, unsaved, shownTape)}
-      // ⌥←/⌥→ move it (Board's keys): the only keyboard reorder in an act.
-      aria-keyshortcuts={draggable ? 'Alt+ArrowLeft Alt+ArrowRight' : undefined}
-      title={`${number}. ${scene.location}\n${scene.whatHappens}`}
-      data-scene-card
-      data-scene-id={scene.id}
-      data-testid={`scene-card-${scene.id}`}
-      data-locked={locked}
-      data-match={ring ? true : undefined}
-      tabIndex={tabIndex}
-      draggable={draggable}
-      onClick={onSelect}
-      onDoubleClick={handleDoubleClick}
-      onKeyDown={onKeyDown}
-      onFocus={onFocus}
-      onDragStart={handleDragStart}
-      onDragEnd={onDragEnd}
-      onDragOver={handleDragOver}
-      onDragLeave={onDragLeave}
-      onDrop={handleDrop}
-      style={quiet && !selected ? undefined : RULED}
-      className={
-        `relative flex h-card-board-h w-card-board-w shrink-0 cursor-pointer select-none flex-col rounded-[4px] px-2 pb-1 pt-[7px] text-tr-text-primary transition-[box-shadow,translate] ease-standard hover:-translate-y-px motion-reduce:transition-none ${fill} ${FOCUS}` +
-        (related
-          ? ` outline-[1.5px] outline-offset-3 outline-dashed ${amber ? 'outline-tr-amber' : 'outline-tr-sky'}`
-          : '') +
-        (dragging ? ' opacity-50' : '') +
-        // Both are box-shadow rings and compose with the selected inset ring;
-        // a drop target's ring (amber for a problem or a lock, else sky) wins
-        // over a highlight ring.
-        (dropTarget
-          ? ` ring-2 ${amber ? 'ring-tr-amber' : 'ring-tr-sky'}`
-          : ring
-            ? ` ring-2 ${TONE_RING[ring]}`
-            : '')
-      }
-    >
-      {shownTape && (
-        <span
-          aria-hidden="true"
-          data-tape
-          // Only the drop tape wraps (its reason must read whole); a second
-          // line on any other tape would cover the number and place row.
-          className={`absolute -top-2.5 left-2 z-[2] ${dropTarget ? 'line-clamp-2' : 'truncate'} max-w-[134px] rounded-[3px] px-1.5 text-11 font-semibold leading-4 text-tr-surface-raised shadow-raised ${TONE_BG[shownTape.tone]}`}
-        >
-          {shownTape.text}
-        </span>
-      )}
-      {insert && (
-        // Centred in the board's 12px gap-x-3.
-        <span
-          aria-hidden="true"
-          data-insert-bar
-          data-side={insert}
-          className={`absolute inset-y-0 w-[3px] rounded-full bg-tr-coral ${insert === 'before' ? '-left-[7.5px]' : '-right-[7.5px]'}`}
-        />
-      )}
+    <>
       <div
-        aria-hidden="true"
-        className="flex h-3.5 min-w-0 items-center gap-[5px] whitespace-nowrap text-12 leading-[14px]"
+        role="button"
+        aria-pressed={selected}
+        aria-label={cardLabel(signals, locked, unsaved, shownTape)}
+        // ⌥←/⌥→ move it (Board's keys): the only keyboard reorder in an act.
+        aria-keyshortcuts={
+          draggable ? 'Alt+ArrowLeft Alt+ArrowRight' : undefined
+        }
+        data-scene-card
+        data-scene-id={scene.id}
+        data-testid={`scene-card-${scene.id}`}
+        data-locked={locked}
+        data-match={ring ? true : undefined}
+        tabIndex={tabIndex}
+        draggable={draggable}
+        onClick={onSelect}
+        onDoubleClick={handleDoubleClick}
+        onKeyDown={(event) => {
+          if (!peek.onEscape(event)) onKeyDown(event)
+        }}
+        onFocus={(event) => {
+          onFocus()
+          peek.cardHandlers.onFocus(event)
+        }}
+        onBlur={peek.cardHandlers.onBlur}
+        onPointerEnter={peek.cardHandlers.onPointerEnter}
+        onPointerLeave={peek.cardHandlers.onPointerLeave}
+        onPointerDown={peek.cardHandlers.onPointerDown}
+        onDragStart={handleDragStart}
+        onDragEnd={onDragEnd}
+        onDragOver={handleDragOver}
+        onDragLeave={onDragLeave}
+        onDrop={handleDrop}
+        style={quiet && !selected ? undefined : RULED}
+        className={
+          `relative flex h-card-board-h w-card-board-w shrink-0 cursor-pointer select-none flex-col rounded-[4px] px-2 pb-1 pt-[7px] text-tr-text-primary transition-[box-shadow,translate] ease-standard hover:-translate-y-px motion-reduce:transition-none ${fill} ${FOCUS}` +
+          (related
+            ? ` outline-[1.5px] outline-offset-3 outline-dashed ${amber ? 'outline-tr-amber' : 'outline-tr-sky'}`
+            : '') +
+          (dragging ? ' opacity-50' : '') +
+          // Both are box-shadow rings and compose with the selected inset ring;
+          // a drop target's ring (amber for a problem or a lock, else sky) wins
+          // over a highlight ring.
+          (dropTarget
+            ? ` ring-2 ${amber ? 'ring-tr-amber' : 'ring-tr-sky'}`
+            : ring
+              ? ` ring-2 ${TONE_RING[ring]}`
+              : '')
+        }
       >
-        <span className="shrink-0 font-semibold tabular-nums">{number}</span>
-        <span
-          className={`size-1.5 shrink-0 rounded-full ${sceneTypeDotClass(sceneLocationType(scene))}`}
-        />
-        <span className="min-w-0 flex-1 truncate font-semibold">{place}</span>
-        {stories > 0 ? (
+        {shownTape && (
           <span
-            data-testid="consistency-flag-badge"
-            data-kind="story"
-            className="shrink-0 rounded-chip bg-tr-amber-soft px-[5px] text-11 font-semibold text-tr-amber"
+            aria-hidden="true"
+            data-tape
+            // Only the drop tape wraps (its reason must read whole); a second
+            // line on any other tape would cover the number and place row.
+            className={`absolute -top-2.5 left-2 z-[2] ${dropTarget ? 'line-clamp-2' : 'truncate'} max-w-[134px] rounded-[3px] px-1.5 text-11 font-semibold leading-4 text-tr-surface-raised shadow-raised ${TONE_BG[shownTape.tone]}`}
           >
-            ⚑{stories}
+            {shownTape.text}
           </span>
-        ) : (
-          signals.importNotes.length > 0 && (
-            <span
-              data-testid="consistency-flag-badge"
-              data-kind="import"
-              className="shrink-0 rounded-chip bg-tr-surface-sunken px-[5px] text-11 font-medium inset-ring inset-ring-tr-border-strong"
-            >
-              ⚑{signals.importNotes.length}
-            </span>
-          )
         )}
-        {locked && <LockGlyph />}
-        {unsaved && (
+        {insert && (
+          // Centred in the board's 12px gap-x-3.
           <span
-            data-testid="unsaved-dot"
-            role="img"
-            aria-label="Unsaved edits"
-            title="Unsaved edits"
-            className="size-2 shrink-0 rounded-full bg-tr-coral"
+            aria-hidden="true"
+            data-insert-bar
+            data-side={insert}
+            className={`absolute inset-y-0 w-[3px] rounded-full bg-tr-coral ${insert === 'before' ? '-left-[7.5px]' : '-right-[7.5px]'}`}
           />
         )}
-      </div>
-      <p className="mt-[7px] line-clamp-4 flex-1 overflow-hidden font-ledger-display text-13 leading-[15px] text-tr-text-primary">
-        {scene.whatHappens}
-      </p>
-      <div
-        aria-hidden="true"
-        className="flex h-3.5 items-center gap-1.5 text-11 leading-[14px] tabular-nums"
-      >
-        <span
-          data-ticks
-          title={beats || undefined}
-          className="flex shrink-0 items-end gap-0.5"
+        <div
+          aria-hidden="true"
+          className="flex h-3.5 min-w-0 items-center gap-[5px] whitespace-nowrap text-12 leading-[14px]"
         >
-          {signals.ticks.map((tick, i) => (
-            <i
-              key={i}
-              data-tick={tick}
-              className={`w-0.75 rounded-[1px] ${TICK[tick]}`}
-            />
-          ))}
-        </span>
-        {signals.setsUp.length > 0 && (
+          <span className="shrink-0 font-semibold tabular-nums">{number}</span>
           <span
-            className={`font-semibold ${signals.neverPaidOff ? 'text-tr-amber' : 'text-tr-sky'}`}
+            className={`size-1.5 shrink-0 rounded-full ${sceneTypeDotClass(sceneLocationType(scene))}`}
+          />
+          <span className="min-w-0 flex-1 truncate font-semibold">{place}</span>
+          {stories > 0 ? (
+            <span
+              data-testid="consistency-flag-badge"
+              data-kind="story"
+              className="shrink-0 rounded-chip bg-tr-amber-soft px-[5px] text-11 font-semibold text-tr-amber"
+            >
+              ⚑{stories}
+            </span>
+          ) : (
+            signals.importNotes.length > 0 && (
+              <span
+                data-testid="consistency-flag-badge"
+                data-kind="import"
+                className="shrink-0 rounded-chip bg-tr-surface-sunken px-[5px] text-11 font-medium inset-ring inset-ring-tr-border-strong"
+              >
+                ⚑{signals.importNotes.length}
+              </span>
+            )
+          )}
+          {locked && <LockGlyph />}
+          {unsaved && (
+            <span
+              data-testid="unsaved-dot"
+              role="img"
+              aria-label="Unsaved edits"
+              title="Unsaved edits"
+              className="size-2 shrink-0 rounded-full bg-tr-coral"
+            />
+          )}
+        </div>
+        <p className="mt-[7px] line-clamp-4 flex-1 overflow-hidden font-ledger-display text-13 leading-[15px] text-tr-text-primary">
+          {scene.whatHappens}
+        </p>
+        <div
+          aria-hidden="true"
+          className="flex h-3.5 items-center gap-1.5 text-11 leading-[14px] tabular-nums"
+        >
+          <span
+            data-ticks
+            title={beats || undefined}
+            className="flex shrink-0 items-end gap-0.5"
           >
-            ↗{signals.setsUp.length}
+            {signals.ticks.map((tick, i) => (
+              <i
+                key={i}
+                data-tick={tick}
+                className={`w-0.75 rounded-[1px] ${TICK[tick]}`}
+              />
+            ))}
           </span>
-        )}
-        {signals.paysOff.length > 0 && (
-          <span className="font-semibold text-tr-sky">
-            ↘{signals.paysOff.length}
-          </span>
-        )}
-        {signals.secret && (
-          <span className="font-semibold text-tr-ledger-secret-ink">
-            {signals.secret === 'out' ? '◇' : '◆'}
-          </span>
-        )}
-        {tag && (
-          <span className="ml-auto font-semibold tracking-[.05em] text-tr-accent-ink">
-            {tag}
-          </span>
-        )}
+          {signals.setsUp.length > 0 && (
+            <span
+              className={`font-semibold ${signals.neverPaidOff ? 'text-tr-amber' : 'text-tr-sky'}`}
+            >
+              ↗{signals.setsUp.length}
+            </span>
+          )}
+          {signals.paysOff.length > 0 && (
+            <span className="font-semibold text-tr-sky">
+              ↘{signals.paysOff.length}
+            </span>
+          )}
+          {signals.secret && (
+            <span className="font-semibold text-tr-ledger-secret-ink">
+              {signals.secret === 'out' ? '◇' : '◆'}
+            </span>
+          )}
+          {tag && (
+            <span className="ml-auto font-semibold tracking-[.05em] text-tr-accent-ink">
+              {tag}
+            </span>
+          )}
+        </div>
       </div>
-    </div>
+      {peek.anchor && (
+        <CardPeek
+          signals={signals}
+          characters={characters}
+          anchor={peek.anchor}
+          {...peek.peekHandlers}
+        />
+      )}
+    </>
   )
 }

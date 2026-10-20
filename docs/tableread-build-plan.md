@@ -359,6 +359,15 @@ _Accept:_
 - No model call anywhere else (rule 8).
 - The owner's substitute sign-off is recorded in the PR.
 
+**T10.14 Card peek.** Owner request (2026-10-20): board cards truncate the scene's reading and must be readable in full. Resting the pointer on a card, or landing on it with the keyboard, opens a peek beside it with the whole slug and `whatHappens` and the T10.12 readings; it replaces the native tooltip. Redesign spec §4.2.
+_Accept:_
+- opens after 400 ms of hover and at once on keyboard focus, never on a click-focus or during a drag;
+- closes on leave (with a grace period for moving onto it), blur, scroll and Esc;
+- Esc on a focus peek still reaches Plan in one press;
+- `aria-hidden`, with no request;
+- existing tokens only;
+- Vitest for each rule and for `peekLines`.
+
 ## Sequencing & parallelism
 
 ```
