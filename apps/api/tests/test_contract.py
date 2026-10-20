@@ -14,6 +14,7 @@ from schemas import (
     Beat,
     ExtractedFact,
     KnowledgeEvent,
+    LedgerFact,
     PersistedState,
     ProjectSummary,
     Scene,
@@ -255,3 +256,38 @@ def test_belief_round_trips():
     }
     dumped = ExtractedFact.model_validate(extracted).model_dump(by_alias=True, mode="json")
     assert dumped["knowledgeEvents"][0]["belief"] == "the money went to the bank"
+
+
+_PRE_T10_8_LEDGER_FACT = {
+    "id": "fact-1",
+    "fact": "Dan hid the money.",
+    "factType": "event",
+    "sourceSpan": {"episodeId": "ep-1", "sceneId": "scene-2", "beatId": "beat-2-1"},
+    "knownBy": [],
+    "provenance": "inferred",
+    "confidence": 0.9,
+    "status": "active",
+    "supersedes": None,
+    "supersededBy": None,
+}
+
+
+def test_pre_t10_8_facts_load_with_null_delivery_and_need():
+    for model, payload in (
+        (ExtractedFact, _PRE_T10_4_EXTRACTED_FACT),
+        (LedgerFact, _PRE_T10_8_LEDGER_FACT),
+    ):
+        parsed = model.model_validate(payload)
+        assert (parsed.delivery, parsed.needed_by_scene_id) == (None, None)
+
+
+def test_delivery_and_need_round_trip_and_reject_an_unknown_delivery():
+    read = {"delivery": "implied", "neededBySceneId": "scene-5"}
+    for model, payload in (
+        (ExtractedFact, _PRE_T10_4_EXTRACTED_FACT),
+        (LedgerFact, _PRE_T10_8_LEDGER_FACT),
+    ):
+        dumped = model.model_validate({**payload, **read}).model_dump(by_alias=True, mode="json")
+        assert {key: dumped[key] for key in read} == read
+        with pytest.raises(ValidationError):
+            model.model_validate({**payload, "delivery": "told"})

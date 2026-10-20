@@ -1,4 +1,5 @@
 import type { LedgerFact, Project } from 'contract'
+import { expositionLine } from '../plan/story'
 import { ConfidenceBar } from './ConfidenceBar'
 import { assignCharacterAvatars, characterAvatar } from './characterAvatar'
 import { beliefLines } from './knowledgeGraph'
@@ -71,6 +72,7 @@ export function FactDetailDrawer({
     ? (allFacts.find((candidate) => candidate.id === fact.supersedes) ?? null)
     : null
   const beliefs = fact ? beliefLines(fact, (id) => nameFor(project, id)) : []
+  const exposition = fact ? expositionLine(project, fact) : null
   const supersededBy = fact?.supersededBy
     ? (allFacts.find((candidate) => candidate.id === fact.supersededBy) ?? null)
     : null
@@ -192,6 +194,17 @@ export function FactDetailDrawer({
                   {line}
                 </p>
               ))}
+            </section>
+          ) : null}
+
+          {exposition ? (
+            <section className="mt-5">
+              <h3 className="font-script text-10 uppercase tracking-[0.08em] text-tr-text-muted">
+                Exposition
+              </h3>
+              <p className="mt-1 text-12 text-tr-text-secondary">
+                {exposition}
+              </p>
             </section>
           ) : null}
 

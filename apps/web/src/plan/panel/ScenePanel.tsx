@@ -12,6 +12,7 @@ import { actLabel, actNumbersForFormat } from '../planTree'
 import {
   boardOrder,
   castFromDialogue,
+  expositionLine,
   factsForScene,
   knowledgeModes,
   landmarksForScene,
@@ -374,6 +375,7 @@ export function ScenePanel({
             secrets={secrets}
             facts={facts}
             modes={modes}
+            exposition={(fact) => expositionLine(project, fact)}
             relationshipMoments={moments}
             characters={characters}
             alsoInScene={alsoInScene}

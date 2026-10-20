@@ -87,6 +87,8 @@ function activeFact(id: string): LedgerFact {
     knownBy: [],
     knowledgeEvents: [],
     audienceKnows: true,
+    delivery: null,
+    neededBySceneId: null,
     provenance: 'inferred',
     confidence: 0.9,
     status: 'active',

@@ -12,6 +12,8 @@ import {
   InferredStoryOverview,
   StoryOverview,
   KnowledgeEvent,
+  ExtractedFact,
+  LedgerFact,
   Motivation,
   Secret,
   StructureCheck,
@@ -605,6 +607,49 @@ describe('KnowledgeEvent kinds', () => {
         belief: 'the money went to the bank',
       }).belief,
     ).toBe('the money went to the bank')
+  })
+})
+
+describe('T10.8 fact delivery and need', () => {
+  const span = { episodeId: 'ep-1', sceneId: 'scene-2', beatId: 'beat-2-1' }
+  const extracted = {
+    fact: 'Dan hid the money.',
+    factType: 'event',
+    sourceSpan: { ...span, startLine: 1, endLine: 1 },
+    sourceText: '',
+    knownBy: [],
+    audienceKnows: true,
+    confidence: 0.9,
+  }
+  const stored = {
+    id: 'fact-1',
+    fact: 'Dan hid the money.',
+    factType: 'event',
+    sourceSpan: span,
+    knownBy: [],
+    provenance: 'inferred',
+    confidence: 0.9,
+    status: 'active',
+    supersedes: null,
+    supersededBy: null,
+  }
+
+  it('defaults both so facts and responses from before T10.8 parse', () => {
+    for (const parsed of [
+      ExtractedFact.parse(extracted),
+      LedgerFact.parse(stored),
+    ]) {
+      expect(parsed).toMatchObject({ delivery: null, neededBySceneId: null })
+    }
+  })
+
+  it('keeps a delivery and a scene, and rejects an unknown delivery', () => {
+    const read = { delivery: 'implied', neededBySceneId: 'scene-5' }
+    expect(ExtractedFact.parse({ ...extracted, ...read })).toMatchObject(read)
+    expect(LedgerFact.parse({ ...stored, ...read })).toMatchObject(read)
+    expect(LedgerFact.safeParse({ ...stored, delivery: 'told' }).success).toBe(
+      false,
+    )
   })
 })
 

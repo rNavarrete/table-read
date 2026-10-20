@@ -54,6 +54,8 @@ function makeFact(partial: Partial<LedgerFact> = {}): LedgerFact {
     knownBy: ['char-reyes'],
     knowledgeEvents: [],
     audienceKnows: true,
+    delivery: null,
+    neededBySceneId: null,
     provenance: 'inferred',
     confidence: 0.72,
     status: 'pending_review',
@@ -252,5 +254,75 @@ describe('fact detail beliefs (T10.4)', () => {
       />,
     )
     expect(screen.queryByText('Beliefs')).toBeNull()
+  })
+})
+
+describe('fact exposition (T10.8)', () => {
+  const told = {
+    ...project,
+    seasons: [
+      {
+        episodes: [
+          {
+            id: 'ep-1',
+            index: 0,
+            scenes: [
+              {
+                id: 'scene-4',
+                index: 3,
+                motivations: [],
+                beats: [
+                  {
+                    id: 'beat-4-1',
+                    index: 0,
+                    scriptText: 'MARTA\nReyes is watching the gate.',
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  } as unknown as Project
+  const said = makeFact({
+    sourceSpan: {
+      ...makeFact().sourceSpan,
+      startLine: 2,
+      endLine: 2,
+      charStart: null,
+      charEnd: null,
+    },
+    delivery: 'stated',
+  })
+
+  it('the fact card and the Atlas drawer say how the fact reaches the audience', () => {
+    render(<FactCard fact={said} allFacts={[said]} project={told} />)
+    expect(screen.getByText('Said by Marta Vega · stated')).toBeTruthy()
+    cleanup()
+
+    render(
+      <FactDetailDrawer
+        fact={said}
+        allFacts={[said]}
+        project={told}
+        onClose={vi.fn()}
+      />,
+    )
+    expect(screen.getByText('Exposition')).toBeTruthy()
+    expect(screen.getByText('Said by Marta Vega · stated')).toBeTruthy()
+  })
+
+  it('shows no Exposition section with nothing to say', () => {
+    const plain = makeFact()
+    render(
+      <FactDetailDrawer
+        fact={plain}
+        allFacts={[plain]}
+        project={project}
+        onClose={vi.fn()}
+      />,
+    )
+    expect(screen.queryByText('Exposition')).toBeNull()
   })
 })

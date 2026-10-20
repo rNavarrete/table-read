@@ -104,6 +104,33 @@
           "audienceKnows": {
             "type": "boolean"
           },
+          "delivery": {
+            "default": null,
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "stated",
+                  "shown",
+                  "implied"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "neededBySceneId": {
+            "default": null,
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "confidence": {
             "type": "number"
           }
@@ -116,6 +143,8 @@
           "knownBy",
           "knowledgeEvents",
           "audienceKnows",
+          "delivery",
+          "neededBySceneId",
           "confidence"
         ],
         "additionalProperties": false

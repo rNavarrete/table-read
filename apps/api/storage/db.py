@@ -80,3 +80,9 @@ def ensure_storage_schema() -> None:
                         "DEFAULT '[]'"
                     )
                 )
+            # T10.8: and the exposition audit's two nullable columns.
+            for column in ("delivery", "needed_by_scene_id"):
+                if column not in fact_columns:
+                    connection.execute(
+                        text(f"ALTER TABLE ledger_facts ADD COLUMN {column} VARCHAR")
+                    )

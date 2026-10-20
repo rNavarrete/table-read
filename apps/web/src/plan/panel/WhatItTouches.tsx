@@ -3,6 +3,7 @@ import type { Character, LedgerFact, RelationshipState, Scene } from 'contract'
 import { Chip } from '../Chip'
 import { characterName } from '../planTree'
 import {
+  nameList,
   PHASE_WORD,
   type KnowledgeModes,
   type SceneSecret,
@@ -18,6 +19,8 @@ export interface WhatItTouchesProps {
   /** T10.4: the scene's knowledge mode (story.knowledgeModes); null when no
    * fact is in play. */
   modes: KnowledgeModes | null
+  /** T10.8: the exposition line under a fact (story.expositionLine). */
+  exposition?: (fact: LedgerFact) => string | null
   relationshipMoments: RelationshipState[]
   characters: Character[]
   /** Present only by dialogue cues (the list WhoWantsWhat gets): their
@@ -65,19 +68,14 @@ function shortList(names: string[]): string {
     : names.join(', ')
 }
 
-/** "A" · "A and B" · "A, B +1": a sentence subject. */
-function subject(names: string[]): string {
-  return names.length === 2 ? names.join(' and ') : shortList(names)
-}
-
 const knows = (names: string[]) => (names.length === 1 ? 'knows' : 'know')
 const doesnt = (names: string[]) => (names.length === 1 ? "doesn't" : "don't")
 
 /** Who knows and who doesn't, in words (T10.4): "the audience and Dan know;
  * Marta doesn't." Either side may be missing. */
 function ordering(knowing: string[], dark: string[]): string {
-  const known = knowing.length > 0 && `${subject(knowing)} ${knows(knowing)}`
-  const unknown = dark.length > 0 && `${subject(dark)} ${doesnt(dark)}`
+  const known = knowing.length > 0 && `${nameList(knowing)} ${knows(knowing)}`
+  const unknown = dark.length > 0 && `${nameList(dark)} ${doesnt(dark)}`
   if (known && unknown) return `${known}; ${unknown}.`
   if (known) return `${known}.`
   return unknown ? `${unknown} know.` : ''
@@ -97,10 +95,12 @@ function Group({ title, children }: { title: string; children: ReactNode }) {
 function FactRow({
   fact,
   knownBy,
+  exposition,
   onOpen,
 }: {
   fact: LedgerFact
   knownBy: string
+  exposition: string | null
   onOpen: (factId: string) => void
 }) {
   const retiredWord = RETIRED_WORD[fact.status]
@@ -122,6 +122,9 @@ function FactRow({
         )}
         {knownBy && <span>Known by {knownBy}</span>}
       </span>
+      {exposition && (
+        <span className="text-12 text-tr-text-secondary">{exposition}</span>
+      )}
     </button>
   )
 }
@@ -138,6 +141,7 @@ export function WhatItTouches({
   secrets,
   facts,
   modes,
+  exposition = () => null,
   relationshipMoments,
   characters,
   alsoInScene,
@@ -302,6 +306,7 @@ export function WhatItTouches({
             key={fact.id}
             fact={fact}
             knownBy={shortList(names(fact.knownBy))}
+            exposition={exposition(fact)}
             onOpen={onOpenFact}
           />
         ))}
@@ -328,6 +333,7 @@ export function WhatItTouches({
               key={fact.id}
               fact={fact}
               knownBy={shortList(names(fact.knownBy))}
+              exposition={exposition(fact)}
               onOpen={onOpenFact}
             />
           ))}

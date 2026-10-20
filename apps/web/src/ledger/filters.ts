@@ -14,6 +14,9 @@ export interface LedgerFilters {
   secretsOnly: boolean
   /** Keep replaced facts out of day-to-day browsing without deleting history. */
   hideSuperseded?: boolean
+  /** T10.8 Exposition lens: only facts the import read a delivery for (the
+   * Atlas's story order then orders them by delivering scene). */
+  expositionOnly?: boolean
 }
 
 export const DEFAULT_FILTERS: LedgerFilters = {
@@ -22,6 +25,7 @@ export const DEFAULT_FILTERS: LedgerFilters = {
   factType: 'all',
   secretsOnly: false,
   hideSuperseded: false,
+  expositionOnly: false,
 }
 
 /** Client-side filter for the Ledger grid (UI spec §6). Status/character
@@ -46,6 +50,9 @@ export function filterFacts(
       return false
     }
     if (filters.hideSuperseded && fact.status === 'superseded') {
+      return false
+    }
+    if (filters.expositionOnly && !fact.delivery) {
       return false
     }
     return true

@@ -20,6 +20,7 @@ import {
   cardTag,
   castCounts,
   castFromDialogue,
+  expositionLine,
   factsForScene,
   fixInstruction,
   flagKind,
@@ -158,6 +159,8 @@ function fact(
     knownBy: [],
     knowledgeEvents: [],
     audienceKnows: true,
+    delivery: null,
+    neededBySceneId: null,
     provenance: 'inferred',
     confidence: 0.9,
     status,
@@ -905,6 +908,142 @@ describe('knowledgeModes (T10.4)', () => {
     expect([...knowersAsOf(told, order, 0)]).toEqual(['char-dan'])
     expect([...knowersAsOf(told, order, 1)]).toEqual([])
     expect([...knowersAsOf(told, order, 2)]).toEqual(['char-marta'])
+  })
+})
+
+describe('expositionLine (T10.8)', () => {
+  const script = [
+    'INT. THE LONG POUR - NIGHT', // 1
+    '',
+    'Dan counts the till.', // 3
+    '',
+    'DAN', // 5
+    'The bank wants the bar.', // 6
+    '',
+    'MARTA (V.O.)', // 8
+    'As you know, I never said yes.', // 9
+    '',
+    'SUPER: Three days earlier', // 11
+    '',
+    'INSERT - THE LETTER', // 13
+    'Final notice.', // 14
+    '',
+    'BARTENDER (O.S.)', // 16
+    'Last call.', // 17
+  ].join('\n')
+  const proj = project(
+    episode(
+      ['scene-1', 'scene-2', 'scene-3', 'scene-4', 'scene-5'].map((id, i) =>
+        scene(id, i, {
+          beats:
+            id === 'scene-2' ? [beat('beat-2', 0, { scriptText: script })] : [],
+        }),
+      ),
+    ),
+    {},
+    [
+      character('char-dan', 'Dan Vega'),
+      character('char-marta', 'Marta Vega'),
+      character('char-luz', 'Luz'),
+    ],
+  )
+  const at = (
+    lines: [number, number] | null,
+    overrides: Partial<LedgerFact> = {},
+  ): LedgerFact => ({
+    ...fact('fact-01', 'scene-2', 'active'),
+    sourceSpan: {
+      episodeId: 'ep-1',
+      sceneId: 'scene-2',
+      beatId: 'beat-2',
+      startLine: lines?.[0] ?? null,
+      endLine: lines?.[1] ?? null,
+      charStart: null,
+      charEnd: null,
+    },
+    ...overrides,
+  })
+  const martaLearnsHere = {
+    knownBy: ['char-dan'],
+    knowledgeEvents: [
+      {
+        sceneId: 'scene-2',
+        characterIds: ['char-marta'],
+        kind: 'learns' as const,
+        quote: '',
+        belief: '',
+      },
+    ],
+  }
+
+  it('reads the speaker from the cue above and who heard it', () => {
+    expect(expositionLine(proj, at([6, 6], martaLearnsHere))).toBe(
+      'Said by Dan Vega to Marta Vega',
+    )
+  })
+
+  it('prefers the located characters to the model lines', () => {
+    const charStart = script.indexOf('The bank')
+    const located = at([3, 3], martaLearnsHere)
+    located.sourceSpan = {
+      ...located.sourceSpan,
+      charStart,
+      charEnd: charStart + 'The bank'.length,
+    }
+    expect(expositionLine(proj, located)).toBe('Said by Dan Vega to Marta Vega')
+  })
+
+  it("reads voice-over and off-screen from the cue's extension, and names an unknown cue", () => {
+    expect(expositionLine(proj, at([16, 17]))).toBe(
+      'Said by Bartender off-screen',
+    )
+    expect(expositionLine(proj, at([9, 9]))).toMatch(
+      /^Said by Marta Vega in voice-over/,
+    )
+  })
+
+  it('reads action, and a super or insert (its cue included)', () => {
+    expect(expositionLine(proj, at([3, 3]))).toBe('In the action')
+    expect(expositionLine(proj, at([11, 11]))).toBe('In an insert or super')
+    expect(expositionLine(proj, at([14, 14]))).toBe('In an insert or super')
+  })
+
+  it('states the gap to the scene that needs it, in board order', () => {
+    const needed = (neededBySceneId: string) =>
+      expositionLine(proj, at(null, { delivery: 'stated', neededBySceneId }))
+    expect(needed('scene-5')).toBe(
+      "Stated · arrives 3 scenes before it's needed in scene 5",
+    )
+    expect(needed('scene-2')).toBe(
+      'Stated · arrives in the scene that needs it',
+    )
+    expect(needed('scene-1')).toBe(
+      'Stated · needed in scene 1, 1 scene before it arrives',
+    )
+    expect(needed('scene-99')).toBe('Stated')
+  })
+
+  it('notes a told-you-so phrase, case-insensitively', () => {
+    expect(expositionLine(proj, at([9, 9], { delivery: 'stated' }))).toBe(
+      'Said by Marta Vega in voice-over · stated · "As you know"',
+    )
+    expect(expositionLine(proj, at([6, 6]))).not.toContain('As you know')
+  })
+
+  it('names a listener who knew it all along the same as one who learns it here', () => {
+    expect(
+      expositionLine(proj, at([6, 6], { knownBy: ['char-dan', 'char-marta'] })),
+    ).toBe('Said by Dan Vega to Marta Vega')
+  })
+
+  it('says nothing without source lines, a delivery or a need', () => {
+    expect(expositionLine(proj, at(null))).toBeNull()
+    expect(
+      expositionLine(proj, {
+        ...at([6, 6]),
+        sourceSpan: { ...at([6, 6]).sourceSpan, sceneId: 'scene-9' },
+      }),
+    ).toBeNull()
   })
 })
 
