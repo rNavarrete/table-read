@@ -1,6 +1,7 @@
 import type { LedgerFact, Project } from 'contract'
 import { ConfidenceBar } from './ConfidenceBar'
 import { assignCharacterAvatars, characterAvatar } from './characterAvatar'
+import { beliefLines } from './knowledgeGraph'
 import { formatSourceSpanLabel } from './sourceSpanLabel'
 
 export interface FactDetailDrawerProps {
@@ -69,6 +70,7 @@ export function FactDetailDrawer({
   const supersedes = fact?.supersedes
     ? (allFacts.find((candidate) => candidate.id === fact.supersedes) ?? null)
     : null
+  const beliefs = fact ? beliefLines(fact, (id) => nameFor(project, id)) : []
   const supersededBy = fact?.supersededBy
     ? (allFacts.find((candidate) => candidate.id === fact.supersededBy) ?? null)
     : null
@@ -179,6 +181,19 @@ export function FactDetailDrawer({
               </p>
             </section>
           )}
+
+          {beliefs.length > 0 ? (
+            <section className="mt-5">
+              <h3 className="font-script text-10 uppercase tracking-[0.08em] text-tr-text-muted">
+                Beliefs
+              </h3>
+              {beliefs.map((line, i) => (
+                <p key={i} className="mt-1 text-12 text-tr-text-secondary">
+                  {line}
+                </p>
+              ))}
+            </section>
+          ) : null}
 
           {fact.sourceText ? (
             <section className="mt-5">

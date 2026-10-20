@@ -310,7 +310,9 @@ export type StoryThread = z.infer<typeof StoryThread>
 // `factId` links to the LedgerFact being concealed when there is one, so the
 // secret does not become a second, drifting copy of the truth. It is nullable
 // because a secret can be established before the fact is nailed down (a
-// character conceals something the ledger hasn't pinned yet).
+// character conceals something the ledger hasn't pinned yet). Import links
+// it by beat (T10.4): the one fact on the secret's establishing beat known
+// to its holders and not to those it is hidden from.
 //
 // `revealedSceneId: null` means still concealed at end of episode — the
 // direct analogue of an open thread, and the thing a writer most wants
@@ -768,6 +770,10 @@ export const KnowledgeEvent = z.object({
   characterIds: z.array(Id).default([]),
   kind: KnowledgeEventKind,
   quote: z.string().default(''), // <=200 chars evidence
+  // T10.4 — for `suspects`/`misinformed`, what the character believes instead
+  // ("the money went to the bank"). The server blanks it on every
+  // other kind: a learner believes the fact itself, which the fact states.
+  belief: z.string().default(''),
 })
 export type KnowledgeEvent = z.infer<typeof KnowledgeEvent>
 
@@ -1731,6 +1737,8 @@ export const ExtractedKnowledgeEvent = z.object({
   characterNames: z.array(z.string()).default([]),
   kind: KnowledgeEventKind,
   quote: z.string().default(''),
+  // T10.4 — see `KnowledgeEvent.belief`; blanked server-side on other kinds.
+  belief: z.string().default(''),
 })
 export type ExtractedKnowledgeEvent = z.infer<typeof ExtractedKnowledgeEvent>
 

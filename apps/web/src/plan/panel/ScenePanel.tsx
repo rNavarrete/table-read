@@ -13,6 +13,7 @@ import {
   boardOrder,
   castFromDialogue,
   factsForScene,
+  knowledgeModes,
   landmarksForScene,
   notesForScene,
   secretsForScene,
@@ -153,6 +154,7 @@ export function ScenePanel({
   const threads = threadsForScene(episode, scene.id)
   const secrets = secretsForScene(episode, scene.id, present)
   const facts = factsForScene(ledger, scene.id)
+  const modes = knowledgeModes(episode, ledger, scene.id, present)
   const moments = (episode.relationshipStates ?? []).filter(
     (r) => r.sceneId === scene.id,
   )
@@ -364,6 +366,7 @@ export function ScenePanel({
             threads={threads}
             secrets={secrets}
             facts={facts}
+            modes={modes}
             relationshipMoments={moments}
             characters={characters}
             alsoInScene={alsoInScene}

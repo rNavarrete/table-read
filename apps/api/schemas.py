@@ -704,6 +704,9 @@ class KnowledgeEvent(_Base):
     character_ids: list[Id] = []
     kind: KnowledgeEventKind
     quote: str = ""  # <=200 chars evidence
+    # T10.4: what a suspects/misinformed character believes instead; blanked
+    # server-side on every other kind.
+    belief: str = ""
 
 
 class LedgerFact(_Base):
@@ -1611,6 +1614,7 @@ class ExtractedKnowledgeEvent(_Base):
     character_names: list[str] = []
     kind: KnowledgeEventKind
     quote: str = ""
+    belief: str = ""  # T10.4: see KnowledgeEvent.belief
 
 
 # §5 extract_ledger_facts — model span has lines only; char offsets are computed server-side.

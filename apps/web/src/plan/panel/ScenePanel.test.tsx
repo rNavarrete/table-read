@@ -331,6 +331,15 @@ describe('ScenePanel', () => {
     ).not.toBeNull()
   })
 
+  it('states the knowledge mode from the facts in play and who is present (T10.4)', () => {
+    renderPanel({
+      ledger: [fact({ audienceKnows: false, knownBy: ['char-marta'] })],
+    })
+    expect(screen.getByText('Mystery').parentElement?.textContent).toBe(
+      "Mystery — Marta Vega knows; the audience doesn't.",
+    )
+  })
+
   it('jump bar counts wants, touches and beats; no Notes without notes', () => {
     renderPanel({
       ledger: [

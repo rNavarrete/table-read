@@ -54,9 +54,17 @@ Model output (`NarrativePromises.threads[]`) adds `movements` (`sceneId`, `beatI
 
 ## T10.4 Knowledge grid (`extract_ledger_facts`)
 
-**Contract.** `KnowledgeEvent` and `ExtractedKnowledgeEvent` add `belief`: string, default `''` — for `suspects` and `misinformed`, what the character believes instead ("thinks the money went to the bank"); empty for other kinds. `ExtractedFact` adds `secretId`: `Id | null`, default `null` — the secret this fact is the truth of, chosen from the secrets the prompt lists.
+**Contract.** `KnowledgeEvent` and `ExtractedKnowledgeEvent` add `belief`: string, default `''` — for `suspects` and `misinformed`, what the character takes to be true instead, as a plain statement ("the money went to the bank"); empty for other kinds. No other contract change: `Secret.factId` already exists.
 
-**Server.** The extraction prompt lists the episode's secrets (id + summary), which promises inference produced earlier in the same import; they go in the user turn after the cache breakpoint, like the cast, so the cached prefix is unchanged. On merge, a `secretId` naming a known secret whose `factId` is still null links `Secret.factId` to the new ledger fact; a second fact citing the same secret is ignored (first fact in scene order wins) _(call)_; an unknown id is dropped (count). `belief` on any kind other than `suspects`/`misinformed` is blanked _(call)_.
+**Owner decision 2026-10-19: keep import speed; link by beat.** An earlier cut had the extraction prompt list threads' secrets and the model cite one (`ExtractedFact.secretId`), which made the facts fan-out wait on threads (about +90 s on a 60-scene import). Instead the model never names a secret, facts run beside threads as before, and the server links by beat.
+
+**Server.** `belief` on any kind other than `suspects`/`misinformed` is blanked _(call)_. Once both the threads merge and fact assembly are done, before the import's single snapshot, each secret that is not locked and has `factId` null is linked deterministically:
+1. Candidates are the assembled facts (active or pending_review) whose `sourceSpan.beatId` is the secret's `establishedBeatId`; when that is null, whose `sourceSpan.sceneId` is its `establishedSceneId`.
+2. Keep facts whose `knownBy` includes every `holderCharacterIds` entry and none of `concealedFromCharacterIds`.
+3. If more than one remains, prefer those whose `audienceKnows` equals the secret's.
+4. Link only when exactly one candidate remains; otherwise leave null.
+5. A fact two secrets would link links neither (as the promises merge clears a quote two claims cite).
+Logs carry counts only (linked, no_candidate, ambiguous, contested). Nothing is carried across a resume, so a resumed import links the same way.
 
 **Derived knowledge mode (client, no request).** For a scene, the facts in play are the ledger facts established in it (`sourceSpan.sceneId`) plus the facts of secrets it establishes, keeps or reveals; the characters present are the scene's dialogue cues and motivation characters. Then, McKee's three relations:
 - **Mystery** — the audience does not know a fact in play that a present character knows (`audienceKnows: false`, knower present as of this scene).

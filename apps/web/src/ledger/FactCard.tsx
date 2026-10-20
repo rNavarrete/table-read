@@ -4,6 +4,7 @@ import { Card } from '../plan/Card'
 import { Chip } from '../plan/Chip'
 import { ConfidenceBar } from './ConfidenceBar'
 import { supersedeChain } from './filters'
+import { beliefLines } from './knowledgeGraph'
 import { formatSourceSpanLabel } from './sourceSpanLabel'
 
 export interface FactCardProps {
@@ -201,6 +202,13 @@ export function FactCard({
               ))
             )}
           </div>
+          {beliefLines(fact, (id) => characterName(project, id)).map(
+            (line, i) => (
+              <p key={i} className="text-13 text-tr-text-secondary">
+                {line}
+              </p>
+            ),
+          )}
           <ConfidenceBar confidence={fact.confidence} muted={superseded} />
           <div className="flex flex-wrap items-center gap-1.5">
             <Chip hue={provenanceHue(fact.provenance)}>
