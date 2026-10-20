@@ -17,6 +17,8 @@ export type FountainLineType =
 export interface FountainLine {
   type: FountainLineType
   text: string
+  /** 0-based index of the source line in `scriptText` (dropped lines leave gaps). */
+  line: number
 }
 
 const SCENE_HEADING =
@@ -55,12 +57,14 @@ export function parseFountainLines(scriptText: string): FountainLine[] {
   const out: FountainLine[] = []
   let afterCharacter = false
 
-  for (const original of raw) {
+  for (const [line, original] of raw.entries()) {
     const trimmed = original.trimEnd()
     const t = trimmed.trim()
+    const push = (type: FountainLineType, text: string) =>
+      out.push({ type, text, line })
 
     if (!t) {
-      out.push({ type: 'blank', text: '' })
+      push('blank', '')
       afterCharacter = false
       continue
     }
@@ -70,34 +74,34 @@ export function parseFountainLines(scriptText: string): FountainLine[] {
     }
 
     if (SCENE_HEADING.test(t)) {
-      out.push({ type: 'scene_heading', text: t })
+      push('scene_heading', t)
       afterCharacter = false
       continue
     }
 
     if (TRANSITION.test(t) || /^\(CONTINUED\)$/i.test(t)) {
-      out.push({ type: 'transition', text: t })
+      push('transition', t)
       afterCharacter = false
       continue
     }
 
     if (t.startsWith('(') && t.endsWith(')') && afterCharacter) {
-      out.push({ type: 'parenthetical', text: t })
+      push('parenthetical', t)
       continue
     }
 
     if (isCharacterLine(t)) {
-      out.push({ type: 'character', text: t })
+      push('character', t)
       afterCharacter = true
       continue
     }
 
     if (afterCharacter) {
-      out.push({ type: 'dialogue', text: t })
+      push('dialogue', t)
       continue
     }
 
-    out.push({ type: 'action', text: t })
+    push('action', t)
     afterCharacter = false
   }
 

@@ -62,4 +62,10 @@ describe('parseFountainLines', () => {
     const lines = parseFountainLines('DAN\nHello.\n\n10\n\nMARTA\nHi.')
     expect(lines.map((l) => l.text)).not.toContain('10')
   })
+
+  it("keeps each line's source index across dropped lines", () => {
+    expect(parseFountainLines('DAN\n10\nHello.').map((l) => l.line)).toEqual([
+      0, 2,
+    ])
+  })
 })

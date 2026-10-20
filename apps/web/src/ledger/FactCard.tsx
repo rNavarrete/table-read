@@ -2,6 +2,7 @@ import { useState } from 'react'
 import type { LedgerFact, Project } from 'contract'
 import { Card } from '../plan/Card'
 import { Chip } from '../plan/Chip'
+import { expositionLine } from '../plan/story'
 import { ConfidenceBar } from './ConfidenceBar'
 import { supersedeChain } from './filters'
 import { beliefLines } from './knowledgeGraph'
@@ -71,6 +72,7 @@ export function FactCard({
   const [chainOpen, setChainOpen] = useState(false)
 
   const superseded = fact.status === 'superseded'
+  const exposition = expositionLine(project, fact)
   const chain =
     fact.supersededBy || fact.supersedes
       ? supersedeChain(
@@ -208,6 +210,9 @@ export function FactCard({
                 {line}
               </p>
             ),
+          )}
+          {exposition && (
+            <p className="text-13 text-tr-text-secondary">{exposition}</p>
           )}
           <ConfidenceBar confidence={fact.confidence} muted={superseded} />
           <div className="flex flex-wrap items-center gap-1.5">

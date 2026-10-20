@@ -370,6 +370,20 @@ describe('ScenePanel', () => {
     )
   })
 
+  it('reads under each fact how it reaches the audience (T10.8)', () => {
+    const ep = episode()
+    ep.scenes[0] = scene({
+      beats: [{ ...scene().beats[0], scriptText: 'MARTA\nEight years.' }],
+    })
+    const span = { ...fact().sourceSpan, startLine: 2, endLine: 2 }
+    renderPanel({
+      episode: ep,
+      scene: ep.scenes[0],
+      ledger: [fact({ sourceSpan: span, delivery: 'stated' })],
+    })
+    expect(screen.getByText('Said by Marta Vega · stated')).not.toBeNull()
+  })
+
   it('jump bar counts wants, touches and beats; no Notes without notes', () => {
     renderPanel({
       ledger: [

@@ -7,19 +7,21 @@ import type {
   Project,
   Scene,
   Secret,
+  SourceSpan,
   StoryOverviewBeatItem,
   StoryThread,
   ThreadMovementPhase,
 } from 'contract'
 import { tvActStages } from '../ledger/structure/tvActStructure'
 import { plural } from '../projects/wizard/board/boardText'
-import { parseFountainLines } from '../write/fountainFormat'
+import { parseFountainLines, type FountainLine } from '../write/fountainFormat'
 import { boardOrder } from '../write/projectTree'
 import {
   actLabel,
   actNumbersForBoard,
   affectedFacts,
   applySceneMove,
+  characterName,
   type MoveRefusal,
   type SceneMove,
   tagAct,
@@ -333,21 +335,24 @@ export function castFromDialogue(
   const cues = new Set<string>()
   for (const beat of scene.beats) {
     for (const line of parseFountainLines(beat.scriptText ?? '')) {
-      if (line.type !== 'character') continue
-      cues.add(
-        line.text
-          .replace(/\s*\([^)]*\)\s*$/, '')
-          .trim()
-          .toLowerCase(),
-      )
+      if (line.type === 'character') cues.add(cueName(line.text))
     }
   }
-  return characters.filter((c) =>
-    [c.name, c.name.split(/\s+/)[0], ...(c.aliases ?? [])].some(
-      (name) => !!name && cues.has(name.toLowerCase()),
-    ),
-  )
+  return characters.filter((c) => answersTo(c).some((name) => cues.has(name)))
 }
+
+/** A cue's name without its extensions: "DAN (V.O.)" → "dan". */
+const cueName = (cue: string) =>
+  cue
+    .replace(/\s*\([^)]*\)/g, '')
+    .trim()
+    .toLowerCase()
+
+/** The lower-cased names a cue may use for `c`: name, first name, aliases. */
+const answersTo = (c: Character) =>
+  [c.name, c.name.split(/\s+/)[0], ...(c.aliases ?? [])]
+    .filter((name): name is string => !!name)
+    .map((name) => name.toLowerCase())
 
 // ── What it touches ─────────────────────────────────────────────────────
 
@@ -538,6 +543,158 @@ export function knowledgeModes(
     irony: [...irony],
     suspense: mystery.size === 0 && irony.size === 0,
   }
+}
+
+// ── Exposition (T10.8) ──────────────────────────────────────────────────
+
+/** "As you know, Bob": told-you-so phrases, found case-insensitively in a
+ * fact's source lines. ponytail: a fixed list in one place; add phrases as
+ * real scripts show them. */
+export const AS_YOU_KNOW = [
+  'as you know',
+  "as you're aware",
+  'like i told you',
+  'as i said',
+  'you already know',
+]
+
+// An insert or super line (the cue position included: Write's classifier
+// reads "INSERT - THE LETTER" as a character cue).
+const INSERT = /^(?:ON SCREEN|SUPER|INSERT)\b/
+
+/** "A" · "A and B" · "A, B +1". */
+export function nameList(names: string[]): string {
+  return names.length > 2
+    ? `${names.slice(0, 2).join(', ')} +${names.length - 2}`
+    : names.join(' and ')
+}
+
+/** The raw 0-based line range a span quotes: the server-located characters
+ * when it found the quote, else the model's 1-based lines; null for a span
+ * with neither (writer-authored facts). */
+function spanLines(text: string, span: SourceSpan): [number, number] | null {
+  const lineAt = (offset: number) =>
+    text.slice(0, offset).split('\n').length - 1
+  if (span.charStart != null && span.charEnd != null)
+    return [
+      lineAt(span.charStart),
+      lineAt(Math.max(span.charStart, span.charEnd - 1)),
+    ]
+  if (span.startLine != null && span.endLine != null)
+    return [span.startLine - 1, span.endLine - 1]
+  return null
+}
+
+/** How the source lines deliver the fact: spoken (the nearest cue above the
+ * first spoken line), an insert or super, or action. */
+function sourceMode(
+  lines: FountainLine[],
+  [first, last]: [number, number],
+): { cue: string } | 'insert' | 'action' | null {
+  const quoted = lines.filter(
+    (l) => l.line >= first && l.line <= last && l.type !== 'blank',
+  )
+  const spoken = quoted.find((l) =>
+    ['character', 'dialogue', 'parenthetical'].includes(l.type),
+  )
+  const cue =
+    spoken?.type === 'character'
+      ? spoken
+      : spoken &&
+        lines.findLast((l) => l.line < spoken.line && l.type === 'character')
+  if ([...quoted, cue].some((l) => l && INSERT.test(l.text))) return 'insert'
+  if (cue) return { cue: cue.text }
+  return quoted.some((l) => l.type === 'action') ? 'action' : null
+}
+
+/** One line under a fact established in its scene (T10.8, derived here, no
+ * request): how its source lines deliver it — "Said by Dan to Marta" (the
+ * speaker from the cue; voice-over / off-screen from its extension; "to" the
+ * present characters other than the speaker who know it as of this scene),
+ * "In the action" or "In an insert or super" — then the model's `delivery`,
+ * the gap in board order to the scene that needs it, and two observations:
+ * a told-you-so phrase (AS_YOU_KNOW), and a spoken fact every present knower
+ * but the speaker already knew before this scene (the as-of fold): the line
+ * is there for the audience. Null when there is nothing to say. */
+export function expositionLine(
+  project: Project,
+  fact: LedgerFact,
+): string | null {
+  const span = fact.sourceSpan
+  const episode = project.seasons
+    .flatMap((season) => season.episodes)
+    .find((e) => e.id === span.episodeId)
+  const order = boardOrder(episode?.scenes ?? [])
+  const position = new Map(order.map((s, i) => [s.id, i]))
+  const at = position.get(span.sceneId)
+  if (at === undefined) return null
+  const scene = order[at]!
+  const characters = project.seriesBible.characters
+
+  const text = scene.beats.find((b) => b.id === span.beatId)?.scriptText ?? ''
+  const range = text ? spanLines(text, span) : null
+  const mode = range ? sourceMode(parseFountainLines(text), range) : null
+  const quoted = range
+    ? text
+        .split('\n')
+        .slice(Math.max(0, range[0]), range[1] + 1)
+        .join(' ')
+        .toLowerCase()
+        .replace(/’/g, "'")
+    : ''
+
+  let said: string | null = null
+  let toTheAudience = false
+  if (typeof mode === 'object' && mode) {
+    const name = cueName(mode.cue)
+    const speaker = characters.find((c) => answersTo(c).includes(name))
+    const present = [
+      ...scene.motivations.map((m) => m.characterId),
+      ...castFromDialogue(scene, characters).map((c) => c.id),
+    ]
+    const now = knowersAsOf(fact, position, at)
+    const before = knowersAsOf(fact, position, at - 1)
+    const heard = [...new Set(present)].filter(
+      (id) => id !== speaker?.id && now.has(id),
+    )
+    const voice = /\(V\.?O\.?\)/i.test(mode.cue)
+      ? ' in voice-over'
+      : /\(O\.?[SC]\.?\)/i.test(mode.cue)
+        ? ' off-screen'
+        : ''
+    const to = heard.map((id) => characterName(characters, id))
+    said = `Said by ${speaker?.name ?? titleCase(name)}${voice}${to.length > 0 ? ` to ${nameList(to)}` : ''}`
+    toTheAudience = heard.length > 0 && heard.every((id) => before.has(id))
+  }
+
+  const need =
+    fact.neededBySceneId == null
+      ? undefined
+      : position.get(fact.neededBySceneId)
+  const gap =
+    need === undefined
+      ? null
+      : need === at
+        ? 'arrives in the scene that needs it'
+        : need > at
+          ? `arrives ${plural(need - at, 'scene')} before it's needed in scene ${need + 1}`
+          : `needed in scene ${need + 1}, ${plural(at - need, 'scene')} before it arrives`
+
+  const parts = [
+    said ??
+      (mode === 'insert'
+        ? 'in an insert or super'
+        : mode === 'action'
+          ? 'in the action'
+          : null),
+    fact.delivery,
+    gap,
+    AS_YOU_KNOW.some((phrase) => quoted.includes(phrase)) && '"As you know"',
+    toTheAudience && 'told to someone who already knew',
+  ].filter(Boolean)
+  if (parts.length === 0) return null
+  const line = parts.join(' · ')
+  return line.charAt(0).toUpperCase() + line.slice(1)
 }
 
 // ── Order check (spec §4.8) ─────────────────────────────────────────────
