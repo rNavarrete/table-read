@@ -27,7 +27,11 @@ from typing import Any
 from drama_manager.structure_stages import STRUCTURE_NAMES, STRUCTURE_STAGES
 
 # Prompt spec §8 / hard rule 7: every template carries a PROMPT_VERSION (semver);
-# it is logged with each call and bumped on any template change. 0.54.0
+# it is logged with each call and bumped on any template change. 0.55.0
+# (T10.3) asks infer_narrative_promises for each thread's movements (every
+# scene it moves in, the phase, what changed; an appearance that changes
+# nothing is not a movement), a paid-off thread's closure level (plot, story,
+# thematic, parametric) and the setup's second job. 0.54.0
 # (T10.1) rewrites the §0 structural definitions from the craft breakdown
 # traditions — a scene turns on a value whose charge (positive, negative,
 # mixed) differs as it opens and closes; a beat is one exchange of action and
@@ -158,7 +162,7 @@ from drama_manager.structure_stages import STRUCTURE_NAMES, STRUCTURE_STAGES
 # 0.10.0 typed segment starts; 0.9.0 lock-aware narrative repair. Earlier:
 # 0.8.0 suggest; 0.7.0 scene skeleton; 0.6.0 continuity; 0.5.0 regenerate;
 # 0.4.0 blast; 0.3.0 tune; 0.2.0 candidate + §0 system prompt.
-PROMPT_VERSION = "0.54.0"
+PROMPT_VERSION = "0.55.0"
 
 
 def new_nonce() -> str:
@@ -547,6 +551,24 @@ def build_promises_prompt(
         "out a scene that serves none. Set each thread's storyline to the "
         "letter of the storyline it belongs to, or null when it belongs to "
         "none.\n"
+        "For each thread, list its movements: every scene where the thread "
+        "moves, in scene order — sceneId from the scenes above, beatId for the "
+        "beat of that scene where it moves or null, phase (setup, escalation, "
+        "reversal, reveal, payoff or aftermath), and summary, one line on what "
+        "changed for the thread there. Each appearance of a thread must "
+        "advance it: a scene that only mentions or restates the thread, "
+        "changing nothing, is not a movement — leave it out. A payoff in "
+        "stages is several payoff movements, and payoffSceneId stays the "
+        "final one. A movement's beatId only says where it happens, so it may "
+        "repeat a beat cited for the setup or payoff. For a paid_off thread, "
+        "set closureLevel by how it is closed: plot when the question is "
+        "answered on screen; story when it is answered by consequence; "
+        "thematic when it is answered by meaning rather than by an event; "
+        "parametric when it is answered by form — a repeated image, a "
+        "callback. Use null for any thread that is not paid off. Set "
+        "secondJob to what the setup does at the moment it is planted besides "
+        "planting — a laugh, a characterization, a reveal — in one short "
+        "line, or leave it empty when the setup does nothing else.\n"
         "Do not repeat a rule already present in existing_world_rules; "
         "only report new ones. Refer to every character only by a name "
         "string from known_cast, never an id — the server resolves and "
