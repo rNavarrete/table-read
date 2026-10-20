@@ -75,6 +75,22 @@ function ActionLine({
   )
 }
 
+/** T10.9: the import's kernel / choice-under-pressure readings — a muted
+ * tag on the row, a sentence when it opens. Nothing for null (not read) or
+ * false. */
+const READINGS = [
+  {
+    key: 'kernel',
+    tag: 'kernel',
+    sentence: 'Load-bearing: the story breaks without it.',
+  },
+  {
+    key: 'pressureChoice',
+    tag: 'choice',
+    sentence: 'A choice under pressure.',
+  },
+] as const
+
 const PLAN_FIELDS: { field: BeatTextField; label: string }[] = [
   { field: 'whatHappens', label: 'What happens' },
   { field: 'audienceLearns', label: 'Audience learns' },
@@ -110,10 +126,11 @@ export interface BeatLadderProps {
 /**
  * Section 4 (spec §4.6): the scene's beats as a ladder. Rows show the beat's
  * plan (`whatHappens`), not its first script line, and carry the note
- * marker, the cascaded lock, the beat-sheet landmark and "lands" on the last
- * beat. Opening a row shows the beat's action line (T10.1), then edits the
- * beat in place: plan fields, the Beat lock (`beat.locked`, new), the Script
- * lock and the script behind a disclosure.
+ * marker, the cascaded lock, the beat-sheet landmark, the kernel / choice
+ * tags (T10.9) and "lands" on the last beat. Opening a row shows the beat's
+ * action line (T10.1) and a sentence per reading, then edits the beat in
+ * place: plan fields, the Beat lock (`beat.locked`, new), the Script lock and
+ * the script behind a disclosure.
  * Fields are read-only when the beat is effectively locked; the lock
  * toggles stay live (lock fields are server-exempt) and only wait for a
  * save in flight.
@@ -195,6 +212,17 @@ export function BeatLadder({
                       </Chip>
                     )}
                     {landmark && <Chip hue="sky">{landmark.label}</Chip>}
+                    {READINGS.map(
+                      ({ key, tag }) =>
+                        beat[key] && (
+                          <span
+                            key={key}
+                            className="text-11 text-tr-text-secondary"
+                          >
+                            {tag}
+                          </span>
+                        ),
+                    )}
                     {beat.id === lastBeatId && (
                       <span className="text-11 text-tr-text-primary">
                         lands
@@ -205,6 +233,14 @@ export function BeatLadder({
                 {expanded && (
                   <div className="flex flex-col gap-3 px-2 pb-3 pt-1">
                     <ActionLine beat={beat} characters={characters} />
+                    {READINGS.map(
+                      ({ key, sentence }) =>
+                        beat[key] && (
+                          <p key={key} className="text-13 text-tr-text-primary">
+                            {sentence}
+                          </p>
+                        ),
+                    )}
                     {PLAN_FIELDS.map(({ field, label }) => (
                       <PlanField key={field} {...fieldProps(field, label)} />
                     ))}
