@@ -69,6 +69,8 @@ const FACT_02: LedgerFact = {
   knownBy: ['char-dan'],
   knowledgeEvents: [],
   audienceKnows: true,
+  delivery: null,
+  neededBySceneId: null,
   provenance: 'writer_confirmed',
   confidence: 0.94,
   status: 'active',

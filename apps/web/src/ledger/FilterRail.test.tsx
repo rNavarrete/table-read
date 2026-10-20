@@ -44,6 +44,8 @@ function fact(
     knownBy: [],
     knowledgeEvents: [],
     audienceKnows: true,
+    delivery: null,
+    neededBySceneId: null,
     provenance: 'inferred',
     confidence: 0.8,
     status: 'active',

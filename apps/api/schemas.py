@@ -746,6 +746,15 @@ class KnowledgeEvent(_Base):
     belief: str = ""
 
 
+class FactDelivery(StrEnum):
+    """T10.8 — how the audience gets a fact: said outright, shown in picture
+    without being said, or left for the audience to put together."""
+
+    stated = "stated"
+    shown = "shown"
+    implied = "implied"
+
+
 class LedgerFact(_Base):
     id: Id
     fact: str
@@ -756,6 +765,11 @@ class LedgerFact(_Base):
     # T7.23 knowledge-transition history beyond the baseline `knownBy` set.
     knowledge_events: list[KnowledgeEvent] = []
     audience_knows: bool = True  # distinct from knownBy — dramatic irony lives in the gap
+    # T10.8 exposition audit; null = not read. needed_by_scene_id is the first
+    # scene whose events depend on the audience knowing the fact; the server
+    # nulls an id that is not a scene of the episode.
+    delivery: FactDelivery | None = None
+    needed_by_scene_id: Id | None = None
     provenance: Provenance
     confidence: float = Field(ge=0, le=1)
     status: FactStatus
@@ -1687,6 +1701,8 @@ class ExtractedFact(_Base):
     # baseline knownBy -- empty array is the common case (first cut).
     knowledge_events: list[ExtractedKnowledgeEvent] = []
     audience_knows: bool
+    delivery: FactDelivery | None = None  # T10.8: see LedgerFact.delivery
+    needed_by_scene_id: Id | None = None
     confidence: float = Field(ge=0, le=1)
 
 

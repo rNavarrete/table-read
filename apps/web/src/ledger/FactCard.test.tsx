@@ -54,6 +54,8 @@ function makeFact(partial: Partial<LedgerFact> = {}): LedgerFact {
     knownBy: ['char-reyes'],
     knowledgeEvents: [],
     audienceKnows: true,
+    delivery: null,
+    neededBySceneId: null,
     provenance: 'inferred',
     confidence: 0.72,
     status: 'pending_review',

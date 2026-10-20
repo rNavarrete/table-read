@@ -603,6 +603,8 @@ describe('affectedFacts', () => {
       knownBy: [],
       knowledgeEvents: [],
       audienceKnows: true,
+      delivery: null,
+      neededBySceneId: null,
       provenance: 'writer_confirmed',
       confidence: 0.9,
       status: 'active',

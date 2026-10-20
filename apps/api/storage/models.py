@@ -149,6 +149,9 @@ class LedgerFactRow(Base):
     # T7.23 knowledge-transition history beyond the baseline known_by set.
     knowledge_events: Mapped[list] = mapped_column(JSON, default=list)
     audience_knows: Mapped[bool]
+    # T10.8 exposition audit; null on facts that predate it.
+    delivery: Mapped[str | None] = mapped_column(default=None)
+    needed_by_scene_id: Mapped[str | None] = mapped_column(default=None)
     provenance: Mapped[str]
     confidence: Mapped[float]
     status: Mapped[str] = mapped_column(index=True)
@@ -166,6 +169,8 @@ class LedgerFactRow(Base):
             "knownBy": self.known_by,
             "knowledgeEvents": self.knowledge_events,
             "audienceKnows": self.audience_knows,
+            "delivery": self.delivery,
+            "neededBySceneId": self.needed_by_scene_id,
             "provenance": self.provenance,
             "confidence": self.confidence,
             "status": self.status,
@@ -187,6 +192,9 @@ class LedgerFactRow(Base):
             # T7.23: default [] for wire dicts predating this field.
             knowledge_events=data.get("knowledgeEvents", []),
             audience_knows=data["audienceKnows"],
+            # T10.8: absent from wire dicts that predate the exposition audit.
+            delivery=data.get("delivery"),
+            needed_by_scene_id=data.get("neededBySceneId"),
             provenance=data["provenance"],
             confidence=data["confidence"],
             status=data["status"],

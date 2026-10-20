@@ -758,6 +758,11 @@ export const KnowledgeEvent = z.object({
   belief: z.string().default(''),
 })
 
+// T10.8 — how the audience gets a fact: said outright (dialogue, voice-over,
+// an insert or super), shown in picture without being said, or left for the
+// audience to put together (two plus two).
+export const FactDelivery = z.enum(['stated', 'shown', 'implied'])
+
 export const LedgerFact = z.object({
   id: Id,
   fact: z.string(),
@@ -774,6 +779,15 @@ export const LedgerFact = z.object({
   // T7.23 knowledge-transition history beyond the baseline knownBy set.
   knowledgeEvents: z.array(KnowledgeEvent).default([]),
   audienceKnows: z.boolean().default(true), // distinct from knownBy — dramatic irony lives in the gap
+  // T10.8 exposition audit; null = not read (authored facts, older imports,
+  // facts found while writing). neededBySceneId: the first scene whose events
+  // depend on the audience knowing the fact — earlier than the delivering
+  // scene when the script withholds it; import nulls an id that is not a
+  // scene of the episode. Mode, speaker, the delivery-to-need gap and the
+  // "As you know" / told-to-someone-who-knew observations are derived
+  // client-side from the source lines, never stored.
+  delivery: FactDelivery.nullable().default(null),
+  neededBySceneId: Id.nullable().default(null),
   provenance: z.enum(['inferred', 'writer_confirmed', 'writer_authored']),
   confidence: z.number().min(0).max(1),
   status: z.enum([
@@ -1197,6 +1211,9 @@ export const ExtractedFact = z.object({
   // baseline knownBy — empty array is the common case (first cut).
   knowledgeEvents: z.array(ExtractedKnowledgeEvent).default([]),
   audienceKnows: z.boolean(),
+  // T10.8 — see LedgerFact.delivery / neededBySceneId.
+  delivery: FactDelivery.nullable().default(null),
+  neededBySceneId: Id.nullable().default(null),
   confidence: z.number().min(0).max(1),
 })
 export const LedgerExtraction = z.object({

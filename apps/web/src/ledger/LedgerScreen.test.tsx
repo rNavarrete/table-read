@@ -94,6 +94,8 @@ function pendingFact(id: string, sceneId: string, beatId: string): LedgerFact {
     knownBy: [],
     knowledgeEvents: [],
     audienceKnows: true,
+    delivery: null,
+    neededBySceneId: null,
     provenance: 'inferred',
     confidence: 0.9,
     status: 'pending_review',
