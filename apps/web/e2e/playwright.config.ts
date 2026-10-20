@@ -54,7 +54,7 @@ export default defineConfig({
     {
       command: `npm run dev -- --port ${WEB_PORT} --strictPort`,
       cwd: WEB_DIR,
-      env: { TABLEREAD_API_URL: `http://localhost:${API_PORT}` },
+      env: { TABLEREAD_API_URL: `http://127.0.0.1:${API_PORT}` }, // not localhost: vite.config.ts
       url: `http://localhost:${WEB_PORT}`,
       reuseExistingServer: false,
       timeout: 30_000,
