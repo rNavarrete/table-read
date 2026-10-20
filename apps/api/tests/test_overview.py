@@ -850,3 +850,24 @@ def test_overview_prompt_asks_for_about_arcs_and_story_time():
         assert field in user, field
     assert '"love requires surrender", not "love"' in user
     assert PROMPT_VERSION == "0.55.0"
+
+
+def test_mock_overview_merges_about_one_arc_and_a_flashback_story_order():
+    from llm.mock import MockLlmClient
+
+    result = MockLlmClient().infer_story_overview(
+        system="", user_message="", prompt_version="test"
+    )
+    doc = _cast_doc()
+    doc["seriesBible"] = {"characters": [{"id": "char-marta", "name": "Marta Vega"}]}
+    merge_story_overview(doc, "ep-1", result)
+    ep = doc["seasons"][0]["episodes"][0]
+    ov = ep["storyOverview"]
+    assert ov["dramaticQuestion"] and ov["centralArgument"] and ov["antiTheme"]
+    assert [(r["sceneId"], r["storyOrder"], r["anachrony"]) for r in ov["outline"]] == [
+        ("scene-1", 1, "none"),
+        ("scene-2", 0, "flashback"),
+    ]
+    (arc,) = ep["characterArcs"]
+    assert arc["characterId"] == "char-marta"
+    assert [s["sceneId"] for s in arc["stops"]] == ["scene-1", "scene-3"]
