@@ -333,7 +333,17 @@ reliable and cost-controlled. All input is `<source_data_{nonce}>`.
       "payoffSceneId": "or null",
       "setupBeatId": "beat id in setupSceneId, or null",
       "payoffBeatId": "beat id in payoffSceneId, or null",
-      "storyline": "A | B | C | D, or null"
+      "storyline": "A | B | C | D, or null",
+      "movements": [
+        {
+          "sceneId": "",
+          "beatId": "beat id in sceneId, or null",
+          "phase": "setup | escalation | reversal | reveal | payoff | aftermath",
+          "summary": "one line: what changed for the thread here"
+        }
+      ],
+      "closureLevel": "plot | story | thematic | parametric, or null",
+      "secondJob": "string, empty when the setup does nothing else"
     }
   ],
   "storylines": [
@@ -417,6 +427,30 @@ else null. When nothing survives — an empty `storylines`, or a pre-0.53.0
 response or checkpoint, which parses with `storylines: []` — the episode is
 left as import built it: every scene `A`, `storylines: []`. Logs carry counts
 only (rule 5).
+
+**Thread ledger (T10.3, `PROMPT_VERSION 0.56.0`):** each thread also lists its
+`movements` — every scene where it moves, in scene order, each with the
+`sceneId`, the `beatId` of that scene where it moves (or null), the `phase`
+(setup, escalation, reversal, reveal, payoff, aftermath — the Narrative Map's
+`ThreadMovementPhase`) and a one-line `summary` of what changed. Levitz's test is
+named in plain words: each appearance must advance the thread, so a scene that
+only mentions or restates it is not a movement. A payoff in stages is several
+`payoff` movements; `payoffSceneId` stays the final one. A movement's beat says
+where it happens, not evidence, so it may repeat the setup or payoff beat. A
+paid-off thread's `closureLevel` says how it is closed — `plot` (the question is
+answered on screen), `story` (answered by consequence), `thematic` (answered by
+meaning rather than event), `parametric` (answered by form: a repeated image, a
+callback) — and is null for any other thread. `secondJob` is what the setup does
+when it is planted besides planting (a laugh, a characterization, a reveal), or
+empty. Server merge (`drama_manager.promises`): a movement whose scene is not in
+the episode is dropped; a `beatId` not in that scene becomes null; the first row
+per (scene, phase) is kept; rows sort by scene order (act, index) then beat index,
+a row with no beat first in its scene; the setup and payoff scenes need not
+appear as movements; `closureLevel` on a thread whose status is not `paid_off`
+becomes null; summaries and `secondJob` lose a dangling closing quote like other
+prose. All three fields default, so a pre-0.56.0 response or checkpoint parses
+with no movements, no closure level and no second job. Logs carry counts only
+(rule 5).
 
 ## 6. `suggest_instructions`
 

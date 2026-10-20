@@ -201,6 +201,9 @@ function thread(
     payoffBeatId: null,
     locked: false,
     storyline: null,
+    movements: [],
+    closureLevel: null,
+    secondJob: '',
   }
 }
 
@@ -705,6 +708,43 @@ describe('threadsForScene', () => {
     expect(rows('scene-6')).toEqual([
       ['thread-same', 'sets_up', 'scene-6'],
       ['thread-same', 'pays_off', 'scene-6'],
+    ])
+  })
+})
+
+describe('threadsForScene movements (T10.3)', () => {
+  const moving = thread('thread-money', 'scene-2', 'scene-6')
+  moving.movements = [
+    { sceneId: 'scene-2', beatId: null, phase: 'setup', summary: '' },
+    { sceneId: 'scene-5', beatId: null, phase: 'escalation', summary: '' },
+    { sceneId: 'scene-5', beatId: null, phase: 'reversal', summary: '' },
+    { sceneId: 'scene-6', beatId: null, phase: 'payoff', summary: '' },
+  ]
+  const ep = episode(
+    [scene('scene-2', 1), scene('scene-5', 4), scene('scene-6', 5)],
+    { threads: [moving, thread('thread-still', 'scene-2', null)] },
+  )
+  const rows = (sceneId: string) =>
+    threadsForScene(ep, sceneId).map((t) => [
+      t.thread.id,
+      t.role,
+      t.otherSceneId,
+      t.phases,
+    ])
+
+  it("carries this scene's phases on setup and payoff rows", () => {
+    expect(rows('scene-2')).toEqual([
+      ['thread-money', 'sets_up', 'scene-6', ['setup']],
+      ['thread-still', 'sets_up', null, []],
+    ])
+    expect(rows('scene-6')).toEqual([
+      ['thread-money', 'pays_off', 'scene-2', ['payoff']],
+    ])
+  })
+
+  it('a thread that only moves in a scene gets a moves row pointing at its setup', () => {
+    expect(rows('scene-5')).toEqual([
+      ['thread-money', 'moves', 'scene-2', ['escalation', 'reversal']],
     ])
   })
 })

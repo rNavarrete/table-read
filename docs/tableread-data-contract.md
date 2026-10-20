@@ -259,17 +259,19 @@ export const SceneTurn = z.object({
   turn: z.string(),
   evidenceQuote: z.string().min(1).max(200),
 })
+// Shared with StoryThread.movements (T10.3): the map is retiring, the enum stays.
+export const ThreadMovementPhase = z.enum([
+  'setup',
+  'escalation',
+  'reversal',
+  'reveal',
+  'payoff',
+  'aftermath',
+])
 export const ThreadMovement = z.object({
   threadId: Id,
   beatId: Id,
-  phase: z.enum([
-    'setup',
-    'escalation',
-    'reversal',
-    'reveal',
-    'payoff',
-    'aftermath',
-  ]),
+  phase: ThreadMovementPhase,
   summary: z.string(),
   evidenceQuote: z.string().min(1).max(200),
 })
@@ -358,6 +360,21 @@ export const StructureCheck = z.object({
   promptVersion: z.string(),
 })
 
+// T10.3 — how a paid-off thread is closed (Petrović): plot, the question is
+// answered on screen; story, answered by consequence; thematic, answered by
+// meaning rather than event; parametric, answered by form (a repeated image, a
+// callback).
+export const ThreadClosureLevel = z.enum(['plot', 'story', 'thematic', 'parametric'])
+// T10.3 — one scene where a thread appears and what changed for it there. Same
+// shape as the model's row (§2a NarrativePromises.threads[].movements); scene
+// and beat ids come from the import spine and the server enforces them.
+export const StoryThreadMovement = z.object({
+  sceneId: Id,
+  beatId: Id.nullable(), // a beat of sceneId; one outside it is stored null
+  phase: ThreadMovementPhase,
+  summary: z.string(), // one line: what changed for the thread here
+})
+
 export const StoryThread = z.object({
   id: Id,
   label: z.string(),
@@ -382,6 +399,16 @@ export const StoryThread = z.object({
   // T10.2 — the episode storyline this thread belongs to, kept only when that
   // storyline survived the import merge. Null = untagged.
   storyline: StorylineId.nullable().default(null),
+  // T10.3 — every scene the thread moves in, sorted by scene order (act, index)
+  // then beat index, at most one row per (scene, phase). Multi-stage payoffs are
+  // several `payoff` rows; `payoffSceneId` stays the final payoff. The setup and
+  // payoff scenes need not appear. Import-only, read-only.
+  movements: z.array(StoryThreadMovement).default([]),
+  // T10.3 — how the thread is closed; null unless `status` is 'paid_off'.
+  closureLevel: ThreadClosureLevel.nullable().default(null),
+  // T10.3 — what the setup does when planted besides planting (a laugh, a
+  // characterization, a reveal); '' when it does nothing else.
+  secondJob: z.string().default(''),
 })
 
 // A StoryThread's shape applied to concealment: established -> revealed
@@ -1177,6 +1204,16 @@ export const NarrativePromises = z.object({
       payoffBeatId: Id.nullable(),
       // T10.2 — the letter of the storyline (below) this thread belongs to.
       storyline: StorylineId.nullable().default(null),
+      // T10.3 — every scene the thread moves in (an appearance that changes
+      // nothing is not a movement), how a paid-off thread is closed, and the
+      // setup's second job. Merge (§1 StoryThread): rows whose scene is not in
+      // the episode are dropped; a beatId not in that scene → null; the first
+      // row per (scene, phase) is kept; rows sort by scene order then beat
+      // index; closureLevel → null unless status is 'paid_off'. Defaulted so a
+      // pre-0.56.0 response or checkpoint parses.
+      movements: z.array(StoryThreadMovement).default([]),
+      closureLevel: ThreadClosureLevel.nullable().default(null),
+      secondJob: z.string().default(''),
     }),
   ),
   // T10.2 — the episode's storylines as a TV room breaks them (A main, B

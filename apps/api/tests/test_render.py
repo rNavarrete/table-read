@@ -245,6 +245,23 @@ def test_promises_prompt_asks_for_storylines_and_thread_letters():
     assert "Set each thread's storyline to the letter" in user
 
 
+def test_promises_prompt_asks_for_movements_closure_and_second_job():
+    """T10.3: movements with Levitz's test in plain words, the four closure
+    levels for paid-off threads only, and the setup's second job."""
+    _system, user = render.build_promises_prompt(
+        {"title": "T", "format": {}}, [], ["Marta"], [], _NONCE
+    )
+
+    assert "For each thread, list its movements" in user
+    assert "(setup, escalation, reversal, reveal, payoff or aftermath)" in user
+    assert "changing nothing, is not a movement" in user
+    assert "payoffSceneId stays the final one" in user
+    for level in ("plot when", "story when", "thematic when", "parametric when"):
+        assert level in user
+    assert "Use null for any thread that is not paid off" in user
+    assert "Set secondJob to what the setup does" in user
+
+
 def test_act_inference_retry_prompt_contains_inert_diagnostics():
     project = {
         "title": "T",

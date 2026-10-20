@@ -76,6 +76,9 @@ function thread(overrides: Partial<StoryThread> = {}): StoryThread {
     payoffBeatId: null,
     locked: false,
     storyline: null,
+    movements: [],
+    closureLevel: null,
+    secondJob: '',
     ...overrides,
   }
 }
@@ -219,16 +222,19 @@ describe('WhatItTouches', () => {
         thread: thread({ id: 'thread-1', payoffSceneId: 'scene-4' }),
         role: 'sets_up',
         otherSceneId: 'scene-4',
+        phases: [],
       },
       {
         thread: thread({ id: 'thread-2', label: 'The foreclosure notice' }),
         role: 'sets_up',
         otherSceneId: null,
+        phases: [],
       },
       {
         thread: thread({ id: 'thread-4', label: 'A deleted payoff' }),
         role: 'sets_up',
         otherSceneId: 'scene-99',
+        phases: [],
       },
       {
         thread: thread({
@@ -238,6 +244,7 @@ describe('WhatItTouches', () => {
         }),
         role: 'pays_off',
         otherSceneId: 'scene-2',
+        phases: [],
       },
     ]
     const props = renderTouches({ threads })
@@ -250,6 +257,52 @@ describe('WhatItTouches', () => {
     expect(props.onSelectScene).toHaveBeenCalledWith('scene-4')
     await user.click(screen.getByRole('button', { name: 'Set up in 2 →' }))
     expect(props.onSelectScene).toHaveBeenCalledWith('scene-2')
+  })
+
+  it("a thread row adds this scene's movement phase, never one its role already says (T10.3)", () => {
+    renderTouches({
+      threads: [
+        {
+          thread: thread({ id: 'thread-1', payoffSceneId: 'scene-4' }),
+          role: 'sets_up',
+          otherSceneId: 'scene-4',
+          phases: ['setup', 'escalation'],
+        },
+        {
+          thread: thread({ id: 'thread-2', label: 'Her old stool' }),
+          role: 'pays_off',
+          otherSceneId: 'scene-1',
+          phases: ['payoff'],
+        },
+      ],
+    })
+
+    const [setsUp, paysOff] = screen
+      .getAllByText(/^(↗ Sets up|↘ Pays off)/)
+      .map((p) => p.textContent)
+    expect(setsUp).toBe('↗ Sets up The missing money · escalates')
+    expect(paysOff).toBe('↘ Pays off Her old stool')
+  })
+
+  it('a thread that only moves here gets a row with its phases and its setup scene (T10.3)', async () => {
+    const user = userEvent.setup()
+    const props = renderTouches({
+      threads: [
+        {
+          thread: thread({ setupSceneId: 'scene-1' }),
+          role: 'moves',
+          otherSceneId: 'scene-1',
+          phases: ['reversal', 'reveal'],
+        },
+      ],
+    })
+
+    expect(screen.getByText(/^→ Moves/).textContent).toBe(
+      '→ Moves The missing money · reverses, reveals',
+    )
+    expect(screen.queryByText('Never paid off')).toBeNull()
+    await user.click(screen.getByRole('button', { name: 'Set up in 1 →' }))
+    expect(props.onSelectScene).toHaveBeenCalledWith('scene-1')
   })
 
   it('the secret reads as a dramatic-irony callout, naming who in this scene is in the dark', async () => {
