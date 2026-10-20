@@ -232,8 +232,9 @@ class StoryThread(_Base):
     payoff_scene_id: Id | None = None
     setup_quote: str = ""
     payoff_quote: str = ""
-    # Server-derived on merge; the model never supplies these. See the Zod
-    # `StoryThread.setupBeatId` docstring for why a scene id is too coarse.
+    # From the model's beat citation on merge; the server derives the quote
+    # from that beat. See the Zod `StoryThread.setupBeatId` docstring for when
+    # both are kept and why a scene id is too coarse.
     setup_beat_id: Id | None = None
     payoff_beat_id: Id | None = None
     locked: bool = False

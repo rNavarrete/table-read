@@ -462,11 +462,13 @@ def build_promises_prompt(
 ) -> tuple[str, str]:
     """`infer_narrative_promises` (design doc
     `2026-07-16-narrative-promises-design.md`, T7.20): a beat-complete,
-    semantic scene spine with a short server-selected evidence excerpt for
-    each scene. This keeps the story-wide read bounded on feature-length
-    scripts while retaining all setup/payoff beats and auditable on-page
-    evidence. The cast is already resolved by entity inference (names only
-    — the model never mints or knows ids), alongside the bible's existing
+    semantic scene spine (each beat's `beatId` plus its semantic fields, no
+    script text), and the model cites beat ids as evidence; the server derives
+    each quote from the cited beat's text (`promises.quote_for_beat`). This
+    keeps the story-wide read bounded on feature-length scripts while
+    retaining all setup/payoff beats and auditable on-page evidence. The cast
+    is already resolved by entity inference (names only — the model never
+    mints or knows character ids), alongside the bible's existing
     world-rule text (so the model extends the rule set rather than
     re-deriving rules it already covers). Runs after `infer_story_entities`
     so motivations/thread owners can resolve against the fuller cast.

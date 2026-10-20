@@ -1901,9 +1901,9 @@ def _narrative_map_scene_spine(
     """Return a beat-complete semantic spine, optionally with raw script text.
 
     Import narrative promises and the Narrative Map both rely on the complete
-    beat plan to discover late setup/payoff moves. The Narrative Map cites
-    beat IDs, while promises adds its own bounded scene evidence excerpts;
-    neither path needs a duplicate full-screenplay payload by default.
+    beat plan to discover late setup/payoff moves. Both cite beat IDs and let
+    the server supply the text, so both call this with
+    ``include_script_text=False``.
     """
     scene_spine: list[dict] = []
     for scene in scene_docs:
