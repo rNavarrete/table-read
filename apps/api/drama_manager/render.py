@@ -27,12 +27,20 @@ from typing import Any
 from drama_manager.structure_stages import STAGE_DEFINITIONS, STRUCTURE_NAMES, STRUCTURE_STAGES
 
 # Prompt spec §8 / hard rule 7: every template carries a PROMPT_VERSION (semver);
-# it is logged with each call and bumped on any template change. 0.57.0
+# it is logged with each call and bumped on any template change. 0.59.0
 # (T10.6) asks infer_story_overview what the episode is about (dramatic
 # question, central argument, anti-theme), up to three principals' arcs (want,
 # need, lie, ghost, a continuum and where each one's head is at per scene) and
 # each outline row's story time (story-order rank, a short label, flashback or
-# flashforward). 0.56.0
+# flashforward). 0.58.0
+# (T10.7) lets infer_act_breaks start a tag, the act after the last act
+# (actCount + 1 with a cold open, actCount without), when the format has one:
+# only at the short coda after the final act's climax, never invented
+# (the given-format prompt said "Do not infer a TAG"), and keeps a printed TAG
+# in the format-less path's printed structure. 0.57.0
+# (T10.4) asks extract_ledger_facts for a belief on suspects/misinformed
+# knowledge events: what the character takes to be true instead, as a plain
+# statement. 0.56.0
 # (T10.3) asks infer_narrative_promises for each thread's movements (every
 # scene it moves in, the phase, what changed; an appearance that changes
 # nothing is not a movement), a paid-off thread's closure level (plot, story,
@@ -172,7 +180,7 @@ from drama_manager.structure_stages import STAGE_DEFINITIONS, STRUCTURE_NAMES, S
 # 0.10.0 typed segment starts; 0.9.0 lock-aware narrative repair. Earlier:
 # 0.8.0 suggest; 0.7.0 scene skeleton; 0.6.0 continuity; 0.5.0 regenerate;
 # 0.4.0 blast; 0.3.0 tune; 0.2.0 candidate + §0 system prompt.
-PROMPT_VERSION = "0.57.0"
+PROMPT_VERSION = "0.59.0"
 
 
 def new_nonce() -> str:
@@ -346,14 +354,14 @@ def build_act_inference_prompt(
     summaries: list[dict],
     nonce: str,
     *,
-    printed: tuple[int, bool] | None = None,
+    printed: tuple[int, bool, bool] | None = None,
     source_chars: int | None = None,
 ) -> tuple[str, str]:
     """`infer_act_breaks`: act starts for a known format, or, for an import
     that works its format out from the script (`format` is None), the format
     and then the act starts for it (owner decision 2026-10-11). `printed` is
-    the `(act_count, cold_open)` the script's own markers state, which the
-    model must keep."""
+    the `(act_count, cold_open, tag)` the script's own markers state, which
+    the model must keep."""
     fmt = project.get("format")
     if fmt is None:
         return _build_format_inference_prompt(summaries, nonce, printed, source_chars)
@@ -363,17 +371,25 @@ def build_act_inference_prompt(
             "runtimeMinutes": fmt["runtimeMinutes"],
             "actCount": fmt["actCount"],
             "coldOpen": fmt["coldOpen"],
+            "tag": fmt["tag"],
         },
         "scenes": summaries,
     }
+    tag = (
+        f"This format has a tag, act {max_act + 1}: start it only at the "
+        "last scene or scenes that follow the final act's climax as a short "
+        "coda, and omit it when the script has none. "
+        if fmt["tag"]
+        else "This format has no tag: never start one. "
+    )
     user = (
         source_data("import_scene_summaries", payload, nonce)
         + "\nInfer the narrative act structure from these scenes in source order. "
         f"Return only ordered act starts using act values 0 through {max_act}. "
-        "The first startSceneIndex must be 0. Both act and startSceneIndex must "
+        + tag
+        + "The first startSceneIndex must be 0. Both act and startSceneIndex must "
         "strictly increase. You may omit empty sections. Return starts only; "
         "do not return scene ids, end indices, or per-scene assignments. "
-        "Do not infer a TAG; tag assignment is outside this operation. "
         "Set format to null: the format is already set."
     )
     return build_system_prompt({"format": fmt}, nonce), user
@@ -382,20 +398,23 @@ def build_act_inference_prompt(
 def _build_format_inference_prompt(
     summaries: list[dict],
     nonce: str,
-    printed: tuple[int, bool] | None,
+    printed: tuple[int, bool, bool] | None,
     source_chars: int | None,
 ) -> tuple[str, str]:
     payload = {
         "sceneCount": len(summaries),
         "sourceCharacters": source_chars,
         "printedStructure": (
-            {"actCount": printed[0], "coldOpen": printed[1]} if printed else None
+            {"actCount": printed[0], "coldOpen": printed[1], "tag": printed[2]}
+            if printed
+            else None
         ),
         "scenes": summaries,
     }
     structure = (
-        f"The script prints its act breaks: use actCount {printed[0]} and "
-        f"coldOpen {str(printed[1]).lower()} exactly. "
+        f"The script prints its act breaks: use actCount {printed[0]}, "
+        f"coldOpen {str(printed[1]).lower()} and tag {str(printed[2]).lower()} "
+        "exactly. "
         if printed
         else "The script prints no act breaks, so decide the structure its story "
         "implies; a feature film usually has three acts and no cold open. "
@@ -414,7 +433,11 @@ def _build_format_inference_prompt(
         + structure
         + "Then return ordered act starts for that structure, using act values 0 "
         "through actCount when coldOpen is true, or 0 through actCount minus 1 "
-        "when it is false. The first startSceneIndex must be 0. Both act and "
+        "when it is false. When tag is true, the tag is the act after the last "
+        "act (actCount plus 1 with a cold open, actCount without): start it only "
+        "at the last scene or scenes that follow the final act's climax as a "
+        "short coda, and omit it when the script has none; when tag is false, "
+        "never start one. The first startSceneIndex must be 0. Both act and "
         "startSceneIndex must strictly increase. You may omit empty sections. "
         "Return starts only; do not return scene ids, end indices, or per-scene "
         "assignments."
@@ -428,7 +451,7 @@ def build_act_inference_retry_prompt(
     diagnostics: list[dict],
     nonce: str,
     *,
-    printed: tuple[int, bool] | None = None,
+    printed: tuple[int, bool, bool] | None = None,
     source_chars: int | None = None,
 ) -> tuple[str, str]:
     system, user = build_act_inference_prompt(
@@ -1141,7 +1164,13 @@ def build_extract_prompt(
         "new fact beyond who already knows it at the moment it's "
         "established, add a knowledgeEvents entry with this scene's id, "
         "that character's name (never an id), and a short quote; leave "
-        "knowledgeEvents empty otherwise — it is the common case."
+        "knowledgeEvents empty otherwise — it is the common case. A character "
+        "who only suspects the fact gets a suspects entry, and one who is "
+        "told or shown something false about it a misinformed entry; for "
+        "those two kinds, belief says in a few words what the character takes "
+        "to be true instead — the hunch or the false version — as a plain "
+        "statement (\"the money went to the bank\", not \"thinks the money "
+        "went to the bank\"). Leave belief empty for every other kind."
     )
     return build_system_prompt(project, nonce), user
 

@@ -592,6 +592,19 @@ describe('KnowledgeEvent kinds', () => {
       KnowledgeEvent.parse({ sceneId: 'scene-2', kind: 'overhears' }),
     ).toThrow()
   })
+
+  it('defaults belief so events saved before T10.4 parse, and keeps one', () => {
+    expect(
+      KnowledgeEvent.parse({ sceneId: 'scene-2', kind: 'misinformed' }).belief,
+    ).toBe('')
+    expect(
+      KnowledgeEvent.parse({
+        sceneId: 'scene-2',
+        kind: 'misinformed',
+        belief: 'the money went to the bank',
+      }).belief,
+    ).toBe('the money went to the bank')
+  })
 })
 
 describe('Secret', () => {
@@ -737,7 +750,7 @@ describe('T10.6 About, lead arcs and story time', () => {
     })
     expect(episode.characterArcs).toEqual([arc])
   })
-  it('parses a pre-0.57.0 infer_story_overview response with defaults', () => {
+  it('parses a pre-0.59.0 infer_story_overview response with defaults', () => {
     const parsed = InferredStoryOverview.parse(overview)
     expect(parsed).toMatchObject({
       dramaticQuestion: '',

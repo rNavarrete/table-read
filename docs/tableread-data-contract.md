@@ -121,6 +121,11 @@ export const Charge = z.enum(['positive', 'negative', 'mixed'])
 // in `scenes`: Plan moves rewrite act/index and leave the array alone. Every
 // reader (Write, Ledger, export, prompts) follows it; a scene's number is its
 // 1-based position in it.
+// A scene's `act` under its format: 0 is the cold open when `coldOpen`
+// (otherwise act one), the numbered acts follow, and the tag is the act after
+// the last act (`actCount + 1` with a cold open, `actCount` without) when `tag`
+// (T10.7). Plan's Act selector lists exactly these; a tag's last scene is not
+// an act-out.
 // T10.2 — a TV room's strands: A the main story, B the second, C and D lesser
 // strands or a runner. Import infers them (infer_narrative_promises §2a).
 export const StorylineId = z.enum(['A', 'B', 'C', 'D'])
@@ -128,7 +133,9 @@ export const StorylineId = z.enum(['A', 'B', 'C', 'D'])
 export const Scene = z.object({
   id: Id,
   index: z.number().int().min(0),
-  act: z.number().int().min(0), // 0 = cold open
+  // 0 = cold open; the tag is the act after the last act (actCount + 1 with a
+  // cold open, actCount without) when format.tag (T10.7)
+  act: z.number().int().min(0),
   storyline: StorylineId.default('A'), // import infers it (T10.2); writer tagging is v2
   locked: z.boolean().default(false),
   location: z.string(),
@@ -447,7 +454,10 @@ export const StoryThread = z.object({
 // no room for — who holds it and who is kept in the dark. A fact everyone
 // knows is not a secret, and `knownBy` alone cannot say whether the gap is
 // deliberate. `factId` links the concealed LedgerFact when one exists, so the
-// secret never becomes a second, drifting copy of the truth.
+// secret never becomes a second, drifting copy of the truth. Import links it
+// by beat (T10.4): the one fact on the secret's establishing beat (its scene
+// when the beat is null) known to every holder and to no one it is hidden
+// from; none or several, or a fact two secrets would claim, leave it null.
 // `revealedSceneId: null` = still concealed at end of episode.
 export const Secret = z.object({
   id: Id,
@@ -537,7 +547,7 @@ export const SourceSpan = z.object({
 // ids from the imported partition; server drops unknowns and sets
 // provenance/locked on Episode.storyOverview.
 //
-// T10.6 (0.57.0) adds, all defaulted so a pre-0.57.0 response or checkpoint
+// T10.6 (0.59.0) adds, all defaulted so a pre-0.59.0 response or checkpoint
 // parses: the About strings; per outline row storyOrder / storyTime /
 // anachrony; and up to three characterArcs named by characterName. The server
 // resolves names with fountain.characters.resolve_character_id and drops
@@ -743,6 +753,9 @@ export const KnowledgeEvent = z.object({
   characterIds: z.array(Id).default([]),
   kind: KnowledgeEventKind,
   quote: z.string().default(''), // <=200 chars evidence
+  // T10.4 — for suspects/misinformed, what the character believes instead
+  // ("the money went to the bank"); blanked server-side on other kinds.
+  belief: z.string().default(''),
 })
 
 export const LedgerFact = z.object({
@@ -1158,6 +1171,7 @@ export const ExtractedKnowledgeEvent = z.object({
   characterNames: z.array(z.string()).default([]),
   kind: KnowledgeEventKind,
   quote: z.string().default(''),
+  belief: z.string().default(''), // T10.4: see KnowledgeEvent.belief
 })
 
 // §5 extract_ledger_facts — model span has lines only; char offsets are computed server-side.
@@ -1363,9 +1377,11 @@ export const InferredActBreaks = z.object({
 // Bounds that depend on the selected format and parsed scene count are server
 // validated, not encoded in this static operation schema. Starts must begin at
 // scene 0 and strictly increase by both act and scene index. Valid acts are
-// 0...actCount when coldOpen is true, otherwise 0...(actCount - 1). Omitted
-// acts are empty sections; the server expands accepted starts into exactly one
-// act assignment for every parsed scene.
+// 0...actCount when coldOpen is true, otherwise 0...(actCount - 1), plus the
+// tag when format.tag: the act after the last act (actCount + 1 with a cold
+// open, actCount without; T10.7). Omitted acts are empty sections; the server
+// expands accepted starts into exactly one act assignment for every parsed
+// scene.
 
 // §7 parse_script stage 2
 const SegmentedSceneBeat = z.object({
@@ -1488,8 +1504,8 @@ Defined transactions:
 - `POST /projects/{pid}/restore` `{snapshotId}` → `Project` (adoption A5) — restore doc+ledger+flags from that ancestor; same CAS/`If-Match` rules as undo. Non-ancestor or current head → 409 `VALIDATION`.
 - `POST /projects/{pid}/import` `{format: "fountain"|"text", content}` → `{project, newFacts, consistencyFlags}` — full import transaction:
   1. Deterministic scene split + LLM typed segment-start proposal (prompt spec §7); the server derives a total line partition, optionally retries that scene once under the repair-quality gate, and persists a review flag for every repair in the selected attempt. Semantic start errors never drop/duplicate text or abort coverage.
-  2. **An import with no `format`** (the import wizard sends none) works it out here, then follows the rest of this step with it: the server first reads the structure the script prints with no format given, from the whole script including the front matter stripped before scene split (`fountain/acts.printed_structure`: the highest printed act, where `END OF ACT n` names act n, with a cold open when `TEASER`/`COLD OPEN` is printed or a scene precedes the first `ACT ONE`), then always runs `infer_act_breaks`, whose `format` (genre, runtime, act count, cold open, tag, serialization) is required on this path. A printed structure overrides the model's `actCount` and `coldOpen`, even when its markers state no full partition; it supplies the acts when they do, and otherwise the model's starts are expanded against the overridden format. With no act marker printed, the model's format and starts are used. A null `format` gets the op's one retry, then `SCHEMA_INVALID_LLM`; the format is saved with the act checkpoint and becomes the project's `format`. With a `format` given, the model returns `format: null` and the step is unchanged:
-     When the act markers the script prints (`TEASER`/`COLD OPEN`, `ACT ONE`…, `END OF ACT …`, where `END OF ACT n` marks the start of act n+1) state every act of the selected format exactly once, in order, as a valid partition, the server takes the acts from them and makes no model call; under a cold-open format, unmarked scenes before `ACT ONE` are the cold open, and a script that opens on `ACT ONE` has an empty cold open. Only when markers are absent, partial, conflicting, or disagree with `format.actCount`/`coldOpen` does the import run `infer_act_breaks` over compact scene summaries in source order; the model returns ordered `{act, startSceneIndex}` starts and the server validates format/scene bounds and derives a total partition with exactly one act per scene. Omitted valid acts remain empty. A semantic failure gets exactly one classifier retry with inert diagnostics; a second failure surfaces `SCHEMA_INVALID_LLM`, and the import persists nothing.
+  2. **An import with no `format`** (the import wizard sends none) works it out here, then follows the rest of this step with it: the server first reads the structure the script prints with no format given, from the whole script including the front matter stripped before scene split (`fountain/acts.printed_structure`: the highest printed act, where `END OF ACT n` names act n, with a cold open when `TEASER`/`COLD OPEN` is printed or a scene precedes the first `ACT ONE`, and a tag when `TAG` is printed), then always runs `infer_act_breaks`, whose `format` (genre, runtime, act count, cold open, tag, serialization) is required on this path. A printed structure overrides the model's `actCount`, `coldOpen` and `tag`, even when its markers state no full partition; it supplies the acts when they do, and otherwise the model's starts are expanded against the overridden format. With no act marker printed, the model's format and starts are used. A null `format` gets the op's one retry, then `SCHEMA_INVALID_LLM`; the format is saved with the act checkpoint and becomes the project's `format`. With a `format` given, the model returns `format: null` and the step is unchanged:
+     When the act markers the script prints (`TEASER`/`COLD OPEN`, `ACT ONE`…, `END OF ACT …`, `TAG`, where `END OF ACT n` marks the start of act n+1) state every act of the selected format exactly once, in order, as a valid partition, the server takes the acts from them and makes no model call; under a cold-open format, unmarked scenes before `ACT ONE` are the cold open, and a script that opens on `ACT ONE` has an empty cold open. A printed `TAG` opens the tag, the act after the last act (`actCount + 1` with a cold open, `actCount` without) (T10.7), under a format with `tag`; an act printed past the last act is a disagreement, never the tag; unprinted, the tag stays empty, and printed under a format without one, the markers disagree with it. Only when markers are absent, partial, conflicting, or disagree with `format.actCount`/`coldOpen`/`tag` does the import run `infer_act_breaks` over compact scene summaries in source order; the model returns ordered `{act, startSceneIndex}` starts (a start for the act after the last act (`actCount + 1` with a cold open, `actCount` without) is the tag, valid only when `format.tag`; otherwise it fails the bounds check like any out-of-range act) and the server validates format/scene bounds and derives a total partition with exactly one act per scene. Omitted valid acts remain empty. A semantic failure gets exactly one classifier retry with inert diagnostics; a second failure surfaces `SCHEMA_INVALID_LLM`, and the import persists nothing.
   3. Run `extract_ledger_facts` over every imported scene; **each import-derived fact gets the status a fact found while writing gets** (`drama_manager/ledger_policy.py`): `active` when `confidence >= 0.8` and its quote is found on the page (or it has no quote to verify), otherwise `pending_review`. Owner decision 2026-10-11, replacing "all import-derived facts are created `pending_review`": nobody reviews hundreds of imported facts, and only `active` facts are ever prompt-eligible, so holding them all left an import's ledger inert. Auto-accepted facts keep `provenance: inferred`; a later import into the same project is refused while any non-`pending_review` fact exists (`locks.assert_import_target_writable`, unchanged).
   4. Run `scan_consistency` across the imported episode (initial sweep — imports can carry internal contradictions).
   5. One snapshot committing doc + ledger + flags together; partial failure rolls back all of it. The one exception is a single scene unit that still fails after its rule-9 retry, which degrades instead of failing the import (§9.3 below, T9.11).

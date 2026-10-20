@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { LedgerFact, Project } from 'contract'
 import { FactCard } from './FactCard'
+import { FactDetailDrawer } from './FactDetailDrawer'
 
 afterEach(cleanup)
 
@@ -199,5 +200,57 @@ describe('FactCard', () => {
     expect(screen.getByTestId('accept-fact-06').className).toContain(
       'duration-standard',
     )
+  })
+})
+
+describe('fact detail beliefs (T10.4)', () => {
+  const misled = makeFact({
+    knowledgeEvents: [
+      {
+        sceneId: 'scene-4',
+        characterIds: ['char-marta'],
+        kind: 'misinformed',
+        quote: '',
+        belief: 'the stakeout is about the robbery',
+      },
+    ],
+  })
+
+  it('the fact card and the Atlas drawer state what a misinformed character believes', () => {
+    render(<FactCard fact={misled} allFacts={[misled]} project={project} />)
+    expect(
+      screen.getByText(
+        'Marta Vega believes: the stakeout is about the robbery',
+      ),
+    ).toBeTruthy()
+    cleanup()
+
+    render(
+      <FactDetailDrawer
+        fact={misled}
+        allFacts={[misled]}
+        project={project}
+        onClose={vi.fn()}
+      />,
+    )
+    expect(screen.getByText('Beliefs')).toBeTruthy()
+    expect(
+      screen.getByText(
+        'Marta Vega believes: the stakeout is about the robbery',
+      ),
+    ).toBeTruthy()
+  })
+
+  it('shows no Beliefs section without one', () => {
+    const plain = makeFact()
+    render(
+      <FactDetailDrawer
+        fact={plain}
+        allFacts={[plain]}
+        project={project}
+        onClose={vi.fn()}
+      />,
+    )
+    expect(screen.queryByText('Beliefs')).toBeNull()
   })
 })

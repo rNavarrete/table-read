@@ -577,8 +577,8 @@ def _infer_act_case(client: LlmClient, case: dict) -> InferredActBreaks:
     `acts.ActInferenceError` for starts the import could not expand.
 
     With no format given, the answer must carry one (the client has already
-    validated it against ShowFormat) that keeps any printed act count and cold
-    open, and the starts must expand against it."""
+    validated it against ShowFormat) that keeps any printed act count, cold
+    open and tag, and the starts must expand against it."""
     fmt = case["project"]["format"]
     kwargs = (
         {}
@@ -598,7 +598,7 @@ def _infer_act_case(client: LlmClient, case: dict) -> InferredActBreaks:
             raise acts.ActInferenceError([{"code": "format_missing"}])
         fmt = inferred.format.model_dump(by_alias=True)
         printed = case["printed"]
-        if printed is not None and (fmt["actCount"], fmt["coldOpen"]) != printed:
+        if printed is not None and (fmt["actCount"], fmt["coldOpen"], fmt["tag"]) != printed:
             raise acts.ActInferenceError([{"code": "printed_structure_ignored"}])
     acts.expand_act_starts(
         inferred, scene_count=len(case["summaries"]), format_dict=fmt

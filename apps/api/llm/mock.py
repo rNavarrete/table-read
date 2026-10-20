@@ -146,7 +146,8 @@ def _default_responses() -> dict[str, BaseModel]:
         # T7.23: fact-03-shaped example ("Marta saw the transfer" — knownBy
         # starts as just Marta) plus a knowledgeEvents entry showing Dan
         # learning it later, by name — exercising the extract-time
-        # knowledge-transition path (design doc T7.23 acceptance #2).
+        # knowledge-transition path (design doc T7.23 acceptance #2). T10.4:
+        # Reyes suspects, with what he takes to be true instead.
         "extract_ledger_facts": LedgerExtraction(
             newFacts=[
                 {
@@ -167,7 +168,14 @@ def _default_responses() -> dict[str, BaseModel]:
                             "characterNames": ["Dan"],
                             "kind": "learns",
                             "quote": "Dan doesn't unfold it.",
-                        }
+                        },
+                        {
+                            "sceneId": "scene-3",
+                            "characterNames": ["Reyes"],
+                            "kind": "suspects",
+                            "quote": "",
+                            "belief": "Dan was only brought in for questioning",
+                        },
                     ],
                     "audienceKnows": True,
                     "confidence": 0.9,

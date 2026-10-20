@@ -359,6 +359,15 @@ describe('ScenePanel', () => {
     expect(wants.queryByText('Cornered.')).toBeNull()
   })
 
+  it('states the knowledge mode from the facts in play and who is present (T10.4)', () => {
+    renderPanel({
+      ledger: [fact({ audienceKnows: false, knownBy: ['char-marta'] })],
+    })
+    expect(screen.getByText('Mystery').parentElement?.textContent).toBe(
+      "Mystery — Marta Vega knows; the audience doesn't.",
+    )
+  })
+
   it('jump bar counts wants, touches and beats; no Notes without notes', () => {
     renderPanel({
       ledger: [
@@ -532,6 +541,31 @@ describe('ScenePanel', () => {
     ).toEqual(['COLD OPEN', 'ACT ONE', 'ACT TWO', 'ACT THREE', 'ACT FOUR'])
     await user.selectOptions(select, '2')
     expect(p.onSaveSceneField).toHaveBeenCalledWith('scene-1', 'act', 2)
+  })
+
+  it('Act select lists TAG after the last act when the format has a tag (T10.7)', async () => {
+    const user = userEvent.setup()
+    const ep = episode()
+    const base = project(ep)
+    const { props: p } = renderPanel({
+      project: { ...base, format: { ...base.format, tag: true } },
+    })
+    const select = screen.getByRole('combobox', { name: 'Act' })
+    expect(
+      Array.from(select.querySelectorAll('option')).map((o) => [
+        o.value,
+        o.textContent,
+      ]),
+    ).toEqual([
+      ['0', 'COLD OPEN'],
+      ['1', 'ACT ONE'],
+      ['2', 'ACT TWO'],
+      ['3', 'ACT THREE'],
+      ['4', 'ACT FOUR'],
+      ['5', 'TAG'],
+    ])
+    await user.selectOptions(select, '5')
+    expect(p.onSaveSceneField).toHaveBeenCalledWith('scene-1', 'act', 5)
   })
 
   it('Act select is disabled when the episode is locked', () => {

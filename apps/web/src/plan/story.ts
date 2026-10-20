@@ -22,6 +22,7 @@ import {
   applySceneMove,
   type MoveRefusal,
   type SceneMove,
+  tagAct,
 } from './planTree'
 
 // Board order (act, then index) lives with the shared project-tree helpers so
@@ -464,6 +465,81 @@ export function factsForScene(
   return { shown, retired }
 }
 
+// ── Knowledge mode (T10.4) ──────────────────────────────────────────────
+
+/** Who knows `fact` as of the scene at story position `at`: the server's
+ * as-of fold (drama_manager/ledger_as_of.py) — baseline `knownBy`, then each
+ * event at or before that scene in scene order: learns/confirms add, forgets
+ * removes, suspects/misinformed never move it. */
+export function knowersAsOf(
+  fact: LedgerFact,
+  position: ReadonlyMap<string, number>,
+  at: number,
+): Set<string> {
+  const knowers = new Set(fact.knownBy)
+  // An event in a scene outside this episode never applies.
+  const pos = (e: { sceneId: string }) => position.get(e.sceneId) ?? Infinity
+  const events = (fact.knowledgeEvents ?? [])
+    .filter((e) => pos(e) <= at)
+    .sort((a, b) => pos(a) - pos(b))
+  for (const event of events) {
+    for (const id of event.characterIds) {
+      if (event.kind === 'learns' || event.kind === 'confirms') knowers.add(id)
+      else if (event.kind === 'forgets') knowers.delete(id)
+    }
+  }
+  return knowers
+}
+
+/** McKee's three relations for one scene. `mystery`: present characters
+ * who know a fact in play the audience doesn't. `irony`: present characters
+ * who don't know (or are misinformed about) a fact in play the audience
+ * knows. A scene can be both; `suspense` when facts are in play and it is
+ * neither (audience and characters share what they know). */
+export interface KnowledgeModes {
+  mystery: string[]
+  irony: string[]
+  suspense: boolean
+}
+
+/** The facts in play — established here (active or pending), plus the
+ * facts of secrets this scene sets, keeps or lets out — against who is
+ * present (dialogue cues and motivation characters). Null when nothing is
+ * in play. */
+export function knowledgeModes(
+  episode: Episode,
+  ledger: readonly LedgerFact[],
+  sceneId: string,
+  present: ReadonlySet<string>,
+): KnowledgeModes | null {
+  const inPlay = new Map(
+    factsForScene(ledger, sceneId).shown.map((f) => [f.id, f]),
+  )
+  for (const { secret } of secretsForScene(episode, sceneId, present)) {
+    const fact = ledger.find((f) => f.id === secret.factId)
+    if (fact && (fact.status === 'active' || fact.status === 'pending_review'))
+      inPlay.set(fact.id, fact)
+  }
+  if (inPlay.size === 0) return null
+  const position = new Map(boardOrder(episode.scenes).map((s, i) => [s.id, i]))
+  const at = position.get(sceneId) ?? -1
+  const mystery = new Set<string>()
+  const irony = new Set<string>()
+  for (const fact of inPlay.values()) {
+    const knowers = knowersAsOf(fact, position, at)
+    for (const id of present) {
+      if (fact.audienceKnows === false) {
+        if (knowers.has(id)) mystery.add(id)
+      } else if (!knowers.has(id)) irony.add(id)
+    }
+  }
+  return {
+    mystery: [...mystery],
+    irony: [...irony],
+    suspense: mystery.size === 0 && irony.size === 0,
+  }
+}
+
 // ── Order check (spec §4.8) ─────────────────────────────────────────────
 
 export type OrderIssueKind =
@@ -703,7 +779,7 @@ export interface ActSummary {
   act: number
   /** actLabel(act, format) */
   label: string
-  /** "CO" for a cold open, else the act's ordinal ("1", "2"…): the chart's narrow-band label. */
+  /** "CO" for a cold open, "TAG" for a tag, else the act's ordinal ("1", "2"…): the chart's narrow-band label. */
   short: string
   /** board order */
   scenes: Scene[]
@@ -776,6 +852,8 @@ export function boardModel(
   const marked = markedLandmarks(project, episode)
   const issues = orderIssues(episode)
   const numbers = new Map(order.map((s) => [s.id, s.index + 1]))
+  // The tag is a coda, not an act: its last scene is no act-out (T10.7).
+  const tag = tagAct(project.format)
 
   const list = order.map((scene, i): SceneSignals => {
     const notes = notesForScene(flags, scene)
@@ -814,7 +892,7 @@ export function boardModel(
       neverPaidOff: setsUp.some((t) => !ids.has(t.payoffSceneId ?? '')),
       secret: secretsForScene(episode, scene.id, new Set())[0]?.role ?? null,
       landmark: marked.find((m) => m.sceneId === scene.id)?.label ?? null,
-      actOut: order[i + 1]?.act !== scene.act,
+      actOut: order[i + 1]?.act !== scene.act && scene.act !== tag,
       castIds: characters
         .filter((c) => cued.has(c.id) || wantIds.includes(c.id))
         .map((c) => c.id),
@@ -857,7 +935,9 @@ export function boardModel(
         short:
           project.format.coldOpen && act === 0
             ? 'CO'
-            : String(project.format.coldOpen ? act : act + 1),
+            : act === tag
+              ? 'TAG'
+              : String(project.format.coldOpen ? act : act + 1),
         scenes: inAct.map((s) => s.scene),
         share: total ? sum(inAct, (s) => s.scriptLength) / total : null,
         setUp: sum(inAct, (s) => s.setsUp.length),
@@ -871,7 +951,7 @@ export function boardModel(
               number: s.number,
             })),
         ),
-        actOutSceneId: inAct.at(-1)?.scene.id ?? null,
+        actOutSceneId: act === tag ? null : (inAct.at(-1)?.scene.id ?? null),
         actSplitNotes: inAct.flatMap((s) =>
           s.storyNotes
             .filter((n) => n.kind === 'act_split')

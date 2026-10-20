@@ -324,6 +324,23 @@ export function beliefStateFor(
   return state
 }
 
+/** T10.4: "Dan believes: the money went to the bank" — one line per
+ * character on each suspects/misinformed event that says what they take to
+ * be true instead. */
+export function beliefLines(
+  fact: LedgerFact,
+  nameOf: (characterId: string) => string,
+): string[] {
+  return (fact.knowledgeEvents ?? []).flatMap((event) =>
+    BELIEF_FROM_KIND[event.kind] && event.belief
+      ? event.characterIds.map(
+          (id) =>
+            `${nameOf(id)} ${event.kind === 'suspects' ? 'suspects' : 'believes'}: ${event.belief}`,
+        )
+      : [],
+  )
+}
+
 export interface BeliefTally {
   knows: number
   suspects: number

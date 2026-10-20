@@ -298,6 +298,28 @@ describe('Board', () => {
     ).not.toBeNull()
   })
 
+  it('a tag frame reads TAG after the last act, and its last card is no act-out (T10.7)', () => {
+    const ep = fixtureEpisode()
+    ep.scenes.push(
+      scene({ id: 'scene-6', index: 5, act: 5, location: 'INT. DINER' }),
+    )
+    const base = project(ep)
+    renderBoard({
+      model: boardModel(
+        { ...base, format: { ...base.format, tag: true } },
+        ep,
+        [],
+      ),
+    })
+    const tagFrame = screen.getByTestId('act-frame-5')
+    expect(
+      within(tagFrame).getByRole('heading', { name: 'TAG' }),
+    ).not.toBeNull()
+    expect(cardIds(tagFrame)).toEqual(['scene-6'])
+    expect(within(card('scene-6')).queryByText('ACT OUT')).toBeNull()
+    expect(within(card('scene-5')).getByText('ACT OUT')).not.toBeNull()
+  })
+
   it('a collapsed act keeps its header and says how many scenes are hidden, and how many have notes', async () => {
     const user = userEvent.setup()
     const onToggleAct = vi.fn()

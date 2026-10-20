@@ -36,6 +36,7 @@ import json
 import logging
 import os
 import time
+from collections import Counter
 from collections.abc import Callable, Generator
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, as_completed, wait
 from dataclasses import asdict, dataclass
@@ -372,7 +373,9 @@ def analyze_import(
         yield ImportStageProgress(STAGE_INFERRING_ACTS, 0, 1)
         prompt_kwargs: dict = (
             {
-                "printed": (printed.act_count, printed.cold_open) if printed else None,
+                "printed": (
+                    (printed.act_count, printed.cold_open, printed.tag) if printed else None
+                ),
                 "source_chars": len(content),
             }
             if infer_format
@@ -410,6 +413,7 @@ def analyze_import(
                     **inferred_format,
                     "actCount": printed.act_count,
                     "coldOpen": printed.cold_open,
+                    "tag": printed.tag,
                 }
             project_doc = {**project_doc, "format": inferred_format}
         if printed is not None and printed.scene_acts is not None:
@@ -1075,6 +1079,9 @@ def analyze_import(
                 )
         new_facts, characters = cast(tuple[list[dict], list[dict]], assembled)
         bible["characters"] = characters
+        # T10.4: threads has merged and the facts are assembled, so each
+        # secret can find the fact that states it, before the one snapshot.
+        _link_secret_facts(_episode_ref(new_doc, episode_id).get("secrets") or [], new_facts)
 
         # ── Object custody / location continuity (T7.26, "simpler MVP"): a
         # deterministic pass over the just-extracted fact text, no new LLM
@@ -1854,6 +1861,7 @@ def _assemble_facts(
     names against the cast as it stood before facts)."""
     new_facts: list[dict] = []
     fact_minter = IdMinter([], "fact-")
+    blanked = 0
     for extraction in extractions:
         for ef in extraction.new_facts:
             fact = _to_ledger_fact(ef, fact_minter.mint(), beat_index)
@@ -1866,17 +1874,92 @@ def _assemble_facts(
                 event_character_ids, characters = normalize_known_by(
                     event["characterNames"], characters, content
                 )
+                # T10.4: a belief is what a suspecting or misinformed
+                # character holds instead; on any other kind it is noise.
+                keep = event["kind"] in _BELIEF_KINDS
+                blanked += bool(event["belief"]) and not keep
                 resolved_events.append(
                     {
                         "sceneId": event["sceneId"],
                         "characterIds": event_character_ids,
                         "kind": event["kind"],
                         "quote": event["quote"],
+                        "belief": event["belief"] if keep else "",
                     }
                 )
             fact["knowledgeEvents"] = resolved_events
             new_facts.append(fact)
+    _logger.info(
+        "import_fact_beliefs blanked=%d prompt_version=%s", blanked, render.PROMPT_VERSION
+    )
     return new_facts, characters
+
+
+_BELIEF_KINDS = frozenset({"suspects", "misinformed"})
+
+
+def _link_secret_facts(secrets: list[dict], facts: list[dict]) -> None:
+    """T10.4 (owner decision 2026-10-19: keep import speed, link by beat): set
+    each open secret's `factId` to the one fact that states it, matched by
+    where it is established — no model citation, so facts still run beside
+    threads. For a secret neither locked nor linked, the candidates are the
+    active or pending facts on its `establishedBeatId` (its scene when that is
+    null) whose `knownBy` holds every holder and no one it is concealed from;
+    when several remain, those with the secret's `audienceKnows` are
+    preferred. Exactly one candidate links; none or several leave it null. A
+    fact two secrets would claim links neither, as the promises merge clears
+    a quote two claims cite. Counts only in the log."""
+    picks: dict[str, str] = {}
+    no_candidate = ambiguous = 0
+    for secret in secrets:
+        if secret.get("locked") or secret.get("factId") is not None:
+            continue
+        beat_id = secret.get("establishedBeatId")
+        holders = set(secret.get("holderCharacterIds") or [])
+        hidden_from = set(secret.get("concealedFromCharacterIds") or [])
+        candidates = [
+            fact
+            for fact in facts
+            if fact["status"] in ("active", "pending_review")
+            and (
+                fact["sourceSpan"].get("beatId") == beat_id
+                if beat_id
+                else fact["sourceSpan"].get("sceneId") == secret["establishedSceneId"]
+            )
+            and holders <= set(fact["knownBy"])
+            and not hidden_from & set(fact["knownBy"])
+        ]
+        if len(candidates) > 1:
+            audience = secret.get("audienceKnows", True)
+            candidates = [
+                fact for fact in candidates if fact.get("audienceKnows", True) == audience
+            ] or candidates
+        if not candidates:
+            no_candidate += 1
+        elif len(candidates) > 1:
+            ambiguous += 1
+        else:
+            picks[secret["id"]] = candidates[0]["id"]
+    claims = Counter(picks.values())
+    linked = contested = 0
+    for secret in secrets:
+        fact_id = picks.get(secret["id"])
+        if fact_id is None:
+            continue
+        if claims[fact_id] > 1:
+            contested += 1
+        else:
+            secret["factId"] = fact_id
+            linked += 1
+    _logger.info(
+        "import_secret_links linked=%d no_candidate=%d ambiguous=%d contested=%d "
+        "prompt_version=%s",
+        linked,
+        no_candidate,
+        ambiguous,
+        contested,
+        render.PROMPT_VERSION,
+    )
 
 
 _ENTITY_PROMPT_EARLY_LINES = 40
