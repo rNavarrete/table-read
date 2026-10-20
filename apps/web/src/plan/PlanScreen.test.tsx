@@ -29,6 +29,7 @@ import {
 import { UNDO_MOVE_STALE } from './useUndoMove'
 
 const {
+  checkCraftMock,
   createChangeSetMock,
   dismissConsistencyFlagMock,
   getConsistencyFlagsMock,
@@ -39,6 +40,7 @@ const {
   suggestInstructionsMock,
   undoProjectMock,
 } = vi.hoisted(() => ({
+  checkCraftMock: vi.fn(),
   createChangeSetMock: vi.fn(),
   dismissConsistencyFlagMock: vi.fn(),
   getConsistencyFlagsMock: vi.fn(),
@@ -51,6 +53,7 @@ const {
 }))
 
 vi.mock('../api/client', () => ({
+  checkCraft: checkCraftMock,
   createChangeSet: createChangeSetMock,
   dismissConsistencyFlag: dismissConsistencyFlagMock,
   exportFountain: vi.fn(),
@@ -156,6 +159,7 @@ function episode(scenes: Scene[]): Episode {
     storyOverview: null,
     narrativeMap: null,
     structureChecks: [],
+    craftCheckedAt: null,
     characterArcs: [],
   }
 }
@@ -2102,5 +2106,115 @@ describe('PlanScreen order check (T3.7)', () => {
 
     expect(patchProjectMock).toHaveBeenCalledTimes(1)
     expect(screen.queryByTestId('toast')).toBeNull()
+  })
+
+  describe('Check craft', () => {
+    const CRAFT_FLAG: ConsistencyFlag = {
+      id: 'flag-craft',
+      objectType: 'beat',
+      objectId: 'beat-1-1',
+      factId: null,
+      explanation: '[craft_on_the_nose] “I am so angry.” — Marta names it.',
+      severity: 'tension',
+      status: 'open',
+      sourceChange: 'snap-craft',
+    }
+
+    function checkedProject(): Project {
+      const p = withBeatField(
+        { ...project(), headSnapshotId: 'snap-craft' },
+        'scene-1',
+        'beat-1-1',
+        'scriptText',
+        'MARTA\nI am so angry.',
+      )
+      const ep = p.seasons[0].episodes[0]
+      p.seasons[0].episodes[0] = {
+        ...ep,
+        craftCheckedAt: new Date().toISOString(),
+      } as Episode
+      return p
+    }
+
+    async function openEpisodeView() {
+      const user = userEvent.setup()
+      const panel = await loadPlan()
+      await user.click(within(panel).getByRole('button', { name: '← Episode' }))
+      return { user, view: screen.getByTestId('inspector') }
+    }
+
+    it('runs only on the click: sends If-Match, refreshes every flag and announces the count', async () => {
+      getConsistencyFlagsMock
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([
+          CRAFT_FLAG,
+          { ...CRAFT_FLAG, id: 'flag-craft-old', status: 'dismissed' },
+        ])
+      checkCraftMock.mockResolvedValue(checkedProject())
+      const { user, view } = await openEpisodeView()
+      // Not on mount, select or the Episode view.
+      expect(checkCraftMock).not.toHaveBeenCalled()
+      expect(view.textContent).toContain('Not checked yet')
+
+      await user.click(
+        within(view).getByRole('button', { name: 'Check craft' }),
+      )
+
+      expect(checkCraftMock).toHaveBeenCalledTimes(1)
+      expect(checkCraftMock).toHaveBeenCalledWith('proj-longpour', {
+        expectedHeadSnapshotId: 'snap-root',
+      })
+      await waitFor(() =>
+        expect(screen.getByTestId('plan-live').textContent).toBe(
+          'Craft check: 1 note.',
+        ),
+      )
+      expect(getConsistencyFlagsMock).toHaveBeenLastCalledWith('proj-longpour')
+      const craft = within(screen.getByTestId('inspector'))
+      expect(craft.getByText('1 craft note · 1 dismissed')).not.toBeNull()
+      expect(craft.getByText('Checked just now')).not.toBeNull()
+    })
+
+    it('a check that finds nothing says so', async () => {
+      getConsistencyFlagsMock
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([])
+      checkCraftMock.mockResolvedValue(checkedProject())
+      const { user, view } = await openEpisodeView()
+      await user.click(
+        within(view).getByRole('button', { name: 'Check craft' }),
+      )
+      await waitFor(() =>
+        expect(screen.getByTestId('plan-live').textContent).toBe(
+          'Craft check: no notes.',
+        ),
+      )
+      expect(within(view).getByText('No craft notes')).not.toBeNull()
+    })
+
+    it('a failed check shows the error and changes nothing', async () => {
+      checkCraftMock.mockRejectedValue(
+        new ApiError(503, {
+          code: 'LLM_UNAVAILABLE',
+          message: 'The AI service is unavailable.',
+        }),
+      )
+      const { user, view } = await openEpisodeView()
+      await user.click(
+        within(view).getByRole('button', { name: 'Check craft' }),
+      )
+      expect((await within(view).findByRole('alert')).textContent).toBe(
+        'The AI service is unavailable.',
+      )
+      expect(getConsistencyFlagsMock).toHaveBeenCalledTimes(1)
+      expect(view.textContent).toContain('Not checked yet')
+      expect(
+        (
+          within(view).getByRole('button', {
+            name: 'Check craft',
+          }) as HTMLButtonElement
+        ).disabled,
+      ).toBe(false)
+    })
   })
 })

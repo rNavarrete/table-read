@@ -336,6 +336,29 @@ _Accept:_ Zod, Pydantic, data contract §2a, prompt spec §5b/§5b′ and `confi
 **T10.12 Breakdown at a glance.** Owner request (2026-10-20): the M10 readings are on screen but not compelling. Plan's scene panel leads with an At a glance header: the turn and Why now (moved from "What the scene does"), whose wants clash, and who knows. The Highlight bar gains Turns, Clashes and Who knows lenses. Everything is derived client-side in `plan/story.ts`, with no request and no schema or prompt change. Design: `docs/superpowers/specs/2026-10-20-breakdown-at-a-glance-design.md`; redesign spec §4.5/§4.6 updated.
 _Accept:_ the header shows only the readings a scene has, and nothing when it has none; the turn is spoken as words; a clash needs both characters to want something and is labelled as a guess; Who knows states irony and mystery with a spoken sentence; each lens follows §4.5 (ring, one tape, quiet non-matches, counts, N, announcement); Turns tapes a holding scene sky, stated not graded; existing tokens only; Vitest: `sceneTurn`, `sceneClashes` (obstacle, mutual beats, both-want, possessive and title words), each lens's tape and count, the header's rows and its empty state, the bar's lenses; no AI call anywhere in the path.
 
+**T10.13 Craft notes (PR 1).** Owner request (2026-10-20): a screenplay "linter" in Plan for the craft points writers lose track of (del Toro: never say what the film is about; characters shouldn't talk about what they're doing). A **Check craft** button in Plan's Episode view runs `review_craft` over the episode's dialogue. Verified notes become dismissable `[craft_<check>]` ConsistencyFlags on their beats, with vetted "Read more" sources. Design: `docs/superpowers/specs/2026-10-20-craft-notes-design.md`; plan: `docs/superpowers/plans/2026-10-20-craft-notes.md`. Phase 2 (run at import, inside `checking_consistency`, non-fatal) is a later task. `PROMPT_VERSION` 0.63.0.
+_Accept:_
+- Every schema home (`CraftReview`, `Episode.craftCheckedAt`) agrees and `check_contract` passes.
+- The tool schema is accepted by the real API (a `max_tokens: 1` probe).
+- Server rules have pytest coverage:
+  - a note is kept only when its excerpt is on the cited beat's page, typography folded;
+  - one note per check per beat, at most 12;
+  - a dismissed check on a beat is never re-filed;
+  - a re-check replaces open craft notes and leaves other flags untouched;
+  - an edited-away line becomes `resolved`;
+  - a locked episode changes only `craftCheckedAt`;
+  - stale `If-Match` is 409;
+  - no beats is 409 `CRAFT_CHECK_NOT_READY`;
+  - logs never carry excerpts.
+- Web behavior has Vitest coverage:
+  - `[craft_*]` notes are their own kind, not import notes;
+  - the notes strip's craft group has labels, excerpts, Read more only where a source is vetted, and Dismiss;
+  - a craft-only beat gets the hollow tick;
+  - a fixed line hides its note;
+  - the Episode view's Check craft calls the model only on click, then refreshes notes and announces the result.
+- No model call anywhere else (rule 8).
+- The owner's substitute sign-off is recorded in the PR.
+
 **T10.14 Card peek.** Owner request (2026-10-20): board cards truncate the scene's reading and must be readable in full. Resting the pointer on a card, or landing on it with the keyboard, opens a peek beside it with the whole slug and `whatHappens` and the T10.12 readings; it replaces the native tooltip. Redesign spec §4.2.
 _Accept:_
 - opens after 400 ms of hover and at once on keyboard focus, never on a click-focus or during a drag;

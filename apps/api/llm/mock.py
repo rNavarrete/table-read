@@ -28,6 +28,7 @@ from schemas import (
     BeatCandidate,
     BlastRadius,
     ConsistencyScan,
+    CraftReview,
     InferredActBreaks,
     InferredNarrativeMap,
     InferredNarrativeMapSynthesis,
@@ -333,6 +334,22 @@ def _default_responses() -> dict[str, BaseModel]:
         # Dan is the fixture's worked example of a stated/actual gap: he
         # says he is closing up, while what he is doing is keeping Marta
         # away from the ice machine.
+        # T10.13 review_craft: one fixture-true on-the-nose line, copied
+        # verbatim from beat-3-1, so a mock craft check files one note.
+        "review_craft": CraftReview(
+            notes=[
+                {
+                    "check": "on_the_nose",
+                    "sceneId": "scene-3",
+                    "beatId": "beat-3-1",
+                    "excerpt": "You're the numbers person. I figured — you and me.",
+                    "why": (
+                        "Dan spells out the partnership he wants instead of "
+                        "letting the offer do it."
+                    ),
+                }
+            ]
+        ),
         "infer_scene_motivations": SceneMotivations(
             sceneMotivations=[
                 {
@@ -1103,6 +1120,16 @@ class MockLlmClient:
     ) -> SceneMotivations:
         return self._call(
             "infer_scene_motivations",
+            system=system,
+            user_message=user_message,
+            prompt_version=prompt_version,
+        )
+
+    def review_craft(
+        self, *, system: str, user_message: str, prompt_version: str
+    ) -> CraftReview:
+        return self._call(
+            "review_craft",
             system=system,
             user_message=user_message,
             prompt_version=prompt_version,

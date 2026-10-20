@@ -81,6 +81,7 @@ function episodeWith(scenes: Scene[]): Project['seasons'] {
           storyOverview: null,
           narrativeMap: null,
           structureChecks: [],
+          craftCheckedAt: null,
           characterArcs: [],
         },
       ],

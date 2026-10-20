@@ -108,6 +108,7 @@ The writer comes to Plan for four jobs:
 - **Continuity:** full explanation; "Scene n" references become links that select that scene; fact ids become "a Ledger fact" links; the linked fact is quoted. Verbs: Show beat · Open in Write · Dismiss (with Undo).
 - **Act split:** Change the act · Looks right — dismiss.
 - **Order (computed, §4.8):** cannot be dismissed; clears when fixed. Go to scene n · Undo the move. A new order problem opens the strip.
+- **Craft notes · n** (T10.13, collapsed group, between the story notes and the import group): each note shows its check ("Says the theme out loud" / "Says what they're doing"), the line in the script font, one why sentence, **Read more: <source> ↗** where a vetted source exists, and **Dismiss** (with Undo). A craft note whose line was edited away is hidden. On the board, a beat whose only notes are craft notes gets the hollow tick, so craft notes never read as continuity problems.
 - **From the import · n** (collapsed group): plain-language text ("The import couldn't place script lines a–b and kept them in beat n"), never the raw `[model_unassigned]` marker. Open beat in Write · Looks right — dismiss.
 
 **At a glance** (T10.12; `data-testid="at-a-glance"`, renders only when the scene has one of its readings): the scene's answers to the craft checks before any section, read-only and derived with no request — **The turn** (value at stake and charges, the glyphs larger in accent ink, spoken as words), **Why now**, **Clash** (each colliding pair as two stacked "Name wants …" boxes with a "vs" chip between, labelled "From their wants and beats"), **Who knows** (a Dramatic irony / Mystery chip, then ● for who knows and ○ for who is in the dark, with a spoken sentence). The turn and Why now live only here.
@@ -123,7 +124,7 @@ Storyline is hidden while `episode.storylines` is empty.
 
 ### 4.7 Episode view (nothing selected: Esc or "← Episode")
 
-Title and logline · format line · **Acts, side by side** (≈ share bar, scene count, marked landmarks, act-out scene with learns/feels; footnote "Length is a share of the script text, not pages") · **Threads** (open ones with their setup scene; "See all n in Ledger → Threads") · **The secret** (set · kept in n scenes · out, hidden from, "Highlight on the board") · **Notes** grouped by scene with **From the import** collapsed · **Who's in it** chips that switch the highlight · **Premise** (collapsed, today's structural footer). No tiles, no scores.
+Title and logline · format line · **Acts, side by side** (≈ share bar, scene count, marked landmarks, act-out scene with learns/feels; footnote "Length is a share of the script text, not pages") · **Threads** (open ones with their setup scene; "See all n in Ledger → Threads") · **The secret** (set · kept in n scenes · out, hidden from, "Highlight on the board") · **Notes** grouped by scene with **From the import** collapsed · **Who's in it** chips that switch the highlight · **Premise** (collapsed, today's structural footer) · **Craft notes** (T10.13): **Check craft**, the one control in Plan that calls the model, and only on that click; "n craft notes · m dismissed" and "Checked <time>" (from `episode.craftCheckedAt`) or "Not checked yet"; the result is announced in the live region. No tiles, no scores.
 
 ### 4.8 Live order check (computed client-side, no AI)
 

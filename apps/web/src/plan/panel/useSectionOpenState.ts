@@ -12,6 +12,7 @@ export type PlanSectionId =
   | 'ep-threads'
   | 'ep-secret'
   | 'ep-notes'
+  | 'ep-craft'
   | 'ep-cast'
   | 'ep-premise'
 
@@ -29,6 +30,7 @@ const DEFAULT_OPEN: Record<PlanSectionId, boolean> = {
   'ep-threads': true,
   'ep-secret': true,
   'ep-notes': true,
+  'ep-craft': true,
   'ep-cast': true,
   'ep-premise': false,
 }

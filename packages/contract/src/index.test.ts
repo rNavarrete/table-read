@@ -5,6 +5,7 @@ import {
   NarrativeMap,
   NarrativePromises,
   SceneMotivations,
+  CraftReview,
   ProjectImportProgressEvent,
   ProjectImportStageName,
   StoryThread,
@@ -460,6 +461,26 @@ describe('SceneMotivations (T10.11)', () => {
     }
     expect(SceneMotivations.parse(payload)).toEqual(payload)
     expect(() => SceneMotivations.parse({})).toThrow()
+  })
+})
+
+describe('CraftReview (T10.13)', () => {
+  it('round-trips a note and rejects an unknown check', () => {
+    const payload = {
+      notes: [
+        {
+          check: 'on_the_nose',
+          sceneId: 'scene-1',
+          beatId: 'beat-1-1',
+          excerpt: 'I am so angry with you.',
+          why: 'Marta names the feeling instead of playing it.',
+        },
+      ],
+    }
+    expect(CraftReview.parse(payload)).toEqual(payload)
+    expect(() =>
+      CraftReview.parse({ notes: [{ ...payload.notes[0], check: 'preachy' }] }),
+    ).toThrow()
   })
 })
 

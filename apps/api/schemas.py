@@ -675,6 +675,8 @@ class Episode(_Base):
     narrative_map: NarrativeMap | None = None
     # At most one per lens; a new check replaces that lens's entry.
     structure_checks: list[StructureCheck] = []
+    # T10.13 — when Check craft last ran (ISO time); None until it has.
+    craft_checked_at: str | None = None
 
 
 class CharacterArc(_Base):
@@ -1440,6 +1442,28 @@ class SceneMotivations(_Base):
     grammar the API refused once T10.2/T10.3 grew it."""
 
     scene_motivations: list[InferredSceneMotivations]
+
+
+class CraftCheck(StrEnum):
+    """T10.13 — see packages/contract's `CraftReview` docstring."""
+
+    theme_stated = "theme_stated"
+    on_the_nose = "on_the_nose"
+
+
+class InferredCraftNote(_Base):
+    check: CraftCheck
+    scene_id: Id
+    beat_id: Id
+    excerpt: str
+    why: str
+
+
+class CraftReview(_Base):
+    """T10.13 review_craft — lines that state the theme outright or say what
+    a character is doing. The server verifies each excerpt (craft.py)."""
+
+    notes: list[InferredCraftNote]
 
 
 class InferredOutlineItem(_Base):

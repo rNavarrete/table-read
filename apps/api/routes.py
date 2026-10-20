@@ -38,6 +38,7 @@ from drama_manager import (
 from drama_manager import (
     suggest as suggest_mod,
 )
+from drama_manager.craft import CraftCheckNotReady, run_craft_check
 from drama_manager.narrative_map_analysis import NarrativeMapReadinessError
 from drama_manager.narrative_map_runs import (
     create_or_resume_run,
@@ -619,6 +620,39 @@ def generate_narrative_map(
     if should_enqueue:
         enqueue_run(run.id, llm)
     return serialize_run(run)
+
+
+@router.post("/{pid}/craft-check", response_model=Project)
+def check_craft(
+    pid: str,
+    session: Session = Depends(get_session),
+    llm: LlmClient = Depends(get_llm_client),
+    if_match: str | None = Header(default=None, alias="If-Match"),
+) -> dict:
+    """Run one writer-triggered craft check (T10.13, design 2026-10-20-craft-
+    notes): its verified notes replace the episode's open craft notes as
+    ConsistencyFlags, in one snapshot. Read them with GET consistency-flags."""
+    project = _get_project_or_404(session, pid)
+    expected_head = _expected_head(if_match) or project.head_snapshot_id
+    if expected_head != project.head_snapshot_id:
+        raise ApiError(
+            409,
+            "CONFLICT_STALE_HEAD",
+            f"expected headSnapshotId {expected_head!r} but project head is "
+            f"{project.head_snapshot_id!r}",
+        )
+    try:
+        return run_craft_check(session, project, llm, expected_head_snapshot_id=expected_head)
+    except CraftCheckNotReady as exc:
+        raise ApiError(
+            409, "CRAFT_CHECK_NOT_READY", "The script has no beats to check yet."
+        ) from exc
+    except snapshots.StaleHead as exc:
+        raise ApiError(409, "CONFLICT_STALE_HEAD", str(exc)) from exc
+    except SchemaInvalidLlmError as exc:
+        raise ApiError(502, "SCHEMA_INVALID_LLM", str(exc)) from exc
+    except (anthropic.APIError, LlmTimeoutError) as exc:
+        raise ApiError(503, "LLM_UNAVAILABLE", "the language model is unavailable") from exc
 
 
 @router.post("/{pid}/structure-checks/{lens}", response_model=Project)

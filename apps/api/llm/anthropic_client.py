@@ -50,6 +50,7 @@ from schemas import (
     BeatCandidate,
     BlastRadius,
     ConsistencyScan,
+    CraftReview,
     InferredActBreaks,
     InferredNarrativeMap,
     InferredNarrativeMapSynthesis,
@@ -1027,6 +1028,16 @@ class AnthropicClient:
     ) -> SceneMotivations:
         return self._call(
             "infer_scene_motivations",
+            system=system,
+            user_message=user_message,
+            prompt_version=prompt_version,
+        )
+
+    def review_craft(
+        self, *, system: str, user_message: str, prompt_version: str
+    ) -> CraftReview:
+        return self._call(
+            "review_craft",
             system=system,
             user_message=user_message,
             prompt_version=prompt_version,

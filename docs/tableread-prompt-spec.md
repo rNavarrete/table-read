@@ -472,6 +472,30 @@ Purpose (T10.11, `PROMPT_VERSION 0.62.0`): each character's scene-level want —
 
 The model returns scene motivations only where it can establish all three of objective, stakes, and obstacle; it omits routine or unsupported scenes rather than guessing. `statedObjective` is empty unless the character claims a different goal than their behaviour serves, and `concealed` marks deliberate deception rather than self-deception — the stated/actual gap is the ulterior motive. Characters are names, never ids; `sceneId` comes from the input scene list. Server-side merge (`drama_manager/promises.py`, `merge_scene_motivations`): rows whose `characterName` doesn't resolve against the bible are dropped (counts only — rule 5); a scene's resolved rows replace its `Scene.motivations`, and a scene with none keeps what it had; a stated objective equal to the real one is normalized to empty. Schema-invalid after one retry surfaces `SCHEMA_INVALID_LLM` at `inferring_promises`, and the import fails atomically (rule 9).
 
+## 5d. `review_craft`
+
+Purpose (T10.13, `PROMPT_VERSION 0.63.0`; design `docs/superpowers/specs/2026-10-20-craft-notes-design.md`): Plan's craft notes, a screenplay "linter" the writer runs with **Check craft** (`POST /projects/{pid}/craft-check`). Never on import yet, never in Write (rule 8). Model: `import_analyst` (`claude-opus-5-5`, `medium` effort).
+
+**Input**, all `<source_data_{nonce}>`:
+- `story_overview`: the About (`logline`, `dramaticQuestion`, `centralArgument`, `antiTheme`), left out entirely when the import read none;
+- `known_cast`: names only;
+- `craft_spine`: every scene in story order, with each beat's `beatId` and its dialogue lines (cue plus speech, parentheticals and action dropped; `drama_manager/craft.py`). Beats and scenes with no dialogue are left out.
+
+**Output (`CraftReview`):** `notes: [{check: "theme_stated" | "on_the_nose", sceneId, beatId, excerpt, why}]`, at most 12, clearest first, and none when nothing clearly qualifies.
+- `theme_stated`: a character states the theme or central argument outright, or a moral the story should leave to the audience.
+- `on_the_nose`: a character announces their own action, intention or feeling instead of playing it, or explains what both characters already know. Subtext, irony and an earned declaration don't count.
+- `excerpt` is copied verbatim from the cited beat, at most 200 characters.
+- `why` is one sentence naming the character, never a scene number: Plan links "scene n" text to scene ids.
+
+**Server rules** (`craft.py`):
+- A note whose beat isn't in the cited scene, or whose excerpt `ledger_policy.locate_quote` can't find in that beat's `scriptText`, is dropped.
+- One note is kept per check per beat, and a run is capped at 12.
+- A check on a beat the writer dismissed is never re-filed.
+- Open craft notes are replaced by each run; one whose line was edited away is marked `resolved`.
+- Notes are stored as ConsistencyFlags (`[craft_<check>] “<excerpt>” — <why>`, objectType `beat`, severity `tension`) in one snapshot, `Craft check`.
+- Logs carry counts only (rule 5).
+- Schema-invalid after one retry surfaces `SCHEMA_INVALID_LLM` (rule 9) and saves nothing.
+
 ## 6. `suggest_instructions`
 
 Purpose: 3 diverse scene/beat instruction suggestions ("Inspire me" / empty-field carousels). Model: `classifier` role. Output: `{"suggestions": ["", "", ""]}`. Server deduplicates against `suggestionHistory` embeddings (cosine > 0.85 → regenerate; MVP exact-text when embeddings absent).

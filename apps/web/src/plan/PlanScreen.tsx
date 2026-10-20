@@ -7,12 +7,14 @@ import type {
   Scene,
 } from 'contract'
 import {
+  checkCraft,
   createChangeSet,
   getConsistencyFlags,
   getLedger,
   getProject,
   suggestInstructions,
 } from '../api/client'
+import { ApiError } from '../api/errors'
 import { saveLedgerView } from '../ledger/viewPreference'
 import { plural } from '../projects/wizard/board/boardText'
 import { requireProjectId } from '../projects/projectRouting'
@@ -58,6 +60,7 @@ import {
 } from './planTree'
 import {
   boardModel,
+  flagKind,
   highlightAnnouncement,
   lockedMoveText,
   newOrderIssues,
@@ -93,6 +96,11 @@ export function PlanScreen() {
   const [skippedGuidedSetup, setSkippedGuidedSetup] = useState(false)
   const [ledger, setLedger] = useState<LedgerFact[]>([])
   const [openFlags, setOpenFlags] = useState<ConsistencyFlag[]>([])
+  // Every craft flag, any status, as of the load or the last check: counts
+  // the dismissed ones (Episode view).
+  const [craftFlags, setCraftFlags] = useState<ConsistencyFlag[]>([])
+  const [craftBusy, setCraftBusy] = useState(false)
+  const [craftError, setCraftError] = useState<string | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [selection, setSelection] = useState<PlanSelection | undefined>(
     focusSceneId ? { type: 'scene', sceneId: focusSceneId } : undefined,
@@ -126,13 +134,16 @@ export function PlanScreen() {
     Promise.all([
       getProject(projectId),
       getLedger(projectId),
-      getConsistencyFlags(projectId, 'open'),
+      // Every status: the open ones drive the board, the craft ones the
+      // Episode view's dismissed count.
+      getConsistencyFlags(projectId),
     ])
       .then(([loadedProject, loadedLedger, loadedFlags]) => {
         if (cancelled) return
         setProject(loadedProject)
         setLedger(loadedLedger)
-        setOpenFlags(loadedFlags)
+        setOpenFlags(loadedFlags.filter((f) => f.status === 'open'))
+        setCraftFlags(loadedFlags.filter((f) => flagKind(f) === 'craft'))
         // A deep link into a collapsed act opens it in the same render, so
         // the deep-link effect below finds the card.
         const linked = focusSceneId
@@ -212,10 +223,15 @@ export function PlanScreen() {
   })
   const leave = useLeaveGuard(drafts)
   // One "a write is in flight" flag for every control: a field save, a lock,
-  // a move or its undo, a dismiss or its undo, and an Open Review (no draft
-  // may appear while it runs, or it would block the way to Review).
+  // a move or its undo, a dismiss or its undo, a craft check (it moves the
+  // head), and an Open Review (no draft may appear while it runs, or it would
+  // block the way to Review).
   const busy =
-    patcher.pending || dismissal.busy || undoMove.busy || openingReview
+    patcher.pending ||
+    dismissal.busy ||
+    undoMove.busy ||
+    openingReview ||
+    craftBusy
   // Dismiss, its Undo and Undo the move unmount the focused button (the note,
   // the strip, the toast), whether they succeed or fail: once they finish
   // (after the commit), focus goes to the strip's Show/Hide, else the toast's
@@ -239,6 +255,14 @@ export function PlanScreen() {
     )?.focus()
   }, [dismissal.busy, undoMove.busy])
 
+  // Dismissed in the last fetch, or open then and gone from the open list
+  // since (a dismiss here; its Undo brings it back). A check refetches.
+  const openIds = new Set(openFlags.map((f) => f.id))
+  const craftDismissed = craftFlags.filter(
+    (f) =>
+      f.status === 'dismissed' || (f.status === 'open' && !openIds.has(f.id)),
+  ).length
+
   // MVP: exactly one season, one episode (data contract §1).
   const episode = project?.seasons[0]?.episodes[0]
   const model = useMemo(
@@ -257,6 +281,41 @@ export function PlanScreen() {
   const selectedId = effectiveSelection?.sceneId ?? null
 
   const announce = (message: string) => setLive(message)
+
+  /** Check craft (Episode view): the one model call in Plan, on the
+   * writer's click only (rule 8). One snapshot server-side; then every flag
+   * is refetched, since the check files, replaces and resolves craft notes. */
+  async function runCraftCheck() {
+    if (!project) return
+    setCraftBusy(true)
+    setCraftError(null)
+    try {
+      const next = await checkCraft(activeProjectId, {
+        expectedHeadSnapshotId: project.headSnapshotId,
+      })
+      setProject(next)
+      const flags = await getConsistencyFlags(activeProjectId)
+      const open = flags.filter((f) => f.status === 'open')
+      setOpenFlags(open)
+      setCraftFlags(flags.filter((f) => flagKind(f) === 'craft'))
+      // Every open craft note was just checked against the script: all show.
+      const n = open.filter((f) => flagKind(f) === 'craft').length
+      announce(
+        n ? `Craft check: ${plural(n, 'note')}.` : 'Craft check: no notes.',
+      )
+    } catch (err: unknown) {
+      setCraftError(
+        err instanceof ApiError && err.code === 'CONFLICT_STALE_HEAD'
+          ? staleHeadMessage
+          : err instanceof Error
+            ? err.message
+            : "Couldn't run the craft check. Nothing changed.",
+      )
+    } finally {
+      setCraftBusy(false)
+    }
+  }
+
   const cardEl = (sceneId: string) =>
     document.querySelector<HTMLElement>(`[data-testid="scene-card-${sceneId}"]`)
   // Selecting a scene inside a collapsed act opens it (and saves that).
@@ -898,6 +957,12 @@ export function PlanScreen() {
                   saveEpisodePremise(episode.id, value)
                 }
                 onSaveSeriesPremise={saveSeriesPremise}
+                craft={{
+                  dismissed: craftDismissed,
+                  busy: craftBusy,
+                  error: craftError,
+                }}
+                onCheckCraft={() => void runCraftCheck()}
               />
             )}
           </div>

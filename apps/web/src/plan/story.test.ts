@@ -20,6 +20,8 @@ import {
   cardTag,
   castCounts,
   castFromDialogue,
+  craftNote,
+  excerptInBeat,
   expositionLine,
   factsForScene,
   fixInstruction,
@@ -120,6 +122,7 @@ function episode(scenes: Scene[], overrides: Partial<Episode> = {}): Episode {
     storyOverview: null,
     narrativeMap: null,
     structureChecks: [],
+    craftCheckedAt: null,
     characterArcs: [],
     ...overrides,
   }
@@ -2475,5 +2478,117 @@ describe('at a glance (T10.12)', () => {
     ])
     const model = boardModel(project(ep, {}, cast), ep, [])
     expect(highlightCount(model, { kind: 'knows', who: null })).toBe(0)
+  })
+})
+
+describe('craft notes', () => {
+  const ANGRY = 'MARTA\nI am so angry with you.'
+  const craft = (
+    id: string,
+    beatId: string,
+    excerpt: string,
+    check = 'on_the_nose',
+  ) =>
+    flag({
+      id,
+      objectType: 'beat',
+      objectId: beatId,
+      explanation: `[craft_${check}] “${excerpt}” — Marta names her anger instead of playing it.`,
+    })
+  const craftScene = () =>
+    scene('scene-5', 4, {
+      beats: [
+        beat('beat-5-1', 0, { scriptText: ANGRY }),
+        beat('beat-5-2', 1, { scriptText: 'DAN\nFine.' }),
+      ],
+    })
+
+  it('flagKind reads [craft_*] as a craft note, not an import note', () => {
+    expect(flagKind(flag({ explanation: '[craft_on_the_nose] “x” — y' }))).toBe(
+      'craft',
+    )
+    expect(
+      flagKind(flag({ explanation: '[craft_theme_stated] “x” — y' })),
+    ).toBe('craft')
+  })
+
+  it('craftNote parses the check, excerpt and why; null for any other note', () => {
+    expect(
+      craftNote(
+        flag({
+          explanation:
+            '[craft_theme_stated] “Loyalty costs — always.” — Marta states the argument outright.',
+        }),
+      ),
+    ).toEqual({
+      check: 'theme_stated',
+      excerpt: 'Loyalty costs — always.',
+      why: 'Marta states the argument outright.',
+    })
+    expect(craftNote(flag())).toBeNull()
+    expect(
+      craftNote(flag({ explanation: '[model_unassigned] Source lines 1-4.' })),
+    ).toBeNull()
+  })
+
+  it('excerptInBeat folds quotes, dashes and whitespace but not case', () => {
+    const script = 'MARTA\nDon’t — you “know”\n   what you did?'
+    expect(excerptInBeat('Don\'t - you "know" what you did?', script)).toBe(
+      true,
+    )
+    expect(excerptInBeat('don’t', script)).toBe(false)
+    expect(excerptInBeat('You know nothing.', script)).toBe(false)
+  })
+
+  it('notesForScene hides a craft note whose line left its beat, and orders story, craft, then import', () => {
+    const notes = notesForScene(
+      [
+        flag({
+          id: 'import-b1',
+          objectType: 'beat',
+          objectId: 'beat-5-1',
+          explanation: '[empty_beat_fields] The beat came back empty.',
+        }),
+        craft('craft-b1', 'beat-5-1', 'I am so angry with you.'),
+        craft('craft-fixed', 'beat-5-2', 'I am leaving you now.'),
+        flag({ id: 'story-b2', objectType: 'beat', objectId: 'beat-5-2' }),
+      ],
+      craftScene(),
+    )
+    expect(notes.map((n) => n.flag.id)).toEqual([
+      'story-b2',
+      'craft-b1',
+      'import-b1',
+    ])
+    expect(notes.map((n) => n.kind)).toEqual(['continuity', 'craft', 'import'])
+  })
+
+  it('boardModel: a craft-only beat gets the hollow import tick; craft still counts as a story note', () => {
+    const ep = episode([craftScene()])
+    const model = boardModel(project(ep), ep, [
+      craft('craft-b1', 'beat-5-1', 'I am so angry with you.'),
+    ])
+    const s = model.signals.get('scene-5')
+    expect(s?.ticks).toEqual(['import', 'plain'])
+    expect(s?.storyNotes.map((n) => n.flag.id)).toEqual(['craft-b1'])
+    expect(s?.importNotes).toEqual([])
+    expect(matchesHighlight(model, 'scene-5', NO_HIGHLIGHT)).toBe(true)
+
+    const both = boardModel(project(ep), ep, [
+      craft('craft-b1', 'beat-5-1', 'I am so angry with you.'),
+      flag({ id: 'story-b1', objectType: 'beat', objectId: 'beat-5-1' }),
+    ])
+    expect(both.signals.get('scene-5')?.ticks).toEqual(['story', 'plain'])
+  })
+
+  it('noteSentence names the check and quotes the line, never the [code]', () => {
+    const s = craftScene()
+    const [note] = notesForScene(
+      [craft('craft-b1', 'beat-5-1', 'I am so angry with you.')],
+      s,
+    )
+    expect(noteSentence(note, s, [s])).toBe(
+      "Says what they're doing: “I am so angry with you.”",
+    )
   })
 })

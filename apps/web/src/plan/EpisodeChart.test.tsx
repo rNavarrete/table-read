@@ -153,6 +153,7 @@ function model(
     storyOverview: null,
     narrativeMap: null,
     structureChecks: [],
+    craftCheckedAt: null,
     characterArcs: [],
     ...extra,
   }

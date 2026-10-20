@@ -2,7 +2,9 @@ import { useEffect, useRef, useState } from 'react'
 import type { LedgerFact, Scene } from 'contract'
 import { ApiError } from '../../api/errors'
 import { plural } from '../../projects/wizard/board/boardText'
+import { CRAFT_LABELS, CRAFT_SOURCES } from '../craftSources'
 import {
+  craftNote,
   fixInstruction,
   importNoteText,
   linkifyNote,
@@ -75,8 +77,9 @@ function beatLabel(scene: Scene, note: PlanNote): string | null {
 /** The scene's notes (redesign spec §4.6): collapsed to a count and a peek
  * at the first story note; expanded to the computed Order notes (§4.8, no
  * Dismiss: they clear when the order is fixed), one card per story note with
- * its verbs, then the import notes in a closed "From the import" group.
- * Order notes count as story notes. Severity is not shown: all live flags are
+ * its verbs, then the craft notes in a closed "Craft notes" group (the AI's
+ * reading, with vetted Read more links), then the import notes in a closed
+ * "From the import" group. Order notes count as story notes. Severity is not shown: all live flags are
  * 'tension'. PlanScreen keys the strip by scene id, so it starts collapsed on
  * every scene unless `freshKey`. */
 export function NotesStrip({
@@ -158,13 +161,20 @@ export function NotesStrip({
 
   if (notes.length === 0 && orderNotes.length === 0) return null
 
-  const story = notes.filter((note) => note.kind !== 'import')
+  const story = notes.filter(
+    (note) => note.kind !== 'import' && note.kind !== 'craft',
+  )
+  const craft = notes.filter((note) => note.kind === 'craft')
   const imported = notes.filter((note) => note.kind === 'import')
   const storyCount = story.length + orderNotes.length
+  const fromImport =
+    imported.length > 0 ? ` · ${imported.length} from the import` : ''
   const summary =
     storyCount > 0
-      ? `⚑ ${plural(storyCount, 'note')}${imported.length > 0 ? ` · ${imported.length} from the import` : ''}`
-      : `${plural(imported.length, 'note')} from the import`
+      ? `⚑ ${plural(storyCount, 'note')}${craft.length > 0 ? ` · ${craft.length} craft` : ''}${fromImport}`
+      : craft.length > 0
+        ? `${plural(craft.length, 'craft note')}${fromImport}`
+        : `${plural(imported.length, 'note')} from the import`
   const linkify = (text: string) => linkifyNote(text, scenes, ledger)
   const dismissButton = (note: PlanNote, label: string) => (
     <button
@@ -399,6 +409,62 @@ export function NotesStrip({
               </article>
             )
           })}
+
+          {craft.length > 0 && (
+            <details
+              data-testid="notes-craft-group"
+              className="rounded-card border border-tr-border bg-tr-surface-raised p-3"
+            >
+              <summary
+                className={`cursor-pointer text-13 font-medium text-tr-text-primary ${FOCUS}`}
+              >
+                Craft notes · {craft.length}
+              </summary>
+              <ul className="mt-2 flex flex-col gap-3">
+                {craft.map((note) => {
+                  const parsed = craftNote(note.flag)
+                  if (!parsed) return null
+                  const label = beatLabel(scene, note)
+                  return (
+                    <li
+                      key={note.flag.id}
+                      data-testid={`note-${note.flag.id}`}
+                      className="text-13 text-tr-text-primary"
+                    >
+                      <p className="text-12 font-medium">
+                        {CRAFT_LABELS[parsed.check]}
+                        {label && ` · Beat ${label}`}
+                      </p>
+                      {parsed.excerpt && (
+                        <p className="mt-1 border-l-2 border-tr-border-strong pl-3 font-script text-12">
+                          “{parsed.excerpt}”
+                        </p>
+                      )}
+                      <p className="mt-1">{parsed.why}</p>
+                      {CRAFT_SOURCES[parsed.check].map((source) => (
+                        <p key={source.url} className="mt-1 text-12">
+                          <a
+                            href={source.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className={LINK}
+                          >
+                            Read more: {source.title} ↗
+                          </a>{' '}
+                          <span className="text-tr-text-secondary">
+                            {source.gist}
+                          </span>
+                        </p>
+                      ))}
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        {dismissButton(note, 'Dismiss')}
+                      </div>
+                    </li>
+                  )
+                })}
+              </ul>
+            </details>
+          )}
 
           {imported.length > 0 && (
             <details

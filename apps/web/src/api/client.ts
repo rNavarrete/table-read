@@ -206,6 +206,16 @@ export function checkStructure(
   )
 }
 
+/** `POST /projects/{pid}/craft-check` — one craft review of the episode
+ * (Plan's Episode view, explicit click only: rule 8). Returns the project
+ * with the new head; the notes are consistency flags. */
+export function checkCraft(
+  projectId: string,
+  opts?: IfMatchOpts,
+): Promise<Project> {
+  return postJson<Project>(`/projects/${projectId}/craft-check`, {}, opts)
+}
+
 /** Generate the optional Narrative Map in a separate snapshot. A failed map
  * request never changes or re-runs the script import that created the project. */
 export function generateNarrativeMap(

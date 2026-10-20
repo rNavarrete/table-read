@@ -150,6 +150,7 @@ function episode(threads: StoryThread[]): Episode {
     storyOverview: null,
     narrativeMap: null,
     structureChecks: [],
+    craftCheckedAt: null,
     characterArcs: [],
   }
 }
