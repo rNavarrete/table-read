@@ -1395,6 +1395,28 @@ export const SceneMotivations = z.object({
   ),
 })
 
+// §5d review_craft (T10.13) — craft notes, run only when the writer presses
+// Check craft in Plan (POST /projects/{pid}/craft-check, §4). theme_stated: a
+// line stating the episode's theme or central argument outright, or
+// moralizing it; on_the_nose: a character announcing their own action,
+// intention or feeling instead of playing it. excerpt is copied verbatim
+// from the cited beat's dialogue; the server drops any it can't locate there,
+// keeps one note per check per beat, caps a run at 12 and files the rest as
+// ConsistencyFlags (objectType "beat", severity "tension", explanation
+// `[craft_<check>] “<excerpt>” — <why>`). No new flag fields.
+export const CraftCheck = z.enum(['theme_stated', 'on_the_nose'])
+export const CraftReview = z.object({
+  notes: z.array(
+    z.object({
+      check: CraftCheck,
+      sceneId: Id,
+      beatId: Id,
+      excerpt: z.string(),
+      why: z.string(),
+    }),
+  ),
+})
+
 // §6 suggest_instructions
 export const InstructionSuggestions = z.object({
   suggestions: z.array(z.string()).length(3),

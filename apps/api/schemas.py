@@ -1442,6 +1442,28 @@ class SceneMotivations(_Base):
     scene_motivations: list[InferredSceneMotivations]
 
 
+class CraftCheck(StrEnum):
+    """T10.13 — see packages/contract's `CraftReview` docstring."""
+
+    theme_stated = "theme_stated"
+    on_the_nose = "on_the_nose"
+
+
+class InferredCraftNote(_Base):
+    check: CraftCheck
+    scene_id: Id
+    beat_id: Id
+    excerpt: str
+    why: str
+
+
+class CraftReview(_Base):
+    """T10.13 review_craft — lines that state the theme outright or say what
+    a character is doing. The server verifies each excerpt (craft.py)."""
+
+    notes: list[InferredCraftNote]
+
+
 class InferredOutlineItem(_Base):
     scene_id: Id
     summary: str

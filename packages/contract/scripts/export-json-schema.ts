@@ -82,6 +82,7 @@ const SCHEMA_NAMES = [
   'StoryEntities',
   'NarrativePromises',
   'SceneMotivations',
+  'CraftReview',
   'InferredStoryOverview',
   'InferredNarrativeMap',
   'InferredNarrativeSceneAnalysisBatch',

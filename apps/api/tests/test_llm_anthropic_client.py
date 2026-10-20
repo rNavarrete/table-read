@@ -917,6 +917,7 @@ def _fixture_valid_input_for(op_name: str) -> dict:
             "worldRules": [],
         },
         "infer_scene_motivations": {"sceneMotivations": []},
+        "review_craft": {"notes": []},
         "infer_story_overview": {
             "logline": "When X must Y before Z.",
             "outline": [],

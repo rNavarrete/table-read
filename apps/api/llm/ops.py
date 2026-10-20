@@ -52,6 +52,7 @@ from schemas import (
     BeatCandidate,
     BlastRadius,
     ConsistencyScan,
+    CraftReview,
     InferredActBreaks,
     InferredNarrativeMap,
     InferredNarrativeMapSynthesis,
@@ -239,6 +240,22 @@ _OPS: tuple[LlmOp, ...] = (
         "obstacle, any stated cover objective) from the imported script, only "
         "where the source establishes them.",
         max_tokens=24_576,
+        call_timeout_seconds=600.0,
+        stream_response=True,
+        effort="medium",
+    ),
+    # T10.13 craft notes: a writer-triggered read of the episode's dialogue
+    # (Plan's Check craft), story-wide judgment like the other import reads,
+    # so on the import analyst. Not part of import yet (phase 2).
+    LlmOp(
+        "review_craft",
+        "CraftReview",
+        CraftReview,
+        "import_analyst",
+        "Find lines where a character states the episode's theme outright or "
+        "says what they are doing or feeling instead of playing it, each "
+        "copied verbatim from one beat's dialogue.",
+        max_tokens=16_384,
         call_timeout_seconds=600.0,
         stream_response=True,
         effort="medium",

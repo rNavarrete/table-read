@@ -1507,6 +1507,29 @@ export const SceneMotivations = z.object({
 })
 export type SceneMotivations = z.infer<typeof SceneMotivations>
 
+// T10.13 review_craft — craft notes, a writer-triggered check in Plan (design
+// 2026-10-20-craft-notes). `theme_stated`: a line that states the episode's
+// theme or central argument outright, or moralizes it. `on_the_nose`: a
+// character announces their own action, intention or feeling instead of
+// playing it. The model cites one beat and copies the line verbatim; the
+// server drops any excerpt it can't find in that beat, keeps one note per
+// check per beat, caps the run at 12 and files the rest as dismissable
+// ConsistencyFlags (`[craft_<check>] “excerpt” — why`, drama_manager/craft.py).
+export const CraftCheck = z.enum(['theme_stated', 'on_the_nose'])
+export type CraftCheck = z.infer<typeof CraftCheck>
+export const CraftReview = z.object({
+  notes: z.array(
+    z.object({
+      check: CraftCheck,
+      sceneId: Id,
+      beatId: Id,
+      excerpt: z.string(),
+      why: z.string(),
+    }),
+  ),
+})
+export type CraftReview = z.infer<typeof CraftReview>
+
 // T7.27 infer_story_overview — import-time episode logline / outline /
 // beat sheet / two-paragraph synopsis. Model references existing sceneId /
 // beatId values only; server drops unknown ids and sets provenance/locked.

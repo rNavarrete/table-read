@@ -17,6 +17,7 @@ from schemas import (
     BeatCandidate,
     BlastRadius,
     ConsistencyScan,
+    CraftReview,
     InferredActBreaks,
     InferredNarrativeMap,
     InferredNarrativeMapSynthesis,
@@ -116,6 +117,10 @@ class LlmClient(Protocol):
     def infer_scene_motivations(
         self, *, system: str, user_message: str, prompt_version: str
     ) -> SceneMotivations: ...
+
+    def review_craft(
+        self, *, system: str, user_message: str, prompt_version: str
+    ) -> CraftReview: ...
 
     def infer_story_overview(
         self, *, system: str, user_message: str, prompt_version: str

@@ -1,0 +1,44 @@
+{
+  "type": "object",
+  "properties": {
+    "notes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "check": {
+            "type": "string",
+            "enum": [
+              "theme_stated",
+              "on_the_nose"
+            ]
+          },
+          "sceneId": {
+            "type": "string"
+          },
+          "beatId": {
+            "type": "string"
+          },
+          "excerpt": {
+            "type": "string"
+          },
+          "why": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "check",
+          "sceneId",
+          "beatId",
+          "excerpt",
+          "why"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "notes"
+  ],
+  "additionalProperties": false
+}
