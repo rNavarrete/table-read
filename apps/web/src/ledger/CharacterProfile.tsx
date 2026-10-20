@@ -1,5 +1,6 @@
 import type { Character, LedgerFact, Project, Secret } from 'contract'
 import { Card } from '../plan/Card'
+import { boardOrder } from '../write/projectTree'
 import {
   characterNames,
   motivationsForCharacter,
@@ -82,6 +83,24 @@ function SecretRow({
   )
 }
 
+/** T10.6 — the character's episode arc and its stops' scene numbers (story
+ * position, as Ledger numbers scenes). MVP: the first episode that has one. */
+function arcFor(project: Project, characterId: string) {
+  for (const episode of project.seasons.flatMap((s) => s.episodes)) {
+    const arc = (episode.characterArcs ?? []).find(
+      (a) => a.characterId === characterId,
+    )
+    if (!arc) continue
+    const order = boardOrder(episode.scenes).map((s) => s.id)
+    const stops = arc.stops.map((stop) => ({
+      ...stop,
+      number: order.indexOf(stop.sceneId) + 1 || null,
+    }))
+    return { ...arc, stops }
+  }
+  return null
+}
+
 /**
  * Ledger People profile header (T7.31): name, aliases, summary, bio —
  * above Atlas / Knowledge Web when a person is selected.
@@ -96,13 +115,15 @@ export function CharacterProfile({
   const profile = resolveCharacterProfile(character, facts, motivations)
   const { holding, keptFrom } = secretsForCharacter(project, character.id)
   const ulterior = ulteriorMotives(motivations)
+  const arc = arcFor(project, character.id)
   // The craft sections stand on their own even when there is no prose yet —
   // an imported script often has secrets and motives before it has a bio.
   const empty =
     profile.source === 'empty' &&
     holding.length === 0 &&
     keptFrom.length === 0 &&
-    ulterior.length === 0
+    ulterior.length === 0 &&
+    !arc
 
   return (
     <Card
@@ -170,6 +191,58 @@ export function CharacterProfile({
               <p className="text-13 italic text-tr-text-muted">No bio yet.</p>
             )}
           </section>
+
+          {arc && (
+            <section
+              className="flex flex-col gap-2"
+              data-testid="character-profile-arc"
+            >
+              <h3 className="text-12 uppercase tracking-wide text-tr-text-muted">
+                Arc
+              </h3>
+              <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-13">
+                {[
+                  ['Wants', arc.want],
+                  ['Needs', arc.need],
+                  ['Lie', arc.lie],
+                  ['Ghost', arc.ghost],
+                  ['Continuum', arc.continuumAxis],
+                ]
+                  .filter(([, text]) => text)
+                  .map(([term, text]) => (
+                    <div key={term} className="contents">
+                      <dt className="text-tr-text-muted">{term}</dt>
+                      <dd className="text-tr-text-primary">{text}</dd>
+                    </div>
+                  ))}
+              </dl>
+              {arc.stops.length > 0 && (
+                <ul className="flex flex-col gap-1">
+                  {arc.stops.map((stop) => (
+                    <li
+                      key={stop.sceneId}
+                      className="text-13 text-tr-text-primary"
+                    >
+                      {onOpenScene ? (
+                        <button
+                          type="button"
+                          className="text-tr-sky underline underline-offset-2"
+                          onClick={() => onOpenScene(stop.sceneId)}
+                        >
+                          sc {stop.number ?? '?'}
+                        </button>
+                      ) : (
+                        <span className="text-tr-text-muted">
+                          sc {stop.number ?? '?'}
+                        </span>
+                      )}{' '}
+                      · Head at: {stop.headAt}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          )}
 
           {ulterior.length > 0 && (
             <section

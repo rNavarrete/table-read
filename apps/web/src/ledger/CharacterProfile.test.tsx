@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import { cleanup, render, screen } from '@testing-library/react'
 import type { Character, LedgerFact, Project } from 'contract'
-import { afterEach, describe, expect, it } from 'vitest'
+import userEvent from '@testing-library/user-event'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { CharacterProfile } from './CharacterProfile'
 
 afterEach(() => cleanup())
@@ -212,5 +213,64 @@ describe('CharacterProfile — concealment', () => {
     // An imported script has secrets long before it has prose.
     expect(screen.queryByTestId('character-profile-empty')).toBeNull()
     expect(screen.getByTestId('character-profile-hiding')).toBeTruthy()
+  })
+})
+
+describe('CharacterProfile — arc (T10.6)', () => {
+  function withArc(stops: { sceneId: string; headAt: string }[]) {
+    const c = character({ presentation: '', hiding: '', traits: '' })
+    const project = projectWith(c)
+    const episode = project.seasons[0].episodes[0]
+    episode.scenes.push({
+      ...episode.scenes[0],
+      id: 'scene-2',
+      index: 1,
+      motivations: [],
+    })
+    episode.characterArcs = [
+      {
+        characterId: c.id,
+        want: 'to keep the room focused',
+        need: 'to let Bartlet carry it',
+        lie: '',
+        ghost: 'the night he drank',
+        continuumAxis: 'in control ↔ trusting',
+        stops,
+      },
+    ]
+    return { c, project }
+  }
+
+  it('shows want / need / ghost / continuum and each stop by scene, skipping empty fields', async () => {
+    const { c, project } = withArc([
+      { sceneId: 'scene-1', headAt: 'Holding every thread.' },
+      { sceneId: 'scene-2', headAt: 'Lets one go.' },
+    ])
+    const onOpenScene = vi.fn()
+    render(
+      <CharacterProfile
+        character={c}
+        project={project}
+        facts={[]}
+        onOpenScene={onOpenScene}
+      />,
+    )
+    const arc = screen.getByTestId('character-profile-arc')
+    expect(screen.queryByTestId('character-profile-empty')).toBeNull()
+    expect(arc.textContent).toContain('to let Bartlet carry it')
+    expect(arc.textContent).toContain('the night he drank')
+    expect(arc.textContent).toContain('in control ↔ trusting')
+    expect(arc.textContent).not.toContain('Lie')
+    expect(arc.textContent).toContain('sc 2 · Head at: Lets one go.')
+    await userEvent.click(screen.getByRole('button', { name: 'sc 2' }))
+    expect(onOpenScene).toHaveBeenCalledWith('scene-2')
+  })
+
+  it('no arc: no arc section', () => {
+    const c = character()
+    render(
+      <CharacterProfile character={c} project={projectWith(c)} facts={[]} />,
+    )
+    expect(screen.queryByTestId('character-profile-arc')).toBeNull()
   })
 })
