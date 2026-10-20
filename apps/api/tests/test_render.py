@@ -186,8 +186,9 @@ def test_act_inference_prompt_wraps_compact_summaries_and_format():
 
 
 def test_act_inference_prompt_offers_the_tag_only_when_the_format_has_one():
-    """T10.7: the tag is act actCount + 1, started only at the short coda after
-    the final act's climax; a format with no tag never starts one."""
+    """T10.7: the tag is the act after the last act (`actCount + 1` with a cold
+    open, `actCount` without), started only at the short coda after the final
+    act's climax; a format with no tag never starts one."""
     fmt = {"runtimeMinutes": 30, "actCount": 2, "coldOpen": False, "tag": True}
     _system, user = render.build_act_inference_prompt(
         {"title": "T", "format": fmt},
@@ -195,7 +196,7 @@ def test_act_inference_prompt_offers_the_tag_only_when_the_format_has_one():
         _NONCE,
     )
     assert "act values 0 through 1" in user
-    assert "This format has a tag, act 3: start it only at the last scene" in user
+    assert "This format has a tag, act 2: start it only at the last scene" in user
     assert "omit it when the script has none" in user
     assert '"tag": true' in user
     assert "never start one" not in user

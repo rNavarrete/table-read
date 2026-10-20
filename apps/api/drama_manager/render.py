@@ -28,8 +28,9 @@ from drama_manager.structure_stages import STRUCTURE_NAMES, STRUCTURE_STAGES
 
 # Prompt spec §8 / hard rule 7: every template carries a PROMPT_VERSION (semver);
 # it is logged with each call and bumped on any template change. 0.55.0
-# (T10.7) lets infer_act_breaks start a tag, act actCount + 1, when the format
-# has one: only at the short coda after the final act's climax, never invented
+# (T10.7) lets infer_act_breaks start a tag, the act after the last act
+# (actCount + 1 with a cold open, actCount without), when the format has one:
+# only at the short coda after the final act's climax, never invented
 # (the given-format prompt said "Do not infer a TAG"), and keeps a printed TAG
 # in the format-less path's printed structure. 0.54.0
 # (T10.1) rewrites the §0 structural definitions from the craft breakdown
@@ -358,7 +359,7 @@ def build_act_inference_prompt(
         "scenes": summaries,
     }
     tag = (
-        f"This format has a tag, act {fmt['actCount'] + 1}: start it only at the "
+        f"This format has a tag, act {max_act + 1}: start it only at the "
         "last scene or scenes that follow the final act's climax as a short "
         "coda, and omit it when the script has none. "
         if fmt["tag"]
@@ -415,10 +416,11 @@ def _build_format_inference_prompt(
         + structure
         + "Then return ordered act starts for that structure, using act values 0 "
         "through actCount when coldOpen is true, or 0 through actCount minus 1 "
-        "when it is false. When tag is true, act actCount plus 1 is the tag: "
-        "start it only at the last scene or scenes that follow the final act's "
-        "climax as a short coda, and omit it when the script has none; when tag "
-        "is false, never start one. The first startSceneIndex must be 0. Both act and "
+        "when it is false. When tag is true, the tag is the act after the last "
+        "act (actCount plus 1 with a cold open, actCount without): start it only "
+        "at the last scene or scenes that follow the final act's climax as a "
+        "short coda, and omit it when the script has none; when tag is false, "
+        "never start one. The first startSceneIndex must be 0. Both act and "
         "startSceneIndex must strictly increase. You may omit empty sections. "
         "Return starts only; do not return scene ids, end indices, or per-scene "
         "assignments."

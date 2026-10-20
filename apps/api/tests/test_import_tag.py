@@ -1,4 +1,5 @@
-"""T10.7 — a tag is act `format.actCount + 1`, valid only when `format.tag`.
+"""T10.7 — a tag is the act after the last act (`actCount + 1` with a cold
+open, `actCount` without), valid only when `format.tag`.
 
 Printed TAG markers and model starts may open it; a format with no tag turns
 either into the same disagreement or repair any other bad act gets."""
@@ -49,8 +50,8 @@ def breaks(*pairs: tuple[int, int]) -> InferredActBreaks:
     [
         # cold open, acts 1-2, tag 3
         (TAGGED, [(0, 0), (1, 1), (2, 2), (3, 3)], [0, 1, 2, 3]),
-        # no cold open: acts 0-1, tag still actCount + 1 = 3
-        ({**TAGGED, "coldOpen": False}, [(0, 0), (1, 2), (3, 3)], [0, 0, 1, 3]),
+        # no cold open: acts 0-1, tag actCount = 2
+        ({**TAGGED, "coldOpen": False}, [(0, 0), (1, 2), (2, 3)], [0, 0, 1, 2]),
     ],
 )
 def test_a_tag_start_expands_when_the_format_has_a_tag(fmt, pairs, expected):
@@ -67,16 +68,16 @@ def test_a_tag_start_is_out_of_range_without_a_tag():
     assert exc.value.diagnostics == [{"code": "act_out_of_range", "act": 3, "maxAct": 2}]
 
 
-def test_the_act_between_the_last_act_and_the_tag_is_still_out_of_range():
-    # No cold open: acts 0-1, tag 3; act 2 is neither. The repair names the tag.
+def test_an_act_past_the_tag_is_out_of_range_and_the_repair_names_the_tag():
+    # No cold open: acts 0-1, tag 2; act 3 is neither.
     with pytest.raises(ActInferenceError) as exc:
         expand_act_starts(
-            breaks((0, 0), (2, 1)),
+            breaks((0, 0), (3, 1)),
             scene_count=2,
             format_dict={**TAGGED, "coldOpen": False},
         )
     assert exc.value.diagnostics == [
-        {"code": "act_out_of_range", "act": 2, "maxAct": 1, "tagAct": 3}
+        {"code": "act_out_of_range", "act": 3, "maxAct": 1, "tagAct": 2}
     ]
 
 
@@ -99,6 +100,22 @@ MARKED_TAG = (
 def test_a_printed_tag_opens_the_tag():
     # Spans: the COLD OPEN preamble, then the four scenes.
     assert acts_from_markers(_spans(*MARKED_TAG), TAGGED) == [0, 0, 1, 2, 3]
+
+
+def test_a_printed_tag_opens_the_act_after_the_last_without_a_cold_open():
+    scenes = (
+        "ACT ONE",
+        "INT. BAR - NIGHT\nMarta pours.\nACT TWO",
+        "INT. KITCHEN - DAY\nDan waits.\nTAG",
+        "EXT. STREET - NIGHT\nThey part.",
+    )
+    assert acts_from_markers(_spans(*scenes), {**TAGGED, "coldOpen": False}) == [0, 0, 1, 2]
+
+
+def test_an_act_printed_past_the_last_is_no_tag():
+    # A two-act format: a printed ACT THREE disagrees, tag or not.
+    scenes = [s.replace("\n\nTAG", "\n\nACT THREE") for s in MARKED_TAG]
+    assert acts_from_markers(_spans(*scenes), TAGGED) is None
 
 
 def test_a_printed_tag_disagrees_with_a_format_without_one():

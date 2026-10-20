@@ -333,15 +333,17 @@ export function buildBeatPatch(
  * because a drag emptied it, and no scene is ever orphaned by a format that
  * disagrees with the data), sorted ascending. */
 export function actNumbersForFormat(format: ShowFormat): number[] {
-  const count = format.coldOpen ? format.actCount + 1 : format.actCount
-  const acts = Array.from({ length: count }, (_, index) => index)
-  const tag = tagAct(format)
-  return tag === null ? acts : [...acts, tag]
+  const count = lastAct(format) + 1 + (format.tag ? 1 : 0)
+  return Array.from({ length: count }, (_, index) => index)
 }
 
-/** The tag's act, `actCount + 1`, or null when the format has none (T10.7). */
+const lastAct = (format: ShowFormat) =>
+  format.coldOpen ? format.actCount : format.actCount - 1
+
+/** The tag's act: the act after the last act (`actCount + 1` with a cold
+ * open, `actCount` without), or null when the format has none (T10.7). */
 export function tagAct(format: ShowFormat): number | null {
-  return format.tag ? format.actCount + 1 : null
+  return format.tag ? lastAct(format) + 1 : null
 }
 
 export function actNumbersForBoard(

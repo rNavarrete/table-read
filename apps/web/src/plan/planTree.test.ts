@@ -554,20 +554,23 @@ describe('actNumbersForBoard / actLabel', () => {
     expect(actLabel(0, noCold)).toBe('ACT ONE')
   })
 
-  it('a tag is act actCount + 1, labelled TAG and listed only when the format has one (T10.7)', () => {
+  it('a tag is the act after the last act, labelled TAG and listed only when the format has one (T10.7)', () => {
     const tagged = { ...format, tag: true }
     expect(actLabel(5, tagged)).toBe('TAG')
     expect(actLabel(4, tagged)).toBe('ACT FOUR')
     expect(actNumbersForFormat(tagged)).toEqual([0, 1, 2, 3, 4, 5])
     expect(actNumbersForBoard(tagged, [])).toEqual([0, 1, 2, 3, 4, 5])
-    // No cold open: acts 0-3, the tag is still actCount + 1.
+    // No cold open: acts 0-3, the tag is actCount, with no number skipped.
     const noCold = { ...tagged, coldOpen: false }
-    expect(actNumbersForFormat(noCold)).toEqual([0, 1, 2, 3, 5])
-    expect(actLabel(5, noCold)).toBe('TAG')
+    expect(actNumbersForFormat(noCold)).toEqual([0, 1, 2, 3, 4])
+    expect(actLabel(4, noCold)).toBe('TAG')
     expect(actLabel(3, noCold)).toBe('ACT FOUR')
-    // Without a tag, act actCount + 1 is just an out-of-range act.
+    // Without a tag, the act after the last act is just an out-of-range act.
     expect(actLabel(5, format)).toBe('ACT FIVE')
     expect(actNumbersForFormat(format)).not.toContain(5)
+    const noColdNoTag = { ...format, coldOpen: false }
+    expect(actLabel(4, noColdNoTag)).toBe('ACT FIVE')
+    expect(actNumbersForFormat(noColdNoTag)).toEqual([0, 1, 2, 3])
   })
 })
 

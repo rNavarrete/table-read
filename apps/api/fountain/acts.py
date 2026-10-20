@@ -23,9 +23,9 @@ def _max_act(format_dict: dict) -> int:
 
 
 def _tag_act(format_dict: dict) -> int | None:
-    """The tag's act number, `actCount + 1`, or None when the format has no
-    tag (T10.7; mirrors the cold open's act 0)."""
-    return int(format_dict["actCount"]) + 1 if format_dict.get("tag") else None
+    """The tag's act number: the act after the last act (`actCount + 1` with a
+    cold open, `actCount` without), or None when the format has no tag (T10.7)."""
+    return _max_act(format_dict) + 1 if format_dict.get("tag") else None
 
 
 def expand_act_starts(
@@ -135,6 +135,7 @@ def acts_from_markers(spans, format_dict: dict) -> list[int] | None:
     printed under a format with no tag, the markers disagree with it."""
     act_count = int(format_dict["actCount"])
     offset = 0 if format_dict.get("coldOpen") else 1
+    max_act = _max_act(format_dict)
     tag = _tag_act(format_dict)
     starts: dict[int, int] = {}
     for index, span in enumerate(spans):
@@ -151,6 +152,9 @@ def acts_from_markers(spans, format_dict: dict) -> list[int] | None:
                 act = tag
             else:
                 act = number - offset
+                if act > max_act:
+                    # An act printed past the format's last is no tag.
+                    return None
             if act < 0 or starts.setdefault(act, start) != start:
                 return None
     if offset == 0 and 0 not in starts and starts.get(1, 0) > 0:
@@ -159,7 +163,7 @@ def acts_from_markers(spans, format_dict: dict) -> list[int] | None:
         # that opens on ACT ONE has an empty cold open.
         starts[0] = 0
     first = 1 if offset == 0 and 0 not in starts else 0
-    if sorted(set(starts) - {tag}) != list(range(first, _max_act(format_dict) + 1)):
+    if sorted(set(starts) - {tag}) != list(range(first, max_act + 1)):
         return None
     breaks = InferredActBreaks(
         starts=[{"act": act, "startSceneIndex": s} for act, s in sorted(starts.items())]
