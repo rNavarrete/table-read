@@ -338,12 +338,14 @@ export const StoryThread = z.object({
   payoffSceneId: Id.nullable().default(null),
   setupQuote: z.string().default(''),
   payoffQuote: z.string().default(''),
-  // Server-derived on merge (the model supplies neither): the beat each quote
-  // was found in. A quote is stored only if it appears verbatim in the scene it
-  // cites, is substantive enough to be evidence (a bare character cue or a
-  // fragment is not), and is not reused by another claim. Otherwise the quote
-  // is cleared and the beat id left null — "no evidence offered" is true, while
-  // a plausible-looking citation reads as corroboration and is not.
+  // Server-filled on merge from the beat the model cited (§2a
+  // NarrativePromises); the quote is derived from that beat's text, never
+  // written by the model. Both are stored only if the beat belongs to the
+  // scene the claim cites, its line is substantive enough to be evidence (a
+  // bare character cue or a fragment is not), and the quote is not reused by
+  // another claim. Otherwise the quote is cleared and the beat id left null —
+  // "no evidence offered" is true, while a plausible-looking citation reads
+  // as corroboration and is not.
   setupBeatId: Id.nullable().default(null),
   payoffBeatId: Id.nullable().default(null),
   locked: z.boolean().default(false),
@@ -1117,6 +1119,18 @@ export const StoryEntities = z.object({
 // resolution needed. Server mints thread ids, writes sceneMotivations onto
 // matching Scene.motivations, and merges worldRules into the bible (append
 // new; never overwrite a locked rule).
+//
+// Evidence is cited by beat, never quoted (PROMPT_VERSION 0.40.0+). The model
+// names the one beat that carries each claim — a beatId from its input spine,
+// belonging to the scene cited for that claim — or null when no single beat
+// does. It never writes quote text. The server derives the stored quotes
+// (StoryThread.setupQuote/payoffQuote, Secret.establishedQuote/revealedQuote,
+// WorldRule.evidenceQuote in §1) from the cited beat's own scriptText
+// (drama_manager/promises.py `quote_for_beat`): the first spoken line, else
+// the first line that is not a slugline or a character cue. A beat outside
+// the cited scene, or a line under three words or that is only a cue or
+// transition, stores an empty quote and a null beat id. A quote cited by more
+// than one thread or secret is cleared from all of them.
 export const NarrativePromises = z.object({
   threads: z.array(
     z.object({
@@ -1126,8 +1140,8 @@ export const NarrativePromises = z.object({
       ownerNames: z.array(z.string()),
       setupSceneId: Id,
       payoffSceneId: Id.nullable(),
-      setupQuote: z.string(),
-      payoffQuote: z.string(),
+      setupBeatId: Id.nullable(),
+      payoffBeatId: Id.nullable(),
     }),
   ),
   // Concealment arcs. Names, not ids (server resolves); scene ids chosen from
@@ -1142,8 +1156,8 @@ export const NarrativePromises = z.object({
       establishedSceneId: Id,
       revealedSceneId: Id.nullable(),
       concealmentSceneIds: z.array(Id),
-      establishedQuote: z.string(),
-      revealedQuote: z.string(),
+      establishedBeatId: Id.nullable(),
+      revealedBeatId: Id.nullable(),
     }),
   ),
   sceneMotivations: z.array(
@@ -1168,7 +1182,7 @@ export const NarrativePromises = z.object({
       cost: z.string(),
       exception: z.string(),
       evidenceSceneId: Id.nullable(),
-      evidenceQuote: z.string(),
+      evidenceBeatId: Id.nullable(),
     }),
   ),
 })
