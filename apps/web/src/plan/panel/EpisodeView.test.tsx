@@ -307,6 +307,8 @@ function props(
     onOpenLedgerThreads: vi.fn(),
     onSaveEpisodePremise: vi.fn().mockResolvedValue(true),
     onSaveSeriesPremise: vi.fn().mockResolvedValue(true),
+    craft: { dismissed: 0, busy: false, error: null },
+    onCheckCraft: vi.fn(),
   }
 }
 
@@ -597,6 +599,66 @@ describe('EpisodeView', () => {
     render(<EpisodeView {...props()} />, { wrapper: WithDrafts })
     expect(document.getElementById('plan-section-ep-about')).toBeNull()
     expect(document.getElementById('plan-section-ep-arcs')).toBeNull()
+  })
+
+  it('Craft notes: Check craft and "Not checked yet"; a click calls onCheckCraft once', async () => {
+    const user = userEvent.setup()
+    const p = props()
+    render(<EpisodeView {...p} />, { wrapper: WithDrafts })
+    const craft = section('ep-craft')
+    expect(craft.textContent).toContain('Not checked yet')
+    await user.click(within(craft).getByRole('button', { name: 'Check craft' }))
+    expect(p.onCheckCraft).toHaveBeenCalledTimes(1)
+  })
+
+  it('Check craft is disabled while it runs, and its error shows', () => {
+    const p = {
+      ...props(),
+      craft: {
+        dismissed: 0,
+        busy: true,
+        error: 'The AI service is unavailable right now. Nothing changed.',
+      },
+    }
+    render(<EpisodeView {...p} />, { wrapper: WithDrafts })
+    const craft = section('ep-craft')
+    const button = within(craft).getByRole('button', {
+      name: 'Checking…',
+    }) as HTMLButtonElement
+    expect(button.disabled).toBe(true)
+    expect(within(craft).getByRole('alert').textContent).toBe(
+      'The AI service is unavailable right now. Nothing changed.',
+    )
+  })
+
+  it('after a check: counts open and dismissed craft notes, says when, and goes to the first one', async () => {
+    const user = userEvent.setup()
+    const checkedAt = new Date(Date.now() - 5 * 60_000).toISOString()
+    const ep = { ...episode(), craftCheckedAt: checkedAt }
+    const craftFlag = flag({
+      id: 'flag-craft',
+      objectType: 'beat',
+      objectId: 'beat-2-1',
+      explanation: '[craft_on_the_nose] “xxxxx” — Dan says what he is doing.',
+    })
+    const p = {
+      ...props(ep, [craftFlag]),
+      craft: { dismissed: 2, busy: false, error: null },
+    }
+    render(<EpisodeView {...p} />, { wrapper: WithDrafts })
+    let craft = section('ep-craft')
+    expect(craft.textContent).toContain('1 craft note · 2 dismissed')
+    expect(craft.textContent).toContain('Checked 5 minutes ago')
+    await user.click(
+      within(craft).getByRole('button', { name: 'Go to the first: scene 2' }),
+    )
+    expect(p.onSelectScene).toHaveBeenCalledWith('scene-2')
+    cleanup()
+
+    render(<EpisodeView {...props(ep, [])} />, { wrapper: WithDrafts })
+    craft = section('ep-craft')
+    expect(craft.textContent).toContain('No craft notes')
+    expect(within(craft).queryByRole('button', { name: /Go to/ })).toBeNull()
   })
 
   it('an idea-born episode shows one quiet line per empty section', () => {
