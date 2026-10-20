@@ -243,6 +243,37 @@ class ThreadStatus(StrEnum):
     abandoned = "abandoned"
 
 
+# Shared by the Narrative Map's ThreadMovement and the thread ledger's
+# StoryThreadMovement (T10.3).
+class ThreadMovementPhase(StrEnum):
+    setup = "setup"
+    escalation = "escalation"
+    reversal = "reversal"
+    reveal = "reveal"
+    payoff = "payoff"
+    aftermath = "aftermath"
+
+
+class ThreadClosureLevel(StrEnum):
+    """T10.3 — how a paid-off thread is closed. See the Zod docstring."""
+
+    plot = "plot"
+    story = "story"
+    thematic = "thematic"
+    parametric = "parametric"
+
+
+class StoryThreadMovement(_Base):
+    """T10.3 — one scene where a thread appears and what changed for it.
+    Both the model's output row and the stored row; see the Zod docstring
+    for the server rules (drama_manager.promises)."""
+
+    scene_id: Id
+    beat_id: Id | None
+    phase: ThreadMovementPhase
+    summary: str
+
+
 class StoryThread(_Base):
     """T7.19 — a narrative setup/payoff arc, MVP-scoped to the episode it
     lives on. See packages/contract/src/index.ts's `StoryThread` docstring."""
@@ -264,6 +295,11 @@ class StoryThread(_Base):
     locked: bool = False
     # T10.2 — kept only when that storyline survived the import merge.
     storyline: StorylineId | None = None
+    # T10.3 — movements in scene order, closure level (null unless paid off)
+    # and the setup's second job.
+    movements: list[StoryThreadMovement] = []
+    closure_level: ThreadClosureLevel | None = None
+    second_job: str = ""
 
 
 class Provenance(StrEnum):
@@ -406,15 +442,6 @@ class SceneTurn(_Base):
     turn_beat_id: Id
     turn: str
     evidence_quote: str = Field(min_length=1, max_length=200)
-
-
-class ThreadMovementPhase(StrEnum):
-    setup = "setup"
-    escalation = "escalation"
-    reversal = "reversal"
-    reveal = "reveal"
-    payoff = "payoff"
-    aftermath = "aftermath"
 
 
 class ThreadMovement(_Base):
@@ -1287,6 +1314,10 @@ class InferredThread(_Base):
     payoff_beat_id: Id | None
     # T10.2 — the letter of the storyline this thread belongs to.
     storyline: StorylineId | None = None
+    # T10.3 — defaulted so a pre-0.56.0 response or checkpoint parses.
+    movements: list[StoryThreadMovement] = []
+    closure_level: ThreadClosureLevel | None = None
+    second_job: str = ""
 
 
 class InferredStoryline(_Base):

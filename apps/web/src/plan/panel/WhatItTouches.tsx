@@ -2,7 +2,12 @@ import { useState, type ReactNode } from 'react'
 import type { Character, LedgerFact, RelationshipState, Scene } from 'contract'
 import { Chip } from '../Chip'
 import { characterName } from '../planTree'
-import type { KnowledgeModes, SceneSecret, SceneThread } from '../story'
+import {
+  PHASE_WORD,
+  type KnowledgeModes,
+  type SceneSecret,
+  type SceneThread,
+} from '../story'
 
 export interface WhatItTouchesProps {
   /** To print other scenes' numbers (index + 1) and to link only to scenes that exist. */
@@ -21,6 +26,18 @@ export interface WhatItTouchesProps {
   onSelectScene: (sceneId: string) => void
   onOpenFact: (factId: string) => void
   onOpenLedger: () => void
+}
+
+const THREAD_ROLE: Record<SceneThread['role'], string> = {
+  sets_up: '↗ Sets up',
+  pays_off: '↘ Pays off',
+  moves: '→ Moves',
+}
+
+// A row's own role already says it: "↗ Sets up" needs no "sets up" phase.
+const ROLE_PHASE: Partial<Record<SceneThread['role'], string>> = {
+  sets_up: 'setup',
+  pays_off: 'payoff',
 }
 
 const ROLE_TAG: Record<SceneSecret['role'], string> = {
@@ -171,13 +188,21 @@ export function WhatItTouches({
         {threads.length === 0 && (
           <p className={QUIET}>No threads start or land here.</p>
         )}
-        {threads.map(({ thread, role, otherSceneId }) => {
+        {threads.map(({ thread, role, otherSceneId, phases }) => {
           const other = sceneById(otherSceneId)
+          const phaseWords = phases
+            .filter((phase) => phase !== ROLE_PHASE[role])
+            .map((phase) => PHASE_WORD[phase])
           return (
             <div key={`${thread.id}:${role}`} className="text-13">
               <p className="text-tr-text-primary">
-                {role === 'sets_up' ? '↗ Sets up' : '↘ Pays off'}{' '}
+                {THREAD_ROLE[role]}{' '}
                 <span className="font-semibold">{thread.label}</span>
+                {phaseWords.length > 0 && (
+                  <span className="text-tr-text-secondary">
+                    {` · ${phaseWords.join(', ')}`}
+                  </span>
+                )}
               </p>
               {thread.summary && (
                 <p className="text-tr-text-primary">{thread.summary}</p>

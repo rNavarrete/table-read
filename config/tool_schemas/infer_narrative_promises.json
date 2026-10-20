@@ -75,6 +75,70 @@
                 "type": "null"
               }
             ]
+          },
+          "movements": {
+            "default": [],
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "sceneId": {
+                  "type": "string"
+                },
+                "beatId": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "phase": {
+                  "type": "string",
+                  "enum": [
+                    "setup",
+                    "escalation",
+                    "reversal",
+                    "reveal",
+                    "payoff",
+                    "aftermath"
+                  ]
+                },
+                "summary": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "sceneId",
+                "beatId",
+                "phase",
+                "summary"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "closureLevel": {
+            "default": null,
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "plot",
+                  "story",
+                  "thematic",
+                  "parametric"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "secondJob": {
+            "default": "",
+            "type": "string"
           }
         },
         "required": [
@@ -86,7 +150,10 @@
           "payoffSceneId",
           "setupBeatId",
           "payoffBeatId",
-          "storyline"
+          "storyline",
+          "movements",
+          "closureLevel",
+          "secondJob"
         ],
         "additionalProperties": false
       }

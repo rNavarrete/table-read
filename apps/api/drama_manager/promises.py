@@ -25,11 +25,12 @@ import re
 from typing import TYPE_CHECKING
 
 from drama_manager.ledger_policy import IdMinter, verify_source_text
+from drama_manager.locks import scenes_in_story_order
 from drama_manager.narrative_map import _source_quote
 from fountain.characters import resolve_character_id
 
 if TYPE_CHECKING:
-    from schemas import InferredStoryline, NarrativePromises
+    from schemas import InferredStoryline, NarrativePromises, StoryThreadMovement
 
 _logger = logging.getLogger("drama_manager.promises")
 
@@ -325,6 +326,51 @@ def _merge_storylines(
     return {storyline["id"] for storyline in merged}
 
 
+def _merge_movements(
+    movements: list[StoryThreadMovement],
+    scenes_by_id: dict[str, dict],
+    scene_rank: dict[str, int],
+    counts: dict[str, int],
+) -> list[dict]:
+    """T10.3: a thread's movements as stored. A row whose scene is not in
+    this episode is dropped; a beat id outside that scene becomes null; the
+    first row per (scene, phase) wins; rows sort by scene order, then beat
+    index (a row with no beat first in its scene). ``counts`` gathers the
+    drops for the merge's count-only log."""
+    rows: list[tuple[tuple[int, int], dict]] = []
+    seen: set[tuple[str, str]] = set()
+    for movement in movements:
+        scene = scenes_by_id.get(movement.scene_id)
+        if scene is None:
+            counts["movement_scenes_unknown"] += 1
+            continue
+        key = (movement.scene_id, str(movement.phase))
+        if key in seen:
+            counts["movements_repeated"] += 1
+            continue
+        seen.add(key)
+        beat_index = {
+            beat["id"]: beat.get("index", position)
+            for position, beat in enumerate(scene.get("beats") or [])
+        }
+        beat_id = movement.beat_id if movement.beat_id in beat_index else None
+        if movement.beat_id is not None and beat_id is None:
+            counts["movement_beats_nulled"] += 1
+        rows.append(
+            (
+                (scene_rank[movement.scene_id], beat_index.get(beat_id, -1)),
+                {
+                    "sceneId": movement.scene_id,
+                    "beatId": beat_id,
+                    "phase": str(movement.phase),
+                    "summary": _clean_prose(movement.summary),
+                },
+            )
+        )
+    rows.sort(key=lambda row: row[0])
+    return [row for _rank, row in rows]
+
+
 def merge_narrative_promises(
     doc: dict, episode_id: str, result: NarrativePromises
 ) -> dict:
@@ -357,6 +403,8 @@ def merge_narrative_promises(
       world rules untouched on merge" without any lock-cascade lookup.
     - Storylines (T10.2): see `_merge_storylines`. A thread keeps its
       `storyline` letter only if that storyline survived; otherwise null.
+    - Thread ledger (T10.3): movements per `_merge_movements`; a
+      `closureLevel` on a thread that is not paid off becomes null.
     """
     bible = doc.setdefault("seriesBible", {})
     characters = bible.get("characters") or []
@@ -369,6 +417,16 @@ def merge_narrative_promises(
     dropped_thread_letters = 0
     unresolved_beats = 0
     thread_minter = IdMinter([], "thread-")
+    scene_rank = {
+        scene["id"]: rank
+        for rank, scene in enumerate(scenes_in_story_order(episode))
+    }
+    ledger_counts = {
+        "movement_scenes_unknown": 0,
+        "movement_beats_nulled": 0,
+        "movements_repeated": 0,
+        "closure_levels_nulled": 0,
+    }
     for inferred in result.threads:
         if inferred.setup_scene_id not in scenes_by_id:
             continue
@@ -400,6 +458,12 @@ def merge_narrative_promises(
         storyline = inferred.storyline if inferred.storyline in letters else None
         if inferred.storyline is not None and storyline is None:
             dropped_thread_letters += 1
+        movements = _merge_movements(
+            inferred.movements, scenes_by_id, scene_rank, ledger_counts
+        )
+        paid_off = str(inferred.status) == "paid_off"
+        if inferred.closure_level is not None and not paid_off:
+            ledger_counts["closure_levels_nulled"] += 1
         threads.append(
             {
                 "id": thread_minter.mint(),
@@ -415,9 +479,21 @@ def merge_narrative_promises(
                 "payoffBeatId": payoff_beat_id,
                 "locked": False,
                 "storyline": None if storyline is None else str(storyline),
+                "movements": movements,
+                "closureLevel": (
+                    str(inferred.closure_level)
+                    if paid_off and inferred.closure_level is not None
+                    else None
+                ),
+                "secondJob": _clean_prose(inferred.second_job),
             }
         )
     episode["threads"] = threads
+    _logger.info(
+        "merge_narrative_promises movements=%d %s",
+        sum(len(thread["movements"]) for thread in threads),
+        " ".join(f"{name}={count}" for name, count in ledger_counts.items()),
+    )
 
     secrets: list[dict] = []
     dropped_secrets = 0
