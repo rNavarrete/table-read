@@ -433,6 +433,81 @@ export function factsForScene(
   return { shown, retired }
 }
 
+// ── Knowledge mode (T10.4) ──────────────────────────────────────────────
+
+/** Who knows `fact` as of the scene at story position `at`: the server's
+ * as-of fold (drama_manager/ledger_as_of.py) — baseline `knownBy`, then each
+ * event at or before that scene in scene order: learns/confirms add, forgets
+ * removes, suspects/misinformed never move it. */
+export function knowersAsOf(
+  fact: LedgerFact,
+  position: ReadonlyMap<string, number>,
+  at: number,
+): Set<string> {
+  const knowers = new Set(fact.knownBy)
+  // An event in a scene outside this episode never applies.
+  const pos = (e: { sceneId: string }) => position.get(e.sceneId) ?? Infinity
+  const events = (fact.knowledgeEvents ?? [])
+    .filter((e) => pos(e) <= at)
+    .sort((a, b) => pos(a) - pos(b))
+  for (const event of events) {
+    for (const id of event.characterIds) {
+      if (event.kind === 'learns' || event.kind === 'confirms') knowers.add(id)
+      else if (event.kind === 'forgets') knowers.delete(id)
+    }
+  }
+  return knowers
+}
+
+/** McKee's three relations for one scene. `mystery`: present characters
+ * who know a fact in play the audience doesn't. `irony`: present characters
+ * who don't know (or are misinformed about) a fact in play the audience
+ * knows. A scene can be both; `suspense` when facts are in play and it is
+ * neither (audience and characters share what they know). */
+export interface KnowledgeModes {
+  mystery: string[]
+  irony: string[]
+  suspense: boolean
+}
+
+/** The facts in play — established here (active or pending), plus the
+ * facts of secrets this scene sets, keeps or lets out — against who is
+ * present (dialogue cues and motivation characters). Null when nothing is
+ * in play. */
+export function knowledgeModes(
+  episode: Episode,
+  ledger: readonly LedgerFact[],
+  sceneId: string,
+  present: ReadonlySet<string>,
+): KnowledgeModes | null {
+  const inPlay = new Map(
+    factsForScene(ledger, sceneId).shown.map((f) => [f.id, f]),
+  )
+  for (const { secret } of secretsForScene(episode, sceneId, present)) {
+    const fact = ledger.find((f) => f.id === secret.factId)
+    if (fact && (fact.status === 'active' || fact.status === 'pending_review'))
+      inPlay.set(fact.id, fact)
+  }
+  if (inPlay.size === 0) return null
+  const position = new Map(boardOrder(episode.scenes).map((s, i) => [s.id, i]))
+  const at = position.get(sceneId) ?? -1
+  const mystery = new Set<string>()
+  const irony = new Set<string>()
+  for (const fact of inPlay.values()) {
+    const knowers = knowersAsOf(fact, position, at)
+    for (const id of present) {
+      if (fact.audienceKnows === false) {
+        if (knowers.has(id)) mystery.add(id)
+      } else if (!knowers.has(id)) irony.add(id)
+    }
+  }
+  return {
+    mystery: [...mystery],
+    irony: [...irony],
+    suspense: mystery.size === 0 && irony.size === 0,
+  }
+}
+
 // ── Order check (spec §4.8) ─────────────────────────────────────────────
 
 export type OrderIssueKind =

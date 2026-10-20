@@ -2,7 +2,7 @@ import { useState, type ReactNode } from 'react'
 import type { Character, LedgerFact, RelationshipState, Scene } from 'contract'
 import { Chip } from '../Chip'
 import { characterName } from '../planTree'
-import type { SceneSecret, SceneThread } from '../story'
+import type { KnowledgeModes, SceneSecret, SceneThread } from '../story'
 
 export interface WhatItTouchesProps {
   /** To print other scenes' numbers (index + 1) and to link only to scenes that exist. */
@@ -10,6 +10,9 @@ export interface WhatItTouchesProps {
   threads: SceneThread[]
   secrets: SceneSecret[]
   facts: { shown: LedgerFact[]; retired: LedgerFact[] }
+  /** T10.4: the scene's knowledge mode (story.knowledgeModes); null when no
+   * fact is in play. */
+  modes: KnowledgeModes | null
   relationshipMoments: RelationshipState[]
   characters: Character[]
   /** Present only by dialogue cues (the list WhoWantsWhat gets): their
@@ -33,6 +36,7 @@ const RETIRED_WORD: Partial<Record<LedgerFact['status'], string>> = {
 }
 
 const QUIET = 'text-13 text-tr-text-secondary'
+const capital = (text: string) => text.charAt(0).toUpperCase() + text.slice(1)
 const FOCUS =
   'focus-visible:outline focus-visible:outline-selected focus-visible:outline-offset-2 focus-visible:outline-tr-sky'
 const LINK = `text-13 text-tr-text-primary underline ${FOCUS}`
@@ -42,6 +46,24 @@ function shortList(names: string[]): string {
   return names.length > 2
     ? `${names.slice(0, 2).join(', ')} +${names.length - 2}`
     : names.join(', ')
+}
+
+/** "A" · "A and B" · "A, B +1": a sentence subject. */
+function subject(names: string[]): string {
+  return names.length === 2 ? names.join(' and ') : shortList(names)
+}
+
+const knows = (names: string[]) => (names.length === 1 ? 'knows' : 'know')
+const doesnt = (names: string[]) => (names.length === 1 ? "doesn't" : "don't")
+
+/** Who knows and who doesn't, in words (T10.4): "the audience and Dan know;
+ * Marta doesn't." Either side may be missing. */
+function ordering(knowing: string[], dark: string[]): string {
+  const known = knowing.length > 0 && `${subject(knowing)} ${knows(knowing)}`
+  const unknown = dark.length > 0 && `${subject(dark)} ${doesnt(dark)}`
+  if (known && unknown) return `${known}; ${unknown}.`
+  if (known) return `${known}.`
+  return unknown ? `${unknown} know.` : ''
 }
 
 function Group({ title, children }: { title: string; children: ReactNode }) {
@@ -98,6 +120,7 @@ export function WhatItTouches({
   threads,
   secrets,
   facts,
+  modes,
   relationshipMoments,
   characters,
   alsoInScene,
@@ -185,12 +208,16 @@ export function WhatItTouches({
             role === 'set' ? undefined : sceneById(secret.establishedSceneId)
           const outIn =
             role === 'out' ? undefined : sceneById(secret.revealedSceneId)
-          const audience =
-            secret.audienceKnows === false
-              ? "The audience doesn't know yet."
-              : hiddenFrom.length === 0
-                ? 'The audience knows.'
-                : `The audience knows; ${shortList(hiddenFrom)} ${hiddenFrom.length === 1 ? "doesn't" : "don't"}.`
+          const audienceKnows = secret.audienceKnows !== false
+          const audience = capital(
+            ordering(
+              [
+                ...(audienceKnows ? ['the audience'] : []),
+                ...names(secret.holderCharacterIds ?? []),
+              ],
+              [...(audienceKnows ? [] : ['the audience']), ...hiddenFrom],
+            ),
+          )
           return (
             <div
               key={secret.id}
@@ -220,6 +247,28 @@ export function WhatItTouches({
       </Group>
 
       <Group title="Facts established here">
+        {modes && (
+          <div className="text-13 text-tr-text-primary">
+            {modes.mystery.length > 0 && (
+              <p>
+                <span className="font-semibold">Mystery</span>
+                {` — ${ordering(names(modes.mystery), ['the audience'])}`}
+              </p>
+            )}
+            {modes.irony.length > 0 && (
+              <p>
+                <span className="font-semibold">Dramatic irony</span>
+                {` — ${ordering(['the audience'], names(modes.irony))}`}
+              </p>
+            )}
+            {modes.suspense && (
+              <p>
+                <span className="font-semibold">Suspense</span>
+                {' — the audience knows what the characters here know.'}
+              </p>
+            )}
+          </div>
+        )}
         {facts.shown.length === 0 && (
           <p className={QUIET}>No facts established here.</p>
         )}

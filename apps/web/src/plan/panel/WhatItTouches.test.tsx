@@ -135,6 +135,7 @@ function renderTouches(overrides: Partial<WhatItTouchesProps> = {}) {
     threads: [],
     secrets: [],
     facts: { shown: [], retired: [] },
+    modes: null,
     relationshipMoments: [],
     characters: CHARACTERS,
     alsoInScene: [],
@@ -261,7 +262,9 @@ describe('WhatItTouches', () => {
 
     expect(screen.getByText('Dramatic irony.')).not.toBeNull()
     expect(
-      screen.getByText("The audience knows; Marta Vega, Luz Vega +1 don't."),
+      screen.getByText(
+        "The audience and Dan Vega know; Marta Vega, Luz Vega +1 don't.",
+      ),
     ).not.toBeNull()
     expect(
       screen.getByText('In this scene, Marta Vega is in the dark.'),
@@ -308,10 +311,83 @@ describe('WhatItTouches', () => {
         },
       ],
     })
-    expect(screen.getByText("The audience doesn't know yet.")).not.toBeNull()
+    expect(
+      screen.getByText("Dan Vega knows; the audience, Marta Vega +2 don't."),
+    ).not.toBeNull()
     expect(screen.getByText('◆ Set here')).not.toBeNull()
     expect(screen.queryByRole('button', { name: /^Set in/ })).toBeNull()
     expect(screen.queryByText(/in the dark/)).toBeNull()
+  })
+
+  it('orders who knows a secret in words, from either side alone', () => {
+    renderTouches({
+      secrets: [
+        {
+          secret: secret({ concealedFromCharacterIds: ['char-marta'] }),
+          role: 'kept',
+          inTheDark: [],
+        },
+        {
+          secret: secret({
+            id: 'secret-2',
+            holderCharacterIds: [],
+            concealedFromCharacterIds: [],
+            audienceKnows: false,
+          }),
+          role: 'kept',
+          inTheDark: [],
+        },
+      ],
+    })
+    expect(
+      screen.getByText("The audience and Dan Vega know; Marta Vega doesn't."),
+    ).not.toBeNull()
+    expect(screen.getByText("The audience doesn't know.")).not.toBeNull()
+  })
+
+  it('states the knowledge mode above the facts: mystery, irony or both', () => {
+    renderTouches({
+      facts: { shown: [fact()], retired: [] },
+      modes: { mystery: ['char-dan'], irony: [], suspense: false },
+    })
+    const facts = screen.getByRole('heading', {
+      name: 'Facts established here',
+    }).parentElement!
+    expect(
+      within(facts).getByText("— Dan Vega knows; the audience doesn't.", {
+        exact: false,
+      }).textContent,
+    ).toBe("Mystery — Dan Vega knows; the audience doesn't.")
+    expect(within(facts).queryByText('Dramatic irony')).toBeNull()
+    cleanup()
+
+    renderTouches({
+      facts: { shown: [fact()], retired: [] },
+      modes: {
+        mystery: ['char-dan'],
+        irony: ['char-marta', 'char-luz'],
+        suspense: false,
+      },
+    })
+    expect(screen.getByText('Dramatic irony').parentElement!.textContent).toBe(
+      "Dramatic irony — the audience knows; Marta Vega and Luz Vega don't.",
+    )
+    expect(screen.getByText('Mystery')).not.toBeNull()
+    expect(screen.queryByText('Suspense')).toBeNull()
+  })
+
+  it('says suspense when the audience and the characters share what they know, and nothing with no fact in play', () => {
+    renderTouches({
+      facts: { shown: [fact()], retired: [] },
+      modes: { mystery: [], irony: [], suspense: true },
+    })
+    expect(screen.getByText('Suspense').parentElement!.textContent).toBe(
+      'Suspense — the audience knows what the characters here know.',
+    )
+    cleanup()
+
+    renderTouches({ facts: { shown: [fact()], retired: [] } })
+    expect(screen.queryByText(/Mystery|Dramatic irony|Suspense/)).toBeNull()
   })
 
   it('relationship moments read "A & B: label"', () => {
