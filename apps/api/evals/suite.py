@@ -128,12 +128,13 @@ def nominal_call_estimate(runs: dict[str, int]) -> dict:
     `aliasResolution` each call `infer_story_entities` once per run, same as
     the other single-probe soft families; `narrativePromises` and
     `narrativePromisesMerge` (T7.22) each call `infer_narrative_promises`
-    once per run, same shape; `storyOverview` / `storyOverviewMerge`
+    and (T10.11) `infer_scene_motivations` once per run, so 2 × their runs;
+    `storyOverview` / `storyOverviewMerge`
     (T7.30) each call `infer_story_overview` once per run. Rule-9 retries can
     add up to one extra call per product call (observed-worst budget ≈1.5×
     total). Core defaults
     (schema/act-validity/lock/continuity, N=5): ≈123 nominal; `--full` adds
-    soft families (≈75); `--runs 1` core ≈27."""
+    soft families (≈208 at the defaults); `--runs 1` core ≈27."""
     schema = len(probes.SCHEMA_PROBES) * runs["schemaValidity"]
     act_validity = 4 * runs["actBoundaryValidity"]
     lock = 4 * runs["lockViolation"]
@@ -145,9 +146,9 @@ def nominal_call_estimate(runs: dict[str, int]) -> dict:
     act_boundaries = 4 * runs["actBoundaryQuality"]
     entity_inference = runs["entityInference"]
     alias_resolution = runs["aliasResolution"]
-    narrative_promises = runs["narrativePromises"]
+    narrative_promises = 2 * runs["narrativePromises"]
     promise_citations = runs["promiseCitations"]
-    narrative_promises_merge = runs["narrativePromisesMerge"]
+    narrative_promises_merge = 2 * runs["narrativePromisesMerge"]
     story_overview = runs["storyOverview"]
     story_overview_merge = runs["storyOverviewMerge"]
     return {
