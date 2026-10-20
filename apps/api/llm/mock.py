@@ -40,6 +40,7 @@ from schemas import (
     NarrativeMapVerification,
     NarrativePromises,
     RegeneratedElements,
+    SceneMotivations,
     SegmentedScene,
     StoryEntities,
     StructureCheckVerification,
@@ -301,9 +302,6 @@ def _default_responses() -> dict[str, BaseModel]:
                     "sceneIds": ["scene-2"],
                 },
             ],
-            # Dan is the fixture's worked example of a stated/actual gap: he
-            # says he is closing up, while what he is doing is keeping Marta
-            # away from the ice machine.
             secrets=[
                 {
                     "summary": "Dan hid the $40,000 in the bar's ice machine.",
@@ -317,6 +315,25 @@ def _default_responses() -> dict[str, BaseModel]:
                     "revealedBeatId": None,
                 }
             ],
+            worldRules=[
+                {
+                    "text": (
+                        "The Long Pour is the last neutral ground in town: cops, "
+                        "fishermen, and creditors all drink there."
+                    ),
+                    "limit": "The truce holds only inside the bar's doors.",
+                    "cost": "",
+                    "exception": "",
+                    "evidenceSceneId": "scene-1",
+                    "evidenceBeatId": None,
+                }
+            ],
+        ),
+        # T10.11 infer_scene_motivations (split from infer_narrative_promises).
+        # Dan is the fixture's worked example of a stated/actual gap: he
+        # says he is closing up, while what he is doing is keeping Marta
+        # away from the ice machine.
+        "infer_scene_motivations": SceneMotivations(
             sceneMotivations=[
                 {
                     "sceneId": "scene-3",
@@ -338,19 +355,6 @@ def _default_responses() -> dict[str, BaseModel]:
                             "concealed": True,
                         },
                     ],
-                }
-            ],
-            worldRules=[
-                {
-                    "text": (
-                        "The Long Pour is the last neutral ground in town: cops, "
-                        "fishermen, and creditors all drink there."
-                    ),
-                    "limit": "The truce holds only inside the bar's doors.",
-                    "cost": "",
-                    "exception": "",
-                    "evidenceSceneId": "scene-1",
-                    "evidenceBeatId": None,
                 }
             ],
         ),
@@ -1089,6 +1093,16 @@ class MockLlmClient:
     ) -> NarrativePromises:
         return self._call(
             "infer_narrative_promises",
+            system=system,
+            user_message=user_message,
+            prompt_version=prompt_version,
+        )
+
+    def infer_scene_motivations(
+        self, *, system: str, user_message: str, prompt_version: str
+    ) -> SceneMotivations:
+        return self._call(
+            "infer_scene_motivations",
             system=system,
             user_message=user_message,
             prompt_version=prompt_version,

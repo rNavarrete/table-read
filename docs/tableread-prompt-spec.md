@@ -313,7 +313,7 @@ Server-side merge policy (Task 2): resolved characters extend existing rows with
 
 ## 5b. `infer_narrative_promises`
 
-Purpose: import-time threads/motivations/world-rule read (narrative-promises P2 design doc; T7.19–T7.22), run once per import between `infer_story_entities` and `extract_ledger_facts` — after entities so motivations can name the resolved cast, before facts. Model: `import_analyst` role (`claude-opus-5-5`, `medium` effort) — import story breakdown.
+Purpose: import-time threads/secrets/storylines/world-rule read (narrative-promises P2 design doc; T7.19–T7.22), run once per import between `infer_story_entities` and `extract_ledger_facts` — after entities so thread owners can name the resolved cast, before facts. Scene motivations were part of this call until `PROMPT_VERSION 0.62.0`; they are now §5b′ `infer_scene_motivations`, run beside it. Model: `import_analyst` role (`claude-opus-5-5`, `medium` effort) — import story breakdown.
 
 **Input (T7.20, bounded long-script read):** every segmented beat's `beatId`
 and semantic fields (`whatHappens`, `audienceLearns`, `audienceFeels`) in
@@ -324,7 +324,7 @@ model cites beats and the server derives quotes (below). Semantic coverage
 preserves late setup/payoff discovery while keeping the story-wide request
 reliable and cost-controlled. All input is `<source_data_{nonce}>`.
 
-**Output schema (`NarrativePromises`):** threads (setup→payoff arcs), **storylines** (T10.2), **secrets** (concealed→revealed arcs), per-scene motivations, and structured world rules. A secret is a thread with an asymmetry: `holderNames` vs `concealedFromNames`. A fact everyone knows is not a secret, so both sides are required; `revealedSceneId: null` means still concealed at end of episode. Motivations carry `statedObjective` (empty unless the character claims a different goal than their behaviour serves) and `concealed` (deliberate deception vs self-deception) — the stated/actual gap is the ulterior motive. Threads and motivations name characters by string, never id — same convention as `infer_story_entities`; the server resolves `ownerNames`/`characterName` against the existing bible and drops unresolvable owners/motivations (log counts only, never text — rule 5). `setupSceneId`/`payoffSceneId`/`sceneId`/`evidenceSceneId` are already-known scene ids the model selects from the input scene list, not free text, so they need no resolution.
+**Output schema (`NarrativePromises`):** threads (setup→payoff arcs), **storylines** (T10.2), **secrets** (concealed→revealed arcs), and structured world rules. A secret is a thread with an asymmetry: `holderNames` vs `concealedFromNames`. A fact everyone knows is not a secret, so both sides are required; `revealedSceneId: null` means still concealed at end of episode. Threads name characters by string, never id — same convention as `infer_story_entities`; the server resolves `ownerNames` against the existing bible and drops unresolvable owners (log counts only, never text — rule 5). `setupSceneId`/`payoffSceneId`/`evidenceSceneId` are already-known scene ids the model selects from the input scene list, not free text, so they need no resolution.
 
 **Evidence is a beat id, never a quote (PROMPT_VERSION 0.40.0+).** Each claim cites the one beat that carries it — `setupBeatId`/`payoffBeatId` (threads), `establishedBeatId`/`revealedBeatId` (secrets), `evidenceBeatId` (world rules) — copied from the input spine and belonging to the scene cited for that claim, or `null` when no single beat carries it. The model writes no quote text. The server derives the stored `setupQuote`/`payoffQuote`, `establishedQuote`/`revealedQuote` and `evidenceQuote` from the cited beat's own `scriptText` (`drama_manager/promises.py`, `quote_for_beat`; data contract §1 `StoryThread`/`Secret`/`WorldRule`).
 
@@ -374,21 +374,6 @@ reliable and cost-controlled. All input is `<source_data_{nonce}>`.
       "revealedBeatId": "beat id in revealedSceneId, or null"
     }
   ],
-  "sceneMotivations": [
-    {
-      "sceneId": "",
-      "motivations": [
-        {
-          "characterName": "string",
-          "objective": "string",
-          "stakes": "string",
-          "obstacle": "string",
-          "statedObjective": "string, empty when it matches objective",
-          "concealed": true
-        }
-      ]
-    }
-  ],
   "worldRules": [
     {
       "text": "string",
@@ -402,12 +387,10 @@ reliable and cost-controlled. All input is `<source_data_{nonce}>`.
 }
 ```
 
-The model returns scene motivations only where it can establish all three of
-objective, stakes, and obstacle; it omits routine or unsupported scenes rather
-than guessing. Server-side merge policy (T7.20): threads mint new `thread-*`
+Server-side merge policy (T7.20): threads mint new `thread-*`
 ids and attach to the episode (re-import replaces prior import-minted threads
 for that episode, same as scenes — v1 has no thread locking);
-`secrets` mint `secret-*` ids and attach to the episode alongside threads, with `holderNames`/`concealedFromNames` resolved like `ownerNames` and unresolvable rows dropped; `sceneMotivations` write onto the matching `Scene.motivations` array;
+`secrets` mint `secret-*` ids and attach to the episode alongside threads, with `holderNames`/`concealedFromNames` resolved like `ownerNames` and unresolvable rows dropped;
 `worldRules` append new rules into the bible's `worldRules` and never overwrite
 a `locked: true` rule. Each cited beat becomes a stored quote: the beat's first
 spoken line, else its first line that is not a slugline or character cue. A
@@ -458,6 +441,36 @@ becomes null; summaries and `secondJob` lose a dangling closing quote like other
 prose. All three fields default, so a pre-0.56.0 response or checkpoint parses
 with no movements, no closure level and no second job. Logs carry counts only
 (rule 5).
+
+## 5b′. `infer_scene_motivations`
+
+Purpose (T10.11, `PROMPT_VERSION 0.62.0`): each character's scene-level want — objective, stakes, obstacle and any stated cover objective. It was part of §5b until the T10.2 storylines and T10.3 thread ledger grew that strict tool past the API's compiled-grammar limit; the API refused every real import with "The compiled grammar is too large, which would cause performance issues." It runs once per import beside §5b, inside the `inferring_promises` stage (no new progress stage), with its own checkpoint (`inferring_motivations`), so a resumed import never asks for a finished half again. Model: `import_analyst` role (`claude-opus-5-5`, `medium` effort), the same ceilings as §5b.
+
+**Input:** the same beat spine and resolved cast as §5b (no world rules), all `<source_data_{nonce}>`, with §5b's system prompt. The instructions are the motivation instructions §5b carried before 0.62.0.
+
+**Output schema (`SceneMotivations`):**
+
+```json
+{
+  "sceneMotivations": [
+    {
+      "sceneId": "",
+      "motivations": [
+        {
+          "characterName": "string",
+          "objective": "string",
+          "stakes": "string",
+          "obstacle": "string",
+          "statedObjective": "string, empty when it matches objective",
+          "concealed": true
+        }
+      ]
+    }
+  ]
+}
+```
+
+The model returns scene motivations only where it can establish all three of objective, stakes, and obstacle; it omits routine or unsupported scenes rather than guessing. `statedObjective` is empty unless the character claims a different goal than their behaviour serves, and `concealed` marks deliberate deception rather than self-deception — the stated/actual gap is the ulterior motive. Characters are names, never ids; `sceneId` comes from the input scene list. Server-side merge (`drama_manager/promises.py`, `merge_scene_motivations`): rows whose `characterName` doesn't resolve against the bible are dropped (counts only — rule 5); a scene's resolved rows replace its `Scene.motivations`, and a scene with none keeps what it had; a stated objective equal to the real one is normalized to empty. Schema-invalid after one retry surfaces `SCHEMA_INVALID_LLM` at `inferring_promises`, and the import fails atomically (rule 9).
 
 ## 6. `suggest_instructions`
 

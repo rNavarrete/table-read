@@ -119,11 +119,12 @@ def test_narrative_promises_seeded_response_satisfies_recall_and_merge():
     checks and the real merge path — a regression guard on the
     fixture/seed staying in sync."""
     result = adoption._seed_promises_response()
+    motivations = adoption._seed_motivations_response()
     planted = adoption._promises_planted_spec()
     for p in planted["plantedThreads"]:
         assert adoption._thread_found(result.threads, p)
     for p in planted["plantedMotivations"]:
-        assert adoption._motivation_found(result.scene_motivations, p)
+        assert adoption._motivation_found(motivations.scene_motivations, p)
     for p in planted["plantedWorldRules"]:
         assert adoption._world_rule_found(result.world_rules, p)
 
@@ -132,6 +133,7 @@ def test_narrative_promises_seeded_response_satisfies_recall_and_merge():
     doc = adoption.merge_narrative_promises(
         adoption._promises_doc_scaffold(scene_ids), "ep-promises-1", result
     )
+    adoption.merge_scene_motivations(doc, "ep-promises-1", motivations)
     episode = doc["seasons"][0]["episodes"][0]
     paid_off = next(t for t in episode["threads"] if t["status"] == "paid_off")
     still_open = next(t for t in episode["threads"] if t["status"] == "open")

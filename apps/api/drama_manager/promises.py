@@ -1,5 +1,6 @@
-"""`merge_narrative_promises` (T7.20): fold `infer_narrative_promises`
-(NarrativePromises) output into a project doc — see
+"""`merge_narrative_promises` (T7.20) and `merge_scene_motivations` (T10.11):
+fold `infer_narrative_promises` (NarrativePromises) and
+`infer_scene_motivations` (SceneMotivations) output into a project doc — see
 `docs/superpowers/specs/2026-07-16-narrative-promises-design.md`.
 
 Mirrors `fountain/characters.merge_inferred_entities`'s shape, but the
@@ -8,8 +9,9 @@ that doesn't resolve against the already-minted cast is **dropped**, never
 minted a stand-in character (`fountain.characters.resolve_character_id`
 never mints). Threads mint a fresh `thread-{hex}` id per import (MVP: an
 episode's imported threads are replaced wholesale, same as its scenes);
-scene motivations are only written onto scenes that exist and only when at
-least one motivation resolves; world rules append only text the bible
+scene motivations (`merge_scene_motivations`, their own op since T10.11) are
+only written onto scenes that exist and only when at least one motivation
+resolves; world rules append only text the bible
 doesn't already have (case-insensitive), which also protects a locked
 rule's text from ever being duplicated underneath it. Storylines (T10.2)
 tag scenes and threads with the episode's A-D strands; an episode with no
@@ -30,7 +32,12 @@ from drama_manager.narrative_map import _source_quote
 from fountain.characters import resolve_character_id
 
 if TYPE_CHECKING:
-    from schemas import InferredStoryline, NarrativePromises, StoryThreadMovement
+    from schemas import (
+        InferredStoryline,
+        NarrativePromises,
+        SceneMotivations,
+        StoryThreadMovement,
+    )
 
 _logger = logging.getLogger("drama_manager.promises")
 
@@ -374,8 +381,8 @@ def _merge_movements(
 def merge_narrative_promises(
     doc: dict, episode_id: str, result: NarrativePromises
 ) -> dict:
-    """Mutate (and return) `doc`: mint+attach `episode.threads`, patch
-    matching scenes' `motivations`, and append new world rules to
+    """Mutate (and return) `doc`: mint+attach `episode.threads` and
+    `episode.secrets`, and append new world rules to
     `seriesBible.worldRules`. `doc["seriesBible"]["characters"]` must
     already reflect any earlier `infer_story_entities` merge for this
     import — names resolve against exactly that list.
@@ -393,10 +400,6 @@ def merge_narrative_promises(
       either side empty it is an ordinary ledger fact, not a secret.
       `factId` stays null here because promises inference runs *before*
       extract_ledger_facts; there is no fact to link yet.
-    - Scene motivations: only scenes present in this episode are patched,
-      and only with the motivations whose `characterName` resolves; a scene
-      with zero resolved motivations keeps its prior `motivations` (never
-      wiped to `[]` by an inference miss).
     - World rules: appended when `text` (casefold, trimmed) isn't already
       present among the bible's existing rules — this also means a locked
       rule's text can never be duplicated underneath it, satisfying "locked
@@ -559,6 +562,66 @@ def merge_narrative_promises(
     episode["secrets"] = secrets
     reused_cleared = drop_reused_quotes(threads, secrets)
 
+    existing_rules = list(bible.get("worldRules") or [])
+    existing_texts = {
+        rule["text"].strip().casefold() for rule in existing_rules if rule.get("text")
+    }
+    appended_rules = 0
+    for rule in result.world_rules:
+        key = rule.text.strip().casefold()
+        if not key or key in existing_texts:
+            continue
+        existing_texts.add(key)
+        evidence_scene_id = (
+            rule.evidence_scene_id if rule.evidence_scene_id in scenes_by_id else None
+        )
+        existing_rules.append(
+            {
+                "text": rule.text,
+                "locked": False,
+                "limit": rule.limit,
+                "cost": rule.cost,
+                "exception": rule.exception,
+                "evidenceSceneId": evidence_scene_id,
+                "evidenceQuote": quote_for_beat(
+                    scenes_by_id.get(evidence_scene_id), rule.evidence_beat_id
+                )[0],
+            }
+        )
+        appended_rules += 1
+    bible["worldRules"] = existing_rules
+
+    if dropped_owners or dropped_secrets or dropped_thread_letters:
+        _logger.info(
+            "merge_narrative_promises owners_dropped=%d secrets_dropped=%d "
+            "thread_storylines_dropped=%d",
+            dropped_owners,
+            dropped_secrets,
+            dropped_thread_letters,
+        )
+    _logger.info(
+        "merge_narrative_promises threads=%d secrets=%d rules_appended=%d "
+        "beats_unresolved=%d reused_cleared=%d",
+        len(threads),
+        len(secrets),
+        appended_rules,
+        unresolved_beats,
+        reused_cleared,
+    )
+    return doc
+
+
+def merge_scene_motivations(doc: dict, episode_id: str, result: SceneMotivations) -> dict:
+    """Mutate (and return) `doc`: patch matching scenes' `motivations` from
+    `infer_scene_motivations` (T10.11). `doc["seriesBible"]["characters"]`
+    must already reflect this import's entity merge — names resolve against
+    exactly that list. Only scenes present in this episode are patched, and
+    only with the motivations whose `characterName` resolves; a scene with
+    zero resolved motivations keeps its prior `motivations` (never wiped to
+    `[]` by an inference miss)."""
+    characters = (doc.get("seriesBible") or {}).get("characters") or []
+    scenes_by_id = {s["id"]: s for s in _find_episode(doc, episode_id).get("scenes") or []}
+    patched = 0
     dropped_motivations = 0
     for scene_motivations in result.scene_motivations:
         scene = scenes_by_id.get(scene_motivations.scene_id)
@@ -589,52 +652,11 @@ def merge_narrative_promises(
             )
         if resolved:
             scene["motivations"] = resolved
+            patched += 1
 
-    existing_rules = list(bible.get("worldRules") or [])
-    existing_texts = {
-        rule["text"].strip().casefold() for rule in existing_rules if rule.get("text")
-    }
-    appended_rules = 0
-    for rule in result.world_rules:
-        key = rule.text.strip().casefold()
-        if not key or key in existing_texts:
-            continue
-        existing_texts.add(key)
-        evidence_scene_id = (
-            rule.evidence_scene_id if rule.evidence_scene_id in scenes_by_id else None
-        )
-        existing_rules.append(
-            {
-                "text": rule.text,
-                "locked": False,
-                "limit": rule.limit,
-                "cost": rule.cost,
-                "exception": rule.exception,
-                "evidenceSceneId": evidence_scene_id,
-                "evidenceQuote": quote_for_beat(
-                    scenes_by_id.get(evidence_scene_id), rule.evidence_beat_id
-                )[0],
-            }
-        )
-        appended_rules += 1
-    bible["worldRules"] = existing_rules
-
-    if dropped_owners or dropped_motivations or dropped_secrets or dropped_thread_letters:
-        _logger.info(
-            "merge_narrative_promises owners_dropped=%d motivations_dropped=%d "
-            "secrets_dropped=%d thread_storylines_dropped=%d",
-            dropped_owners,
-            dropped_motivations,
-            dropped_secrets,
-            dropped_thread_letters,
-        )
     _logger.info(
-        "merge_narrative_promises threads=%d secrets=%d rules_appended=%d "
-        "beats_unresolved=%d reused_cleared=%d",
-        len(threads),
-        len(secrets),
-        appended_rules,
-        unresolved_beats,
-        reused_cleared,
+        "merge_scene_motivations scenes_patched=%d motivations_dropped=%d",
+        patched,
+        dropped_motivations,
     )
     return doc

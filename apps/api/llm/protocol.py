@@ -29,6 +29,7 @@ from schemas import (
     NarrativeMapVerification,
     NarrativePromises,
     RegeneratedElements,
+    SceneMotivations,
     SegmentedScene,
     StoryEntities,
     StructureCheckVerification,
@@ -111,6 +112,10 @@ class LlmClient(Protocol):
     def infer_narrative_promises(
         self, *, system: str, user_message: str, prompt_version: str
     ) -> NarrativePromises: ...
+
+    def infer_scene_motivations(
+        self, *, system: str, user_message: str, prompt_version: str
+    ) -> SceneMotivations: ...
 
     def infer_story_overview(
         self, *, system: str, user_message: str, prompt_version: str

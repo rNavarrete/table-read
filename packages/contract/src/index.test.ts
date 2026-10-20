@@ -4,6 +4,7 @@ import {
   InferredActBreaks,
   NarrativeMap,
   NarrativePromises,
+  SceneMotivations,
   ProjectImportProgressEvent,
   ProjectImportStageName,
   StoryThread,
@@ -282,7 +283,7 @@ describe('StoryThread', () => {
 })
 
 describe('NarrativePromises', () => {
-  it('parses a pre-0.53.0 payload (threads/sceneMotivations/worldRules), defaulting storylines', () => {
+  it('parses a pre-0.53.0 payload (threads/sceneMotivations/worldRules), defaulting storylines and dropping sceneMotivations (T10.11)', () => {
     const payload = {
       threads: [
         {
@@ -335,8 +336,11 @@ describe('NarrativePromises', () => {
         },
       ],
     }
+    // Motivations are SceneMotivations' since T10.11; an old checkpoint's
+    // copy is dropped, not an error.
     expect(NarrativePromises.parse(payload)).toEqual({
-      ...payload,
+      secrets: payload.secrets,
+      worldRules: payload.worldRules,
       threads: [
         {
           ...payload.threads[0],
@@ -383,7 +387,6 @@ describe('NarrativePromises', () => {
         },
       ],
       secrets: [],
-      sceneMotivations: [],
       worldRules: [],
     }
     expect(NarrativePromises.parse(payload)).toEqual(payload)
@@ -430,10 +433,33 @@ describe('NarrativePromises thread ledger (T10.3)', () => {
       ],
       storylines: [],
       secrets: [],
-      sceneMotivations: [],
       worldRules: [],
     }
     expect(NarrativePromises.parse(payload)).toEqual(payload)
+  })
+})
+
+describe('SceneMotivations (T10.11)', () => {
+  it('round-trips a scene motivation with a stated cover objective', () => {
+    const payload = {
+      sceneMotivations: [
+        {
+          sceneId: 'scene-1',
+          motivations: [
+            {
+              characterName: 'Dan',
+              objective: 'Keep Marta away from the ice machine.',
+              stakes: 'The money.',
+              obstacle: 'She saw the transfer.',
+              statedObjective: 'Close up the bar.',
+              concealed: true,
+            },
+          ],
+        },
+      ],
+    }
+    expect(SceneMotivations.parse(payload)).toEqual(payload)
+    expect(() => SceneMotivations.parse({})).toThrow()
   })
 })
 

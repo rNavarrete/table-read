@@ -294,6 +294,32 @@ def test_promises_prompt_asks_for_movements_closure_and_second_job():
     assert "Set secondJob to what the setup does" in user
 
 
+def test_scene_motivations_have_their_own_prompt_over_the_promises_inputs():
+    """T10.11: the motivation instructions moved from the promises prompt to
+    infer_scene_motivations', which reads the same spine and cast."""
+    spine = [{"sceneId": "scene-1", "beats": [{"beatId": "beat-1-1"}]}]
+    project = {"title": "T", "format": {}}
+    promises_system, promises_user = render.build_promises_prompt(
+        project, spine, ["Marta"], [], _NONCE
+    )
+    system, user = render.build_motivations_prompt(project, spine, ["Marta"], _NONCE)
+
+    for words in ("motivation", "statedObjective", "set concealed true"):
+        assert words not in promises_user
+    assert "Fill each character's scene-level motivations" in user
+    assert "Set statedObjective only when they claim to be pursuing" in user
+    assert "set concealed true when that difference is deliberate deception" in user
+    assert "an invented gap is worse than none" in user
+    assert "never an id" in user
+    for block in (
+        render.source_data("import_story_spine", spine, _NONCE),
+        render.source_data("known_cast", ["Marta"], _NONCE),
+    ):
+        assert block in user and block in promises_user
+    assert 'kind="existing_world_rules"' not in user
+    assert system == promises_system
+
+
 def test_act_inference_retry_prompt_contains_inert_diagnostics():
     project = {
         "title": "T",
