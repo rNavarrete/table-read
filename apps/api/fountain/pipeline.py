@@ -505,6 +505,8 @@ def analyze_import(
                     "actionVerb": beat.action_verb,
                     "targetCharacterId": None,
                     "reaction": beat.reaction,
+                    "kernel": beat.kernel,
+                    "pressureChoice": beat.pressure_choice,
                 }
             )
             beat_names.append((beat_docs[-1], beat.actor, beat.target))
@@ -1310,6 +1312,10 @@ def _dump_imported_beats(beats: list[ImportedBeat]) -> list[dict]:
     return [asdict(beat) for beat in beats]
 
 
+def _reading(value: object) -> bool | None:
+    return value if isinstance(value, bool) else None
+
+
 def _load_imported_beats(value: object) -> list[ImportedBeat] | None:
     if not isinstance(value, list):
         return None
@@ -1339,6 +1345,9 @@ def _load_imported_beats(value: object) -> list[ImportedBeat] | None:
                     action_verb=str(raw.get("action_verb", "")),
                     target=str(raw.get("target", "")),
                     reaction=str(raw.get("reaction", "")),
+                    # Absent from a pre-0.60.0 checkpoint: load as not read.
+                    kernel=_reading(raw.get("kernel")),
+                    pressure_choice=_reading(raw.get("pressure_choice")),
                 )
             )
     except (KeyError, TypeError, ValueError):

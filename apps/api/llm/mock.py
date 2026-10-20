@@ -465,6 +465,9 @@ def _default_responses() -> dict[str, BaseModel]:
                     "actionVerb": "confronts",
                     "target": "Dan",
                     "reaction": "deflects to the bar's debts",
+                    # T10.9: what the beat does for the story.
+                    "kernel": True,
+                    "pressureChoice": True,
                 }
             ],
             sceneValueAtStake="trust",

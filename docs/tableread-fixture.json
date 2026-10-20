@@ -297,7 +297,9 @@
                     "actorCharacterId": "char-dan",
                     "actionVerb": "recruits",
                     "targetCharacterId": "char-marta",
-                    "reaction": "Marta folds the letter into a perfect square and says nothing"
+                    "reaction": "Marta folds the letter into a perfect square and says nothing",
+                    "kernel": true,
+                    "pressureChoice": false
                   }
                 ],
                 "valueAtStake": "trust",
@@ -953,7 +955,9 @@
                         "actorCharacterId": "char-dan",
                         "actionVerb": "recruits",
                         "targetCharacterId": "char-marta",
-                        "reaction": "Marta folds the letter into a perfect square and says nothing"
+                        "reaction": "Marta folds the letter into a perfect square and says nothing",
+                        "kernel": true,
+                        "pressureChoice": false
                       }
                     ],
                     "valueAtStake": "trust",

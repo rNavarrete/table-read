@@ -3043,7 +3043,7 @@ def test_segment_checkpoint_round_trips_beat_actions_and_turn():
 def test_a_pre_t10_1_segment_checkpoint_resumes_with_defaults(unlocked_project):
     span, _normalized, saved = _turn_checkpoint_unit()
     for beat in saved["beats"]:
-        for key in ("actor", "action_verb", "target", "reaction"):
+        for key in ("actor", "action_verb", "target", "reaction", "kernel", "pressure_choice"):
             del beat[key]
     for key in ("valueAtStake", "chargeIn", "chargeOut", "whyNow"):
         del saved["reading"][key]
@@ -3073,7 +3073,63 @@ def test_a_pre_t10_1_segment_checkpoint_resumes_with_defaults(unlocked_project):
         (b["actorCharacterId"], b["actionVerb"], b["targetCharacterId"], b["reaction"])
         for b in scene["beats"]
     } == {(None, "", None, "")}
+    # T10.9: a checkpoint from before 0.60.0 was never read for kernels.
+    assert {(b["kernel"], b["pressureChoice"]) for b in scene["beats"]} == {(None, None)}
     assert scene["beats"][0]["whatHappens"] == "w"
+
+
+# ── T10.9 kernels and choices ───────────────────────────────────────────────
+
+
+def _kernel_segmentation() -> SegmentedScene:
+    return SegmentedScene.model_validate(
+        {
+            "segments": [
+                {
+                    "kind": "beat",
+                    "startLine": start,
+                    "whatHappens": "w",
+                    "audienceLearns": "l",
+                    "audienceFeels": "f",
+                    "kernel": kernel,
+                    "pressureChoice": choice,
+                }
+                for (start, kernel, choice) in ((1, True, False), (3, False, True))
+            ]
+        }
+    )
+
+
+def test_import_stores_each_beats_kernel_and_choice(unlocked_project):
+    llm = MockLlmClient()
+    llm.set_responses("segment_scene", [_kernel_segmentation()])
+    llm.set_response("extract_ledger_facts", extraction())
+    llm.set_response("scan_consistency", scan())
+
+    _events, analysis = _drain_analysis(
+        pipeline.analyze_import(unlocked_project["project"], [], _TURN_SOURCE, llm)
+    )
+
+    beats = analysis.new_doc["seasons"][0]["episodes"][0]["scenes"][0]["beats"]
+    assert [(b["kernel"], b["pressureChoice"]) for b in beats] == [(True, False), (False, True)]
+    Project.model_validate(analysis.new_doc)
+
+
+def test_segment_checkpoint_round_trips_kernel_and_choice():
+    span = split_into_scenes(_TURN_SOURCE)[0]
+    normalized = normalize_and_slice(span, _kernel_segmentation())
+    saved = json.loads(
+        json.dumps(
+            {
+                "beats": pipeline._dump_imported_beats(normalized.beats),
+                "reading": normalized.reading,
+            }
+        )
+    )
+    (loaded,) = pipeline._load_segment_checkpoints(
+        {pipeline.STAGE_SEGMENTING_BEATS: {"0": saved}}, [span]
+    )
+    assert [(b.kernel, b.pressure_choice) for b in loaded[0]] == [(True, False), (False, True)]
 
 
 def test_beat_names_resolve_without_minting():

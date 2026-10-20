@@ -89,6 +89,8 @@ function makeScene(partial: Partial<Scene> & { id: string }): Scene {
         actionVerb: '',
         targetCharacterId: null,
         reaction: '',
+        kernel: null,
+        pressureChoice: null,
         whatHappens: '',
         audienceLearns: '',
         audienceFeels: '',

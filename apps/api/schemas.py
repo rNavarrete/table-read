@@ -156,6 +156,9 @@ class Beat(_Base):
     action_verb: str = ""
     target_character_id: Id | None = None
     reaction: str = ""
+    # T10.9 — kernel / choice under pressure (see the Zod `Beat`); None = not read.
+    kernel: bool | None = None
+    pressure_choice: bool | None = None
 
 
 class Charge(StrEnum):
@@ -1761,6 +1764,9 @@ class SegmentedSceneBeat(_Base):
     action_verb: str = ""
     target: str = ""
     reaction: str = ""
+    # T10.9 — defaulted so a pre-0.60.0 response parses.
+    kernel: bool = False
+    pressure_choice: bool = False
 
 
 class SegmentedSceneUnassigned(_Base):

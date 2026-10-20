@@ -67,6 +67,8 @@ function beat(id: string, index: number, overrides: Partial<Beat> = {}): Beat {
     actionVerb: '',
     targetCharacterId: null,
     reaction: '',
+    kernel: null,
+    pressureChoice: null,
     ...overrides,
   }
 }

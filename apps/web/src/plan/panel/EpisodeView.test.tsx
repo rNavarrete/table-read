@@ -50,6 +50,8 @@ function beat(id: string, index: number, scriptText = ''): Beat {
     actionVerb: '',
     targetCharacterId: null,
     reaction: '',
+    kernel: null,
+    pressureChoice: null,
   }
 }
 
