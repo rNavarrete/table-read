@@ -60,6 +60,10 @@ function beat(id: string, index: number, overrides: Partial<Beat> = {}): Beat {
     audienceFeels: '',
     scriptText: '',
     scriptLocked: false,
+    actorCharacterId: null,
+    actionVerb: '',
+    targetCharacterId: null,
+    reaction: '',
     ...overrides,
   }
 }
@@ -78,6 +82,10 @@ function scene(
     location: 'INT. THE LONG POUR - NIGHT',
     time: 'Night',
     socialSituation: '',
+    valueAtStake: '',
+    chargeIn: null,
+    chargeOut: null,
+    whyNow: '',
     whatHappens: '',
     audienceLearns: '',
     audienceFeels: '',

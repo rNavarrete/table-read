@@ -42,6 +42,10 @@ function scene(overrides: Partial<Scene> = {}): Scene {
     location: 'INT. THE LONG POUR - NIGHT',
     time: 'Night',
     socialSituation: '',
+    valueAtStake: '',
+    chargeIn: null,
+    chargeOut: null,
+    whyNow: '',
     whatHappens:
       'Marta walks back into the bar for the first time in eight years.',
     audienceLearns: '',

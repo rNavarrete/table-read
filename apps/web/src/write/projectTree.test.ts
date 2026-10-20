@@ -18,6 +18,10 @@ function scene(overrides: Partial<Scene> = {}): Scene {
     location: 'INT. BAR',
     time: 'NIGHT',
     socialSituation: '',
+    valueAtStake: '',
+    chargeIn: null,
+    chargeOut: null,
+    whyNow: '',
     whatHappens: 'Something happens.',
     audienceLearns: '',
     audienceFeels: '',
@@ -107,6 +111,10 @@ describe('pickDefaultScene', () => {
           audienceFeels: '',
           scriptText: '',
           scriptLocked: false,
+          actorCharacterId: null,
+          actionVerb: '',
+          targetCharacterId: null,
+          reaction: '',
         },
       ],
     })
@@ -179,6 +187,10 @@ describe('story order (act, then index — never array position)', () => {
       audienceFeels: '',
       scriptText: '',
       scriptLocked: false,
+      actorCharacterId: null,
+      actionVerb: '',
+      targetCharacterId: null,
+      reaction: '',
     }
     const withBeats = moved.map((s) => ({ ...s, beats: [beat] }))
     expect(pickDefaultScene(project(withBeats))?.id).toBe('scene-c')

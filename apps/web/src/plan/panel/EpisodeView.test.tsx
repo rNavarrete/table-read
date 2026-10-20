@@ -46,6 +46,10 @@ function beat(id: string, index: number, scriptText = ''): Beat {
     audienceFeels: '',
     scriptText,
     scriptLocked: false,
+    actorCharacterId: null,
+    actionVerb: '',
+    targetCharacterId: null,
+    reaction: '',
   }
 }
 
@@ -65,6 +69,10 @@ function scene(
     location,
     time: 'Night',
     socialSituation: '',
+    valueAtStake: '',
+    chargeIn: null,
+    chargeOut: null,
+    whyNow: '',
     whatHappens: '',
     audienceLearns: '',
     audienceFeels: '',
