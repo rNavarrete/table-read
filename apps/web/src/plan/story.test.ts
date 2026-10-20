@@ -201,6 +201,9 @@ function thread(
     payoffBeatId: null,
     locked: false,
     storyline: null,
+    movements: [],
+    closureLevel: null,
+    secondJob: '',
   }
 }
 

@@ -251,6 +251,9 @@ function storyProject(): Project {
       payoffBeatId: null,
       locked: false,
       storyline: null,
+      movements: [],
+      closureLevel: null,
+      secondJob: '',
     },
   ]
   return p
