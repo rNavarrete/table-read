@@ -308,3 +308,32 @@ def test_a_plan_only_beat_is_verified_against_its_plan(seeded_project, mock_llm,
     mock_llm.set_response("verify_structure_check", _verdicts(circle_you=True))
     assert _post("story_circle").status_code == 200
     assert seen["claims"][0]["excerpt"].startswith("The cover stories collapse")
+
+
+def test_a_check_saved_before_windows_still_loads(seeded_project, db_session):
+    """T10.5 fields default: a pre-0.55.0 stage has no position keys at all."""
+    old = {
+        "lens": "save_the_cat",
+        "applies": True,
+        "rationale": "Fits.",
+        "stages": [
+            {
+                "stage": "catalyst",
+                "status": "hit",
+                "beatId": "beat-1-1",
+                "sceneId": "scene-1",
+                "reason": "r",
+                "evidenceQuote": "q",
+            }
+        ],
+        "sourceHash": "abc",
+        "checkedAt": "2026-10-11T00:00:00Z",
+        "promptVersion": "0.51.0",
+    }
+    _edit(db_session, lambda ep: ep.update(structureChecks=[old]))
+    res = client.get(f"/api/v1/projects/{PID}")
+    assert res.status_code == 200
+    (stage,) = _checks(res)[0]["stages"]
+    assert [stage[k] for k in ("positionPct", "expectedPct", "windowPct", "placement")] == [
+        None
+    ] * 4

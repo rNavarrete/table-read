@@ -624,6 +624,37 @@ describe('StructureCheck', () => {
       false,
     )
   })
+  it('loads a pre-T10.5 stage with null position fields', () => {
+    expect(StructureStage.parse(stage)).toMatchObject({
+      positionPct: null,
+      expectedPct: null,
+      windowPct: null,
+      placement: null,
+    })
+  })
+  it('accepts a placed Turning Points stage and bounds positionPct', () => {
+    const placed = {
+      ...stage,
+      stage: 'tp_point_of_no_return',
+      positionPct: 48.2,
+      expectedPct: 51,
+      windowPct: 12,
+      placement: 'in_window',
+    }
+    expect(
+      StructureCheck.safeParse({
+        ...check,
+        lens: 'turning_points',
+        stages: [placed],
+      }).success,
+    ).toBe(true)
+    expect(
+      StructureStage.safeParse({ ...placed, positionPct: 101 }).success,
+    ).toBe(false)
+    expect(
+      StructureStage.safeParse({ ...placed, placement: 'on_time' }).success,
+    ).toBe(false)
+  })
   it('defaults Episode.structureChecks to []', () => {
     const episode = Episode.parse({
       id: 'ep-1',

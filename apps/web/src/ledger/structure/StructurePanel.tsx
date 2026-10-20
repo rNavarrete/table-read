@@ -3,6 +3,7 @@ import type {
   Project,
   Scene,
   StructureLens,
+  StructureStage,
   StructureStageStatus,
 } from 'contract'
 import { Chip, type ChipHue } from '../../plan/Chip'
@@ -32,6 +33,7 @@ type Row = {
   beatId: string | null
   sceneId: string | null
   reason: string
+  placement: string | null
   quote: string | null
 }
 
@@ -75,6 +77,44 @@ function summaryLine(rows: Row[], ai: boolean): string {
   return parts.join(' · ')
 }
 
+const pct = (n: number) => `${Math.round(n)}%`
+
+/** Where a placed stage's beat sits, in words — stated, never graded (T10.5).
+ * Null for stages the server did not place, and for checks saved before it. */
+function placementLine(
+  stage: StructureStage,
+  stages: StructureStage[],
+  lens: StructureLens,
+): string | null {
+  const { positionPct, expectedPct, windowPct, placement } = stage
+  if (
+    placement == null ||
+    positionPct == null ||
+    expectedPct == null ||
+    windowPct == null
+  )
+    return null
+  const at = `at ${pct(positionPct)} · expected ${pct(expectedPct)} ± ${Math.round(windowPct)}`
+  if (placement === 'in_window') return at
+  if (placement === 'early') return `${at} · earlier than usual`
+  if (placement === 'late') return `${at} · later than usual`
+  // The nearest earlier placed stage whose beat comes after this one.
+  const order = STAGE_ORDER[lens]
+  const after = order
+    .slice(0, order.indexOf(stage.stage))
+    .reverse()
+    .map((id) => stages.find((other) => other.stage === id))
+    .find(
+      (other) =>
+        other?.placement != null &&
+        other.positionPct != null &&
+        other.positionPct > positionPct,
+    )
+  return after
+    ? `${at} · comes before the ${STAGE_LABELS[after.stage].toLowerCase()}`
+    : `${at} · out of order`
+}
+
 function StageRow({
   row,
   onOpenBeat,
@@ -96,6 +136,14 @@ function StageRow({
       {row.reason ? (
         <span className="mt-1 block text-13 text-tr-text-secondary">
           {row.reason}
+        </span>
+      ) : null}
+      {row.placement ? (
+        <span
+          className="mt-1 block text-12 text-tr-text-muted"
+          data-testid={`structure-placement-${row.key}`}
+        >
+          {row.placement}
         </span>
       ) : null}
       {row.quote ? (
@@ -180,6 +228,7 @@ export function StructurePanel({
         beatId: stage.beatId,
         sceneId: stage.sceneId,
         reason: stage.summary,
+        placement: null,
         quote: null,
       })) ?? null
   } else if (check?.applies) {
@@ -192,6 +241,7 @@ export function StructurePanel({
         beatId: stage.beatId,
         sceneId: stage.sceneId,
         reason: stage.reason,
+        placement: placementLine(stage, check.stages, check.lens),
         quote: stage.evidenceQuote,
       }))
   }
