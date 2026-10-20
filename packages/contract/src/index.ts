@@ -753,6 +753,9 @@ export const Episode = z.object({
   narrativeMap: NarrativeMap.nullable().default(null),
   // At most one per lens; a new check replaces that lens's entry.
   structureChecks: z.array(StructureCheck).default([]),
+  // T10.13 — when Plan's Check craft last ran on this episode (ISO time);
+  // null until it has. Its notes live in consistency flags.
+  craftCheckedAt: z.string().nullable().default(null),
 })
 export type Episode = z.infer<typeof Episode>
 

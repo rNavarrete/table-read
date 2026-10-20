@@ -120,6 +120,7 @@ function episode(scenes: Scene[], overrides: Partial<Episode> = {}): Episode {
     storyOverview: null,
     narrativeMap: null,
     structureChecks: [],
+    craftCheckedAt: null,
     characterArcs: [],
     ...overrides,
   }

@@ -167,6 +167,7 @@ describe('useProjectPatch', () => {
             storyOverview: null,
             narrativeMap: null,
             structureChecks: [],
+            craftCheckedAt: null,
             characterArcs: [],
           },
         ],

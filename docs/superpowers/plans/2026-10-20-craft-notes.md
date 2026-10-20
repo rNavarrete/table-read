@@ -106,6 +106,7 @@
   - `SchemaInvalidLlmError` → 502;
   - `anthropic.APIError` / `LlmTimeoutError` → 503 `LLM_UNAVAILABLE`.
 - Modify: `docs/tableread-data-contract.md` §4. Add the endpoint line, and `CRAFT_CHECK_NOT_READY` to the code list.
+- Modify: `Episode` in Zod, Pydantic and data contract §1. Add `craftCheckedAt: string | null`, default null, which the check stamps (the web test fixtures gain `craftCheckedAt: null`).
 - Test: `apps/api/tests/test_craft.py`.
 
 **Rules `craft_flags` applies, in order:**
@@ -195,7 +196,7 @@
   - Update the docstring: this button is the one explicit model call.
   - New props: `craft: { open: number; dismissed: number; checkedAt: string | null; busy: boolean; error: string | null }` and `onCheckCraft: () => void`.
 - Modify: `apps/web/src/plan/PlanScreen.tsx`.
-  - `runCraftCheck` calls `checkCraft(pid, {ifMatch: head})`, then `setProject`, then `getConsistencyFlags(pid)` (all statuses) to set open flags and counts, then reads `listProjectSnapshots(pid)` for the latest `instruction === 'Craft check'` `ts`.
+  - `runCraftCheck` calls `checkCraft(pid, {ifMatch: head})`, then `setProject`, then `getConsistencyFlags(pid)` (all statuses) to set open flags and counts. "Checked" reads `episode.craftCheckedAt` (added in Task 3), not snapshot history, which leaves out the head.
   - Announce in `plan-live`: "Craft check: n notes." or "Craft check: no notes."
   - On error, set `craft.error` to the API message, with nothing else changed.
   - Load `checkedAt` and the counts once with the project load (GETs only, no model).

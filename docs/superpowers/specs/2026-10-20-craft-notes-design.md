@@ -99,7 +99,7 @@ The `[code]` prefix is the pattern import notes already use, which Plan parses w
 
 **A fixed line clears its note.** Plan hides an open craft note whose excerpt `locate_quote` can no longer find in the beat's current `scriptText`; the web needs an equivalent normalization in `story.ts`. The next check marks such notes `resolved`.
 
-**Last checked:** each check's snapshot uses the instruction `Craft check`. The Episode view reads the latest such snapshot's time from the existing snapshot history (`SnapshotSummary` has `instruction` and `ts`), so "No craft notes · checked 2 min ago" survives a reload with no contract change.
+**Last checked:** each check stamps `episode.craftCheckedAt` (ISO time, null until the first check), following the precedent of `structureChecks[].checkedAt`. The Episode view reads it from the project it already has, so "No craft notes · checked 2 min ago" survives a reload. This is one small contract field. Snapshot history was the first idea, but `GET /snapshots` lists only ancestors of the current head (it leaves out the head and caps at 20), so a "Craft check" snapshot that is the head never shows up.
 
 **The why sentence** never names a scene as "scene n": `story.linkifyNote` turns "scene 11" into a link to the id `scene-11`, which is the wrong scene once scenes move. Name characters and lines, not scene numbers.
 

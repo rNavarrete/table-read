@@ -675,6 +675,8 @@ class Episode(_Base):
     narrative_map: NarrativeMap | None = None
     # At most one per lens; a new check replaces that lens's entry.
     structure_checks: list[StructureCheck] = []
+    # T10.13 — when Check craft last ran (ISO time); None until it has.
+    craft_checked_at: str | None = None
 
 
 class CharacterArc(_Base):

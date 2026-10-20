@@ -247,6 +247,7 @@ function episode(overrides: Partial<Episode> = {}): Episode {
     },
     narrativeMap: null,
     structureChecks: [],
+    craftCheckedAt: null,
     characterArcs: [],
     ...overrides,
   }
