@@ -39,6 +39,8 @@ function beat(id: string, index: number): Beat {
     actionVerb: '',
     targetCharacterId: null,
     reaction: '',
+    kernel: null,
+    pressureChoice: null,
   }
 }
 

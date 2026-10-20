@@ -16,6 +16,7 @@ import {
   Secret,
   StructureCheck,
   StructureStage,
+  Beat,
   Scene,
   SegmentedScene,
 } from './index'
@@ -923,6 +924,44 @@ describe('T10.1 scene turn and beat actions', () => {
       sceneChargeIn: null,
       sceneChargeOut: null,
       sceneWhyNow: '',
+    })
+  })
+})
+
+describe('T10.9 kernels and choices', () => {
+  const beat = {
+    id: 'beat-3-1',
+    index: 0,
+    whatHappens: 'w',
+    audienceLearns: 'l',
+    audienceFeels: 'f',
+  }
+  it('reads a pre-T10.9 beat as not read (null), not as false', () => {
+    expect(Beat.parse(beat)).toMatchObject({
+      kernel: null,
+      pressureChoice: null,
+    })
+  })
+  it('round-trips both readings and rejects a non-boolean', () => {
+    const read = { ...beat, kernel: true, pressureChoice: false }
+    expect(Beat.parse(read)).toMatchObject(read)
+    expect(Beat.safeParse({ ...beat, kernel: 'maybe' }).success).toBe(false)
+  })
+  it('defaults a pre-0.60.0 segment to false, and keeps returned values', () => {
+    const segment = { kind: 'beat', startLine: 1, ...beat }
+    const parsed = SegmentedScene.parse({
+      segments: [
+        segment,
+        { ...segment, startLine: 2, kernel: true, pressureChoice: true },
+      ],
+    })
+    expect(parsed.segments[0]).toMatchObject({
+      kernel: false,
+      pressureChoice: false,
+    })
+    expect(parsed.segments[1]).toMatchObject({
+      kernel: true,
+      pressureChoice: true,
     })
   })
 })

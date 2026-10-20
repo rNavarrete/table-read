@@ -60,6 +60,8 @@ function scene(
             actionVerb: '',
             targetCharacterId: null,
             reaction: '',
+            kernel: null,
+            pressureChoice: null,
           },
         ]
       : [],

@@ -111,6 +111,15 @@ export const Beat = z.object({
   actionVerb: z.string().default(''),
   targetCharacterId: Id.nullable().default(null),
   reaction: z.string().default(''),
+  // T10.9 — what the beat does for the story, read by segment_scene with the
+  // whole episode in view: `kernel`, removing it breaks the story's logic
+  // (Chatman; otherwise a satellite); `pressureChoice`, a character makes a
+  // real choice with something at stake and a cost either way (McKee). Import
+  // writes the model's booleans; null = not read (authored, generated and
+  // pre-T10.9 beats, and an import's synthetic whole-scene beat), kept apart
+  // from false. Read-only in Plan.
+  kernel: z.boolean().nullable().default(null),
+  pressureChoice: z.boolean().nullable().default(null),
 })
 
 // T10.1 — a value's charge as a scene opens or closes (McKee / Story Grid
@@ -1398,6 +1407,10 @@ const SegmentedSceneBeat = z.object({
   actionVerb: z.string().default(''),
   target: z.string().default(''),
   reaction: z.string().default(''),
+  // T10.9 (0.60.0) — → Beat.kernel / pressureChoice. Defaulted so a
+  // pre-0.60.0 response still parses.
+  kernel: z.boolean().default(false),
+  pressureChoice: z.boolean().default(false),
 })
 const SegmentedSceneUnassigned = z.object({
   kind: z.literal('unassigned'),
