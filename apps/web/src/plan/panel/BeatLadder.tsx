@@ -75,7 +75,7 @@ function ActionLine({
   )
 }
 
-/** T10.9: the import's kernel / choice-under-pressure readings — a muted
+/** T10.9: the import's kernel / choice-under-pressure readings — a small
  * tag on the row, a sentence when it opens. Nothing for null (not read) or
  * false. */
 const READINGS = [
@@ -217,7 +217,7 @@ export function BeatLadder({
                         beat[key] && (
                           <span
                             key={key}
-                            className="text-11 text-tr-text-secondary"
+                            className="text-11 text-tr-text-primary"
                           >
                             {tag}
                           </span>
