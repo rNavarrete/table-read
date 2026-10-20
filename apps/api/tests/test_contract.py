@@ -11,6 +11,7 @@ import pytest
 from pydantic import ValidationError
 
 from schemas import (
+    Beat,
     ExtractedFact,
     KnowledgeEvent,
     PersistedState,
@@ -186,6 +187,33 @@ def test_pre_0_52_segment_scene_response_parses_with_defaults():
         parsed.scene_why_now,
     ) == ("", None, None, "")
 
+
+
+def test_pre_t10_9_beat_reads_as_not_read_and_readings_round_trip():
+    beat = Scene.model_validate(_PRE_T10_1_SCENE).beats[0]
+    assert (beat.kernel, beat.pressure_choice) == (None, None)
+    read = {**_PRE_T10_1_SCENE["beats"][0], "kernel": True, "pressureChoice": False}
+    dumped = Beat.model_validate(read).model_dump(by_alias=True, mode="json")
+    assert (dumped["kernel"], dumped["pressureChoice"]) == (True, False)
+    with pytest.raises(ValidationError):
+        Beat.model_validate({**read, "kernel": "maybe"})
+
+
+def test_pre_0_60_segment_defaults_to_false_and_keeps_returned_values():
+    segment = {
+        "kind": "beat",
+        "startLine": 1,
+        "whatHappens": "w",
+        "audienceLearns": "l",
+        "audienceFeels": "f",
+    }
+    parsed = SegmentedScene.model_validate(
+        {"segments": [segment, {**segment, "startLine": 2, "kernel": True, "pressureChoice": True}]}
+    )
+    assert [(s.kernel, s.pressure_choice) for s in parsed.segments] == [
+        (False, False),
+        (True, True),
+    ]
 
 _PRE_T10_4_EXTRACTED_FACT = {
     "fact": "Dan hid the money.",

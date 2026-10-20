@@ -482,7 +482,9 @@ Purpose: Fountain/plain-text import → scenes/beats (MVP: single episode). **Tw
       "actor": "",
       "actionVerb": "",
       "target": "",
-      "reaction": ""
+      "reaction": "",
+      "kernel": false,
+      "pressureChoice": false
     },
     {
       "kind": "unassigned",
@@ -502,6 +504,8 @@ Purpose: Fountain/plain-text import → scenes/beats (MVP: single episode). **Tw
 ```
 
 **Boundaries and readings (`PROMPT_VERSION 0.54.0`, T10.1).** The prompt states the §0 boundary rule — a new beat starts on a tactic or objective change, an entrance or exit, or a location change — and that a topic change while the tactic holds is not a new beat. Boundaries come from the target scene alone; the whole split script (cached prefix) informs only what a beat means. Per beat, besides `whatHappens / audienceLearns / audienceFeels`: `actor`, the character pursuing the tactic, named as the script names them; `actionVerb`, one present-tense transitive verb for the tactic as an actor would play it (probes, flatters, stonewalls, threatens), never a summary verb (talks, discusses); `target`, the character it is aimed at, or `""` when it is aimed at no one; `reaction`, how the target answers in a short clause, or `""`. Scene level, besides the four 0.41.0 fields: `sceneValueAtStake`, one or two words (trust, freedom, safety, love); `sceneChargeIn` / `sceneChargeOut`, `positive | negative | mixed` for the character the scene turns on, as it opens and as it closes; `sceneWhyNow`, one sentence on the pressure that forces the scene now rather than earlier or later. Every reading is grounded in the scene and left empty (a charge `null`) rather than padded; every new field defaults, so a pre-0.54.0 response parses. The server stores the scene fields on `Scene.valueAtStake / chargeIn / chargeOut / whyNow` as returned, and after the entities stage resolves `actor` / `target` against the final cast (aliases included) to `Beat.actorCharacterId / targetCharacterId`; an unknown or ambiguous name stays `null` and the verb and reaction are kept. Logs carry resolved/unresolved counts only.
+
+**Kernels and choices (`PROMPT_VERSION 0.60.0`, T10.9).** Per beat, judged against the whole episode (the cached prefix), not the scene alone: `kernel` — true when removing the beat would break the story's logic, because it opens, turns or closes a line of action with consequences later (Chatman's deletion test); false when the beat only elaborates, colours or repeats what other beats carry (a satellite). `pressureChoice` — true when a character makes a real choice in the beat, with something at stake and a cost either way (McKee); false for a reaction, a reflex, or a decision with nothing at risk. Both are booleans the strict tool schema requires and default to false, so a pre-0.60.0 response parses. The server stores them on `Beat.kernel / pressureChoice` as returned; the synthetic beat of a scene that came back all unassigned stores `null` (not read), and a duplicate-start beat whose metadata is discarded adds nothing to the beat that absorbs its lines. Segment checkpoints carry both; one saved before 0.60.0 loads `null`.
 
 Server rules: for starts `s₁…sₙ`, the server derives each end as `sᵢ₊₁−1` and the final end as `K`, then slices `scriptText` verbatim. Whole segment objects are sorted by `startLine`; missing line 1 gets a synthetic unassigned prefix; out-of-bounds starts are discarded; duplicate starts collapse to one unassigned segment; no usable starts yields one whole-scene unassigned segment. Every selected repair is flagged with a stable reason code, and unassigned runs attach to the nearest beat, so coverage is always exactly `1..K` and semantic start errors never abort import.
 

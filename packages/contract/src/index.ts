@@ -136,6 +136,13 @@ export const Beat = z.object({
   actionVerb: z.string().default(''),
   targetCharacterId: Id.nullable().default(null),
   reaction: z.string().default(''),
+  // T10.9 — the import's reading of what the beat does for the story:
+  // `kernel`, the story's logic breaks without it (Chatman); `pressureChoice`,
+  // a character makes a real choice under pressure here (McKee). null = not
+  // read (authored, generated and pre-T10.9 beats, and import's synthetic
+  // beats), kept apart from false = read as neither. Read-only in Plan.
+  kernel: z.boolean().nullable().default(null),
+  pressureChoice: z.boolean().nullable().default(null),
 })
 export type Beat = z.infer<typeof Beat>
 
@@ -1896,6 +1903,10 @@ const SegmentedSceneBeat = z.object({
   actionVerb: z.string().default(''),
   target: z.string().default(''),
   reaction: z.string().default(''),
+  // T10.9 — read with the whole episode in view; defaulted so a pre-0.60.0
+  // response still parses (the import then stores false, not null).
+  kernel: z.boolean().default(false),
+  pressureChoice: z.boolean().default(false),
 })
 
 const SegmentedSceneUnassigned = z.object({

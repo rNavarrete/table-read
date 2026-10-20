@@ -45,6 +45,7 @@ def test_segment_scene_returns_beat_actions_and_the_scene_turn():
     assert result.scene_value_at_stake == "trust"
     assert (result.scene_charge_in, result.scene_charge_out) == ("positive", "negative")
     assert result.scene_why_now
+    assert (beat.kernel, beat.pressure_choice) == (True, True)  # T10.9
     assert result == MockLlmClient().segment_scene(**_CALL_KWARGS)
 
 

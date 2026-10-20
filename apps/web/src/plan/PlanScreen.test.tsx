@@ -130,6 +130,8 @@ function scene(overrides: Partial<Scene> = {}): Scene {
         actionVerb: '',
         targetCharacterId: null,
         reaction: '',
+        kernel: null,
+        pressureChoice: null,
       },
     ],
     ...overrides,
