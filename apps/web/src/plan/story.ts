@@ -18,6 +18,7 @@ import { tvActStages } from '../ledger/structure/tvActStructure'
 import { plural } from '../projects/wizard/board/boardText'
 import { parseFountainLines, type FountainLine } from '../write/fountainFormat'
 import { boardOrder } from '../write/projectTree'
+import { CRAFT_LABELS, type CraftCheck } from './craftSources'
 import {
   actLabel,
   actNumbersForBoard,
@@ -41,9 +42,13 @@ export { boardOrder }
 
 // ── Notes ────────────────────────────────────────────────────────────────
 
-export type FlagKind = 'continuity' | 'act_split' | 'import'
+export type FlagKind = 'continuity' | 'act_split' | 'craft' | 'import'
 
 const IMPORT_CODE = /^\[([a-z][a-z0-9_]*)\]\s*/
+// The server writes `[craft_<check>] “<excerpt>” — <why>` (drama_manager/craft.py).
+const CRAFT_CODE = /^\[craft_(theme_stated|on_the_nose)\]/
+const CRAFT_NOTE =
+  /^\[craft_(theme_stated|on_the_nose)\]\s*(?:“(.*?)” — )?(.*)$/s
 // Imports from before the repair codes wrote this for model_unassigned.
 const LEGACY_UNASSIGNED =
   /^Imported source lines \d+-\d+ could not be assigned to a beat/
@@ -58,11 +63,13 @@ function importCode(explanation: string): string | null {
 }
 
 /** ponytail: the kind is read from the explanation text. A leading
- * `[snake_case]` repair code (fountain/pipeline.py, fountain/characters.py)
- * means an import note; an act-break / act-structure phrase means an act-split
- * note; anything else is continuity. Replace with `flag.kind` once the
- * contract carries one (redesign spec §9). */
+ * `[craft_<check>]` code means a craft note (tested first: IMPORT_CODE matches
+ * any `[snake_case]`); another `[snake_case]` repair code (fountain/pipeline.py,
+ * fountain/characters.py) means an import note; an act-break / act-structure
+ * phrase means an act-split note; anything else is continuity. Replace with
+ * `flag.kind` once the contract carries one (redesign spec §9). */
 export function flagKind(flag: ConsistencyFlag): FlagKind {
+  if (CRAFT_CODE.test(flag.explanation)) return 'craft'
   if (importCode(flag.explanation)) return 'import'
   if (ACT_SPLIT.test(flag.explanation)) return 'act_split'
   return 'continuity'
@@ -75,9 +82,51 @@ export interface PlanNote {
   beat: Beat | null
 }
 
+export interface CraftNote {
+  check: CraftCheck
+  /** '' when the explanation carries no quoted line */
+  excerpt: string
+  why: string
+}
+
+/** A craft note's parts, or null for any other flag. */
+export function craftNote(flag: ConsistencyFlag): CraftNote | null {
+  const match = CRAFT_NOTE.exec(flag.explanation)
+  return match
+    ? { check: match[1] as CraftCheck, excerpt: match[2] ?? '', why: match[3] }
+    : null
+}
+
+// ledger_policy._TYPOGRAPHIC_FOLD's characters, plus collapsed whitespace.
+const foldQuote = (text: string) =>
+  text
+    .replace(/[‘’‚′´`]/g, "'")
+    .replace(/[“”„″]/g, '"')
+    .replace(/[–—−]/g, '-')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+/** The excerpt is still in the beat's script: case-sensitive, after folding
+ * curly quotes, dashes and whitespace.
+ * ponytail: no HTML-entity or page-furniture folding (the server's
+ * locate_quote has both), so a line the server matched only across a
+ * "(MORE)" break reads as fixed here; port _match_view if that shows up. */
+export function excerptInBeat(excerpt: string, scriptText: string): boolean {
+  return foldQuote(scriptText).includes(foldQuote(excerpt))
+}
+
+const KIND_ORDER: Record<FlagKind, number> = {
+  continuity: 0,
+  act_split: 0,
+  craft: 1,
+  import: 2,
+}
+
 /** Open flags on this scene or one of its beats: story notes first, then
- * import notes, each group in beat order (scene-level first). A flag on a beat
- * this scene doesn't have is dropped. */
+ * craft notes, then import notes, each group in beat order (scene-level
+ * first). A flag on a beat this scene doesn't have is dropped, and so is a
+ * craft note whose line is no longer in its beat (the writer fixed it; the
+ * next check marks it resolved). */
 export function notesForScene(
   flags: readonly ConsistencyFlag[],
   scene: Scene,
@@ -91,14 +140,16 @@ export function notesForScene(
         : undefined
     const onThisScene =
       flag.objectType === 'scene' ? flag.objectId === scene.id : !!beat
-    if (onThisScene)
-      notes.push({ flag, kind: flagKind(flag), beat: beat ?? null })
+    if (!onThisScene) continue
+    const kind = flagKind(flag)
+    const excerpt = kind === 'craft' ? craftNote(flag)?.excerpt : undefined
+    if (excerpt && !excerptInBeat(excerpt, beat?.scriptText ?? '')) continue
+    notes.push({ flag, kind, beat: beat ?? null })
   }
   const beatOrder = (note: PlanNote) => (note.beat ? note.beat.index + 1 : 0)
   return notes.sort(
     (a, b) =>
-      Number(a.kind === 'import') - Number(b.kind === 'import') ||
-      beatOrder(a) - beatOrder(b),
+      KIND_ORDER[a.kind] - KIND_ORDER[b.kind] || beatOrder(a) - beatOrder(b),
   )
 }
 
@@ -1018,7 +1069,9 @@ export interface SceneSignals {
   /** notesForScene(...) split by kind, each in beat order */
   storyNotes: PlanNote[]
   importNotes: PlanNote[]
-  /** One per beat in index order, at most 12; a story note wins over an import note. */
+  /** One per beat in index order, at most 12; a story note wins over an
+   * import note. Craft notes are in storyNotes (⚑, N, the None lens) but tick
+   * like import notes: a craft-only card mustn't read as a continuity problem. */
   ticks: BeatTick[]
   /** Set up here and paid off in another scene, or never. Abandoned threads
    * never count (here or anywhere below). */
@@ -1151,6 +1204,10 @@ export function boardModel(
     const importNotes = notes.filter((n) => n.kind === 'import')
     const onBeat = (group: PlanNote[], beatId: string) =>
       group.some((n) => n.beat?.id === beatId)
+    const amber = storyNotes.filter((n) => n.kind !== 'craft')
+    const hollow = notes.filter(
+      (n) => n.kind === 'craft' || n.kind === 'import',
+    )
     const setsUp = live.filter(
       (t) => t.setupSceneId === scene.id && t.payoffSceneId !== scene.id,
     )
@@ -1169,9 +1226,9 @@ export function boardModel(
         .sort((a, b) => a.index - b.index)
         .slice(0, 12)
         .map((b) =>
-          onBeat(storyNotes, b.id)
+          onBeat(amber, b.id)
             ? 'story'
-            : onBeat(importNotes, b.id)
+            : onBeat(hollow, b.id)
               ? 'import'
               : 'plain',
         ),
@@ -1313,13 +1370,19 @@ export function relationTape(
   return null
 }
 
-/** One plain sentence for a note: an import note's importNoteText, else the
- * first sentence of the explanation with scene/fact references as plain text. */
+/** One plain sentence for a note: an import note's importNoteText, a craft
+ * note's check and quoted line, else the first sentence of the explanation
+ * with scene/fact references as plain text. */
 export function noteSentence(
   note: PlanNote,
   scene: Scene,
   scenes: readonly Scene[],
 ): string {
+  const craft = note.kind === 'craft' ? craftNote(note.flag) : null
+  if (craft)
+    return craft.excerpt
+      ? `${CRAFT_LABELS[craft.check]}: “${craft.excerpt}”`
+      : CRAFT_LABELS[craft.check]
   if (note.kind === 'import')
     return importNoteText(
       note.flag,
