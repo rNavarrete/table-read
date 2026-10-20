@@ -159,7 +159,7 @@ Existing cross-act drag behavior remains. The selector is the correction path fo
 
 - Parsing explicit act headings as an alternate source of truth.
 - Inferring A/B/C storylines.
-- Representing or inferring a distinct TAG section. `ShowFormat.tag` exists, but the current `Scene.act` model and Plan board cannot encode a tag separately; that requires its own contract/UI design.
+- ~~Representing or inferring a distinct TAG section.~~ Lifted by T10.7 (`2026-10-19-breakdown-ledgers-p1-design.md`, "T10.7 Tag and act-outs"): a tag is `Scene.act = format.actCount + 1`, valid only when `format.tag`; printed `TAG` markers and model starts may open it, and Plan labels it TAG.
 - Multi-episode or feature-film import behavior.
 - Showing an act-break confirmation step before project creation.
 - Rebalancing acts after the writer edits or reorders scenes.

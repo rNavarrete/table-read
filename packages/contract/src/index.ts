@@ -152,7 +152,7 @@ export type StorylineId = z.infer<typeof StorylineId>
 export const Scene = z.object({
   id: Id,
   index: z.number().int().min(0),
-  act: z.number().int().min(0), // 0 = cold open
+  act: z.number().int().min(0), // 0 = cold open; actCount + 1 = tag (T10.7)
   storyline: StorylineId.default('A'), // import infers it (T10.2); writer tagging is v2
   locked: z.boolean().default(false),
   location: z.string(),
