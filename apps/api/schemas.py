@@ -167,16 +167,20 @@ class Charge(StrEnum):
 
 
 class StorylineId(StrEnum):
+    """T10.2 — A the main story, B the second, C and D lesser strands or a
+    runner. See packages/contract/src/index.ts's `StorylineId`."""
+
     a = "A"
     b = "B"
     c = "C"
+    d = "D"
 
 
 class Scene(_Base):
     id: Id
     index: int = Field(ge=0)
     act: int = Field(ge=0)  # 0 = cold open
-    storyline: StorylineId = StorylineId.a  # present in schema; UI tagging is v2
+    storyline: StorylineId = StorylineId.a  # import infers it (T10.2); writer tagging is v2
     locked: bool = False
     location: str
     time: str
@@ -257,6 +261,8 @@ class StoryThread(_Base):
     setup_beat_id: Id | None = None
     payoff_beat_id: Id | None = None
     locked: bool = False
+    # T10.2 — kept only when that storyline survived the import merge.
+    storyline: StorylineId | None = None
 
 
 class Provenance(StrEnum):
@@ -1068,7 +1074,7 @@ class ChangeSetContinuityConflict(_Base):
 # scene list (InitialSceneSkeleton below); the model never sets ids.
 class SceneAdditionStoryline(StrEnum):
     """MVP: storyline inference is deferred (design spec §9.4) — every scene
-    addition is tagged 'A', a narrower enum than `StorylineId` (A/B/C)."""
+    addition is tagged 'A', a narrower enum than `StorylineId` (A-D)."""
 
     a = "A"
 
@@ -1255,6 +1261,19 @@ class InferredThread(_Base):
     # quote from that beat. See the Zod docstring.
     setup_beat_id: Id | None
     payoff_beat_id: Id | None
+    # T10.2 — the letter of the storyline this thread belongs to.
+    storyline: StorylineId | None = None
+
+
+class InferredStoryline(_Base):
+    """T10.2 — one episode storyline. Names, not ids (server resolves);
+    scene ids from the supplied list. See the Zod `NarrativePromises`
+    docstring for the merge rules."""
+
+    letter: StorylineId
+    summary: str
+    character_names: list[str]
+    scene_ids: list[Id]
 
 
 class InferredMotivation(_Base):
@@ -1300,6 +1319,8 @@ class InferredSecret(_Base):
 
 class NarrativePromises(_Base):
     threads: list[InferredThread]
+    # Defaults to [] so a pre-0.53.0 response or checkpoint parses.
+    storylines: list[InferredStoryline] = []
     secrets: list[InferredSecret]
     scene_motivations: list[InferredSceneMotivations]
     world_rules: list[InferredWorldRule]
@@ -1626,7 +1647,7 @@ class SegmentedScene(_Base):
     scene_audience_learns: str = ""
     scene_audience_feels: str = ""
     scene_social_situation: str = ""
-    # T10.1 — the scene's turn, defaulted so a pre-0.52.0 response parses.
+    # T10.1 — the scene's turn, defaulted so a pre-0.54.0 response parses.
     scene_value_at_stake: str = ""
     scene_charge_in: Charge | None = None
     scene_charge_out: Charge | None = None

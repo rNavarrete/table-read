@@ -58,6 +58,23 @@
                 "type": "null"
               }
             ]
+          },
+          "storyline": {
+            "default": null,
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "A",
+                  "B",
+                  "C",
+                  "D"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -68,7 +85,48 @@
           "setupSceneId",
           "payoffSceneId",
           "setupBeatId",
-          "payoffBeatId"
+          "payoffBeatId",
+          "storyline"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "storylines": {
+      "default": [],
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "letter": {
+            "type": "string",
+            "enum": [
+              "A",
+              "B",
+              "C",
+              "D"
+            ]
+          },
+          "summary": {
+            "type": "string"
+          },
+          "characterNames": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "sceneIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "letter",
+          "summary",
+          "characterNames",
+          "sceneIds"
         ],
         "additionalProperties": false
       }
@@ -253,6 +311,7 @@
   },
   "required": [
     "threads",
+    "storylines",
     "secrets",
     "sceneMotivations",
     "worldRules"

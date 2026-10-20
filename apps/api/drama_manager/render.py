@@ -27,7 +27,7 @@ from typing import Any
 from drama_manager.structure_stages import STRUCTURE_NAMES, STRUCTURE_STAGES
 
 # Prompt spec §8 / hard rule 7: every template carries a PROMPT_VERSION (semver);
-# it is logged with each call and bumped on any template change. 0.52.0
+# it is logged with each call and bumped on any template change. 0.54.0
 # (T10.1) rewrites the §0 structural definitions from the craft breakdown
 # traditions — a scene turns on a value whose charge (positive, negative,
 # mixed) differs as it opens and closes; a beat is one exchange of action and
@@ -36,7 +36,9 @@ from drama_manager.structure_stages import STRUCTURE_NAMES, STRUCTURE_STAGES
 # the ~10-line cap as a boundary rule are gone) — and has segment_scene return
 # each beat from the character's side (actor, actionVerb, target, reaction)
 # and the scene's turn (value at stake, charge in and out, why now).
-# 0.51.0 adds
+# 0.53.0 asks
+# infer_narrative_promises for the episode's storylines (A-D, as a TV room
+# breaks them) and each thread's storyline letter (T10.2). 0.51.0 adds
 # check_structure and verify_structure_check (structure checklist). 0.50.0 lets
 # an import with no format ask infer_act_breaks for one (genre, runtime,
 # acts, cold open, tag, serialization) before its act starts, keeping any
@@ -156,7 +158,7 @@ from drama_manager.structure_stages import STRUCTURE_NAMES, STRUCTURE_STAGES
 # 0.10.0 typed segment starts; 0.9.0 lock-aware narrative repair. Earlier:
 # 0.8.0 suggest; 0.7.0 scene skeleton; 0.6.0 continuity; 0.5.0 regenerate;
 # 0.4.0 blast; 0.3.0 tune; 0.2.0 candidate + §0 system prompt.
-PROMPT_VERSION = "0.52.0"
+PROMPT_VERSION = "0.54.0"
 
 
 def new_nonce() -> str:
@@ -535,6 +537,16 @@ def build_promises_prompt(
         "been shown it, which is often true while the other characters are "
         "still in the dark. Ground every secret in what the source shows, not "
         "in what a character might plausibly be hiding.\n"
+        "Also name the episode's storylines the way a TV writers' room breaks "
+        "them: A is the main story, B the second, C and D lesser strands or a "
+        "runner. Return fewer when the episode has fewer — a one-strand "
+        "episode has only A; never pad to four. For each, give its letter, a "
+        "one-sentence summary, characterNames for the characters who carry "
+        "it, and sceneIds for the scenes that mainly serve it, chosen from "
+        "the scenes above. A scene belongs to at most one storyline; leave "
+        "out a scene that serves none. Set each thread's storyline to the "
+        "letter of the storyline it belongs to, or null when it belongs to "
+        "none.\n"
         "Do not repeat a rule already present in existing_world_rules; "
         "only report new ones. Refer to every character only by a name "
         "string from known_cast, never an id — the server resolves and "

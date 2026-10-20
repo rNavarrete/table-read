@@ -75,6 +75,7 @@ function thread(overrides: Partial<StoryThread> = {}): StoryThread {
     setupBeatId: null,
     payoffBeatId: null,
     locked: false,
+    storyline: null,
     ...overrides,
   }
 }

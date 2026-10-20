@@ -64,6 +64,16 @@ def test_set_response_overrides_the_default_for_that_op_only():
     assert client.tune_beat(**_CALL_KWARGS) == original_tune  # untouched
 
 
+def test_narrative_promises_default_returns_two_storylines_and_a_thread_letter():
+    """T10.2: deterministic A and B storylines on fixture scene ids."""
+    result = MockLlmClient().infer_narrative_promises(**_CALL_KWARGS)
+    assert [(s.letter, s.scene_ids) for s in result.storylines] == [
+        ("A", ["scene-1", "scene-3"]),
+        ("B", ["scene-2"]),
+    ]
+    assert result.threads[0].storyline == "A"
+
+
 def test_infer_act_breaks_can_be_overridden():
     from schemas import InferredActBreaks
 

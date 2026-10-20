@@ -11,7 +11,9 @@ episode's imported threads are replaced wholesale, same as its scenes);
 scene motivations are only written onto scenes that exist and only when at
 least one motivation resolves; world rules append only text the bible
 doesn't already have (case-insensitive), which also protects a locked
-rule's text from ever being duplicated underneath it.
+rule's text from ever being duplicated underneath it. Storylines (T10.2)
+tag scenes and threads with the episode's A-D strands; an episode with no
+surviving storyline is left exactly as import built it (`_merge_storylines`).
 
 No writer/import text is logged here (hard rule 5) — only ids and counts.
 """
@@ -27,7 +29,7 @@ from drama_manager.narrative_map import _source_quote
 from fountain.characters import resolve_character_id
 
 if TYPE_CHECKING:
-    from schemas import NarrativePromises
+    from schemas import InferredStoryline, NarrativePromises
 
 _logger = logging.getLogger("drama_manager.promises")
 
@@ -257,6 +259,72 @@ def _resolve_unique(names: list[str], characters: list[dict]) -> list[str]:
     return resolved
 
 
+def _merge_storylines(
+    episode: dict, storylines: list[InferredStoryline], characters: list[dict]
+) -> set[str]:
+    """Fold inferred storylines (T10.2) onto ``episode`` and return the
+    letters that survived.
+
+    A repeated letter keeps its first entry; unknown scene ids are dropped; a
+    scene listed under more than one letter keeps the earliest (A before B);
+    a storyline left with no scenes is dropped. Each scene's ``storyline``
+    becomes its letter, and a scene in no storyline stays ``'A'``.
+    ``characterNames`` resolve like thread owners (unresolved dropped).
+
+    Nothing survives (an empty list, or a pre-0.53.0 response or checkpoint)
+    → the episode is left untouched: every scene keeps the ``'A'`` import
+    stamped and ``storylines`` stays ``[]``. Logs counts only (rule 5).
+    """
+    scene_ids = {scene["id"] for scene in episode.get("scenes") or []}
+    first_by_letter: dict[str, InferredStoryline] = {}
+    for storyline in storylines:
+        first_by_letter.setdefault(str(storyline.letter), storyline)
+
+    letter_by_scene: dict[str, str] = {}
+    merged: list[dict] = []
+    unknown_scenes = 0
+    dropped_characters = 0
+    for letter in sorted(first_by_letter):
+        storyline = first_by_letter[letter]
+        claimed = 0
+        for scene_id in storyline.scene_ids:
+            if scene_id not in scene_ids:
+                unknown_scenes += 1
+            elif scene_id not in letter_by_scene:
+                letter_by_scene[scene_id] = letter
+                claimed += 1
+        if not claimed:
+            continue
+        dropped_characters += sum(
+            resolve_character_id(name, characters) is None
+            for name in storyline.character_names
+        )
+        merged.append(
+            {
+                "id": letter,
+                "summary": _clean_prose(storyline.summary),
+                "characterIds": _resolve_unique(storyline.character_names, characters),
+            }
+        )
+
+    if merged:
+        for scene in episode.get("scenes") or []:
+            scene["storyline"] = letter_by_scene.get(scene["id"], "A")
+        episode["storylines"] = merged
+    _logger.info(
+        "merge_narrative_promises storylines=%d scenes_assigned=%d "
+        "letters_repeated=%d scene_ids_unknown=%d storylines_empty=%d "
+        "characters_dropped=%d",
+        len(merged),
+        len(letter_by_scene),
+        len(storylines) - len(first_by_letter),
+        unknown_scenes,
+        len(first_by_letter) - len(merged),
+        dropped_characters,
+    )
+    return {storyline["id"] for storyline in merged}
+
+
 def merge_narrative_promises(
     doc: dict, episode_id: str, result: NarrativePromises
 ) -> dict:
@@ -287,14 +355,18 @@ def merge_narrative_promises(
       present among the bible's existing rules — this also means a locked
       rule's text can never be duplicated underneath it, satisfying "locked
       world rules untouched on merge" without any lock-cascade lookup.
+    - Storylines (T10.2): see `_merge_storylines`. A thread keeps its
+      `storyline` letter only if that storyline survived; otherwise null.
     """
     bible = doc.setdefault("seriesBible", {})
     characters = bible.get("characters") or []
     episode = _find_episode(doc, episode_id)
     scenes_by_id = {s["id"]: s for s in episode.get("scenes") or []}
+    letters = _merge_storylines(episode, result.storylines, characters)
 
     threads: list[dict] = []
     dropped_owners = 0
+    dropped_thread_letters = 0
     unresolved_beats = 0
     thread_minter = IdMinter([], "thread-")
     for inferred in result.threads:
@@ -325,6 +397,9 @@ def merge_narrative_promises(
             unresolved_beats += 1
         if inferred.payoff_beat_id and not payoff_quote:
             unresolved_beats += 1
+        storyline = inferred.storyline if inferred.storyline in letters else None
+        if inferred.storyline is not None and storyline is None:
+            dropped_thread_letters += 1
         threads.append(
             {
                 "id": thread_minter.mint(),
@@ -339,6 +414,7 @@ def merge_narrative_promises(
                 "setupBeatId": setup_beat_id,
                 "payoffBeatId": payoff_beat_id,
                 "locked": False,
+                "storyline": None if storyline is None else str(storyline),
             }
         )
     episode["threads"] = threads
@@ -467,13 +543,14 @@ def merge_narrative_promises(
         appended_rules += 1
     bible["worldRules"] = existing_rules
 
-    if dropped_owners or dropped_motivations or dropped_secrets:
+    if dropped_owners or dropped_motivations or dropped_secrets or dropped_thread_letters:
         _logger.info(
             "merge_narrative_promises owners_dropped=%d motivations_dropped=%d "
-            "secrets_dropped=%d",
+            "secrets_dropped=%d thread_storylines_dropped=%d",
             dropped_owners,
             dropped_motivations,
             dropped_secrets,
+            dropped_thread_letters,
         )
     _logger.info(
         "merge_narrative_promises threads=%d secrets=%d rules_appended=%d "

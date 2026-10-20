@@ -356,6 +356,7 @@ describe('ScenePanel', () => {
             setupBeatId: null,
             payoffBeatId: null,
             locked: false,
+            storyline: null,
           },
         ],
       }),
@@ -773,6 +774,7 @@ describe('ScenePanel', () => {
           setupBeatId: null,
           payoffBeatId: null,
           locked: false,
+          storyline: null,
         },
       ],
       timelineAnchors: [

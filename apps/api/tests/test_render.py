@@ -232,6 +232,19 @@ def test_promises_prompt_includes_the_complete_semantic_spine_for_late_threads()
     assert 'kind="import_scene_summaries"' not in user
 
 
+def test_promises_prompt_asks_for_storylines_and_thread_letters():
+    """T10.2: storylines A-D as a TV room breaks them, fewer when the
+    episode has fewer, one storyline per scene, and a thread letter."""
+    _system, user = render.build_promises_prompt(
+        {"title": "T", "format": {}}, [], ["Marta"], [], _NONCE
+    )
+
+    assert "A is the main story, B the second, C and D lesser strands" in user
+    assert "a one-strand episode has only A" in user
+    assert "A scene belongs to at most one storyline" in user
+    assert "Set each thread's storyline to the letter" in user
+
+
 def test_act_inference_retry_prompt_contains_inert_diagnostics():
     project = {
         "title": "T",

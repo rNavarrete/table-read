@@ -409,7 +409,7 @@ export function ScenePanel({
         >
           <DetailsSection
             scene={scene}
-            showStoryline={episode.storylines.length > 0}
+            storylines={episode.storylines}
             locked={locked}
             saving={pending}
             onSaveField={(field, value) =>

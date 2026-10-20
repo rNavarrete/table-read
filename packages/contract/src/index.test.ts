@@ -215,6 +215,8 @@ describe('StoryThread', () => {
       setupBeatId: null,
       payoffBeatId: null,
       locked: false,
+      // T10.2: untagged until an import merge keeps its storyline.
+      storyline: null,
     })
   })
 
@@ -232,7 +234,7 @@ describe('StoryThread', () => {
 })
 
 describe('NarrativePromises', () => {
-  it('parses a full op-shaped payload (threads/sceneMotivations/worldRules)', () => {
+  it('parses a pre-0.53.0 payload (threads/sceneMotivations/worldRules), defaulting storylines', () => {
     const payload = {
       threads: [
         {
@@ -285,7 +287,53 @@ describe('NarrativePromises', () => {
         },
       ],
     }
+    expect(NarrativePromises.parse(payload)).toEqual({
+      ...payload,
+      threads: [{ ...payload.threads[0], storyline: null }],
+      storylines: [],
+    })
+  })
+
+  it('round-trips storylines A-D and a thread storyline letter (T10.2)', () => {
+    const payload = {
+      threads: [
+        {
+          label: 'x',
+          summary: 'x',
+          status: 'open',
+          ownerNames: [],
+          setupSceneId: 'scene-1',
+          payoffSceneId: null,
+          setupBeatId: null,
+          payoffBeatId: null,
+          storyline: 'D',
+        },
+      ],
+      storylines: [
+        {
+          letter: 'A',
+          summary: 'Marty tries to get home.',
+          characterNames: ['Marty'],
+          sceneIds: ['scene-1'],
+        },
+        {
+          letter: 'D',
+          summary: 'Biff keeps losing his car.',
+          characterNames: ['Biff'],
+          sceneIds: ['scene-2'],
+        },
+      ],
+      secrets: [],
+      sceneMotivations: [],
+      worldRules: [],
+    }
     expect(NarrativePromises.parse(payload)).toEqual(payload)
+    expect(() =>
+      NarrativePromises.parse({
+        ...payload,
+        storylines: [{ ...payload.storylines[0], letter: 'E' }],
+      }),
+    ).toThrow()
   })
 })
 
@@ -495,6 +543,34 @@ describe('Episode.secrets', () => {
     })
     expect(episode.secrets).toEqual([])
   })
+
+  it('accepts a D storyline on the episode and its scenes (T10.2)', () => {
+    const episode = Episode.parse({
+      id: 'ep-1',
+      index: 0,
+      title: 'Pilot',
+      premise: '',
+      storylines: [{ id: 'D', summary: 'The runner.', characterIds: [] }],
+      scenes: [
+        {
+          id: 'scene-1',
+          index: 0,
+          act: 1,
+          storyline: 'D',
+          location: '',
+          time: '',
+          socialSituation: '',
+          whatHappens: '',
+          audienceLearns: '',
+          audienceFeels: '',
+          motivations: [],
+          beats: [],
+        },
+      ],
+    })
+    expect(episode.storylines[0].id).toBe('D')
+    expect(episode.scenes[0].storyline).toBe('D')
+  })
 })
 
 describe('StructureCheck', () => {
@@ -604,7 +680,7 @@ describe('T10.1 scene turn and beat actions', () => {
     expect(Scene.parse(full)).toMatchObject(full)
     expect(Scene.safeParse({ ...full, chargeIn: 'up' }).success).toBe(false)
   })
-  it('parses a pre-0.52.0 segment_scene response with defaults', () => {
+  it('parses a pre-0.54.0 segment_scene response with defaults', () => {
     const parsed = SegmentedScene.parse({
       segments: [
         {

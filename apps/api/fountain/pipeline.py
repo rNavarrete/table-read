@@ -1323,7 +1323,7 @@ def _load_imported_beats(value: object) -> list[ImportedBeat] | None:
                         for pair in raw.get("unassigned", [])
                     ],
                     review_issues=issues,
-                    # Absent from a pre-0.52.0 checkpoint: load as empty.
+                    # Absent from a pre-0.54.0 checkpoint: load as empty.
                     actor=str(raw.get("actor", "")),
                     action_verb=str(raw.get("action_verb", "")),
                     target=str(raw.get("target", "")),
@@ -1335,7 +1335,7 @@ def _load_imported_beats(value: object) -> list[ImportedBeat] | None:
     return beats
 
 
-# Also the defaults a pre-0.52.0 checkpoint's reading loads with.
+# Also the defaults a pre-0.54.0 checkpoint's reading loads with.
 _EMPTY_READING: dict[str, str | None] = {
     "whatHappens": "",
     "audienceLearns": "",

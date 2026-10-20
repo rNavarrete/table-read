@@ -61,7 +61,7 @@ HARD RULES
 
 Do not include Western canon story examples in any prompt (design doc §6.4).
 
-The structural definitions follow the craft breakdown traditions (`PROMPT_VERSION 0.52.0`, T10.1): McKee's value-and-charge test for a scene, and Stanislavsky's bit / McKee's beat — one tactic and its answer — for a beat. "Topic change" and "emotional/power shift" are not boundary rules, and the ten-line figure is a size, not a cap. Every op reads them, generation included.
+The structural definitions follow the craft breakdown traditions (`PROMPT_VERSION 0.54.0`, T10.1): McKee's value-and-charge test for a scene, and Stanislavsky's bit / McKee's beat — one tactic and its answer — for a beat. "Topic change" and "emotional/power shift" are not boundary rules, and the ten-line figure is a size, not a cap. Every op reads them, generation included.
 
 ## 1. `generate_beat_candidates`
 
@@ -317,7 +317,7 @@ model cites beats and the server derives quotes (below). Semantic coverage
 preserves late setup/payoff discovery while keeping the story-wide request
 reliable and cost-controlled. All input is `<source_data_{nonce}>`.
 
-**Output schema (`NarrativePromises`):** threads (setup→payoff arcs), **secrets** (concealed→revealed arcs), per-scene motivations, and structured world rules. A secret is a thread with an asymmetry: `holderNames` vs `concealedFromNames`. A fact everyone knows is not a secret, so both sides are required; `revealedSceneId: null` means still concealed at end of episode. Motivations carry `statedObjective` (empty unless the character claims a different goal than their behaviour serves) and `concealed` (deliberate deception vs self-deception) — the stated/actual gap is the ulterior motive. Threads and motivations name characters by string, never id — same convention as `infer_story_entities`; the server resolves `ownerNames`/`characterName` against the existing bible and drops unresolvable owners/motivations (log counts only, never text — rule 5). `setupSceneId`/`payoffSceneId`/`sceneId`/`evidenceSceneId` are already-known scene ids the model selects from the input scene list, not free text, so they need no resolution.
+**Output schema (`NarrativePromises`):** threads (setup→payoff arcs), **storylines** (T10.2), **secrets** (concealed→revealed arcs), per-scene motivations, and structured world rules. A secret is a thread with an asymmetry: `holderNames` vs `concealedFromNames`. A fact everyone knows is not a secret, so both sides are required; `revealedSceneId: null` means still concealed at end of episode. Motivations carry `statedObjective` (empty unless the character claims a different goal than their behaviour serves) and `concealed` (deliberate deception vs self-deception) — the stated/actual gap is the ulterior motive. Threads and motivations name characters by string, never id — same convention as `infer_story_entities`; the server resolves `ownerNames`/`characterName` against the existing bible and drops unresolvable owners/motivations (log counts only, never text — rule 5). `setupSceneId`/`payoffSceneId`/`sceneId`/`evidenceSceneId` are already-known scene ids the model selects from the input scene list, not free text, so they need no resolution.
 
 **Evidence is a beat id, never a quote (PROMPT_VERSION 0.40.0+).** Each claim cites the one beat that carries it — `setupBeatId`/`payoffBeatId` (threads), `establishedBeatId`/`revealedBeatId` (secrets), `evidenceBeatId` (world rules) — copied from the input spine and belonging to the scene cited for that claim, or `null` when no single beat carries it. The model writes no quote text. The server derives the stored `setupQuote`/`payoffQuote`, `establishedQuote`/`revealedQuote` and `evidenceQuote` from the cited beat's own `scriptText` (`drama_manager/promises.py`, `quote_for_beat`; data contract §1 `StoryThread`/`Secret`/`WorldRule`).
 
@@ -332,7 +332,16 @@ reliable and cost-controlled. All input is `<source_data_{nonce}>`.
       "setupSceneId": "",
       "payoffSceneId": "or null",
       "setupBeatId": "beat id in setupSceneId, or null",
-      "payoffBeatId": "beat id in payoffSceneId, or null"
+      "payoffBeatId": "beat id in payoffSceneId, or null",
+      "storyline": "A | B | C | D, or null"
+    }
+  ],
+  "storylines": [
+    {
+      "letter": "A | B | C | D",
+      "summary": "one sentence",
+      "characterNames": ["string"],
+      "sceneIds": [""]
     }
   ],
   "secrets": [
@@ -391,6 +400,24 @@ than one thread or secret is cleared from all of them. Stored world rules keep
 only `evidenceQuote`, not the beat id. Schema-invalid after one retry surfaces
 `SCHEMA_INVALID_LLM`, import fails atomically (rule 9).
 
+**Storylines (T10.2, `PROMPT_VERSION 0.53.0`):** the prompt asks for the
+episode's storylines the way a TV room breaks them — A the main story, B the
+second, C and D lesser strands or a runner — and fewer when the episode has
+fewer (a one-strand episode has only A; never padded to four). Each carries a
+one-sentence `summary`, `characterNames` (names from the cast, resolved like
+`ownerNames`; unresolved dropped) and the `sceneIds` that mainly serve it; a
+scene belongs to at most one. Each thread's `storyline` is the letter of the
+storyline it belongs to, or null. Server merge (`drama_manager.promises`): a
+repeated letter keeps its first entry; unknown scene ids are dropped; a scene
+listed under more than one letter keeps the earliest (A before B); a storyline
+left with no scenes is dropped. Each scene's `storyline` becomes its letter
+and a scene in no storyline stays `A`; `Episode.storylines` is the merged list
+in letter order; a thread keeps its letter only if that storyline survived,
+else null. When nothing survives — an empty `storylines`, or a pre-0.53.0
+response or checkpoint, which parses with `storylines: []` — the episode is
+left as import built it: every scene `A`, `storylines: []`. Logs carry counts
+only (rule 5).
+
 ## 6. `suggest_instructions`
 
 Purpose: 3 diverse scene/beat instruction suggestions ("Inspire me" / empty-field carousels). Model: `classifier` role. Output: `{"suggestions": ["", "", ""]}`. Server deduplicates against `suggestionHistory` embeddings (cosine > 0.85 → regenerate; MVP exact-text when embeddings absent).
@@ -437,7 +464,7 @@ Purpose: Fountain/plain-text import → scenes/beats (MVP: single episode). **Tw
 }
 ```
 
-**Boundaries and readings (`PROMPT_VERSION 0.52.0`, T10.1).** The prompt states the §0 boundary rule — a new beat starts on a tactic or objective change, an entrance or exit, or a location change — and that a topic change while the tactic holds is not a new beat. Boundaries come from the target scene alone; the whole split script (cached prefix) informs only what a beat means. Per beat, besides `whatHappens / audienceLearns / audienceFeels`: `actor`, the character pursuing the tactic, named as the script names them; `actionVerb`, one present-tense transitive verb for the tactic as an actor would play it (probes, flatters, stonewalls, threatens), never a summary verb (talks, discusses); `target`, the character it is aimed at, or `""` when it is aimed at no one; `reaction`, how the target answers in a short clause, or `""`. Scene level, besides the four 0.41.0 fields: `sceneValueAtStake`, one or two words (trust, freedom, safety, love); `sceneChargeIn` / `sceneChargeOut`, `positive | negative | mixed` for the character the scene turns on, as it opens and as it closes; `sceneWhyNow`, one sentence on the pressure that forces the scene now rather than earlier or later. Every reading is grounded in the scene and left empty (a charge `null`) rather than padded; every new field defaults, so a pre-0.52.0 response parses. The server stores the scene fields on `Scene.valueAtStake / chargeIn / chargeOut / whyNow` as returned, and after the entities stage resolves `actor` / `target` against the final cast (aliases included) to `Beat.actorCharacterId / targetCharacterId`; an unknown or ambiguous name stays `null` and the verb and reaction are kept. Logs carry resolved/unresolved counts only.
+**Boundaries and readings (`PROMPT_VERSION 0.54.0`, T10.1).** The prompt states the §0 boundary rule — a new beat starts on a tactic or objective change, an entrance or exit, or a location change — and that a topic change while the tactic holds is not a new beat. Boundaries come from the target scene alone; the whole split script (cached prefix) informs only what a beat means. Per beat, besides `whatHappens / audienceLearns / audienceFeels`: `actor`, the character pursuing the tactic, named as the script names them; `actionVerb`, one present-tense transitive verb for the tactic as an actor would play it (probes, flatters, stonewalls, threatens), never a summary verb (talks, discusses); `target`, the character it is aimed at, or `""` when it is aimed at no one; `reaction`, how the target answers in a short clause, or `""`. Scene level, besides the four 0.41.0 fields: `sceneValueAtStake`, one or two words (trust, freedom, safety, love); `sceneChargeIn` / `sceneChargeOut`, `positive | negative | mixed` for the character the scene turns on, as it opens and as it closes; `sceneWhyNow`, one sentence on the pressure that forces the scene now rather than earlier or later. Every reading is grounded in the scene and left empty (a charge `null`) rather than padded; every new field defaults, so a pre-0.54.0 response parses. The server stores the scene fields on `Scene.valueAtStake / chargeIn / chargeOut / whyNow` as returned, and after the entities stage resolves `actor` / `target` against the final cast (aliases included) to `Beat.actorCharacterId / targetCharacterId`; an unknown or ambiguous name stays `null` and the verb and reaction are kept. Logs carry resolved/unresolved counts only.
 
 Server rules: for starts `s₁…sₙ`, the server derives each end as `sᵢ₊₁−1` and the final end as `K`, then slices `scriptText` verbatim. Whole segment objects are sorted by `startLine`; missing line 1 gets a synthetic unassigned prefix; out-of-bounds starts are discarded; duplicate starts collapse to one unassigned segment; no usable starts yields one whole-scene unassigned segment. Every selected repair is flagged with a stable reason code, and unassigned runs attach to the nearest beat, so coverage is always exactly `1..K` and semantic start errors never abort import.
 

@@ -74,7 +74,7 @@ Whether a scene turns is derived where shown (`chargeIn` and `chargeOut` both se
 
 ## Prompt changes
 
-Exact wording is the builder's, within these instructions. Both tasks bump `PROMPT_VERSION` (T10.1 → `0.52.0`, T10.2 → `0.53.0`; whichever merges second resolves the one-line conflict) and add a history line.
+Exact wording is the builder's, within these instructions. Both tasks bump `PROMPT_VERSION` and add a history line. T10.2 merged first as `0.53.0`; T10.1 ships as `0.54.0` (its branch's `0.52.0` never reached main).
 
 **§0 structural definitions** (T10.1; shared by every op, so it also reaches generation — intended): a scene turns on a value change for at least one character — the value at stake and whether it is positive, negative or mixed for them as the scene opens and closes. A beat is one exchange of action and reaction: a character pursues one tactic toward one objective and someone or something answers. A new beat starts when a character changes tactic or objective, someone enters or exits, or the location changes. Most beats run under about ten script lines — a size, not a boundary rule. "Topic change" and "emotional/power shift" leave the list.
 

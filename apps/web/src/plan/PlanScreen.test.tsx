@@ -250,6 +250,7 @@ function storyProject(): Project {
       setupBeatId: null,
       payoffBeatId: null,
       locked: false,
+      storyline: null,
     },
   ]
   return p
