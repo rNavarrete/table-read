@@ -987,6 +987,24 @@ describe('boardModel', () => {
     expect(model.acts.flatMap((a) => a.actSplitNotes)).toHaveLength(1)
   })
 
+  it('a tag is an act frame reading TAG with no act-out, and its last scene is no ACT OUT (T10.7)', () => {
+    const ep = episode([
+      scene('scene-1', 0, { act: 4 }),
+      scene('scene-2', 1, { act: 5 }),
+    ])
+    const model = boardModel(project(ep, { tag: true }), ep, [])
+    const tag = model.acts.at(-1)
+    expect(tag).toMatchObject({
+      act: 5,
+      label: 'TAG',
+      short: 'TAG',
+      actOutSceneId: null,
+    })
+    expect(model.acts.at(-2)?.actOutSceneId).toBe('scene-1')
+    expect(cardTag(model.signals.get('scene-1')!)).toBe('ACT OUT')
+    expect(cardTag(model.signals.get('scene-2')!)).toBeNull()
+  })
+
   it('cast is dialogue cues plus recorded wants, in bible order', () => {
     const characters = [
       character('char-marta', 'Marta Vega'),

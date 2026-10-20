@@ -553,6 +553,22 @@ describe('actNumbersForBoard / actLabel', () => {
     const noCold = { ...format, coldOpen: false }
     expect(actLabel(0, noCold)).toBe('ACT ONE')
   })
+
+  it('a tag is act actCount + 1, labelled TAG and listed only when the format has one (T10.7)', () => {
+    const tagged = { ...format, tag: true }
+    expect(actLabel(5, tagged)).toBe('TAG')
+    expect(actLabel(4, tagged)).toBe('ACT FOUR')
+    expect(actNumbersForFormat(tagged)).toEqual([0, 1, 2, 3, 4, 5])
+    expect(actNumbersForBoard(tagged, [])).toEqual([0, 1, 2, 3, 4, 5])
+    // No cold open: acts 0-3, the tag is still actCount + 1.
+    const noCold = { ...tagged, coldOpen: false }
+    expect(actNumbersForFormat(noCold)).toEqual([0, 1, 2, 3, 5])
+    expect(actLabel(5, noCold)).toBe('TAG')
+    expect(actLabel(3, noCold)).toBe('ACT FOUR')
+    // Without a tag, act actCount + 1 is just an out-of-range act.
+    expect(actLabel(5, format)).toBe('ACT FIVE')
+    expect(actNumbersForFormat(format)).not.toContain(5)
+  })
 })
 
 describe('groupScenesByAct', () => {
