@@ -299,6 +299,28 @@ describe('chartLayout', () => {
   })
 })
 
+describe('chartLayout in story order (T10.6)', () => {
+  it('runs the blocks by story rank in one band; unranked scenes follow in board order', () => {
+    const rank = new Map([
+      ['scene-4', 0],
+      ['scene-1', 1],
+      ['scene-2', 2],
+    ])
+    const layout = chartLayout(model(six()), 600, rank)
+    expect(layout.blocks.map((b) => b.sceneId)).toEqual([
+      'scene-4',
+      'scene-1',
+      'scene-2',
+      'scene-3',
+      'scene-5',
+      'scene-6',
+    ])
+    // Blocks keep their script numbers, so the jumble shows.
+    expect(layout.blocks.map((b) => b.number)).toEqual([4, 1, 2, 3, 5, 6])
+    expect(layout.bands.map((b) => b.title)).toEqual(['STORY ORDER'])
+  })
+})
+
 describe('chartMarks', () => {
   it('an arc joins a setup to its payoff and turns amber when the payoff plays first', () => {
     const m = model(six(), {
@@ -683,6 +705,66 @@ describe('EpisodeChart', () => {
     expect(
       chart().querySelectorAll('animate, animateTransform, animateMotion, set'),
     ).toHaveLength(0)
+  })
+
+  it('Story order: hidden without a story order, but a flashback is still marked', () => {
+    renderChart({
+      outline: [
+        {
+          sceneId: 'scene-2',
+          summary: '',
+          storyOrder: null,
+          storyTime: 'That afternoon',
+          anachrony: 'flashback',
+        },
+      ],
+    })
+    expect(screen.queryByRole('button', { name: 'Story order' })).toBeNull()
+    expect(flagged('data-anachrony')).toEqual(['scene-2'])
+    expect(block('scene-2').querySelector('title')?.textContent).toContain(
+      'That afternoon — flashback',
+    )
+    expect(chart().textContent).toContain('↶ flashback')
+  })
+
+  it('Story order: the toggle reorders the blocks and marks the anachronies; the board order is untouched', () => {
+    const row = (
+      sceneId: string,
+      storyOrder: number,
+      anachrony: 'none' | 'flashback' | 'flashforward' = 'none',
+    ) => ({ sceneId, summary: '', storyOrder, storyTime: '', anachrony })
+    const m = model(six())
+    renderChart({
+      model: m,
+      outline: [
+        row('scene-1', 1),
+        row('scene-2', 0, 'flashback'),
+        row('scene-3', 2),
+        row('scene-4', 3),
+        row('scene-5', 5, 'flashforward'),
+        row('scene-6', 4),
+      ],
+    })
+    const toggle = screen.getByRole('button', { name: 'Story order' })
+    expect(toggle.getAttribute('aria-pressed')).toBe('false')
+    expect(flagged('data-chart-block')).toEqual(SIX_IDS)
+
+    fireEvent.click(toggle)
+
+    expect(toggle.getAttribute('aria-pressed')).toBe('true')
+    expect(flagged('data-chart-block')).toEqual([
+      'scene-2',
+      'scene-1',
+      'scene-3',
+      'scene-4',
+      'scene-6',
+      'scene-5',
+    ])
+    expect(flagged('data-anachrony')).toEqual(['scene-2', 'scene-5'])
+    expect(chart().querySelector('.sr-only')?.textContent).toContain(
+      'The blocks are in story order.',
+    )
+    expect(m.order.map((s) => s.id)).toEqual(SIX_IDS)
   })
 
   it('renders nothing without scenes', () => {
