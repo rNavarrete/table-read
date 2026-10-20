@@ -625,6 +625,61 @@ def test_markup_in_a_beat_action_or_turn_field_is_blanked_and_flagged():
     ]
 
 
+
+# ── T10.9 kernels and choices ────────────────────────────────────────────────
+
+
+def _read(beats: list[tuple[int, bool, bool]]) -> SegmentedScene:
+    """Beats as (startLine, kernel, pressureChoice)."""
+    return SegmentedScene.model_validate(
+        {
+            "segments": [
+                {
+                    "kind": "beat",
+                    "startLine": start,
+                    "whatHappens": "w",
+                    "audienceLearns": "l",
+                    "audienceFeels": "f",
+                    "kernel": kernel,
+                    "pressureChoice": choice,
+                }
+                for (start, kernel, choice) in beats
+            ]
+        }
+    )
+
+
+def _kernel_choice(beat) -> tuple[bool | None, bool | None]:
+    return (beat.kernel, beat.pressure_choice)
+
+
+def test_kernel_and_choice_ride_through_normalization():
+    scene = _scene("INT. BAR - NIGHT\nDan pours.\nMarta enters.")
+    beats = validate_and_slice(scene, _read([(1, True, False), (3, False, True)]))
+    assert [_kernel_choice(b) for b in beats] == [(True, False), (False, True)]
+
+
+def test_a_pre_0_60_response_reads_as_neither_kernel_nor_choice():
+    beats = validate_and_slice(_scene("INT. BAR - NIGHT\nDan pours."), _seg([(1, "a", "b", "c")]))
+    assert _kernel_choice(beats[0]) == (False, False)
+
+
+def test_synthetic_beat_is_not_read_as_kernel_or_choice():
+    seg = _seg([], unassigned=[(1, "could not segment")])
+    (beat,) = validate_and_slice(_scene(_LONG_SCENE), seg)
+    assert _kernel_choice(beat) == (None, None)
+
+
+def test_absorbed_beats_lend_no_reading_to_the_anchor_beat():
+    """Duplicate-start beats lose their metadata to an unassigned run that the
+    preceding beat absorbs; that beat keeps its own reading."""
+    scene = _scene("INT. BAR - NIGHT\nstray\nDan pours.\nMarta enters.")
+    seg = _read([(3, False, False), (4, True, True), (4, True, True)])
+    seg.segments.append(_seg([], unassigned=[(1, "front")]).segments[0])
+    normalized = normalize_and_slice(scene, seg)
+    assert [_kernel_choice(b) for b in normalized.beats] == [(False, False)]
+    assert normalized.beats[0].unassigned == [(1, 2), (4, 4)]
+
 # ── byte-identity reconstruction ────────────────────────────────────────────
 
 

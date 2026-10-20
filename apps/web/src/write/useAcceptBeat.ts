@@ -84,6 +84,8 @@ export function useAcceptBeat(
           actionVerb: '',
           targetCharacterId: null,
           reaction: '',
+          kernel: null,
+          pressureChoice: null,
           whatHappens: candidate.beatPlan.whatHappens,
           audienceLearns: candidate.beatPlan.audienceLearns,
           audienceFeels: candidate.beatPlan.audienceFeels,

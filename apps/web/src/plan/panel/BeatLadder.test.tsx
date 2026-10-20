@@ -26,6 +26,8 @@ function beat(overrides: Partial<Beat> = {}): Beat {
     actionVerb: '',
     targetCharacterId: null,
     reaction: '',
+    kernel: null,
+    pressureChoice: null,
     ...overrides,
   }
 }
@@ -380,6 +382,62 @@ describe('BeatLadder', () => {
         }),
       })
       expect(screen.queryByText(/probes/)).toBeNull()
+    })
+  })
+
+  describe('kernel and choice (T10.9)', () => {
+    const KERNEL = 'Load-bearing: the story breaks without it.'
+    const CHOICE = 'A choice under pressure.'
+
+    function ladderWith(overrides: Partial<Beat>, selectedBeatId?: string) {
+      renderLadder({
+        selectedBeatId: selectedBeatId ?? null,
+        scene: scene({ beats: [beat(overrides)] }),
+      })
+      return screen.getByTestId('beat-card-beat-1-1')
+    }
+
+    it('tags the row "kernel" and "choice" when read true', () => {
+      const row = ladderWith({ kernel: true, pressureChoice: true })
+      expect(within(row).getByText('kernel')).not.toBeNull()
+      expect(within(row).getByText('choice')).not.toBeNull()
+      expect(screen.queryByText(KERNEL)).toBeNull() // collapsed: tags only
+    })
+
+    it('says each reading in a sentence when the row opens', () => {
+      ladderWith({ kernel: true, pressureChoice: true }, 'beat-1-1')
+      const sentence = screen.getByText(KERNEL)
+      expect(screen.getByText(CHOICE)).not.toBeNull()
+      expect(
+        sentence.compareDocumentPosition(
+          screen.getByLabelText('Beat 1.1: What happens'),
+        ) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy()
+    })
+
+    it('shows one reading without the other', () => {
+      const row = ladderWith(
+        { kernel: false, pressureChoice: true },
+        'beat-1-1',
+      )
+      expect(within(row).queryByText('kernel')).toBeNull()
+      expect(within(row).getByText('choice')).not.toBeNull()
+      expect(screen.queryByText(KERNEL)).toBeNull()
+      expect(screen.getByText(CHOICE)).not.toBeNull()
+    })
+
+    it.each([
+      ['not read (null)', null],
+      ['read as neither (false)', false],
+    ])('shows nothing when %s', (_label, value) => {
+      const row = ladderWith(
+        { kernel: value, pressureChoice: value },
+        'beat-1-1',
+      )
+      expect(within(row).queryByText('kernel')).toBeNull()
+      expect(within(row).queryByText('choice')).toBeNull()
+      expect(screen.queryByText(KERNEL)).toBeNull()
+      expect(screen.queryByText(CHOICE)).toBeNull()
     })
   })
 })

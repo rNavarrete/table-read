@@ -39,6 +39,14 @@
               "reaction": {
                 "default": "",
                 "type": "string"
+              },
+              "kernel": {
+                "default": false,
+                "type": "boolean"
+              },
+              "pressureChoice": {
+                "default": false,
+                "type": "boolean"
               }
             },
             "required": [
@@ -50,7 +58,9 @@
               "actor",
               "actionVerb",
               "target",
-              "reaction"
+              "reaction",
+              "kernel",
+              "pressureChoice"
             ],
             "additionalProperties": false
           },

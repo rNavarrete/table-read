@@ -141,6 +141,19 @@ def test_segment_prompt_asks_for_beat_actions_and_the_scene_turn():
     assert "never a summary verb" in user
 
 
+def test_segment_prompt_asks_for_kernels_and_choices_against_the_episode():
+    """T10.9: Chatman's deletion test with the whole episode in view, and
+    McKee's choice under pressure with its exclusions."""
+    _system, user = render.build_segment_prompt(
+        {"title": "T", "format": {}}, ["INT. BAR", "Dan pours."], _NONCE
+    )
+    assert "kernel:" in user and "pressureChoice:" in user
+    assert "whole episode" in user
+    assert "removing this beat would break the story's logic" in user
+    assert "elaborates, colours or repeats" in user
+    assert "a reaction, a reflex, or a decision with nothing at risk" in user
+
+
 def test_segment_retry_prompt_includes_only_structured_repair_diagnostics():
     _system, user = render.build_segment_retry_prompt(
         {"title": "T", "format": {}},

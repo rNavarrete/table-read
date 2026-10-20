@@ -116,6 +116,8 @@ describe('pickDefaultScene', () => {
           actionVerb: '',
           targetCharacterId: null,
           reaction: '',
+          kernel: null,
+          pressureChoice: null,
         },
       ],
     })
@@ -192,6 +194,8 @@ describe('story order (act, then index — never array position)', () => {
       actionVerb: '',
       targetCharacterId: null,
       reaction: '',
+      kernel: null,
+      pressureChoice: null,
     }
     const withBeats = moved.map((s) => ({ ...s, beats: [beat] }))
     expect(pickDefaultScene(project(withBeats))?.id).toBe('scene-c')

@@ -27,7 +27,12 @@ from typing import Any
 from drama_manager.structure_stages import STAGE_DEFINITIONS, STRUCTURE_NAMES, STRUCTURE_STAGES
 
 # Prompt spec §8 / hard rule 7: every template carries a PROMPT_VERSION (semver);
-# it is logged with each call and bumped on any template change. 0.59.0
+# it is logged with each call and bumped on any template change. 0.60.0
+# (T10.9) asks segment_scene, with the whole episode in view, whether each
+# beat is a kernel (removing it breaks the story's logic; a beat that only
+# elaborates, colours or repeats is not) and whether a character makes a
+# choice under pressure in it (something at stake, a cost either way; not a
+# reaction, a reflex or a riskless decision). 0.59.0
 # (T10.6) asks infer_story_overview what the episode is about (dramatic
 # question, central argument, anti-theme), up to three principals' arcs (want,
 # need, lie, ghost, a continuum and where each one's head is at per scene) and
@@ -180,7 +185,7 @@ from drama_manager.structure_stages import STAGE_DEFINITIONS, STRUCTURE_NAMES, S
 # 0.10.0 typed segment starts; 0.9.0 lock-aware narrative repair. Earlier:
 # 0.8.0 suggest; 0.7.0 scene skeleton; 0.6.0 continuity; 0.5.0 regenerate;
 # 0.4.0 blast; 0.3.0 tune; 0.2.0 candidate + §0 system prompt.
-PROMPT_VERSION = "0.59.0"
+PROMPT_VERSION = "0.60.0"
 
 
 def new_nonce() -> str:
@@ -306,6 +311,14 @@ def build_segment_prompt(project: dict, scene_lines: list[str], nonce: str) -> t
         "the tactic is aimed at, named as the script names them, or empty when "
         "it is aimed at no one. reaction: how the target answers, in a short "
         "clause, or empty.\n"
+        "Then judge what each beat does for the whole episode above. kernel: "
+        "true when removing this beat would break the story's logic — it "
+        "opens, turns or closes a line of action that has consequences later "
+        "(take it out and something after it stops making sense); false when "
+        "the beat only elaborates, colours or repeats what other beats carry. "
+        "pressureChoice: true when a character makes a real choice in this "
+        "beat, with something at stake and a cost either way; false for a "
+        "reaction, a reflex, or a decision with nothing at risk.\n"
         "Then read the scene as a whole and fill the scene-level fields. "
         "These are not a list of the beats again — they are what the scene "
         "adds up to. sceneWhatHappens: one or two sentences naming who wants "

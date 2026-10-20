@@ -115,6 +115,8 @@ describe('needsGuidedSetup', () => {
           actionVerb: '',
           targetCharacterId: null,
           reaction: '',
+          kernel: null,
+          pressureChoice: null,
         },
       ],
     })

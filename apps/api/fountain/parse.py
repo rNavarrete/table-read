@@ -91,6 +91,9 @@ class ImportedBeat:
     action_verb: str = ""
     target: str = ""
     reaction: str = ""
+    # T10.9 — the model's readings; None = not read (the synthetic beat).
+    kernel: bool | None = None
+    pressure_choice: bool | None = None
 
 
 # Model-written text fields on a beat: each can leak tool markup (and is blanked).
@@ -549,6 +552,8 @@ class _FinalBeat:
     action_verb: str = ""
     target: str = ""
     reaction: str = ""
+    kernel: bool | None = None
+    pressure_choice: bool | None = None
 
 
 @dataclass
@@ -585,6 +590,8 @@ def _merge(scene: SceneSpan, claims: list[_Claim], *, flag_no_beats: bool) -> li
                 action_verb=claim.payload.action_verb,
                 target=claim.payload.target,
                 reaction=claim.payload.reaction,
+                kernel=claim.payload.kernel,
+                pressure_choice=claim.payload.pressure_choice,
             )
             if pending_lead:
                 fb.start = pending_lead[0].start  # absorb leading unassigned runs
@@ -667,6 +674,8 @@ def _merge(scene: SceneSpan, claims: list[_Claim], *, flag_no_beats: bool) -> li
             action_verb=fb.action_verb,
             target=fb.target,
             reaction=fb.reaction,
+            kernel=fb.kernel,
+            pressure_choice=fb.pressure_choice,
             script_text="\n".join(scene.lines[fb.start - 1 : fb.end]),
             unassigned=[(abs_start + s, abs_start + e) for s, e in fb.unassigned],
             review_issues=[
