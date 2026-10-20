@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from drama_manager import render
-from drama_manager.structure_stages import STRUCTURE_STAGES
+from drama_manager.structure_stages import STAGE_DEFINITIONS, STRUCTURE_STAGES
 from llm.mock import MockLlmClient
 
 SPINE = {
@@ -72,3 +72,27 @@ def test_mock_verifier_supports_every_claim():
         system="s", user_message=user, prompt_version="v"
     )
     assert [(str(v.stage), v.supported) for v in result.stages] == [("circle_you", True)]
+
+
+def test_turning_points_sends_tripod_definitions_and_the_protagonist_rule():
+    _, tp = render.build_structure_check_prompt(PROJECT, "turning_points", SPINE, "n1")
+    for stage, _label in STRUCTURE_STAGES["turning_points"]:
+        assert f'"stage": "{stage}"' in tp
+    assert STAGE_DEFINITIONS["tp_point_of_no_return"] in tp
+    assert "no single protagonist arc" in tp
+    _, hj = render.build_structure_check_prompt(PROJECT, "heros_journey", SPINE, "n1")
+    assert '"definition"' not in hj and "no single protagonist arc" not in hj
+
+
+def test_the_model_is_not_told_the_windows():
+    """It must find the beats, not place them (T10.5)."""
+    for lens in ("turning_points", "save_the_cat"):
+        _, user = render.build_structure_check_prompt(PROJECT, lens, SPINE, "n1")
+        assert "%" not in user and "expected" not in user.lower()
+
+
+def test_mock_answers_turning_points():
+    _, user = render.build_structure_check_prompt(PROJECT, "turning_points", SPINE, "n1")
+    result = MockLlmClient().check_structure(system="s", user_message=user, prompt_version="v")
+    expected = [stage for stage, _ in STRUCTURE_STAGES["turning_points"]]
+    assert [str(s.stage) for s in result.stages] == expected

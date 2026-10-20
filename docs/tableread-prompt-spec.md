@@ -593,11 +593,12 @@ a source-scene jump.
 ### 5e. Structure check (structure checklist, spec 2026-10-11)
 
 The writer checks the script against one structure at a time from the Ledger
-Structure tab: `heros_journey`, `story_circle` or `save_the_cat`
-(`StructureLens`). TV act structure needs no model call; the web reads it from
-the import's beat sheet. One click runs one structure: one check call, then one
-verify call. Ships with `PROMPT_VERSION 0.51.0`; sign-off is a hand check on
-real scripts, not `make evals` (owner decision 2026-10-11).
+Structure tab: `heros_journey`, `story_circle`, `save_the_cat` or
+`turning_points` (`StructureLens`). TV act structure needs no model call; the
+web reads it from the import's beat sheet. One click runs one structure: one
+check call, then one verify call. Ships with `PROMPT_VERSION 0.51.0` (Turning
+Points: `0.55.0`, T10.5); sign-off is a hand check on real scripts, not
+`make evals` (owner decision 2026-10-11).
 
 **Check:** `check_structure` uses `import_analyst` (`claude-opus-5-5`), adaptive
 thinking at medium effort, one strict tool, not streamed. It reads the import's
@@ -607,7 +608,12 @@ existing breakdown, never the raw script, in these `<source_data>` blocks:
 - `story_overview`: `{logline, summary, beatSheet[{beatId, label, sceneId, act}]}`
 - `story_threads`: `[{id, label, summary, status, setupBeatId, payoffBeatId}]`
 - `scene_spine`: `[{sceneId, act, heading, whatHappens, audienceLearns, beats[{beatId, whatHappens}]}]`
-- `required_stages`: `[{stage, label}]`, the lens's stages in canonical order
+- `required_stages`: `[{stage, label, definition?}]`, the lens's stages in canonical
+  order; `definition` only on the Turning Points stages (TRIPOD's: opportunity, the
+  introductory event once setting and protagonist are in place; change of plans,
+  the main goal is defined and the action builds; point of no return, the
+  protagonist commits fully to the goal; major setback, everything falls apart;
+  climax, the main story's final event and resolution)
 - on retry only, `structure_check_repairs`: the failed checks as `{code, ...ids}`.
 
 It returns `InferredStructureCheck`: `applies`, a one-sentence `rationale`, and
@@ -618,7 +624,11 @@ fit (e.g. an ensemble with no single protagonist for the Hero's Journey),
 are kept; verification is skipped. **Save the Cat** gets one extra sentence: it
 is a feature-film template, a TV episode may compress or skip beats, and the
 model may say it doesn't fit. The import's ban on Save the Cat labels in the
-beat sheet (§5c) is unchanged.
+beat sheet (§5c) is unchanged. **Turning Points** gets one extra sentence: the
+turning points mark one protagonist's main story, each stage is judged against
+its definition, and an episode with no single protagonist arc (an ensemble, or
+several stories of equal weight) gets `applies: false`. The model is never told
+the expected positions: it finds the beats, the server places them.
 
 **Validation and retry:** the server checks every stage of the lens appears
 exactly once and belongs to that lens, and that hit/thin cite an existing beat;
@@ -629,12 +639,14 @@ failure is retried once inside the LLM client, as for every op. A failure of
 these checks gets one retry with the diagnostics in `structure_check_repairs`,
 then `SCHEMA_INVALID_LLM` (rule 9). The server, not the model, fills `sceneId`
 from the cited beat and `evidenceQuote` from that beat's own `scriptText`
-(null when the beat has none).
+(null when the beat has none). After verification it also derives each stage's
+`positionPct`, `expectedPct`, `windowPct` and `placement` (T10.5; rules and
+windows in data contract §1 `StructureStage`); none of these reach the model.
 
 **Verify:** `verify_structure_check` uses the independent `writer` role
 (`claude-sonnet-5-5`), adaptive thinking at low effort. It receives one
-`claims` block, `[{stage, label, status, claim, beatId, excerpt}]`, for the hit
-and thin stages only. Each `excerpt` is the cited beat's `scriptText`, or its
+`claims` block, `[{stage, label, definition?, status, claim, beatId, excerpt}]`
+(`definition` as in `required_stages`), for the hit and thin stages only. Each `excerpt` is the cited beat's `scriptText`, or its
 `whatHappens` when the beat has no script yet (the check reads `whatHappens`,
 so a plan-only beat is a fair citation), capped at 2,000 characters so the
 verifier sees the whole beat (520, the Narrative Map verifier's cap, cut off

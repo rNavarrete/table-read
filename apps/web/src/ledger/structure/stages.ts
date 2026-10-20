@@ -7,6 +7,7 @@ export const STRUCTURE_PICKS: { value: StructurePick; label: string }[] = [
   { value: 'heros_journey', label: "Hero's Journey" },
   { value: 'story_circle', label: 'Story Circle' },
   { value: 'save_the_cat', label: 'Save the Cat' },
+  { value: 'turning_points', label: 'Turning Points' },
 ]
 
 export const STAGE_ORDER: Record<StructureLens, StructureStageName[]> = {
@@ -51,6 +52,13 @@ export const STAGE_ORDER: Record<StructureLens, StructureStageName[]> = {
     'finale',
     'final_image',
   ],
+  turning_points: [
+    'tp_opportunity',
+    'tp_change_of_plans',
+    'tp_point_of_no_return',
+    'tp_major_setback',
+    'tp_climax',
+  ],
 }
 
 export const STAGE_LABELS: Record<StructureStageName, string> = {
@@ -89,4 +97,33 @@ export const STAGE_LABELS: Record<StructureStageName, string> = {
   break_into_three: 'Break into three',
   finale: 'Finale',
   final_image: 'Final image',
+  tp_opportunity: 'Opportunity',
+  tp_change_of_plans: 'Change of plans',
+  tp_point_of_no_return: 'Point of no return',
+  tp_major_setback: 'Major setback',
+  tp_climax: 'Climax',
+}
+
+/** Expected position and tolerance (% of the script text) per placed stage —
+ * a mirror of STAGE_WINDOWS in apps/api/drama_manager/structure_stages.py, pinned
+ * by tests on both sides. The panel shows the values saved on each stage. */
+export const STAGE_WINDOWS: Partial<
+  Record<StructureLens, Partial<Record<StructureStageName, [number, number]>>>
+> = {
+  // TRIPOD's empirical means ± standard deviations.
+  turning_points: {
+    tp_opportunity: [11, 7],
+    tp_change_of_plans: [32, 11],
+    tp_point_of_no_return: [51, 12],
+    tp_major_setback: [74, 8],
+    tp_climax: [89, 5],
+  },
+  // Snyder's page targets over 110 pages (12, 25, 55, 75, 85) ± 8.
+  save_the_cat: {
+    catalyst: [10.9, 8],
+    break_into_two: [22.7, 8],
+    midpoint: [50, 8],
+    all_is_lost: [68.2, 8],
+    break_into_three: [77.3, 8],
+  },
 }

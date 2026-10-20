@@ -504,6 +504,7 @@ class StructureLens(StrEnum):
     heros_journey = "heros_journey"
     story_circle = "story_circle"
     save_the_cat = "save_the_cat"
+    turning_points = "turning_points"
 
 
 class StructureStageName(StrEnum):
@@ -542,6 +543,11 @@ class StructureStageName(StrEnum):
     break_into_three = "break_into_three"
     finale = "finale"
     final_image = "final_image"
+    tp_opportunity = "tp_opportunity"
+    tp_change_of_plans = "tp_change_of_plans"
+    tp_point_of_no_return = "tp_point_of_no_return"
+    tp_major_setback = "tp_major_setback"
+    tp_climax = "tp_climax"
 
 
 class StructureStageStatus(StrEnum):
@@ -551,6 +557,15 @@ class StructureStageStatus(StrEnum):
     unverified = "unverified"
 
 
+# Where a stage's beat sits against its lens's expected window (T10.5).
+# Server-derived, separate from status; None when not placed.
+class StructurePlacement(StrEnum):
+    in_window = "in_window"
+    early = "early"
+    late = "late"
+    out_of_order = "out_of_order"
+
+
 class StructureStage(_Base):
     stage: StructureStageName
     status: StructureStageStatus
@@ -558,6 +573,11 @@ class StructureStage(_Base):
     scene_id: Id | None
     reason: str
     evidence_quote: str | None = Field(min_length=1, max_length=200)
+    # Server-derived (T10.5), never from the model; defaulted so older checks load.
+    position_pct: float | None = Field(default=None, ge=0, le=100)
+    expected_pct: float | None = None
+    window_pct: float | None = None
+    placement: StructurePlacement | None = None
 
 
 class StructureCheck(_Base):

@@ -27,3 +27,23 @@ test('structure tab: TV act structure from the beat sheet, then a Story Circle c
   await page.getByTestId('structure-row-circle_you').click()
   await expect(page).toHaveURL(/highlightBeat=/)
 })
+
+test('structure tab: a Turning Points check places its stages in words', async ({
+  page,
+}) => {
+  await page.goto('/ledger?project=proj-longpour')
+  await page.getByRole('button', { name: 'Structure', exact: true }).click()
+  await page.getByTestId('structure-pick').selectOption('turning_points')
+  await page.getByTestId('structure-check-button').click()
+  // The prompt-derived mock cites the seeded beats in order; the server places
+  // them by share of the fixture's script text.
+  await expect(
+    page.getByTestId('structure-placement-tp_opportunity'),
+  ).toHaveText('at 9% · expected 11% ± 7')
+  await expect(
+    page.getByTestId('structure-placement-tp_major_setback'),
+  ).toContainText('earlier than usual')
+  await expect(
+    page.getByTestId('structure-placement-tp_point_of_no_return'),
+  ).toHaveCount(0)
+})
