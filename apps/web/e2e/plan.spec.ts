@@ -17,6 +17,18 @@ import { expect, test, type Locator, type Page } from '@playwright/test'
 // nothing here can break locked-beat/quiet-ai/write/error-states'
 // assertions, in either run order.
 
+// index.html loads the web fonts from Google Fonts, over the real network:
+// page.goto's load event waits on that stylesheet for as long as Google
+// takes, and each font swaps in (display=swap) after the board renders and
+// moves it. An action that finds its element moving retries with
+// scrollIntoView({block: 'end'}), which can push a drag's target off-screen.
+// Fail them fast: the fallback fonts render from the start, nothing swaps.
+test.beforeEach(({ page }) =>
+  page.route(/^https:\/\/fonts\.(googleapis|gstatic)\.com\//, (route) =>
+    route.abort(),
+  ),
+)
+
 test('reorder scene-4 before scene-3 (cross-act drag) persists after reload', async ({
   page,
 }) => {
@@ -456,12 +468,19 @@ test('the episode chart draws a block per scene and a block selects its scene (T
   )
 })
 
-// T3.8 insert reorder. State here, after the tests above: act 0 [scene-1] ·
-// act 1 [scene-2, scene-4, scene-3] · act 2 empty · act 3 [scene-5] · act 4
-// [scene-6, locked]; numbers 1–6 in that board order. Act frames follow the
-// optimistic doc while the save is pending, and the board ignores ⌥←/⌥→
-// while a write is in flight: after every move that saves, wait for the
-// card to turn draggable again before the next key or click.
+// T3.8 insert reorder. Each test sets up the scenes it moves through the
+// api first, so it passes alone too. Act frames follow the optimistic doc
+// while the save is pending, and the board ignores ⌥←/⌥→ while a write is in
+// flight: after every move that saves, wait for the card to turn draggable
+// again before the next key or click.
+
+/** A replace op on the seeded episode's scenes[i]. The array never
+ * reorders (moves rewrite act and index), so scenes[i] is scene-(i+1). */
+const set = (i: number, field: string, value: unknown) => ({
+  op: 'replace',
+  path: `/seasons/0/episodes/0/scenes/${i}/${field}`,
+  value,
+})
 
 /** An act frame's scene ids, in board order. */
 function actOrder(page: Page, act: number) {
@@ -486,7 +505,25 @@ async function dragOver(page: Page, from: Locator, to: Locator, x: number) {
 
 test('a drop inserts where it lands, with a coral bar, and ⌥→ steps a card across an act break (T3.8)', async ({
   page,
+  request,
 }) => {
+  // act 1 [scene-2, scene-4, scene-3], act 2 empty, scene-5 in act 3 (the
+  // first test and T3.5 leave them so); index is board position, scene-1
+  // keeps 0 in act 0, and scene-6 keeps 5 in act 4.
+  const setup = await request.patch('/api/v1/projects/proj-longpour', {
+    data: [
+      set(1, 'act', 1),
+      set(1, 'index', 1),
+      set(3, 'act', 1),
+      set(3, 'index', 2),
+      set(2, 'act', 1),
+      set(2, 'index', 3),
+      set(4, 'act', 3),
+      set(4, 'index', 4),
+    ],
+  })
+  expect(setup.ok()).toBeTruthy()
+
   await page.setViewportSize({ width: 1280, height: 900 })
   await page.goto('/plan?project=proj-longpour')
   const scene2 = page.getByTestId('scene-card-scene-2')
@@ -530,16 +567,9 @@ test('a move past a locked scene is refused on the target and sends nothing (T3.
   page,
   request,
 }) => {
-  // Its own setup, so it passes alone too: scene-5 last in act 3, scene-6
-  // alone in act 4 and locked (their fixture places). Scenes 4 and 5 in the
-  // array (it never reorders) are scene-5 and scene-6. Through `request`, so
-  // the page's PATCH count starts at 0; scene-6 stays locked, as it is after
-  // the lock test above.
-  const set = (i: number, field: string, value: unknown) => ({
-    op: 'replace',
-    path: `/seasons/0/episodes/0/scenes/${i}/${field}`,
-    value,
-  })
+  // scene-5 last in act 3, scene-6 alone in act 4 and locked (their fixture
+  // places). Through `request`, so the page's PATCH count starts at 0;
+  // scene-6 stays locked, as it is after the lock test above.
   const setup = await request.patch('/api/v1/projects/proj-longpour', {
     data: [
       set(4, 'act', 3),
