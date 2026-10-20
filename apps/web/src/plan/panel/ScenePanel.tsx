@@ -381,6 +381,7 @@ export function ScenePanel({
         >
           <BeatLadder
             scene={scene}
+            characters={characters}
             episodeLocked={episode.locked}
             selectedBeatId={selectedBeatId}
             notes={planNotes}
