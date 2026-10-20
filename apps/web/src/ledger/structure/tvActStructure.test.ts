@@ -17,6 +17,9 @@ const overview = (
   logline: '',
   summary: '',
   outline: [],
+  dramaticQuestion: '',
+  centralArgument: '',
+  antiTheme: '',
   provenance: 'inferred',
   locked: false,
   beatSheet: rows.map((r) => ({

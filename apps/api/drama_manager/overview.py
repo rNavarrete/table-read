@@ -10,6 +10,11 @@ outline/beat summaries with segmented beat text when available (never invents
 anchors), sets provenance inferred, and backfills empty premises from the
 logline. Locked overview or locked episode → no-op.
 
+T10.6 (breakdown ledgers P1 design): carries the About strings and each
+outline row's story time, keeping `storyOrder` only when it reorders the
+outline (`_keep_story_order`), and replaces `Episode.characterArcs` with the
+resolved principals (`_merge_arcs`). The arcs follow the overview's lock.
+
 No writer/import text is logged here (hard rule 5) — only ids and counts.
 """
 
@@ -17,10 +22,13 @@ from __future__ import annotations
 
 import logging
 import re
+from collections import Counter
 from typing import TYPE_CHECKING
 
+from fountain.characters import resolve_character_id
+
 if TYPE_CHECKING:
-    from schemas import InferredStoryOverview
+    from schemas import InferredCharacterArc, InferredStoryOverview
 
 _logger = logging.getLogger("drama_manager.overview")
 
@@ -296,6 +304,72 @@ def coerce_beat_label_and_act(
     return cleaned, act
 
 
+_MAX_ARCS = 3
+
+
+def _keep_story_order(outline: list[dict], scene_order: dict[str, int]) -> int:
+    """Null every row's `storyOrder` unless the ranks are a permutation of
+    0..n−1 over the outline rows that differs from script order — a partial
+    or identity order is noise. `anachrony` is left alone. Returns how many
+    ranks were nulled."""
+    ranks = [row["storyOrder"] for row in outline]
+    in_script_order = [
+        row["storyOrder"] for row in sorted(outline, key=lambda r: scene_order[r["sceneId"]])
+    ]
+    identity = list(range(len(outline)))
+    if None not in ranks and sorted(ranks) == identity and in_script_order != identity:
+        return 0
+    for row in outline:
+        row["storyOrder"] = None
+    return sum(rank is not None for rank in ranks)
+
+
+def _merge_arcs(
+    arcs: list[InferredCharacterArc],
+    characters: list[dict],
+    scene_order: dict[str, int],
+    counts: Counter,
+) -> list[dict]:
+    """Resolve each arc's `characterName` (unresolved arcs dropped), keep the
+    first arc per character and at most three; per arc, drop stops on unknown
+    scenes or with no reading, keep one per scene (first wins), in scene
+    order."""
+    kept: list[dict] = []
+    for arc in arcs:
+        character_id = resolve_character_id(arc.character_name.strip(), characters)
+        if character_id is None:
+            counts["arcs_unresolved"] += 1
+            continue
+        if any(k["characterId"] == character_id for k in kept):
+            counts["arcs_duplicate"] += 1
+            continue
+        if len(kept) == _MAX_ARCS:
+            counts["arcs_over_cap"] += 1
+            continue
+        stops: dict[str, str] = {}
+        for stop in arc.stops:
+            known = stop.scene_id in scene_order and stop.scene_id not in stops
+            if not known or not stop.head_at.strip():
+                counts["stops_dropped"] += 1
+                continue
+            stops[stop.scene_id] = stop.head_at
+        kept.append(
+            {
+                "characterId": character_id,
+                "want": arc.want,
+                "need": arc.need,
+                "lie": arc.lie,
+                "ghost": arc.ghost,
+                "continuumAxis": arc.continuum_axis,
+                "stops": [
+                    {"sceneId": scene_id, "headAt": stops[scene_id]}
+                    for scene_id in sorted(stops, key=scene_order.__getitem__)
+                ],
+            }
+        )
+    return kept
+
+
 def merge_story_overview(
     doc: dict, episode_id: str, result: InferredStoryOverview
 ) -> dict:
@@ -335,7 +409,15 @@ def merge_story_overview(
         )
         if summary != item.summary:
             replaced_outline += 1
-        outline.append({"sceneId": item.scene_id, "summary": summary})
+        outline.append(
+            {
+                "sceneId": item.scene_id,
+                "summary": summary,
+                "storyOrder": item.story_order,
+                "storyTime": item.story_time,
+                "anachrony": item.anachrony.value,
+            }
+        )
 
     beat_sheet: list[dict] = []
     dropped_beats = 0
@@ -385,15 +467,27 @@ def merge_story_overview(
         del row["_sceneOrder"]
         del row["_beatOrder"]
 
+    scene_order = {
+        s["id"]: i for i, s in enumerate(episode.get("scenes") or []) if s.get("id")
+    }
+    arc_counts: Counter = Counter()
+    arc_counts["story_order_nulled"] = _keep_story_order(outline, scene_order)
+    characters = (doc.get("seriesBible") or {}).get("characters") or []
+    arcs = _merge_arcs(result.character_arcs, characters, scene_order, arc_counts)
+
     overview = {
         "logline": result.logline,
         "outline": outline,
         "beatSheet": beat_sheet,
         "summary": normalize_overview_newlines(result.summary or ""),
+        "dramaticQuestion": result.dramatic_question,
+        "centralArgument": result.central_argument,
+        "antiTheme": result.anti_theme,
         "provenance": "inferred",
         "locked": False,
     }
     episode["storyOverview"] = overview
+    episode["characterArcs"] = arcs
 
     logline = (result.logline or "").strip()
     premise_filled = 0
@@ -426,5 +520,19 @@ def merge_story_overview(
         len(outline),
         len(beat_sheet),
         premise_filled,
+    )
+    _logger.info(
+        "merge_story_overview arcs=%d stops=%d arcs_unresolved=%d "
+        "arcs_duplicate=%d arcs_over_cap=%d stops_dropped=%d "
+        "story_order_kept=%d story_order_nulled=%d anachronies=%d",
+        len(arcs),
+        sum(len(a["stops"]) for a in arcs),
+        arc_counts["arcs_unresolved"],
+        arc_counts["arcs_duplicate"],
+        arc_counts["arcs_over_cap"],
+        arc_counts["stops_dropped"],
+        sum(row["storyOrder"] is not None for row in outline),
+        arc_counts["story_order_nulled"],
+        sum(row["anachrony"] != "none" for row in outline),
     )
     return doc

@@ -74,6 +74,7 @@ function episode(scenes: Scene[], overrides: Partial<Episode> = {}): Episode {
     storyOverview: null,
     narrativeMap: null,
     structureChecks: [],
+    characterArcs: [],
     ...overrides,
   }
 }

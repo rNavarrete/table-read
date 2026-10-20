@@ -2,11 +2,39 @@ import type { Character, Motivation } from 'contract'
 import { Chip } from '../Chip'
 import { characterName } from '../planTree'
 
+export interface HeadAt {
+  characterId: string
+  headAt: string
+}
+
 export interface WhoWantsWhatProps {
   motivations: Motivation[]
   characters: Character[]
   /** story.castFromDialogue minus the characters with a recorded want. */
   alsoInScene: Character[]
+  /** T10.6 — this scene's arc stops for characters present in it. */
+  headAt?: HeadAt[]
+}
+
+function Rows({ rows }: { rows: string[][] }) {
+  return (
+    <dl className="mt-1 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-13">
+      {rows.map(([term, text]) => (
+        <div key={term} className="contents">
+          <dt className="text-12 text-tr-text-primary">{term}</dt>
+          <dd
+            className={
+              term === 'Says'
+                ? 'italic text-tr-text-primary'
+                : 'text-tr-text-primary'
+            }
+          >
+            {text}
+          </dd>
+        </div>
+      ))}
+    </dl>
+  )
 }
 
 /**
@@ -16,12 +44,22 @@ export interface WhoWantsWhatProps {
  * can be missing from a raw PATCH doc, so they are read with fallbacks.
  * Empty fields leave no empty rows. Names, term labels and wants are
  * identifying text: --tr-text-primary (AA, spec §4.10); secondary is meta only.
+ * An arc character's "Head at" (T10.6) closes their card, or stands as a card
+ * of its own when they have no recorded want.
  */
 export function WhoWantsWhat({
   motivations,
   characters,
   alsoInScene,
+  headAt = [],
 }: WhoWantsWhatProps) {
+  const headAtFor = (id: string) =>
+    headAt.find((h) => h.characterId === id)?.headAt ?? ''
+  const wantIds = new Set(motivations.map((m) => m.characterId))
+  const headAtOnly = headAt.filter((h) => !wantIds.has(h.characterId))
+  const also = alsoInScene.filter(
+    (c) => !headAtOnly.some((h) => h.characterId === c.id),
+  )
   return (
     <div className="flex flex-col gap-2">
       {motivations.length === 0 ? (
@@ -37,6 +75,7 @@ export function WhoWantsWhat({
               ['Says', says === m.objective ? '' : says],
               ['Up against', m.obstacle],
               ['At stake', m.stakes],
+              ['Head at', headAtFor(m.characterId)],
             ].filter(([, text]) => text)
             return (
               <li
@@ -51,30 +90,30 @@ export function WhoWantsWhat({
                     </Chip>
                   )}
                 </p>
-                <dl className="mt-1 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-13">
-                  {rows.map(([term, text]) => (
-                    <div key={term} className="contents">
-                      <dt className="text-12 text-tr-text-primary">{term}</dt>
-                      <dd
-                        className={
-                          term === 'Says'
-                            ? 'italic text-tr-text-primary'
-                            : 'text-tr-text-primary'
-                        }
-                      >
-                        {text}
-                      </dd>
-                    </div>
-                  ))}
-                </dl>
+                <Rows rows={rows} />
               </li>
             )
           })}
         </ul>
       )}
-      {alsoInScene.length > 0 && (
+      {headAtOnly.length > 0 && (
+        <ul className="flex flex-col gap-2">
+          {headAtOnly.map((h) => (
+            <li
+              key={h.characterId}
+              className="rounded-card border border-tr-border bg-tr-surface-raised p-3"
+            >
+              <p className="text-13 font-semibold text-tr-text-primary">
+                {characterName(characters, h.characterId)}
+              </p>
+              <Rows rows={[['Head at', h.headAt]]} />
+            </li>
+          ))}
+        </ul>
+      )}
+      {also.length > 0 && (
         <p className="text-13 text-tr-text-primary">
-          Also in the scene: {alsoInScene.map((c) => c.name).join(', ')}{' '}
+          Also in the scene: {also.map((c) => c.name).join(', ')}{' '}
           <span className="text-tr-text-secondary">· from dialogue cues</span>
         </p>
       )}

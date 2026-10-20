@@ -1185,7 +1185,8 @@ def merge_character(
     """Merge `cid` into `target_id` (data contract §4 Cast management,
     T7.16) — atomic, one snapshot: absorbs aliases, rewrites every
     characterId reference (ledger `knownBy`, relationships, motivations,
-    characterArcs, episode storylines) from source to target, and removes
+    season and episode characterArcs, episode storylines) from source to
+    target, and removes
     the source (`drama_manager.characters.merge_character`). Either side
     locked, or missing, is rejected before any mutation → `{project, ledger}`.
 

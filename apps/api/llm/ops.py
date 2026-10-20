@@ -237,9 +237,10 @@ _OPS: tuple[LlmOp, ...] = (
         "InferredStoryOverview",
         InferredStoryOverview,
         "import_analyst",
-        "Infer an episode logline, scene-ordered outline, named beat sheet "
-        "anchored to existing beat ids, and a two-paragraph present-tense "
-        "synopsis from the imported script.",
+        "Infer an episode logline, scene-ordered outline with story time, "
+        "named beat sheet anchored to existing beat ids, a two-paragraph "
+        "present-tense synopsis, what the episode argues, and up to three "
+        "lead arcs from the imported script.",
         # Large episodes (many outline rows + beat sheet + synopsis) truncated
         # mid-field at 8192 ("INT. WESTA"); 16k for the reply plus room for
         # thinking.

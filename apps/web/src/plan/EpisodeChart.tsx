@@ -1,8 +1,10 @@
 import { useLayoutEffect, useMemo, useRef, useState } from 'react'
+import type { Scene, StoryOverviewOutlineItem } from 'contract'
 import { plural } from '../projects/wizard/board/boardText'
 import {
   HIGHLIGHT_TONE,
   matchesHighlight,
+  type ActSummary,
   type BoardModel,
   type Highlight,
   type TapeTone,
@@ -48,11 +50,42 @@ const LANE = 74 // the first secret's lane
 const LANE_GAP = 8 // each further secret gets its own lane below
 const FALLBACK_WIDTH = 960
 
+/** T10.6 — the board's scenes by story rank; unranked scenes (added after
+ * the import) follow, in board order. */
+function inStoryOrder(
+  scenes: Scene[],
+  rank: ReadonlyMap<string, number>,
+): Scene[] {
+  const at = (s: Scene, i: number) => rank.get(s.id) ?? rank.size + i
+  return scenes
+    .map((s, i) => ({ s, at: at(s, i) }))
+    .sort((a, b) => a.at - b.at)
+    .map(({ s }) => s)
+}
+
 /** Spec §4.4: act gaps of 12, block gaps of 2, a minimum of 6–12px per block
  * (as wide as fits), the rest shared by each scene's share of the script text
- * (equal shares without script). */
-export function chartLayout(model: BoardModel, width: number): ChartLayout {
-  const acts = model.acts.filter((a) => a.scenes.length > 0)
+ * (equal shares without script). With `storyRank` (T10.6) the blocks run in
+ * story order in one band. */
+export function chartLayout(
+  model: BoardModel,
+  width: number,
+  storyRank?: ReadonlyMap<string, number>,
+): ChartLayout {
+  const acts: Pick<
+    ActSummary,
+    'act' | 'label' | 'short' | 'scenes' | 'share'
+  >[] = storyRank
+    ? [
+        {
+          act: -1,
+          label: 'STORY ORDER',
+          short: 'STORY',
+          scenes: inStoryOrder(model.order, storyRank),
+          share: null,
+        },
+      ]
+    : model.acts.filter((a) => a.scenes.length > 0)
   const n = model.order.length
   const blocks: ChartBlock[] = []
   const bands: ChartBand[] = []
@@ -217,8 +250,16 @@ const TONE_FILL: Record<TapeTone, string> = {
   accent: 'fill-tr-accent-ink',
 }
 
+const ANACHRONY_GLYPH = { flashback: '↶', flashforward: '↷' } as const
+const NO_OUTLINE: StoryOverviewOutlineItem[] = []
+
+const FOCUS =
+  'focus-visible:outline focus-visible:outline-selected focus-visible:outline-offset-2 focus-visible:outline-tr-sky'
+
 export interface EpisodeChartProps {
   model: BoardModel
+  /** T10.6 — the overview's outline rows: story order and story time. */
+  outline?: StoryOverviewOutlineItem[]
   /** May be a stale id: then nothing is selected. */
   selectedId: string | null
   highlight: Highlight
@@ -230,6 +271,7 @@ export interface EpisodeChartProps {
 /** null when the episode has no scenes. */
 export function EpisodeChart({
   model,
+  outline = NO_OUTLINE,
   selectedId,
   highlight,
   draftSceneIds,
@@ -253,7 +295,24 @@ export function EpisodeChart({
     observer.observe(el)
     return () => observer.disconnect()
   }, [empty])
-  const layout = useMemo(() => chartLayout(model, width), [model, width])
+  // T10.6: the toggle exists only when the import kept a story order; the
+  // board below always stays in script order.
+  const [storyOrder, setStoryOrder] = useState(false)
+  const time = useMemo(
+    () => new Map(outline.map((row) => [row.sceneId, row])),
+    [outline],
+  )
+  const storyRank = useMemo(() => {
+    const ranks = outline.flatMap((row) =>
+      row.storyOrder === null ? [] : [[row.sceneId, row.storyOrder] as const],
+    )
+    return ranks.length ? new Map(ranks) : null
+  }, [outline])
+  const rank = storyOrder && storyRank ? storyRank : undefined
+  const layout = useMemo(
+    () => chartLayout(model, width, rank),
+    [model, width, rank],
+  )
   const marks = useMemo(() => chartMarks(model, layout), [model, layout])
   const summary = useMemo(() => chartSummary(model), [model])
   // ponytail: re-renders with the board on each keystroke (drafts); memo both
@@ -269,6 +328,13 @@ export function EpisodeChart({
     return !!(s?.storyNotes.length || s?.orderNotes.length)
   }
   const anyNote = layout.blocks.some((b) => noted(b.sceneId))
+  const anachrony = (id: string) => {
+    const kind = time.get(id)?.anachrony
+    return kind === 'flashback' || kind === 'flashforward' ? kind : null
+  }
+  const anachronies = (['flashback', 'flashforward'] as const).filter((kind) =>
+    layout.blocks.some((b) => anachrony(b.sceneId) === kind),
+  )
   const anyOpen = marks.arcs.some((a) => a.payoffSceneId === null)
   // One lane per secret, in episode order; amber lanes paint last so an order
   // problem is never covered.
@@ -365,12 +431,15 @@ export function EpisodeChart({
           const note = noted(b.sceneId)
           const draft = draftSceneIds.has(b.sceneId)
           const locked = episodeLocked || !!s?.scene.locked
+          const told = anachrony(b.sceneId)
+          const storyTime = time.get(b.sceneId)?.storyTime
           return (
             <g
               key={b.sceneId}
               data-testid={`chart-block-${b.sceneId}`}
               data-chart-block
               data-scene-id={b.sceneId}
+              data-anachrony={told ?? undefined}
               data-note={note || undefined}
               data-draft={draft || undefined}
               data-locked={locked || undefined}
@@ -380,7 +449,7 @@ export function EpisodeChart({
               onClick={() => onSelectScene(b.sceneId)}
             >
               <title>
-                {`${b.number} · ${s?.place ?? ''}${note ? ' — has a note' : ''}${locked ? ' — locked' : ''}`}
+                {`${b.number} · ${s?.place ?? ''}${storyTime ? ` · ${storyTime}` : ''}${told ? ` — ${told}` : ''}${note ? ' — has a note' : ''}${locked ? ' — locked' : ''}`}
               </title>
               <rect
                 x={b.x}
@@ -413,6 +482,16 @@ export function EpisodeChart({
                   rx={1}
                   className="fill-tr-amber"
                 />
+              )}
+              {told && (
+                <text
+                  x={b.cx}
+                  y={BASE - 8}
+                  textAnchor="middle"
+                  className="fill-tr-accent-ink text-11"
+                >
+                  {ANACHRONY_GLYPH[told]}
+                </text>
               )}
               {draft && (
                 <circle
@@ -496,34 +575,68 @@ export function EpisodeChart({
           )
         })}
       </svg>
-      <p className="sr-only">{summary}</p>
-      {(model.hasThreads || anyOpen || marks.lanes.length > 0 || anyNote) && (
-        <div
-          aria-hidden="true"
-          className="mt-1 flex flex-wrap gap-4 text-11 text-tr-text-primary"
-        >
-          {model.hasThreads && (
-            <span className="inline-flex items-center gap-1">
-              <span className="inline-block w-4 border-t-2 border-tr-sky" />
-              setup → payoff
-            </span>
-          )}
-          {anyOpen && (
-            <span className="inline-flex items-center gap-1">
-              <span className="inline-block w-4 border-t-2 border-dashed border-tr-amber" />
-              ? open thread
-            </span>
-          )}
-          {marks.lanes.length > 0 && (
-            <span className="text-tr-ledger-secret-ink">
-              ◆ set · • kept · ◇ out
-            </span>
-          )}
-          {anyNote && (
-            <span className="inline-flex items-center gap-1">
-              <span className="inline-block h-2 w-2.5 rounded-sm border-t-2 border-tr-amber bg-tr-surface-clay" />
-              has a note
-            </span>
+      <p className="sr-only">
+        {summary}
+        {rank && ' The blocks are in story order.'}
+      </p>
+      {(model.hasThreads ||
+        anyOpen ||
+        marks.lanes.length > 0 ||
+        anyNote ||
+        anachronies.length > 0 ||
+        storyRank) && (
+        <div className="mt-1 flex flex-wrap items-center gap-4 text-11 text-tr-text-primary">
+          <div aria-hidden="true" className="flex flex-wrap gap-4">
+            {model.hasThreads && (
+              <span className="inline-flex items-center gap-1">
+                <span className="inline-block w-4 border-t-2 border-tr-sky" />
+                setup → payoff
+              </span>
+            )}
+            {anyOpen && (
+              <span className="inline-flex items-center gap-1">
+                <span className="inline-block w-4 border-t-2 border-dashed border-tr-amber" />
+                ? open thread
+              </span>
+            )}
+            {marks.lanes.length > 0 && (
+              <span className="text-tr-ledger-secret-ink">
+                ◆ set · • kept · ◇ out
+              </span>
+            )}
+            {anyNote && (
+              <span className="inline-flex items-center gap-1">
+                <span className="inline-block h-2 w-2.5 rounded-sm border-t-2 border-tr-amber bg-tr-surface-clay" />
+                has a note
+              </span>
+            )}
+            {anachronies.map((kind) => (
+              <span key={kind} className="text-tr-accent-ink">
+                {ANACHRONY_GLYPH[kind]} {kind}
+              </span>
+            ))}
+          </div>
+          {storyRank && (
+            <button
+              type="button"
+              aria-pressed={storyOrder}
+              title="Order the chart's blocks by when they happen in the story; the board stays in script order"
+              onClick={() => setStoryOrder((on) => !on)}
+              className={`ml-auto flex items-center gap-2 whitespace-nowrap rounded-control p-1 text-12 text-tr-text-primary ${FOCUS}`}
+            >
+              <span
+                aria-hidden="true"
+                className={
+                  'inline-flex h-4 w-7 shrink-0 items-center rounded-chip p-0.5 transition-colors motion-reduce:transition-none' +
+                  (storyOrder
+                    ? ' justify-end bg-tr-coral'
+                    : ' justify-start bg-tr-border-strong')
+                }
+              >
+                <span className="size-3 rounded-chip bg-tr-surface-raised shadow-raised" />
+              </span>
+              Story order
+            </button>
           )}
         </div>
       )}

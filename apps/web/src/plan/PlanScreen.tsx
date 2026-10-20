@@ -771,6 +771,7 @@ export function PlanScreen() {
                   />
                   <EpisodeChart
                     model={model}
+                    outline={episode.storyOverview?.outline}
                     selectedId={selectedId}
                     highlight={highlight}
                     draftSceneIds={drafts.dirtySceneIds}

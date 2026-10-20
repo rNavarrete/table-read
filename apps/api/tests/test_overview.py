@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from drama_manager.overview import merge_story_overview
 from schemas import InferredStoryOverview
 
@@ -569,3 +571,302 @@ def test_merge_normalizes_literal_backslash_n_in_summary():
     assert "\\n" not in summary
     assert "\n\n" in summary
     assert len([p for p in summary.split("\n\n") if p.strip()]) == 2
+
+
+# ── T10.6 contract: About, lead arcs and story time ─────────────────────────
+
+
+def test_pre_t10_6_overview_and_episode_load_with_defaults():
+    from schemas import Episode, StoryOverview
+
+    ov = StoryOverview.model_validate(
+        {
+            "logline": "l",
+            "outline": [{"sceneId": "scene-1", "summary": "s"}],
+            "beatSheet": [],
+            "summary": "s",
+        }
+    )
+    assert (ov.dramatic_question, ov.central_argument, ov.anti_theme) == ("", "", "")
+    row = ov.outline[0]
+    assert (row.story_order, row.story_time, row.anachrony) == (None, "", "none")
+    episode = Episode.model_validate(
+        {"id": "ep-1", "index": 0, "title": "t", "premise": "", "storylines": [], "scenes": []}
+    )
+    assert episode.character_arcs == []
+
+
+def test_t10_6_fields_round_trip_and_reject_bad_values():
+    import pytest
+    from pydantic import ValidationError
+
+    from schemas import Episode, StoryOverview
+
+    full = {
+        "logline": "l",
+        "outline": [
+            {
+                "sceneId": "scene-1",
+                "summary": "s",
+                "storyOrder": 1,
+                "storyTime": "Eight years earlier",
+                "anachrony": "flashback",
+            }
+        ],
+        "beatSheet": [],
+        "summary": "s",
+        "dramaticQuestion": "Will Marta learn the truth?",
+        "centralArgument": "Trust requires disclosure.",
+        "antiTheme": "Family covers for family.",
+    }
+    dumped = StoryOverview.model_validate(full).model_dump(by_alias=True, mode="json")
+    assert {k: dumped[k] for k in full} == full
+    for bad in ({"anachrony": "sideways"}, {"storyOrder": -1}):
+        with pytest.raises(ValidationError):
+            StoryOverview.model_validate({**full, "outline": [{**full["outline"][0], **bad}]})
+    arc = {
+        "characterId": "char-marta",
+        "want": "w",
+        "need": "n",
+        "lie": "l",
+        "ghost": "g",
+        "continuumAxis": "trusting ↔ suspicious",
+        "stops": [{"sceneId": "scene-1", "headAt": "trusting"}],
+    }
+    episode = Episode.model_validate(
+        {
+            "id": "ep-1",
+            "index": 0,
+            "title": "t",
+            "premise": "",
+            "storylines": [],
+            "scenes": [],
+            "characterArcs": [arc],
+        }
+    )
+    assert episode.model_dump(by_alias=True, mode="json")["characterArcs"] == [arc]
+
+
+def test_pre_0_55_overview_response_parses_with_defaults():
+    parsed = InferredStoryOverview.model_validate(
+        {
+            "logline": "l",
+            "outline": [{"sceneId": "scene-1", "summary": "s"}],
+            "beatSheet": [],
+            "summary": "s",
+        }
+    )
+    assert (parsed.dramatic_question, parsed.central_argument, parsed.anti_theme) == ("", "", "")
+    assert parsed.character_arcs == []
+    row = parsed.outline[0]
+    assert (row.story_order, row.story_time, row.anachrony) == (None, "", "none")
+
+
+# ── T10.6 merge: About, lead arcs and story time ────────────────────────────
+
+_CAST = [
+    {"id": "char-nora", "name": "Nora Hale", "aliases": ["Nora"]},
+    {"id": "char-cass", "name": "Cass", "aliases": []},
+    {"id": "char-ike", "name": "Ike", "aliases": []},
+    {"id": "char-wren", "name": "Wren", "aliases": []},
+]
+_THREE_SCENES = [
+    {"id": f"scene-{n}", "act": 1, "index": n - 1, "beats": [{"id": f"beat-{n}-1"}]}
+    for n in (1, 2, 3)
+]
+
+
+def _cast_doc(**kwargs) -> dict:
+    doc = _doc(scenes=[dict(s) for s in _THREE_SCENES], **kwargs)
+    doc["seriesBible"] = {"characters": _CAST}
+    return doc
+
+
+def _arc(name: str, stops=(), **fields) -> dict:
+    return {
+        "characterName": name,
+        "want": fields.get("want", "to keep the light"),
+        "need": "to let go",
+        "lie": "the sea owes her",
+        "ghost": "her father drowned",
+        "continuumAxis": "holding on ↔ letting go",
+        "stops": [{"sceneId": s, "headAt": h} for s, h in stops],
+    }
+
+
+def _outline(*ranks, anachrony=None) -> list[dict]:
+    anachrony = anachrony or {}
+    return [
+        {
+            "sceneId": f"scene-{n}",
+            "summary": f"Scene {n}.",
+            "storyOrder": rank,
+            "storyTime": f"Day {n}",
+            "anachrony": anachrony.get(n, "none"),
+        }
+        for n, rank in enumerate(ranks, start=1)
+    ]
+
+
+def _merged(doc: dict, **overrides) -> dict:
+    merge_story_overview(doc, "ep-1", overview(beatSheet=[], **overrides))
+    return doc["seasons"][0]["episodes"][0]
+
+
+def test_merge_carries_about_and_story_time():
+    ep = _merged(
+        _cast_doc(),
+        dramaticQuestion="Will Nora deliver the letter?",
+        centralArgument="Love requires letting go.",
+        antiTheme="Holding on is loyalty.",
+        outline=_outline(1, 0, 2, anachrony={2: "flashback"}),
+    )
+    ov = ep["storyOverview"]
+    assert (ov["dramaticQuestion"], ov["centralArgument"], ov["antiTheme"]) == (
+        "Will Nora deliver the letter?",
+        "Love requires letting go.",
+        "Holding on is loyalty.",
+    )
+    assert [(r["storyOrder"], r["storyTime"], r["anachrony"]) for r in ov["outline"]] == [
+        (1, "Day 1", "none"),
+        (0, "Day 2", "flashback"),
+        (2, "Day 3", "none"),
+    ]
+
+
+def test_story_order_is_nulled_unless_a_non_identity_permutation():
+    for ranks in (
+        (0, 1, 2),  # identity: the episode is told in order
+        (1, 0, None),  # partial
+        (0, 0, 1),  # duplicate rank
+        (1, 2, 3),  # not 0..n-1
+    ):
+        ep = _merged(_cast_doc(), outline=_outline(*ranks, anachrony={3: "flashforward"}))
+        rows = ep["storyOverview"]["outline"]
+        assert [r["storyOrder"] for r in rows] == [None, None, None], ranks
+        # A flashback or flashforward is kept without a full order.
+        assert rows[2]["anachrony"] == "flashforward"
+
+
+def test_story_order_identity_is_judged_in_script_order_not_row_order():
+    # Rows arrive out of script order but rank each scene by its own place:
+    # that is still the script order, so nothing reorders.
+    rows = list(reversed(_outline(0, 1, 2)))
+    ep = _merged(_cast_doc(), outline=rows)
+    assert all(r["storyOrder"] is None for r in ep["storyOverview"]["outline"])
+
+
+def test_arcs_resolve_names_cap_three_and_keep_first_duplicate():
+    ep = _merged(
+        _cast_doc(),
+        characterArcs=[
+            _arc("Nora", want="first"),
+            _arc("Stranger"),  # unresolved: dropped, does not use a slot
+            _arc("Nora Hale", want="second"),  # duplicate: first wins
+            _arc("Cass"),
+            _arc("Ike"),
+            _arc("Wren"),  # a fourth principal: over the cap
+        ],
+    )
+    arcs = ep["characterArcs"]
+    assert [a["characterId"] for a in arcs] == ["char-nora", "char-cass", "char-ike"]
+    assert arcs[0]["want"] == "first"
+    assert arcs[0]["continuumAxis"] == "holding on ↔ letting go"
+
+
+def test_arc_stops_drop_unknown_scenes_dedupe_and_sort_by_scene_order():
+    ep = _merged(
+        _cast_doc(),
+        characterArcs=[
+            _arc(
+                "Nora",
+                stops=[
+                    ("scene-3", "lets go"),
+                    ("scene-99", "nowhere"),
+                    ("scene-1", "clings"),
+                    ("scene-3", "second reading"),
+                    ("scene-2", "  "),
+                ],
+            )
+        ],
+    )
+    assert ep["characterArcs"][0]["stops"] == [
+        {"sceneId": "scene-1", "headAt": "clings"},
+        {"sceneId": "scene-3", "headAt": "lets go"},
+    ]
+
+
+def test_arcs_follow_the_overview_lock():
+    prior = [{"characterId": "char-cass", "stops": []}]
+    doc = _cast_doc(story_overview={"locked": True})
+    doc["seasons"][0]["episodes"][0]["characterArcs"] = prior
+    ep = _merged(doc, characterArcs=[_arc("Nora")])
+    assert ep["characterArcs"] == prior
+
+
+def test_t10_6_merge_logs_counts_only(caplog):
+    caplog.set_level(logging.INFO, logger="drama_manager.overview")
+    _merged(
+        _cast_doc(),
+        dramaticQuestion="Will Nora deliver the letter?",
+        outline=_outline(1, 0, 2, anachrony={2: "flashback"}),
+        characterArcs=[_arc("Nora", stops=[("scene-1", "clings"), ("scene-9", "x")]), _arc("Zed")],
+    )
+    text = caplog.text
+    assert "arcs=1 stops=1 arcs_unresolved=1" in text
+    assert "stops_dropped=1 story_order_kept=3 story_order_nulled=0 anachronies=1" in text
+    for writer_text in ("Nora", "Zed", "clings", "letter", "Day 1", "holding on"):
+        assert writer_text not in text
+
+
+def test_overview_prompt_asks_for_about_arcs_and_story_time():
+    from drama_manager.render import build_overview_prompt, new_nonce
+
+    _system, user = build_overview_prompt(
+        {"format": {"actCount": 4, "coldOpen": False, "tag": False}},
+        [],
+        [],
+        new_nonce(),
+        known_cast=["Nora"],
+    )
+    for field in (
+        "dramaticQuestion",
+        "centralArgument",
+        "antiTheme",
+        "characterArcs",
+        "up to three principals",
+        "want",
+        "need",
+        "lie",
+        "ghost",
+        "continuumAxis",
+        "headAt",
+        "storyOrder",
+        "storyTime",
+        "anachrony",
+        "flashback",
+        "flashforward",
+    ):
+        assert field in user, field
+    assert '"love requires surrender", not "love"' in user
+
+
+def test_mock_overview_merges_about_one_arc_and_a_flashback_story_order():
+    from llm.mock import MockLlmClient
+
+    result = MockLlmClient().infer_story_overview(
+        system="", user_message="", prompt_version="test"
+    )
+    doc = _cast_doc()
+    doc["seriesBible"] = {"characters": [{"id": "char-marta", "name": "Marta Vega"}]}
+    merge_story_overview(doc, "ep-1", result)
+    ep = doc["seasons"][0]["episodes"][0]
+    ov = ep["storyOverview"]
+    assert ov["dramaticQuestion"] and ov["centralArgument"] and ov["antiTheme"]
+    assert [(r["sceneId"], r["storyOrder"], r["anachrony"]) for r in ov["outline"]] == [
+        ("scene-1", 1, "none"),
+        ("scene-2", 0, "flashback"),
+    ]
+    (arc,) = ep["characterArcs"]
+    assert arc["characterId"] == "char-marta"
+    assert [s["sceneId"] for s in arc["stops"]] == ["scene-1", "scene-3"]

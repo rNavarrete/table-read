@@ -6,6 +6,8 @@ export type PlanSectionId =
   | 'touches'
   | 'beats'
   | 'details'
+  | 'ep-about'
+  | 'ep-arcs'
   | 'ep-acts'
   | 'ep-threads'
   | 'ep-secret'
@@ -21,6 +23,8 @@ const DEFAULT_OPEN: Record<PlanSectionId, boolean> = {
   touches: true,
   beats: true,
   details: false,
+  'ep-about': true,
+  'ep-arcs': true,
   'ep-acts': true,
   'ep-threads': true,
   'ep-secret': true,

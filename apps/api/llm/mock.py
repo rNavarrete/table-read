@@ -356,11 +356,23 @@ def _default_responses() -> dict[str, BaseModel]:
                 "When a bartender finds an unexplained wire transfer, she must "
                 "confront her co-owner brother before the lie destroys their bar."
             ),
+            # T10.6: told out of order — scene-2 happens first, a flashback.
+            # A one-scene import drops scene-2, and its lone rank is nulled.
             outline=[
                 {
                     "sceneId": "scene-1",
                     "summary": "Marta discovers the blank-memo transfer printout.",
-                }
+                    "storyOrder": 1,
+                    "storyTime": "Night",
+                    "anachrony": "none",
+                },
+                {
+                    "sceneId": "scene-2",
+                    "summary": "Dan hides the money in the ice machine.",
+                    "storyOrder": 0,
+                    "storyTime": "That afternoon",
+                    "anachrony": "flashback",
+                },
             ],
             beatSheet=[
                 {
@@ -377,6 +389,23 @@ def _default_responses() -> dict[str, BaseModel]:
                 "She presses for the truth as the bar's fragile truce threatens "
                 "to collapse around them."
             ),
+            dramaticQuestion="Will Marta get Dan to admit he took the money?",
+            centralArgument="Trust survives only when the hidden cost is faced.",
+            antiTheme="Family covers for family, whatever it costs.",
+            characterArcs=[
+                {
+                    "characterName": "Marta",
+                    "want": "To find out where the $40,000 went.",
+                    "need": "To stop protecting Dan from the truth.",
+                    "lie": "Family never lies to family.",
+                    "ghost": "She covered for their father once and lost the bar.",
+                    "continuumAxis": "trusting ↔ suspicious",
+                    "stops": [
+                        {"sceneId": "scene-1", "headAt": "Shaken, still assumes a mistake."},
+                        {"sceneId": "scene-3", "headAt": "Suspicious, testing Dan."},
+                    ],
+                }
+            ],
         ),
         "infer_narrative_map": InferredNarrativeMap(
             dramaticQuestion="Can Marta force the truth into the open?",

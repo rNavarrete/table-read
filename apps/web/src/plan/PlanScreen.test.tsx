@@ -154,6 +154,7 @@ function episode(scenes: Scene[]): Episode {
     storyOverview: null,
     narrativeMap: null,
     structureChecks: [],
+    characterArcs: [],
   }
 }
 

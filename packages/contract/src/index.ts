@@ -347,9 +347,23 @@ export type Secret = z.infer<typeof Secret>
 // sheet, two-paragraph synopsis). Import mints no ids; outline/beatSheet
 // rows must reference scene/beat ids from the imported partition. Defaults
 // to null so pre-existing docs validate.
+// T10.6 — where a scene sits in story time relative to where it is told
+// (Genette's analepsis / prolepsis).
+export const Anachrony = z.enum(['none', 'flashback', 'flashforward'])
+export type Anachrony = z.infer<typeof Anachrony>
+
 export const StoryOverviewOutlineItem = z.object({
   sceneId: Id,
   summary: z.string(),
+  // T10.6 — story time. `storyOrder` is the scene's rank in story chronology
+  // (0 = earliest); null on every row unless the import's ranks reorder the
+  // outline rows (a full permutation that is not script order). `storyTime` is
+  // a short label ("Day 1, night", "Eight years earlier"). `anachrony` is kept
+  // even when `storyOrder` is null: a flashback can be marked without a full
+  // order. Import readings only; read-only in the UI.
+  storyOrder: z.number().int().min(0).nullable().default(null),
+  storyTime: z.string().default(''),
+  anachrony: Anachrony.default('none'),
 })
 export type StoryOverviewOutlineItem = z.infer<typeof StoryOverviewOutlineItem>
 
@@ -369,10 +383,39 @@ export const StoryOverview = z.object({
   outline: z.array(StoryOverviewOutlineItem),
   beatSheet: z.array(StoryOverviewBeatItem),
   summary: z.string(),
+  // T10.6 — what the episode is about: the yes/no question its climax
+  // answers, its central argument as an arguable claim (Mazin), and the
+  // anti-theme the lead starts out embodying. '' when not read.
+  dramaticQuestion: z.string().default(''),
+  centralArgument: z.string().default(''),
+  antiTheme: z.string().default(''),
   provenance: z.enum(['inferred', 'writer_authored']).default('inferred'),
   locked: z.boolean().default(false),
 })
 export type StoryOverview = z.infer<typeof StoryOverview>
+
+// T10.6 — a principal's arc across one episode (Weiland's want / need / lie /
+// ghost; the Breaking Bad room's "where is his head at on the continuum").
+// Episode-scoped like threads; the season's `characterArcs` stay series-level.
+// `stops` are in scene order, at most one per scene. Import fills at most
+// three; read-only in the UI.
+export const CharacterArcStop = z.object({
+  sceneId: Id,
+  headAt: z.string(),
+})
+export type CharacterArcStop = z.infer<typeof CharacterArcStop>
+
+export const EpisodeCharacterArc = z.object({
+  characterId: Id,
+  want: z.string(),
+  need: z.string(),
+  lie: z.string(),
+  ghost: z.string(),
+  // The continuum the episode moves them along ("trusting ↔ suspicious").
+  continuumAxis: z.string(),
+  stops: z.array(CharacterArcStop),
+})
+export type EpisodeCharacterArc = z.infer<typeof EpisodeCharacterArc>
 
 // A source-grounded, multi-scale reading of an imported episode. Every
 // interpretive claim carries a beat id and an exact quote that the server
@@ -695,6 +738,9 @@ export const Episode = z.object({
   // T7.27 episode story overview (import-inferred logline/outline/beat sheet/
   // synopsis). Defaults to null so pre-existing docs validate.
   storyOverview: StoryOverview.nullable().default(null),
+  // T10.6 — up to three principals' arcs for this episode, from
+  // infer_story_overview. Defaults to [] so pre-existing docs validate.
+  characterArcs: z.array(EpisodeCharacterArc).default([]),
   // Import-time macro/micro analysis. The map is evidence-grounded to imported
   // beats and remains nullable for existing projects.
   narrativeMap: NarrativeMap.nullable().default(null),
@@ -1439,6 +1485,12 @@ export const InferredStoryOverview = z.object({
     z.object({
       sceneId: Id,
       summary: z.string(),
+      // T10.6 — story time (see StoryOverviewOutlineItem). The server keeps
+      // the ranks only when they are a full, non-identity permutation of the
+      // rows, else nulls them all.
+      storyOrder: z.number().int().min(0).nullable().default(null),
+      storyTime: z.string().default(''),
+      anachrony: Anachrony.default('none'),
     }),
   ),
   beatSheet: z.array(
@@ -1451,6 +1503,25 @@ export const InferredStoryOverview = z.object({
     }),
   ),
   summary: z.string(),
+  // T10.6 — defaulted so a pre-0.59.0 response or checkpoint parses.
+  dramaticQuestion: z.string().default(''),
+  centralArgument: z.string().default(''),
+  antiTheme: z.string().default(''),
+  // Up to three principals, named as the script names them; the server
+  // resolves names to character ids and drops what it cannot resolve.
+  characterArcs: z
+    .array(
+      z.object({
+        characterName: z.string(),
+        want: z.string(),
+        need: z.string(),
+        lie: z.string(),
+        ghost: z.string(),
+        continuumAxis: z.string(),
+        stops: z.array(CharacterArcStop),
+      }),
+    )
+    .default([]),
 })
 export type InferredStoryOverview = z.infer<typeof InferredStoryOverview>
 

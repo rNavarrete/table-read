@@ -237,11 +237,15 @@ function episode(overrides: Partial<Episode> = {}): Episode {
         },
       ],
       summary: '',
+      dramaticQuestion: '',
+      centralArgument: '',
+      antiTheme: '',
       provenance: 'inferred',
       locked: false,
     },
     narrativeMap: null,
     structureChecks: [],
+    characterArcs: [],
     ...overrides,
   }
 }
@@ -548,6 +552,49 @@ describe('EpisodeView', () => {
     expect(
       (screen.getByLabelText('Series premise') as HTMLTextAreaElement).readOnly,
     ).toBe(false)
+  })
+
+  it('About and Lead arcs show the import reading, skipping empty fields', () => {
+    const base = episode()
+    const ep = episode({
+      storyOverview: {
+        ...base.storyOverview!,
+        dramaticQuestion: 'Will Marta get Dan to admit he took the money?',
+        centralArgument: '',
+        antiTheme: 'Family covers for family.',
+      },
+      characterArcs: [
+        {
+          characterId: 'char-marta',
+          want: 'To find the money.',
+          need: 'To stop protecting Dan.',
+          lie: 'Family never lies.',
+          ghost: '',
+          continuumAxis: 'trusting ↔ suspicious',
+          stops: [{ sceneId: 'scene-1', headAt: 'Shaken.' }],
+        },
+      ],
+    })
+    render(<EpisodeView {...props(ep)} />, { wrapper: WithDrafts })
+    const about = within(section('ep-about'))
+    expect(about.getByText('Question')).not.toBeNull()
+    expect(
+      about.getByText('Will Marta get Dan to admit he took the money?'),
+    ).not.toBeNull()
+    expect(about.queryByText('Argument')).toBeNull()
+    expect(about.getByText('Anti-theme')).not.toBeNull()
+    const arcs = within(section('ep-arcs'))
+    expect(arcs.getByText('Marta Vega')).not.toBeNull()
+    expect(arcs.getByText('To stop protecting Dan.')).not.toBeNull()
+    expect(arcs.getByText('Family never lies.')).not.toBeNull()
+    expect(arcs.queryByText('Ghost')).toBeNull()
+    expect(arcs.getByText('trusting ↔ suspicious')).not.toBeNull()
+  })
+
+  it('About and Lead arcs are hidden when the import read neither', () => {
+    render(<EpisodeView {...props()} />, { wrapper: WithDrafts })
+    expect(document.getElementById('plan-section-ep-about')).toBeNull()
+    expect(document.getElementById('plan-section-ep-arcs')).toBeNull()
   })
 
   it('an idea-born episode shows one quiet line per empty section', () => {

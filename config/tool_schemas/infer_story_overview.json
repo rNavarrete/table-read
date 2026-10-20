@@ -14,11 +14,38 @@
           },
           "summary": {
             "type": "string"
+          },
+          "storyOrder": {
+            "default": null,
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "storyTime": {
+            "default": "",
+            "type": "string"
+          },
+          "anachrony": {
+            "default": "none",
+            "type": "string",
+            "enum": [
+              "none",
+              "flashback",
+              "flashforward"
+            ]
           }
         },
         "required": [
           "sceneId",
-          "summary"
+          "summary",
+          "storyOrder",
+          "storyTime",
+          "anachrony"
         ],
         "additionalProperties": false
       }
@@ -70,13 +97,85 @@
     },
     "summary": {
       "type": "string"
+    },
+    "dramaticQuestion": {
+      "default": "",
+      "type": "string"
+    },
+    "centralArgument": {
+      "default": "",
+      "type": "string"
+    },
+    "antiTheme": {
+      "default": "",
+      "type": "string"
+    },
+    "characterArcs": {
+      "default": [],
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "characterName": {
+            "type": "string"
+          },
+          "want": {
+            "type": "string"
+          },
+          "need": {
+            "type": "string"
+          },
+          "lie": {
+            "type": "string"
+          },
+          "ghost": {
+            "type": "string"
+          },
+          "continuumAxis": {
+            "type": "string"
+          },
+          "stops": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "sceneId": {
+                  "type": "string"
+                },
+                "headAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "sceneId",
+                "headAt"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "characterName",
+          "want",
+          "need",
+          "lie",
+          "ghost",
+          "continuumAxis",
+          "stops"
+        ],
+        "additionalProperties": false
+      }
     }
   },
   "required": [
     "logline",
     "outline",
     "beatSheet",
-    "summary"
+    "summary",
+    "dramaticQuestion",
+    "centralArgument",
+    "antiTheme",
+    "characterArcs"
   ],
   "additionalProperties": false
 }

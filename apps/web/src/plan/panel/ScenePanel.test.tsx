@@ -109,6 +109,7 @@ function episode(overrides: Partial<Episode> = {}): Episode {
     storyOverview: null,
     narrativeMap: null,
     structureChecks: [],
+    characterArcs: [],
     ...overrides,
   }
 }
@@ -329,6 +330,33 @@ describe('ScenePanel', () => {
         'In this scene, Luz Vega is in the dark · from dialogue cues',
       ),
     ).not.toBeNull()
+  })
+
+  it("Who wants what: Head at for an arc character present, not one who isn't", () => {
+    const arc = (characterId: string, sceneId: string, headAt: string) => ({
+      characterId,
+      want: '',
+      need: '',
+      lie: '',
+      ghost: '',
+      continuumAxis: 'trusting ↔ suspicious',
+      stops: [{ sceneId, headAt }],
+    })
+    renderPanel({
+      episode: episode({
+        characterArcs: [
+          arc('char-marta', 'scene-1', 'Still trusts Dan.'),
+          // Dan is not in scene 1 (no want, no dialogue cue).
+          arc('char-dan', 'scene-1', 'Cornered.'),
+        ],
+      }),
+    })
+    const wants = within(
+      document.getElementById('plan-section-wants') as HTMLElement,
+    )
+    expect(wants.getByText('Head at')).not.toBeNull()
+    expect(wants.getByText('Still trusts Dan.')).not.toBeNull()
+    expect(wants.queryByText('Cornered.')).toBeNull()
   })
 
   it('states the knowledge mode from the facts in play and who is present (T10.4)', () => {
@@ -683,6 +711,9 @@ describe('ScenePanel', () => {
         logline: '',
         outline: [],
         summary: '',
+        dramaticQuestion: '',
+        centralArgument: '',
+        antiTheme: '',
         provenance: 'inferred',
         locked: false,
         beatSheet: [
