@@ -218,7 +218,11 @@ def act_boundary_cases(ctx: FixtureCtx) -> list[dict]:
             "caseId": "one-hour-long-pour-no-format",
             "project": {**ctx.doc, "format": None},
             "summaries": act_summaries_from_doc(ctx.doc),
-            "printed": (one_hour_format["actCount"], one_hour_format["coldOpen"]),
+            "printed": (
+                one_hour_format["actCount"],
+                one_hour_format["coldOpen"],
+                one_hour_format["tag"],
+            ),
             "sourceChars": 96_000,  # about 55 pages
             "expectedStarts": one_hour_expected,
         },

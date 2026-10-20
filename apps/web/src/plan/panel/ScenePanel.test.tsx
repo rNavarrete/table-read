@@ -515,6 +515,31 @@ describe('ScenePanel', () => {
     expect(p.onSaveSceneField).toHaveBeenCalledWith('scene-1', 'act', 2)
   })
 
+  it('Act select lists TAG after the last act when the format has a tag (T10.7)', async () => {
+    const user = userEvent.setup()
+    const ep = episode()
+    const base = project(ep)
+    const { props: p } = renderPanel({
+      project: { ...base, format: { ...base.format, tag: true } },
+    })
+    const select = screen.getByRole('combobox', { name: 'Act' })
+    expect(
+      Array.from(select.querySelectorAll('option')).map((o) => [
+        o.value,
+        o.textContent,
+      ]),
+    ).toEqual([
+      ['0', 'COLD OPEN'],
+      ['1', 'ACT ONE'],
+      ['2', 'ACT TWO'],
+      ['3', 'ACT THREE'],
+      ['4', 'ACT FOUR'],
+      ['5', 'TAG'],
+    ])
+    await user.selectOptions(select, '5')
+    expect(p.onSaveSceneField).toHaveBeenCalledWith('scene-1', 'act', 5)
+  })
+
   it('Act select is disabled when the episode is locked', () => {
     const ep = episode({ locked: true })
     renderPanel({ episode: ep, scene: ep.scenes[0] })

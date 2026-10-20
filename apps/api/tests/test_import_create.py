@@ -2775,7 +2775,7 @@ def test_acts_printed_above_fade_in_still_set_the_structure(
         ).text
     )
 
-    assert "use actCount 4 and coldOpen false exactly" in prompts[0]
+    assert "use actCount 4, coldOpen false and tag false exactly" in prompts[0]
     project = _imported_doc(events)
     assert project["format"] == {**_FEATURE, "actCount": 4, "coldOpen": False}
     assert _scene_acts(project) == [0, 0, 1, 2, 3]

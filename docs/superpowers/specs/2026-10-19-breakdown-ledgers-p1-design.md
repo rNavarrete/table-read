@@ -106,13 +106,13 @@ Model output (`InferredStoryOverview`) adds the three strings, the three outline
 
 ## T10.7 Tag and act-outs (`infer_act_breaks`)
 
-**Contract.** A tag is the act after the last act: `Scene.act = format.actCount + 1`, valid only when `format.tag` is true _(call: mirrors cold open = act 0; no new field, no migration)_. `InferredActBreaks.starts` may include that act. The act-inference §9 non-goal is lifted.
+**Contract.** A tag is the act after the last act (`actCount + 1` with a cold open, `actCount` without), valid only when `format.tag` is true _(call: mirrors cold open = act 0; no new field, no migration; the first draft said `actCount + 1` for every format, corrected 2026-10-19 because without a cold open it skipped act `actCount`)_. `InferredActBreaks.starts` may include that act. The act-inference §9 non-goal is lifted.
 
-**Server.** `fountain/acts.py`: printed `TAG` markers (and `END OF SHOW`/`END OF EPISODE` before a final short scene, if the existing marker regex already supports them — no new heuristics) start the tag; a model start for act `actCount + 1` is accepted only when `format.tag`; otherwise it is an invalid start handled like any other (repair code, no fabricated fallback). Every other act rule is unchanged.
+**Server.** `fountain/acts.py`: printed `TAG` markers (and `END OF SHOW`/`END OF EPISODE` before a final short scene, if the existing marker regex already supports them — no new heuristics) start the tag; a model start for the tag act is accepted only when `format.tag`; otherwise it is an invalid start handled like any other (repair code, no fabricated fallback). Every other act rule is unchanged.
 
 **Prompt.** When the format has a tag, the model may start the tag at the last scene(s) that follow the final act's climax as a short coda; it never invents a tag the format does not have.
 
-**UI.** Everywhere an act label is built (`actLabel` in `apps/web/src/plan/planTree.ts` and any copy), `actCount + 1` with `format.tag` reads **TAG**; the Plan Act selector lists TAG when `format.tag`; act frames, the episode chart and Write's outline show it like any act. Act-outs: unchanged — the beat sheet's "Act N Out" rows and the board's ACT OUT tag already anchor them; the tag's last card is not an act-out _(call)_.
+**UI.** Everywhere an act label is built (`actLabel` in `apps/web/src/plan/planTree.ts` and any copy), the tag act (the act after the last act (`actCount + 1` with a cold open, `actCount` without)) with `format.tag` reads **TAG**; the Plan Act selector lists TAG when `format.tag`; act frames, the episode chart and Write's outline show it like any act. Act-outs: unchanged — the beat sheet's "Act N Out" rows and the board's ACT OUT tag already anchor them; the tag's last card is not an act-out _(call)_.
 
 ## Tests (each task)
 

@@ -22,6 +22,7 @@ import {
   applySceneMove,
   type MoveRefusal,
   type SceneMove,
+  tagAct,
 } from './planTree'
 
 // Board order (act, then index) lives with the shared project-tree helpers so
@@ -778,7 +779,7 @@ export interface ActSummary {
   act: number
   /** actLabel(act, format) */
   label: string
-  /** "CO" for a cold open, else the act's ordinal ("1", "2"…): the chart's narrow-band label. */
+  /** "CO" for a cold open, "TAG" for a tag, else the act's ordinal ("1", "2"…): the chart's narrow-band label. */
   short: string
   /** board order */
   scenes: Scene[]
@@ -851,6 +852,8 @@ export function boardModel(
   const marked = markedLandmarks(project, episode)
   const issues = orderIssues(episode)
   const numbers = new Map(order.map((s) => [s.id, s.index + 1]))
+  // The tag is a coda, not an act: its last scene is no act-out (T10.7).
+  const tag = tagAct(project.format)
 
   const list = order.map((scene, i): SceneSignals => {
     const notes = notesForScene(flags, scene)
@@ -889,7 +892,7 @@ export function boardModel(
       neverPaidOff: setsUp.some((t) => !ids.has(t.payoffSceneId ?? '')),
       secret: secretsForScene(episode, scene.id, new Set())[0]?.role ?? null,
       landmark: marked.find((m) => m.sceneId === scene.id)?.label ?? null,
-      actOut: order[i + 1]?.act !== scene.act,
+      actOut: order[i + 1]?.act !== scene.act && scene.act !== tag,
       castIds: characters
         .filter((c) => cued.has(c.id) || wantIds.includes(c.id))
         .map((c) => c.id),
@@ -932,7 +935,9 @@ export function boardModel(
         short:
           project.format.coldOpen && act === 0
             ? 'CO'
-            : String(project.format.coldOpen ? act : act + 1),
+            : act === tag
+              ? 'TAG'
+              : String(project.format.coldOpen ? act : act + 1),
         scenes: inAct.map((s) => s.scene),
         share: total ? sum(inAct, (s) => s.scriptLength) / total : null,
         setUp: sum(inAct, (s) => s.setsUp.length),
@@ -946,7 +951,7 @@ export function boardModel(
               number: s.number,
             })),
         ),
-        actOutSceneId: inAct.at(-1)?.scene.id ?? null,
+        actOutSceneId: act === tag ? null : (inAct.at(-1)?.scene.id ?? null),
         actSplitNotes: inAct.flatMap((s) =>
           s.storyNotes
             .filter((n) => n.kind === 'act_split')

@@ -286,7 +286,7 @@ def test_printed_structure_reads_the_act_one_stripped_with_fade_in():
         "ACT TWO", "FADE IN:", _SCENE, "END OF ACT TWO",
         "ACT THREE", "FADE IN:", _SCENE, "END OF ACT THREE",
         "ACT FOUR", "FADE IN:", _SCENE, "END OF ACT FOUR",
-    ) == (4, False, None)
+    ) == (4, False, False, None)
 
 
 def test_printed_structure_keeps_the_count_past_a_damaged_heading():
@@ -295,20 +295,20 @@ def test_printed_structure_keeps_the_count_past_a_damaged_heading():
     assert _read_whole_script(
         "TEASER", "FADE IN:", _SCENE, _SCENE, "ACT ONE", _SCENE, "AcT Two",
         _SCENE, "ACT THREE", _SCENE, "ACT FOUR", _SCENE, "END OF ACT FOUR",
-    ) == (4, True, None)
+    ) == (4, True, False, None)
 
 
 def test_printed_structure_counts_end_of_act_lines():
     assert _read_whole_script(
         _SCENE, "END OF ACT ONE", _SCENE, "END OF ACT TWO", _SCENE, "END OF ACT THREE"
-    ) == (3, False, None)
+    ) == (3, False, False, None)
 
 
 def test_printed_structure_gives_the_partition_when_markers_state_one():
     # Scenes before ACT ONE are a cold open even with no TEASER printed.
     assert _read_whole_script(
         _SCENE, "ACT ONE", _SCENE, "ACT TWO", _SCENE
-    ) == (2, True, [0, 1, 2])
+    ) == (2, True, False, [0, 1, 2])
 
 
 def test_printed_structure_is_none_when_no_act_is_printed():

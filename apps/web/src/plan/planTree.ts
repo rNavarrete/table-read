@@ -328,13 +328,22 @@ export function buildBeatPatch(
 }
 
 /** Every act number the board should render a frame for — the format's own
- * range (cold open + `actCount` acts) unioned with any act value actually
+ * range (cold open + `actCount` acts + tag) unioned with any act value actually
  * present on a scene (defensive: a frame is never silently dropped just
  * because a drag emptied it, and no scene is ever orphaned by a format that
  * disagrees with the data), sorted ascending. */
 export function actNumbersForFormat(format: ShowFormat): number[] {
-  const count = format.coldOpen ? format.actCount + 1 : format.actCount
+  const count = lastAct(format) + 1 + (format.tag ? 1 : 0)
   return Array.from({ length: count }, (_, index) => index)
+}
+
+const lastAct = (format: ShowFormat) =>
+  format.coldOpen ? format.actCount : format.actCount - 1
+
+/** The tag's act: the act after the last act (`actCount + 1` with a cold
+ * open, `actCount` without), or null when the format has none (T10.7). */
+export function tagAct(format: ShowFormat): number | null {
+  return format.tag ? lastAct(format) + 1 : null
 }
 
 export function actNumbersForBoard(
@@ -347,9 +356,10 @@ export function actNumbersForBoard(
   )
 }
 
-/** Display label for an act frame (UI spec §4: "COLD OPEN", "ACT ONE"…). */
+/** Display label for an act frame (UI spec §4: "COLD OPEN", "ACT ONE"…, "TAG"). */
 export function actLabel(act: number, format: ShowFormat): string {
   if (format.coldOpen && act === 0) return 'COLD OPEN'
+  if (act === tagAct(format)) return 'TAG'
   const ordinal = format.coldOpen ? act : act + 1
   const names = ['ONE', 'TWO', 'THREE', 'FOUR', 'FIVE', 'SIX', 'SEVEN', 'EIGHT']
   return `ACT ${names[ordinal - 1] ?? ordinal}`

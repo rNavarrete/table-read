@@ -428,7 +428,7 @@ def test_act_cases_without_a_format_render_the_format_prompt():
     assert "Format: not yet known" in no_printed
     assert "Work out this script's format" in no_printed
     assert "The script prints no act breaks" in no_printed
-    assert "use actCount 4 and coldOpen true exactly" in printed
+    assert "use actCount 4, coldOpen true and tag false exactly" in printed
     assert "Work out this script's format" not in prompts[0] + prompts[1]
 
 
