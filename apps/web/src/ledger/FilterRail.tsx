@@ -272,6 +272,24 @@ export function FilterRail({
               {facts.filter((fact) => fact.status === 'superseded').length}
             </span>
           </label>
+          <label className={rowClass(Boolean(filters.expositionOnly))}>
+            <input
+              className="sr-only"
+              type="checkbox"
+              checked={Boolean(filters.expositionOnly)}
+              onChange={() =>
+                onChange({
+                  ...filters,
+                  expositionOnly: !filters.expositionOnly,
+                })
+              }
+              data-testid="exposition-toggle"
+            />
+            <span className="text-13">Exposition</span>
+            <span className="ml-auto font-script text-11 tabular-nums text-tr-text-muted">
+              {facts.filter((fact) => fact.delivery).length}
+            </span>
+          </label>
         </div>
       </section>
 

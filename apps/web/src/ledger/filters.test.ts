@@ -177,6 +177,19 @@ describe('ledger filters', () => {
     ).not.toContain('old-fact')
   })
 
+  it('the Exposition lens keeps only facts with a delivery (T10.8)', () => {
+    const read = [
+      ...facts,
+      fact({ id: 'fact-said', delivery: 'stated' }),
+      fact({ id: 'fact-hinted', delivery: 'implied' }),
+    ]
+    expect(
+      filterFacts(read, { ...DEFAULT_FILTERS, expositionOnly: true }).map(
+        (f) => f.id,
+      ),
+    ).toEqual(['fact-said', 'fact-hinted'])
+  })
+
   it('supersedeChain walks supersededBy links', () => {
     const chainFacts = [
       fact({

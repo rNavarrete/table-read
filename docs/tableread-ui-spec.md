@@ -254,13 +254,15 @@ The **Structure** view (`StructurePanel`, after Threads) checks the script again
 
 ### 7b. CAST filter rail (shared filters)
 
-Same `LedgerFilters` model (`status`, `characterId`, `factType`, `secretsOnly`); writer-facing labels only. CAST-first (Ledger redesign):
+Same `LedgerFilters` model (`status`, `characterId`, `factType`, `secretsOnly`, `hideSuperseded`, `expositionOnly`); writer-facing labels only. CAST-first (Ledger redesign):
 
 | Control    | Options / chrome                                                                                                                                                                                                                                                                                                                                                                                                            |
 | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Cast**   | Legend + **Manage** link. Search input filters people live (case-insensitive substring). **All facts** row (✦ glyph + total count). People rows: 24px circular initials avatar (stable per-name oklch hue), name, count pill; sorted by fact count descending. Show top 10; **Show all N** / **Show fewer** when not searching. Selected row uses `--tr-ledger-selected`. Also sets Knowledge Web focus when Web is active. |
 | **Status** | Collapsed by default when All; summary shows pending “N to review” in amber. Expand for All · Needs review · Active · Superseded · Stale · Rejected                                                                                                                                                                                                                                                                         |
 | **As of**  | Compact `<select>`: Latest (all) · episode scenes in doc order; focus-visible outline                                                                                                                                                                                                                                                                                                                                       |
+
+**Exposition lens** (T10.8): the rail's Visibility toggles (◆ Secrets only, Hide superseded) gain **Exposition** with the count of facts the import read a `delivery` for; on, only those show (AND with the rest; filter chip "Exposition"), and the Atlas's story order (its default sort) lists them by delivering scene, each card's detail carrying the exposition line (§7g).
 
 **Browse** (fact-type) is not on the rail in this pass (`factType` stays `'all'`). Threads live in the content header (§7a); overview is the persistent card (§7a-bis).
 

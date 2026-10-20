@@ -352,6 +352,14 @@ export function LedgerScreen() {
           setFilters((current) => ({ ...current, hideSuperseded: false })),
       })
     }
+    if (filters.expositionOnly) {
+      chips.push({
+        kind: 'exposition',
+        label: 'Exposition',
+        onClear: () =>
+          setFilters((current) => ({ ...current, expositionOnly: false })),
+      })
+    }
     if (asOfScene) {
       chips.push({
         kind: 'as-of',

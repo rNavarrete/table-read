@@ -221,6 +221,31 @@ describe('FilterRail', () => {
     ).toMatch(/1/)
   })
 
+  it('offers an Exposition lens counting the facts with a delivery (T10.8)', async () => {
+    const user = userEvent.setup()
+    const onChange = vi.fn()
+    render(
+      <FilterRail
+        project={project}
+        filters={defaultFilters}
+        onChange={onChange}
+        facts={[
+          ...sampleFacts,
+          fact({ id: 'f-said', factType: 'event', delivery: 'stated' }),
+        ]}
+      />,
+    )
+
+    expect(screen.getByText('Exposition').parentElement?.textContent).toMatch(
+      /1/,
+    )
+    await user.click(screen.getByTestId('exposition-toggle'))
+    expect(onChange).toHaveBeenCalledWith({
+      ...defaultFilters,
+      expositionOnly: true,
+    })
+  })
+
   it('uses a compact As-of select instead of a radio list', async () => {
     const user = userEvent.setup()
     const onAsOfSceneChange = vi.fn()
