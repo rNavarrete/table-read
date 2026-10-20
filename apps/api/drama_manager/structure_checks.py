@@ -17,7 +17,7 @@ from drama_manager import locks, render
 
 # ponytail: move with step 4's Story Map deletion
 from drama_manager.narrative_map import _evidence_quote
-from drama_manager.structure_stages import STAGE_DEFINITIONS, STRUCTURE_STAGES
+from drama_manager.structure_stages import STAGE_DEFINITIONS, STAGE_WINDOWS, STRUCTURE_STAGES
 from llm.errors import SchemaInvalidLlmError
 from storage import snapshots
 
@@ -163,6 +163,53 @@ def apply_verdicts(stages: list[dict], verification) -> list[dict]:
     return out
 
 
+def beat_positions(episode: dict) -> dict[str, float]:
+    """Each beat's midpoint as a share (%, 0.1) of the episode's script text, in the
+    writer's order — the act share bar's length measure. Empty without script."""
+    beats = [b for scene in _ordered_scenes(episode) for b in scene["beats"]]
+    lengths = [len(b.get("scriptText") or "") for b in beats]
+    total, before, out = sum(lengths), 0, {}
+    if not total:
+        return out
+    for beat, length in zip(beats, lengths, strict=True):
+        out[beat["id"]] = round(100 * (before + length / 2) / total, 1)
+        before += length
+    return out
+
+
+def place_stages(lens: str, stages: list[dict], positions: dict[str, float]) -> list[dict]:
+    """Server-derived position and placement (T10.5), separate from status. Only a
+    hit or thin stage the lens places gets a placement; an earlier placed stage
+    whose beat comes later makes it out_of_order before any window applies."""
+    windows = STAGE_WINDOWS.get(lens, {})
+    latest: float | None = None
+    out = []
+    for stage in stages:
+        position = positions.get(stage["beatId"]) if stage["beatId"] else None
+        expected, window = windows.get(stage["stage"], (None, None))
+        placement = None
+        if expected is not None and position is not None and stage["status"] in ("hit", "thin"):
+            if latest is not None and position < latest:
+                placement = "out_of_order"
+            elif position < expected - window:
+                placement = "early"
+            elif position > expected + window:
+                placement = "late"
+            else:
+                placement = "in_window"
+            latest = position if latest is None else max(latest, position)
+        out.append(
+            {
+                **stage,
+                "positionPct": position,
+                "expectedPct": expected,
+                "windowPct": window,
+                "placement": placement,
+            }
+        )
+    return out
+
+
 def run_structure_check(
     session, project, lens: str, llm, *, expected_head_snapshot_id: str
 ) -> dict:
@@ -214,6 +261,7 @@ def run_structure_check(
     for stage in stages:
         scene_beat = beats.get(stage["beatId"]) if stage["beatId"] else None
         stage["evidenceQuote"] = (_evidence_quote(*scene_beat) or None) if scene_beat else None
+    stages = place_stages(lens, stages, beat_positions(episode))
 
     check = {
         "lens": lens,

@@ -77,3 +77,26 @@ STAGE_DEFINITIONS: dict[str, str] = {
     "tp_major_setback": "the event where everything falls apart, for a while or for good",
     "tp_climax": "the final event of the main story: its resolution and its biggest reveal",
 }
+
+# Expected position and tolerance per placed stage, as % of the episode's script
+# text (T10.5). Mirrored in apps/web/src/ledger/structure/stages.ts; tests pin
+# both. Hero's Journey and Story Circle are functional (Vogler allows
+# reordering), so they place nothing; neither do Save the Cat's other beats.
+STAGE_WINDOWS: dict[str, dict[str, tuple[float, float]]] = {
+    # TRIPOD's empirical means ± standard deviations.
+    "turning_points": {
+        "tp_opportunity": (11, 7),
+        "tp_change_of_plans": (32, 11),
+        "tp_point_of_no_return": (51, 12),
+        "tp_major_setback": (74, 8),
+        "tp_climax": (89, 5),
+    },
+    # Snyder's page targets over 110 pages (12, 25, 55, 75, 85) ± 8.
+    "save_the_cat": {
+        "catalyst": (10.9, 8),
+        "break_into_two": (22.7, 8),
+        "midpoint": (50, 8),
+        "all_is_lost": (68.2, 8),
+        "break_into_three": (77.3, 8),
+    },
+}
