@@ -6,6 +6,7 @@ import {
   render,
   screen,
 } from '@testing-library/react'
+import { act } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ComponentProps } from 'react'
 import type {
@@ -18,6 +19,7 @@ import type {
 } from 'contract'
 import { RULED } from '../projects/wizard/board/IndexCard'
 import { BoardCard } from './BoardCard'
+import { PEEK_HIDE_MS, PEEK_SHOW_MS } from './CardPeek'
 import { boardModel } from './story'
 
 afterEach(cleanup)
@@ -275,13 +277,12 @@ function dragAt(type: 'dragOver' | 'drop', el: HTMLElement, clientX: number) {
 }
 
 describe('BoardCard', () => {
-  it('shows the index card face: number, INT/EXT dot, cleaned place title, a 4-line reading, the full slug in the tooltip', () => {
+  it('shows the index card face: number, INT/EXT dot, cleaned place title, a 4-line reading, no native tooltip (the peek reads it in full)', () => {
     const card = renderCard()
     expect(screen.getByText('3')).toBeTruthy()
     expect(screen.getByText('Bar')).toBeTruthy()
     expect(card.querySelector('.bg-tr-write-dot-int')).not.toBeNull()
-    expect(card.title).toContain('INT. THE LONG POUR - BAR - DAY')
-    expect(card.title).toContain(READING)
+    expect(card.hasAttribute('title')).toBe(false)
     expect(screen.getByText(READING).className).toContain('line-clamp-4')
     expectClasses(card, 'w-card-board-w h-card-board-h')
     expect(card.style.backgroundImage).toBe(RULED.backgroundImage)
@@ -652,5 +653,76 @@ describe('BoardCard', () => {
     expect(onSelect).toHaveBeenCalledTimes(1)
     fireEvent.doubleClick(card)
     expect(onOpenInWrite).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('BoardCard peek (Plan card peek)', () => {
+  afterEach(() => vi.useRealTimers())
+  const peek = () => document.querySelector('[data-testid="card-peek"]')
+  const wait = (ms: number) =>
+    act(() => {
+      vi.advanceTimersByTime(ms)
+    })
+
+  it('opens after resting the pointer on the card, with the whole slug and reading, and closes on leaving', () => {
+    vi.useFakeTimers()
+    const card = renderCard()
+    fireEvent.pointerEnter(card)
+    wait(PEEK_SHOW_MS - 1)
+    expect(peek()).toBeNull()
+    wait(1)
+    expect(peek()?.textContent).toContain('INT. THE LONG POUR - BAR - DAY')
+    expect(peek()?.textContent).toContain(READING)
+    expect(peek()?.getAttribute('aria-hidden')).toBe('true')
+    fireEvent.pointerLeave(card)
+    wait(PEEK_HIDE_MS)
+    expect(peek()).toBeNull()
+  })
+
+  it('stays open while the pointer moves onto the peek itself', () => {
+    vi.useFakeTimers()
+    const card = renderCard()
+    fireEvent.pointerEnter(card)
+    wait(PEEK_SHOW_MS)
+    fireEvent.pointerLeave(card)
+    fireEvent.pointerEnter(peek() as Element)
+    wait(PEEK_HIDE_MS * 2)
+    expect(peek()).not.toBeNull()
+  })
+
+  it('opens at once on keyboard focus, but not when a click focuses the card', () => {
+    const card = renderCard()
+    fireEvent.pointerDown(card)
+    fireEvent.focus(card)
+    expect(peek()).toBeNull()
+    fireEvent.blur(card)
+    fireEvent.focus(card)
+    expect(peek()).not.toBeNull()
+  })
+
+  it('Esc closes a hover peek and stops there; on a focus peek it closes and goes on to the board', () => {
+    vi.useFakeTimers()
+    const onKeyDown = vi.fn()
+    const card = renderCard({ onKeyDown })
+    fireEvent.pointerEnter(card)
+    wait(PEEK_SHOW_MS)
+    fireEvent.keyDown(card, { key: 'Escape' })
+    expect(peek()).toBeNull()
+    expect(onKeyDown).not.toHaveBeenCalled()
+
+    fireEvent.focus(card)
+    expect(peek()).not.toBeNull()
+    fireEvent.keyDown(card, { key: 'Escape' })
+    expect(peek()).toBeNull()
+    expect(onKeyDown).toHaveBeenCalledTimes(1)
+  })
+
+  it('never opens while the card is being dragged', () => {
+    vi.useFakeTimers()
+    const card = renderCard({ dragging: true })
+    fireEvent.pointerEnter(card)
+    wait(PEEK_SHOW_MS)
+    fireEvent.focus(card)
+    expect(peek()).toBeNull()
   })
 })

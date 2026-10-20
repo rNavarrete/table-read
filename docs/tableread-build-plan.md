@@ -336,6 +336,15 @@ _Accept:_ Zod, Pydantic, data contract §2a, prompt spec §5b/§5b′ and `confi
 **T10.12 Breakdown at a glance.** Owner request (2026-10-20): the M10 readings are on screen but not compelling. Plan's scene panel leads with an At a glance header: the turn and Why now (moved from "What the scene does"), whose wants clash, and who knows. The Highlight bar gains Turns, Clashes and Who knows lenses. Everything is derived client-side in `plan/story.ts`, with no request and no schema or prompt change. Design: `docs/superpowers/specs/2026-10-20-breakdown-at-a-glance-design.md`; redesign spec §4.5/§4.6 updated.
 _Accept:_ the header shows only the readings a scene has, and nothing when it has none; the turn is spoken as words; a clash needs both characters to want something and is labelled as a guess; Who knows states irony and mystery with a spoken sentence; each lens follows §4.5 (ring, one tape, quiet non-matches, counts, N, announcement); Turns tapes a holding scene sky, stated not graded; existing tokens only; Vitest: `sceneTurn`, `sceneClashes` (obstacle, mutual beats, both-want, possessive and title words), each lens's tape and count, the header's rows and its empty state, the bar's lenses; no AI call anywhere in the path.
 
+**T10.14 Card peek.** Owner request (2026-10-20): board cards truncate the scene's reading and must be readable in full. Resting the pointer on a card, or landing on it with the keyboard, opens a peek beside it with the whole slug and `whatHappens` and the T10.12 readings; it replaces the native tooltip. Redesign spec §4.2.
+_Accept:_
+- opens after 400 ms of hover and at once on keyboard focus, never on a click-focus or during a drag;
+- closes on leave (with a grace period for moving onto it), blur, scroll and Esc;
+- Esc on a focus peek still reaches Plan in one press;
+- `aria-hidden`, with no request;
+- existing tokens only;
+- Vitest for each rule and for `peekLines`.
+
 ## Sequencing & parallelism
 
 ```

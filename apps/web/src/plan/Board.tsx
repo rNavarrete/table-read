@@ -426,6 +426,7 @@ export function Board({
                       <BoardCard
                         key={id}
                         signals={signals}
+                        characters={model.characters}
                         locked={signals.scene.locked || episodeLocked}
                         selected={id === selectedId}
                         tabIndex={id === tabStop ? 0 : -1}
