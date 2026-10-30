@@ -15,7 +15,7 @@ import {
   emptyBoard,
   reconcileWithResult,
 } from './importBoard'
-import { estimateImportCost, formatImportCostLine } from './importCostEstimate'
+import { importCostCopy, type ImportCostRange } from './importCostEstimate'
 import { usd } from './board/boardText'
 import {
   advanceImportProgress,
@@ -77,10 +77,8 @@ function spendLimitDetails(
 }
 
 /** The default limit: the estimate's "at most", rounded up to the dollar. */
-function defaultLimitUsd(sceneCount: number, charCount: number): number | null {
-  const high = estimateImportCost({ sceneCount, charCount }).estimatedCostUsd
-    ?.high
-  return high === undefined ? null : Math.max(1, Math.ceil(high))
+function defaultLimitUsd(estimate: ImportCostRange | null): number | null {
+  return estimate === null ? null : Math.max(1, Math.ceil(estimate.high))
 }
 
 /** Continue's new limit: the old one plus about what is left, rounded up. */
@@ -192,7 +190,9 @@ export function ImportWizard() {
   const [session, setSession] = useState<AnalyzeSession>(INITIAL_SESSION)
   const [nowMs, setNowMs] = useState(() => Date.now())
   const [textOpen, setTextOpen] = useState(false)
-  const demoMode = useLlmMode() === 'mock'
+  // GET /health's llmMode: whether an import spends the writer's API key.
+  const llmMode = useLlmMode()
+  const demoMode = llmMode === 'mock'
   // While the writer types in the limit field; null shows the draft's value.
   const [limitText, setLimitText] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
@@ -210,8 +210,7 @@ export function ImportWizard() {
   // Demo mode costs nothing, so it sends no limit (T11.3).
   const limitUsd = demoMode
     ? null
-    : (draft.maxCostUsd ??
-      defaultLimitUsd(stats.detectedSceneCount, stats.charCount))
+    : (draft.maxCostUsd ?? defaultLimitUsd(stats.estimatedCostUsd))
   const paused = session.stopped ? null : spendLimitDetails(session.error)
   const stoppedAtLimit = session.stopped
     ? spendLimitDetails(session.error)
@@ -663,8 +662,11 @@ export function ImportWizard() {
                     />
                   </label>
                   <p className="text-13 text-tr-text-secondary">
-                    {draft.filename ?? 'Pasted text'} ·{' '}
-                    {formatImportCostLine(stats)}
+                    {importCostCopy(
+                      stats.detectedSceneCount,
+                      stats.estimatedCostUsd,
+                      llmMode,
+                    )}
                   </p>
                   {limitUsd !== null && (
                     <div className="grid gap-1">

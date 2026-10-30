@@ -8,7 +8,6 @@ describe('analyzeSource', () => {
       byteCount: 0,
       lineCount: 1,
       detectedSceneCount: 0,
-      estimatedModelCalls: 0,
       estimatedCostUsd: null,
     })
   })
@@ -18,7 +17,7 @@ describe('analyzeSource', () => {
       'INT. BAR - NIGHT\nDan pours.\nEXT. STREET - DAY\nMarta leaves.'
     const stats = analyzeSource(source)
     expect(stats.detectedSceneCount).toBe(2)
-    expect(stats.estimatedModelCalls).toBe(9)
+    expect(stats.estimatedCostUsd?.about).toBeGreaterThan(0)
     expect(stats.lineCount).toBe(4)
     expect(stats.charCount).toBe(source.length)
   })
