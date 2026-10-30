@@ -1141,6 +1141,9 @@ export const ProjectImportProgressEvent = z.discriminatedUnion('type', [
     stage: ProjectImportStageName,
     done: z.number().int().nonnegative(),
     total: z.number().int().nonnegative(),
+    // T11.1: what the import has spent so far, in USD to the cent (demo
+    // mode: 0). Null from a server that doesn't meter.
+    spentUsd: z.number().nonnegative().nullable().default(null),
   }),
   z.object({
     type: z.literal('found'),

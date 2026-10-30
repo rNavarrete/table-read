@@ -68,6 +68,12 @@ def ensure_storage_schema() -> None:
                     )
                 )
 
+        # T11.1: an import run's cost and receipt.
+        if inspector.has_table("import_runs") and "cost" not in {
+            column["name"] for column in inspector.get_columns("import_runs")
+        }:
+            connection.execute(text("ALTER TABLE import_runs ADD COLUMN cost JSON"))
+
         # T7.23: existing dev DBs predate LedgerFact.knowledgeEvents.
         if inspector.has_table("ledger_facts"):
             fact_columns = {

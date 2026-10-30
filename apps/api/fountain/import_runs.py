@@ -87,7 +87,10 @@ def create_or_resume_run(
     request_hash: str,
     content: str,
 ) -> tuple[ImportRunRow, bool]:
-    """Return ``(run, should_execute)`` without ever invoking the model."""
+    """Return ``(run, should_execute)`` without ever invoking the model.
+
+    A resume keeps the run's cost meter counting (T11.1); a restart, which
+    discards every saved unit, starts it over."""
     _purge_expired_runs(session)
     version = analysis_version()
     existing = (
@@ -137,6 +140,7 @@ def create_or_resume_run(
             error_code=None,
             error_message=None,
             checkpoint={},
+            cost=None,
         )
         session.commit()
         return existing, True
@@ -159,6 +163,7 @@ def create_or_resume_run(
             error_code=None,
             error_message=None,
             checkpoint={},
+            cost=None,
         )
         session.commit()
         return existing, True
@@ -182,6 +187,7 @@ def create_or_resume_run(
             error_code=None,
             error_message=None,
             checkpoint={},
+            cost=None,
         )
         session.commit()
         return existing, True
@@ -256,8 +262,12 @@ def save_checkpoint(
     stage: str,
     value: dict | list,
     unit_index: int | None = None,
+    cost: dict | None = None,
 ) -> None:
-    """Persist one completed unit before its progress event is emitted."""
+    """Persist one completed unit before its progress event is emitted, with
+    the run's `cost` so far when given."""
+    if cost is not None:
+        run.cost = cost
     if unit_index is None:
         checkpoint = copy.deepcopy(run.checkpoint or {})
         checkpoint[stage] = copy.deepcopy(value)
@@ -308,6 +318,7 @@ def mark_failed(
     phase: str,
     code: str,
     message: str,
+    cost: dict | None = None,
 ) -> None:
     _touch(
         run,
@@ -315,13 +326,15 @@ def mark_failed(
         phase=phase,
         error_code=code,
         error_message=message,
+        **({} if cost is None else {"cost": cost}),
     )
     session.commit()
 
 
 def mark_completed(
-    session: Session, run: ImportRunRow, *, project_id: str
+    session: Session, run: ImportRunRow, *, project_id: str, cost: dict | None = None
 ) -> None:
+    """Drop the saved units; keep `cost` as the import's receipt (T11.1)."""
     _clear_units(session, run.id)
     _touch(
         run,
@@ -332,5 +345,6 @@ def mark_completed(
         error_code=None,
         error_message=None,
         checkpoint={},
+        **({} if cost is None else {"cost": cost}),
     )
     session.commit()
