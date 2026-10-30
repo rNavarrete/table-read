@@ -1,0 +1,86 @@
+{
+  "notes": [
+    "The one per-op cost model of an import (T11.2, T11.3). The wizard's estimate (apps/web/src/projects/wizard/importCostEstimate.ts) and the server's spending-limit projection (apps/api/fountain/import_spend.py) both evaluate it, the same way, priced from config/llm_pricing.json per model at 5-minute cache writes (cacheWrite5mMultiplier); a parity test pins them to the cent.",
+    "Evaluation: each op makes `calls` calls ('scene': one per scene, N; 'chunk': one per entity chunk; 'one'). A call's input and output tokens are base + perScene*N + perChar*C + perCharPerScene*(C/N), N = scenes, C = source characters. An op with a `cachedPrefix` reads that prefix (prefixes, same linear form) on every call; with `prewarm` its stage first writes it once, when the stage has 2+ calls (the pipeline's _prewarm rule). Haiku's long-prompt rates apply to a call whose prompt (input + cache write + cache read) is over overPromptTokens. 'About' is the sum; low and high multiply it by range.",
+    "Calibration (design docs/superpowers/specs/2026-10-30-import-cost-design.md): every coefficient is the exact two-point fit, rounded, through the two complete imports in import-diagnostics.log, priced by scripts/import_cost_report.py: A import-28f20507, PROMPT_VERSION 0.62.0, 37 scenes, 41,874 chars, $2.33; B import-c45b4084, 0.63.0, 179 scenes, 128,303 chars, $8.90. A second run of A's script (import-ea615510, stopped at promises) came within 6% op by op. Re-measure and re-fit here when the pipeline changes.",
+    "Prefixes: segment and entities share the whole script (split_source), 4,500 + 0.507*C tokens (25.7k on A, 69.5k on B); facts read the scene-ordered episode (episode_source, Haiku's tokenizer), 3,900 + 0.59*C (28.6k, 79.6k).",
+    "segment_scene (Sonnet), per scene: output includes thinking. infer_story_entities (Sonnet), per chunk. Entity chunks follow fountain/entity_inference.py: at most 12 scenes and 12,000 summary characters each; summaries measured 690*N + 0.87*C characters (61.9k on A, 235k on B) and filled 11,000 a chunk on average (6 and 21 chunks; this rule says 6 and 22).",
+    "Opus single calls (acts, promises, motivations, overview), uncached; output includes thinking. B's promises call was a retry: its logged input carries the replayed first answer, and the first attempt is missing from the log, so B's real bill was likely ~$0.80 higher than $8.90.",
+    "extract_ledger_facts (Haiku), per scene: the cast sits after the cache point and grows with the script (6.3k input a call on A, 16.6k on B). scan_consistency (Haiku), one uncached call. B's scan prompt (199k) paid the long-prompt rates; its facts calls (96-97k) did not. A facts call crosses at ~134k source characters and the estimate steps up there (ponytail: a step on the average call, not a share of calls; near the step the margin carries it).",
+    "Range: A and B sit within 1% of the point; high is that error plus the design's 15% margin plus room for one Opus retry (B's missing first attempt was ~9%). Not modelled: a script whose printed acts skip the acts call (slightly high), retries (in the margin), Narrative Map (a separate action)."
+  ],
+  "range": { "low": 0.85, "high": 1.3 },
+  "prefixes": {
+    "script": { "base": 4500, "perChar": 0.507 },
+    "episode": { "base": 3900, "perChar": 0.59 }
+  },
+  "entityChunks": {
+    "maxScenes": 12,
+    "charsPerChunk": 11000,
+    "summaryChars": { "perScene": 690, "perChar": 0.87 }
+  },
+  "ops": {
+    "segment_scene": {
+      "stage": "segmenting_beats",
+      "role": "import_worker",
+      "calls": "scene",
+      "cachedPrefix": "script",
+      "prewarm": true,
+      "input": { "base": 770, "perCharPerScene": 1.51 },
+      "output": { "base": 440, "perCharPerScene": 0.86 }
+    },
+    "infer_story_entities": {
+      "stage": "inferring_entities",
+      "role": "import_worker",
+      "calls": "chunk",
+      "cachedPrefix": "script",
+      "prewarm": true,
+      "input": { "base": 4700 },
+      "output": { "base": 3100 }
+    },
+    "infer_act_breaks": {
+      "stage": "inferring_acts",
+      "role": "import_analyst",
+      "calls": "one",
+      "input": { "perScene": 108, "perChar": 0.426 },
+      "output": { "base": 225, "perScene": 3.1 }
+    },
+    "infer_narrative_promises": {
+      "stage": "inferring_promises",
+      "role": "import_analyst",
+      "calls": "one",
+      "input": { "perScene": 456, "perChar": 0.212 },
+      "output": { "base": 7450, "perScene": 70 }
+    },
+    "infer_scene_motivations": {
+      "stage": "inferring_motivations",
+      "role": "import_analyst",
+      "calls": "one",
+      "input": { "perScene": 130, "perChar": 0.449 },
+      "output": { "base": 4470, "perScene": 47.5 }
+    },
+    "infer_story_overview": {
+      "stage": "inferring_overview",
+      "role": "import_analyst",
+      "calls": "one",
+      "input": { "perScene": 360, "perChar": 0.838 },
+      "output": { "base": 4410, "perScene": 85 }
+    },
+    "extract_ledger_facts": {
+      "stage": "extracting_facts",
+      "role": "classifier",
+      "calls": "scene",
+      "cachedPrefix": "episode",
+      "prewarm": true,
+      "input": { "base": 1280, "perChar": 0.119 },
+      "output": { "base": 1285, "perCharPerScene": 0.78 }
+    },
+    "scan_consistency": {
+      "stage": "checking_consistency",
+      "role": "classifier",
+      "calls": "one",
+      "input": { "perScene": 419, "perChar": 0.966 },
+      "output": { "base": 7860, "perScene": 34 }
+    }
+  }
+}

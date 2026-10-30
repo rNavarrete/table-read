@@ -1,7 +1,7 @@
 """The import spending limit (T11.3). Every model call is priced at a flat
 $0.10 (`costs.call_cost_usd` patched), so a unit's projection is $0.10, its
-"at most" $0.135 and a prewarm needs room for itself plus one unit: $0.27.
-`MockLlmClient(priced=True)` only (hard rule 1)."""
+"at most" (the cost model's high, 1.3x) $0.13 and a prewarm needs room for
+itself plus one unit: $0.26. `MockLlmClient(priced=True)` only (hard rule 1)."""
 
 from __future__ import annotations
 
@@ -18,6 +18,7 @@ from fountain.parse import split_into_scenes
 from llm import costs
 from llm.dependency import get_llm_client
 from llm.mock import MockLlmClient
+from llm.ops import OP_REGISTRY
 from main import app
 from schemas import ProjectImportCreateRequest, SegmentedScene
 from storage.models import (
@@ -118,16 +119,40 @@ def _units(db_session, run: ImportRunRow, stage: str) -> int:
     return db_session.query(ImportRunUnitRow).filter_by(run_id=run.id, stage=stage).count()
 
 
-def test_unit_costs_price_the_estimates_shape_per_model(monkeypatch):
+# The wizard's `about` for the two measured imports, from the same
+# config/import_cost_model.json (importCostEstimate.test.ts asserts these
+# numbers too): at the 1-hour cache writes those runs paid, and at 5 minutes.
+PARITY = [
+    (37, 41_874, "1h", 2.32),
+    (179, 128_303, "1h", 8.96),
+    (37, 41_874, "5m", 2.24),
+    (179, 128_303, "5m", 8.75),
+]
+
+
+@pytest.mark.parametrize(("scenes", "chars", "tier", "about"), PARITY)
+def test_the_projection_matches_the_wizard_estimate_to_the_cent(
+    monkeypatch, scenes, chars, tier, about
+):
     monkeypatch.undo()  # real prices for this one
-    shape = import_spend.unit_costs(10, 20_000)
-    # Sonnet segment: 1,100 in, 750 out, the 15,000-token script prefix read
-    # at $0.10/MTok; its prewarm writes the prefix at 1.25x $2.
-    assert shape["segmenting_beats"] == pytest.approx((2_200 + 7_500 + 1_500) / 1e6)
-    assert shape["segmenting_beats:prewarm"] == pytest.approx((2_200 + 37_500) / 1e6)
-    # Opus acts: 2,000 + 420 per scene in, 800 out.
-    assert shape["inferring_acts"] == pytest.approx((6_200 * 4 + 800 * 20) / 1e6)
-    assert shape["inferring_motivations"] == shape["inferring_promises"]
+    total = import_spend.projected_usd(scenes, chars, cache_write=tier)
+    assert round(total, 2) == about
+
+
+def test_the_cost_model_names_each_ops_role_and_stage():
+    stages = {pipeline.CHECKPOINT_SCENE_MOTIVATIONS} | {
+        getattr(pipeline, name) for name in dir(pipeline) if name.startswith("STAGE_")
+    }
+    for op, spec in import_spend.COST_MODEL["ops"].items():
+        assert spec["role"] == OP_REGISTRY[op].role, op
+        assert spec["stage"] in stages, op
+    assert import_spend.AT_MOST == import_spend.COST_MODEL["range"]["high"]
+
+
+def test_entity_chunks_follow_the_servers_rule():
+    assert import_spend.entity_chunks(37, 41_874) == 6
+    assert import_spend.entity_chunks(179, 128_303) == 22
+    assert import_spend.entity_chunks(120, 1_000) == 10
 
 
 def test_the_limit_stops_before_a_unit_that_would_cross_it(db_session, monkeypatch):
@@ -139,8 +164,8 @@ def test_the_limit_stops_before_a_unit_that_would_cross_it(db_session, monkeypat
     before = _counts(db_session)
     key = "00000000-0000-4000-8000-00000000a301"
 
-    # Prewarm 0.27 then three segments at 0.135 each fit under $0.45 as the
-    # spend climbs to $0.40; the acts call would need $0.535.
+    # Prewarm 0.26 then three segments at 0.13 each fit under $0.45 as the
+    # spend climbs to $0.40; the acts call would need $0.53.
     events = _post(key, src, 0.45)
 
     name, data = events[-1]
@@ -169,7 +194,7 @@ def test_in_flight_calls_finish_and_are_saved_when_the_limit_stops_the_next(
     key = "00000000-0000-4000-8000-00000000a302"
 
     # Prewarm ($0.10 spent), then Alpha and Beta start together; Beta lands
-    # ($0.20) while Alpha runs, and Gamma's 0.20 + 0.135 + 0.135 > $0.40.
+    # ($0.20) while Alpha runs, and Gamma's 0.20 + 0.13 + 0.13 > $0.40.
     events = _post(key, _source("Alpha", "Beta", "Gamma", "Delta"), 0.40)
 
     assert events[-1][1]["error"]["code"] == "IMPORT_SPEND_LIMIT"
