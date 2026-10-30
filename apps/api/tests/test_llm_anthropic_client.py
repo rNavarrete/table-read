@@ -1171,9 +1171,9 @@ def test_extract_with_cache_prefix_marks_the_last_system_block_for_caching():
 
     Caching is a byte-exact prefix match over tools -> system -> messages, so
     the breakpoint belongs on the LAST system block (the stable per-run source
-    payload) and everything per-call stays in the user turn. A 1h TTL because
-    an import runs for minutes across bounded workers and may resume from a
-    checkpoint; the 5-minute default would silently buy a second full write.
+    payload) and everything per-call stays in the user turn. The 5-minute
+    TTL (T11.4): every measured prefix was re-read within 72 s, so the 1-hour
+    tier's 2x write bought nothing over 5 minutes' 1.25x.
     """
     response = FakeMessage(
         content=[
@@ -1199,7 +1199,7 @@ def test_extract_with_cache_prefix_marks_the_last_system_block_for_caching():
         {
             "type": "text",
             "text": "WHOLE EPISODE",
-            "cache_control": {"type": "ephemeral", "ttl": "1h"},
+            "cache_control": {"type": "ephemeral"},
         },
     ]
     # The per-call payload must stay after the breakpoint, or every call
@@ -1501,6 +1501,31 @@ def test_prewarm_sends_the_real_request_with_zero_max_tokens(name):
         assert prewarm["thinking"] == {"type": "adaptive"}
 
 
+_CACHED_OPS = sorted(
+    name
+    for name in OP_REGISTRY
+    if "cache_prefix" in inspect.signature(getattr(AnthropicClient, name)).parameters
+)
+
+
+@pytest.mark.parametrize("name", _CACHED_OPS)
+def test_every_cached_request_uses_the_five_minute_cache(name):
+    """T11.4: the op call and its prewarm both mark the prefix with the
+    5-minute form, `{"type": "ephemeral"}` and no `ttl`."""
+    real_reply = FakeMessage(
+        content=[FakeToolUseBlock(input=_fixture_valid_input_for(name), name=name)]
+    )
+    sdk = FakeStreamingSdkClient([real_reply, _prewarm_reply()])
+    client = AnthropicClient(sdk_client=sdk, models=_MODELS)
+
+    getattr(client, name)(**_op_kwargs(name), prompt_version="0.1.0")
+    client.prewarm_cache(name, **_op_kwargs(name))
+
+    for call in [*sdk.messages.stream_calls, *sdk.messages.calls]:
+        marked = [block for block in call["system"] if "cache_control" in block]
+        assert [block["cache_control"] for block in marked] == [{"type": "ephemeral"}]
+
+
 def test_prewarm_keeps_the_cache_breakpoint_on_the_shared_source():
     sdk = FakeSdkClient([_prewarm_reply()])
     client = AnthropicClient(sdk_client=sdk, models=_MODELS)
@@ -1511,7 +1536,7 @@ def test_prewarm_keeps_the_cache_breakpoint_on_the_shared_source():
     assert call["system"][-1] == {
         "type": "text",
         "text": "script",
-        "cache_control": {"type": "ephemeral", "ttl": "1h"},
+        "cache_control": {"type": "ephemeral"},
     }
     assert call["tool_choice"] == {"type": "auto", "disable_parallel_tool_use": True}
 

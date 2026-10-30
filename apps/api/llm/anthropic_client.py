@@ -522,9 +522,11 @@ class AnthropicClient:
         stable per-run source payload. Everything that varies per call stays in
         the user turn, after the breakpoint.
 
-        1h TTL rather than the 5-minute default: an import runs several minutes
-        across bounded workers and may be resumed from a checkpoint, and a
-        prefix that expires mid-run silently costs a second full write.
+        The 5-minute default TTL (T11.4), written at 1.25x input rather than
+        the 1-hour tier's 2x: on real imports every cached prefix was re-read
+        within 72 s of its previous read, so the longer tier bought nothing.
+        A prefix that does expire (a resumed run, a spending-limit pause)
+        costs one more write, not a failure.
 
         Note the caller must keep `tools` and the resolved `effort` identical
         across calls that share this prefix — a change to either invalidates it
@@ -545,7 +547,7 @@ class AnthropicClient:
             {
                 "type": "text",
                 "text": cache_prefix,
-                "cache_control": {"type": "ephemeral", "ttl": "1h"},
+                "cache_control": {"type": "ephemeral"},
             },
         ]
 
