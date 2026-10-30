@@ -7,6 +7,7 @@ import type {
 } from 'contract'
 import { extractPdf, importCreateUrl } from '../../api/client'
 import { streamSse } from '../../api/sse'
+import { useLlmMode } from '../../api/useLlmMode'
 import { ImportBoard } from './board/ImportBoard'
 import {
   applyFound,
@@ -149,6 +150,7 @@ export function ImportWizard() {
   const [session, setSession] = useState<AnalyzeSession>(INITIAL_SESSION)
   const [nowMs, setNowMs] = useState(() => Date.now())
   const [textOpen, setTextOpen] = useState(false)
+  const demoMode = useLlmMode() === 'mock'
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const scriptTextRef = useRef<HTMLTextAreaElement | null>(null)
   const foundQueue = useRef<FoundFrame[]>([])
@@ -621,6 +623,7 @@ export function ImportWizard() {
                   nowMs={nowMs}
                   approxSceneCount={stats.detectedSceneCount}
                   toReview={session.result?.toReview ?? null}
+                  demoMode={demoMode}
                   onOpenStory={openYourStory}
                   onSeeInPlan={seeItInPlan}
                 />

@@ -430,6 +430,83 @@ describe('ImportWizard', () => {
     restore()
   })
 
+  it('meters the spend while it runs and keeps the receipt on the finale (T11.1)', async () => {
+    const user = userEvent.setup()
+    mockedStreamSse.mockImplementation(() =>
+      framesFrom([
+        stage('parsing_scenes'),
+        scenesFound(1),
+        stage('segmenting_beats'),
+        {
+          event: 'progress',
+          data: {
+            type: 'progress',
+            stage: 'segmenting_beats',
+            done: 1,
+            total: 1,
+            spentUsd: 0.42,
+          },
+        },
+        stage('saving'),
+        {
+          event: 'progress',
+          data: {
+            type: 'progress',
+            stage: 'saving',
+            done: 1,
+            total: 1,
+            spentUsd: 2.31,
+          },
+        },
+        completeFrame(),
+      ]),
+    )
+
+    render(<ImportWizard />)
+    await fillSourceAndBasics(user, 'Ferry Crossing')
+    await user.click(
+      screen.getByRole('button', { name: 'Create & analyze script' }),
+    )
+
+    expect((await screen.findByTestId('import-cost')).textContent).toBe(
+      'This import cost $2.31',
+    )
+  })
+
+  it('says demo mode when the server runs the mock client', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json({ status: 'ok', llmMode: 'mock' })),
+    )
+    async function* stalled() {
+      yield stage('segmenting_beats')
+      yield {
+        event: 'progress',
+        data: {
+          type: 'progress',
+          stage: 'segmenting_beats',
+          done: 0,
+          total: 1,
+          spentUsd: 0,
+        },
+      }
+      await new Promise(() => {})
+    }
+    mockedStreamSse.mockImplementation(() => stalled())
+
+    render(<ImportWizard />)
+    await fillSourceAndBasics(user, 'Ferry Crossing')
+    await user.click(
+      screen.getByRole('button', { name: 'Create & analyze script' }),
+    )
+
+    expect((await screen.findByTestId('import-spent')).textContent).toBe(
+      'Demo mode — no cost',
+    )
+    vi.unstubAllGlobals()
+  })
+
   it('See it in Plan opens the project on the Plan board', async () => {
     const user = userEvent.setup()
     const { assignSpy, restore } = stubLocationAssign()
