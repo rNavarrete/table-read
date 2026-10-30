@@ -38,6 +38,7 @@ from sqlalchemy.orm import Session
 
 from drama_manager import locks
 from fountain import import_runs
+from fountain.import_spend import SpendLimit, SpendLimitReached, limiting
 from fountain.parse import CoverageError
 from fountain.pipeline import (
     ImportFound,
@@ -76,8 +77,11 @@ def _found_frame(event: ImportFound) -> str:
     )
 
 
-def _failed_frame(code: str, message: str) -> str:
-    return format_sse("failed", {"type": "failed", "error": {"code": code, "message": message}})
+def _failed_frame(code: str, message: str, details: dict | None = None) -> str:
+    error: dict = {"code": code, "message": message}
+    if details is not None:
+        error["details"] = details
+    return format_sse("failed", {"type": "failed", "error": error})
 
 
 def _complete_frame(result: dict) -> str:
@@ -161,6 +165,7 @@ def create_and_import_events(
     import_run_id: str | None = None,
     import_run: ImportRunRow | None = None,
     should_execute: bool = True,
+    max_cost_usd: float | None = None,
 ) -> Generator[str, None, None]:
     """Yield SSE wire frames for the create-and-import stream: a `stage`
     frame per named stage (data contract §9.3), then exactly one terminal
@@ -198,6 +203,8 @@ def create_and_import_events(
 
     # A resumed run keeps counting from what its earlier attempts spent.
     meter = costs.CostMeter(import_run.cost if import_run is not None else None)
+    # T11.3: every unit is admitted against the writer's limit, if any.
+    limit = SpendLimit(meter, max_cost_usd) if max_cost_usd is not None else None
     try:
         checkpoint: dict = {}
         checkpoint_writer = None
@@ -233,7 +240,7 @@ def create_and_import_events(
             while True:
                 # Streaming resumes generators in a fresh context after each
                 # SSE frame, so scope the correlation context to each advance.
-                with import_run_context(run_id), costs.metering(meter):
+                with import_run_context(run_id), costs.metering(meter), limiting(limit):
                     event = next(analysis_gen)
                 if isinstance(event, ImportStageStarted):
                     current_stage = event.name
@@ -332,6 +339,33 @@ def create_and_import_events(
                 cost=meter.snapshot(),
             )
         yield _progress_frame("saving", 1, 1, meter.spent_usd)
+    except SpendLimitReached as exc:
+        # Paused, not failed: every finished unit is saved, nothing was
+        # created, and the same request with a higher limit resumes the run.
+        assert limit is not None  # only a limited run raises it
+        checkpoint = (
+            import_runs.load_checkpoint(session, import_run) if import_run is not None else {}
+        )
+        details = {
+            "spentUsd": round(meter.spent_usd, 2),
+            "maxCostUsd": limit.max_cost_usd,
+            "remainingUsd": round(limit.remaining_usd(checkpoint), 2),
+        }
+        message = (
+            f"paused at ${details['spentUsd']:.2f} of your ${limit.max_cost_usd:.2f} limit"
+        )
+        _log_import_failed(run_id, current_stage, started_at, "IMPORT_SPEND_LIMIT", exc)
+        if import_run is not None:
+            import_runs.mark_failed(
+                session,
+                import_run,
+                phase=current_stage,
+                code="IMPORT_SPEND_LIMIT",
+                message=message,
+                cost=meter.snapshot(),
+            )
+        yield _failed_frame("IMPORT_SPEND_LIMIT", message, details)
+        return
     except CoverageError as exc:
         _log_import_failed(run_id, current_stage, started_at, "VALIDATION", exc)
         if import_run is not None:

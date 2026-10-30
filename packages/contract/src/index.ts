@@ -944,6 +944,9 @@ export const ProjectImportCreateRequest = z.object({
     format: z.enum(['fountain', 'text']),
     content: z.string(),
   }),
+  // T11.3: the most this import may spend, in USD (null: no limit). Not part
+  // of the request's idempotency hash, so raising it resumes the same run.
+  maxCostUsd: z.number().positive().nullable().default(null),
 })
 export type ProjectImportCreateRequest = z.input<
   typeof ProjectImportCreateRequest

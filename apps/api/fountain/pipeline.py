@@ -39,6 +39,7 @@ import time
 from collections import Counter
 from collections.abc import Callable, Generator
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, as_completed, wait
+from contextlib import nullcontext
 from dataclasses import asdict, dataclass
 from typing import Any, cast
 
@@ -49,7 +50,7 @@ from drama_manager.ledger_policy import CONFIDENCE_FLOOR, IdMinter, locate_quote
 from drama_manager.narrative_map import NarrativeMapValidationError, merge_narrative_map
 from drama_manager.overview import merge_story_overview
 from drama_manager.promises import merge_narrative_promises, merge_scene_motivations
-from fountain import acts
+from fountain import acts, import_spend
 from fountain.characters import (
     cues_from_scenes,
     is_shooting_script,
@@ -286,6 +287,8 @@ def analyze_import(
     if not content.strip():
         raise CoverageError("import contains only screenplay front matter")
     spans = split_into_scenes(content)
+    if (limit := import_spend.current_limit()) is not None:
+        limit.plan(len(spans), len(content))
     _write_checkpoint(
         checkpoint_writer,
         STAGE_PARSING_SCENES,
@@ -1538,26 +1541,47 @@ def _prewarm(
             op, system=system, user_message=user, cache_prefix=cache_prefix
         ),
         pooled=False,
+        prewarm=True,
     )
 
 
 def _unit[R](
-    stage: str, scene: int | None, fn: Callable[..., R], *, pooled: bool = True
+    stage: str,
+    scene: int | None,
+    fn: Callable[..., R],
+    *,
+    pooled: bool = True,
+    prewarm: bool = False,
 ) -> Callable[..., R]:
     """`fn` as one import unit, for whichever thread runs it: it runs in a copy
     of the context it was made in (so the import run id reaches pool workers,
     which do not inherit context vars), with its model calls tagged with
     `stage`, `scene` and, when `pooled`, the ms from now until it starts (the
     wait for a free worker). Make one per submission: a context copy can run
-    on one thread at a time."""
+    on one thread at a time.
+
+    Under a spending limit (T11.3) the unit's first run is admitted first
+    (`import_spend.SpendLimit.admit`, a `prewarm` with room for one unit
+    after it) and raises `SpendLimitReached` before any model call when it
+    would not fit; a later run of the same unit (act inference's rule-9
+    retries) is part of it and is not checked again."""
     context = contextvars.copy_context()
     made = time.monotonic()
+    admitted = False
 
     def run(*args: Any, **kwargs: Any) -> R:
         queue_ms = round((time.monotonic() - made) * 1000) if pooled else None
 
         def call() -> R:
-            with import_unit_context(ImportUnit(stage, scene, queue_ms)):
+            nonlocal admitted
+            limit = import_spend.current_limit()
+            gate = (
+                nullcontext()
+                if limit is None or admitted
+                else limit.admit(stage, prewarm=prewarm)
+            )
+            admitted = True
+            with import_unit_context(ImportUnit(stage, scene, queue_ms)), gate:
                 return fn(*args, **kwargs)
 
         return context.run(call)
