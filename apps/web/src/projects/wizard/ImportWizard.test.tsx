@@ -186,6 +186,13 @@ async function fillSourceAndBasics(
   await user.type(titleInput, title)
 }
 
+// GET /health, which the wizard reads to word the cost line.
+function stubLlmMode(llmMode: string) {
+  vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+    new Response(JSON.stringify({ status: 'ok', llmMode })),
+  )
+}
+
 describe('ImportWizard', () => {
   it('does nothing until Create & analyze script is clicked', async () => {
     const user = userEvent.setup()
@@ -199,6 +206,7 @@ describe('ImportWizard', () => {
   })
 
   it('shows the import cost estimate on Check & start', async () => {
+    stubLlmMode('real')
     const user = userEvent.setup()
     render(<ImportWizard />)
 
@@ -217,8 +225,21 @@ describe('ImportWizard', () => {
     const titleInput = screen.getByLabelText('Title') as HTMLInputElement
     await user.type(titleInput, 'Harbor Draft')
 
-    expect(screen.getByText(/model calls/)).not.toBeNull()
-    expect(screen.getByText(/Est\. \$/)).not.toBeNull()
+    expect(
+      await screen.findByText(
+        /^This script has 2 scenes\. Importing it will cost about \$\d+\.\d\d on your API key, and at most \$\d+\.\d\d\.$/,
+      ),
+    ).not.toBeNull()
+  })
+
+  it('quotes no cost in demo mode', async () => {
+    stubLlmMode('mock')
+    const user = userEvent.setup()
+    render(<ImportWizard />)
+    await fillSourceAndBasics(user, 'Harbor Draft')
+    expect(
+      await screen.findByText('This script has 1 scene. Demo mode — no cost.'),
+    ).not.toBeNull()
   })
 
   it('prefills the title from an uploaded filename and detects .fountain format', async () => {
@@ -683,8 +704,7 @@ describe('ImportWizard', () => {
     await waitFor(() =>
       expect(screen.getByText(/coverage failed/)).not.toBeNull(),
     )
-    expect(screen.getByText(/model calls/)).not.toBeNull()
-    expect(screen.getByText(/Est\. \$/)).not.toBeNull()
+    expect(screen.getByText(/Importing it will cost about \$/)).not.toBeNull()
     expect(
       screen.getByText(
         'Retry reuses compatible saved analysis and runs only the unfinished stages.',
