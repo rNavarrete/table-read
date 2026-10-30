@@ -1,6 +1,31 @@
 {
-  "asOf": "2026-10",
+  "asOf": "2026-10-30",
+  "source": "https://platform.claude.com/docs/en/about-claude/pricing (fetched 2026-10-30)",
+  "cacheWrite5mMultiplier": 1.25,
   "cacheWrite1hMultiplier": 2,
+  "models": {
+    "claude-opus-5-5": {
+      "inputUsdPerMTok": 4.0,
+      "outputUsdPerMTok": 20.0,
+      "cacheReadUsdPerMTok": 0.2
+    },
+    "claude-sonnet-5-5": {
+      "inputUsdPerMTok": 2.0,
+      "outputUsdPerMTok": 10.0,
+      "cacheReadUsdPerMTok": 0.1
+    },
+    "claude-haiku-5-5": {
+      "inputUsdPerMTok": 0.1,
+      "outputUsdPerMTok": 0.5,
+      "cacheReadUsdPerMTok": 0.01,
+      "longPrompt": {
+        "overPromptTokens": 100000,
+        "inputUsdPerMTok": 0.5,
+        "outputUsdPerMTok": 2.5,
+        "cacheReadUsdPerMTok": 0.05
+      }
+    }
+  },
   "classifier": {
     "modelIdNote": "claude-haiku-5-5 via config/models.toml classifier role; rates for prompts up to 100K tokens",
     "inputUsdPerMTok": 0.1,
@@ -17,6 +42,6 @@
     "modelIdNote": "claude-sonnet-5-5 via config/models.toml import_worker role",
     "inputUsdPerMTok": 2.0,
     "outputUsdPerMTok": 10.0,
-    "cacheReadUsdPerMTok": 0.2
+    "cacheReadUsdPerMTok": 0.1
   }
 }
