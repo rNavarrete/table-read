@@ -5,7 +5,7 @@
 // `_SLUGLINE_RE`/`split_into_scenes`) closely enough for an informational
 // preview — it is never authoritative; the server's own deterministic split
 // during Create & analyze is what actually determines scene ownership.
-import { estimateImportCost } from './importCostEstimate'
+import { estimateImportCost, type ImportCostRange } from './importCostEstimate'
 
 // Mixed case is spelled out as Title case: the (?i:) group the API uses is
 // not supported in every browser yet.
@@ -17,24 +17,21 @@ export interface ImportSourceStats {
   byteCount: number
   lineCount: number
   detectedSceneCount: number
-  estimatedModelCalls: number
-  estimatedCostUsd: { low: number; high: number } | null
+  estimatedCostUsd: ImportCostRange | null
 }
 
 export function analyzeSource(source: string): ImportSourceStats {
   const lines = source.split('\n')
   const sluglineCount = lines.filter((line) => SLUGLINE_RE.test(line)).length
   const detectedSceneCount = source.trim() ? Math.max(sluglineCount, 1) : 0
-  const cost = estimateImportCost({
-    sceneCount: detectedSceneCount,
-    charCount: source.length,
-  })
   return {
     charCount: source.length,
     byteCount: new TextEncoder().encode(source).length,
     lineCount: lines.length,
     detectedSceneCount,
-    estimatedModelCalls: cost.estimatedModelCalls,
-    estimatedCostUsd: cost.estimatedCostUsd,
+    estimatedCostUsd: estimateImportCost({
+      sceneCount: detectedSceneCount,
+      charCount: source.length,
+    }),
   }
 }

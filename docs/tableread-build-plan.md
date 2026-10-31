@@ -368,6 +368,22 @@ _Accept:_
 - existing tokens only;
 - Vitest for each rule and for `peekLines`.
 
+## Milestone 11 — Import cost
+
+An import shows an honest estimate before it starts, meters what it spends while it runs, keeps a receipt, and never crosses the writer's spending limit. Measured on 2026-10-30: a 37-scene episode cost $2.33 and a 179-scene script $8.90; the wizard's old estimate quoted $1.35–$2.15 for the first. Design: `docs/superpowers/specs/2026-10-30-import-cost-design.md` (owner request 2026-10-29/30). No prompt template or model change in this milestone; savings that change the breakdown wait for an eval (design, "Next").
+
+**T11.4 Five-minute cache.** Import requests send 5-minute `cache_control` instead of `ttl: "1h"`; every measured prefix was re-read within 72 s.
+_Accept:_ every cached request carries the 5-minute form; tests pin it; no `PROMPT_VERSION` bump.
+
+**T11.1 Cost meter and receipt.** One Python pricing module over `config/llm_pricing.json` prices each call from its model and usage (cache-write tier, Haiku long-prompt tier); each import run meters every call (prewarms, retries, failed calls with usage), carries `spentUsd` on progress events, stores its total and per-stage totals, and the wizard shows "Spent $X so far" and the finished import's cost; logs gain `cost_usd` and an `import_cost` line, numbers only.
+_Accept:_ pytest for pricing (each model, both cache tiers, Haiku's tier, unknown model), concurrent metering, prewarm/retry/failed-call counting, progress `spentUsd`, the stored receipt, count-only logs; schema homes agree for any contract change and `check_contract` passes; Vitest for the meter line and the receipt.
+
+**T11.2 Estimate that matches what imports cost.** `estimateImportCost` is recalibrated op by op on measured imports for the current pipeline and priced from `config/llm_pricing.json`; the wizard says "about $X, at most $Y" (demo mode: no cost); a calibration test pins the band around the measured imports; `scripts/` gains the log-to-cost report used to measure them.
+_Accept:_ the band contains both measured actuals with the stated margin; Haiku's long-prompt tier is applied when a prompt crosses it; no estimate without scenes; Vitest for the copy; the script reproduces this milestone's measured table.
+
+**T11.3 Spending limit.** Imports take an optional `maxCostUsd` (wizard default: the estimate's "at most", rounded up); the pipeline checks spent + projected before each stage and each fan-out unit, pauses at the last completed unit with a resumable `IMPORT_SPEND_LIMIT`, and the wizard offers Continue with a higher limit (same run, checkpoints kept) or Stop.
+_Accept:_ pytest: stops before a unit that would cross the limit, in-flight calls finish, resume with a higher limit re-spends nothing finished, a raised limit is not a changed request, no project or snapshot on pause; schema homes agree and `check_contract` passes; Vitest for the paused state and both actions; an e2e covers pause and continue on the mock.
+
 ## Sequencing & parallelism
 
 ```
