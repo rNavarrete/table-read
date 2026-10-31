@@ -384,6 +384,25 @@ _Accept:_ the band contains both measured actuals with the stated margin; Haiku'
 **T11.3 Spending limit.** Imports take an optional `maxCostUsd` (wizard default: the estimate's "at most", rounded up); the pipeline checks spent + projected before each stage and each fan-out unit, pauses at the last completed unit with a resumable `IMPORT_SPEND_LIMIT`, and the wizard offers Continue with a higher limit (same run, checkpoints kept) or Stop.
 _Accept:_ pytest: stops before a unit that would cross the limit, in-flight calls finish, resume with a higher limit re-spends nothing finished, a raised limit is not a changed request, no project or snapshot on pause; schema homes agree and `check_contract` passes; Vitest for the paused state and both actions; an e2e covers pause and continue on the mock.
 
+## Milestone 12 — Sign-in and your own API key
+
+A hosted Table Read where each writer signs in, sees only their own projects, and pays for AI with their own Anthropic key — never the operator's. Running locally (`TABLEREAD_MODE=local`, the default) is unchanged. Design: `docs/superpowers/specs/2026-10-31-sign-in-byok-design.md`; owner decisions 2026-10-31: a key is required before editing, open sign-up, Resend for email, keys encrypted on the server. Hosting itself is a later milestone. T11.3 (spending limit) lands before T12.4.
+
+**T12.1 Sign-in.** `TABLEREAD_MODE` (local / hosted); users, sessions and one-time sign-in links (stored hashed, 15 minutes, confirmed with a button so email scanners can't use them up); `/me`; sign-out; throttling; Origin check on writes; the API serves the built web app in hosted mode; `/signin`, the confirm page, and the avatar menu.
+_Accept:_ pytest for single-use and expiring links, no account enumeration, throttling, cookie flags, sliding sessions, sign-out, the Origin check, and the dev link endpoint refusing in hosted mode; every existing test passes in local mode; Vitest for the sign-in states and the avatar menu; a hosted e2e signs in through the dev link.
+
+**T12.2 Private projects.** Owner columns on projects and import runs; one ownership gate (404 for others' projects) on every project and child-id route; a route-coverage test that fails when a route skips the gate; idempotency keys and `purge_project` scoped to the owner; `storage.assign_owner` to claim a local database's projects.
+_Accept:_ the route-coverage test; writer B is refused writer A's objects across every route family (read, list, change, delete, undo/restore, export, ledger, flags, change sets, checks, narrative map, candidates, import replay); a replayed idempotency key from another writer is a fresh run; purge leaves other writers' runs alone; local mode unchanged.
+
+**T12.3 Your API key.** An encrypted `api_keys` table (AES-GCM under a host secret; `cryptography` added and flagged); validation via the Models API; only the last 4 characters ever leave the server; Settings with key status, add/replace/remove, the getting-a-key guide and the privacy text; in hosted mode a writer without a working key is sent to Settings and can read but not change projects.
+_Accept:_ pytest that the key is never in responses, logs or plain-text storage, that a wrong master key fails closed, and 401 validation; Vitest for each key state and the read-only gate.
+
+**T12.4 AI on the writer's key.** `get_llm_client` resolves per writer in hosted mode (the server's key is never used for writers); per-writer client cache; stop signal on key removal, replacement or account deletion; distinct codes `API_KEY_REQUIRED`, `API_KEY_INVALID`, `API_CREDITS_EXHAUSTED`, `LLM_RATE_LIMITED` mapped in one place for routes, the import stream and the map worker; a per-key limiter (4 concurrent by default, halved after a 429); one map run per writer; mid-session failures keep the writer's edit and file it as "not checked".
+_Accept:_ pytest for each error row, that the operator's key is never used in hosted mode, that caches never cross writers, the stop signal at the next step, the limiter halving and recovering, and that a map 401 can be rerun after a fix; Vitest for the messages; the hosted e2e imports on a validated test key.
+
+**T12.5 Delete account.** Type-to-confirm deletion that stops running work and then removes every project, import run, key, session and login token the writer owns.
+_Accept:_ pytest that every owned row is gone, nothing of another writer's is touched, and a running import or map can't write after deletion; Vitest for the confirmation.
+
 ## Sequencing & parallelism
 
 ```

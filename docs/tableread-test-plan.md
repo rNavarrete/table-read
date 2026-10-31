@@ -78,6 +78,18 @@ Three layers: conventional tests (deterministic, mock LLM), contract checks, and
 
 **Import cost (T11.1–T11.4; design `docs/superpowers/specs/2026-10-30-import-cost-design.md`):** pytest — per-call pricing for every pinned model, both cache-write tiers and Haiku's long-prompt tier, unknown models left unpriced; the per-run meter sums concurrent calls including prewarms, retries and failed calls with usage; progress events carry `spentUsd`; the receipt is stored; the spending limit pauses before a unit that would cross it, resumes with a raised limit without re-spending finished units, and creates no project or snapshot while paused; requests carry 5-minute cache control; logs carry numbers only. Vitest — the estimate's calibration band around measured imports, the "about / at most" copy and demo mode, the live meter, the receipt, the paused state and its actions. E2E — pause and continue on the mock.
 
+**Sign-in and your own key (T12.1–T12.5; design `docs/superpowers/specs/2026-10-31-sign-in-byok-design.md`):** hosted-mode pytest runs with `TABLEREAD_MODE=hosted` and two seeded writers. It covers:
+- sign-in links: single use, expiry, button confirmation, no enumeration, throttling;
+- sessions and the Origin check;
+- the route-coverage test, and writer-to-writer isolation across every route family;
+- scoped idempotency and purge;
+- key encryption: never in responses, logs or plain-text storage, and fail-closed;
+- per-writer clients: the operator key is never used in hosted mode, and the stop signal works;
+- the four new error codes and the per-key limiter;
+- account deletion.
+
+Every existing test runs unchanged in local mode. Vitest covers sign-in, the avatar menu, Settings key states, the read-only gate and deletion. A hosted Playwright project signs in through the dev link, adds a key, imports, and checks that a second writer can't see the first writer's project.
+
 ## 2. Contract checks (CI, every PR)
 
 - `check_contract.py`: Zod ↔ Pydantic JSON Schema diff = empty — including the §2a LLM operation schemas (`BlastRadius`, `RegeneratedElements`, `LedgerExtraction`, `InstructionSuggestions`, `InferredActBreaks`, `SegmentedScene`, `ConsistencyScan`); generated strict tool schemas match committed `config/tool_schemas/`; grep gate: no `z.object`/Pydantic model definitions for op outputs outside `packages/contract` / `schemas.py`.
