@@ -15,7 +15,7 @@ import {
   emptyBoard,
   reconcileWithResult,
 } from './importBoard'
-import { formatImportCostLine } from './importCostEstimate'
+import { importCostCopy } from './importCostEstimate'
 import {
   advanceImportProgress,
   type ImportProgressState,
@@ -150,7 +150,9 @@ export function ImportWizard() {
   const [session, setSession] = useState<AnalyzeSession>(INITIAL_SESSION)
   const [nowMs, setNowMs] = useState(() => Date.now())
   const [textOpen, setTextOpen] = useState(false)
-  const demoMode = useLlmMode() === 'mock'
+  // GET /health's llmMode: whether an import spends the writer's API key.
+  const llmMode = useLlmMode()
+  const demoMode = llmMode === 'mock'
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const scriptTextRef = useRef<HTMLTextAreaElement | null>(null)
   const foundQueue = useRef<FoundFrame[]>([])
@@ -559,8 +561,11 @@ export function ImportWizard() {
                     />
                   </label>
                   <p className="text-13 text-tr-text-secondary">
-                    {draft.filename ?? 'Pasted text'} ·{' '}
-                    {formatImportCostLine(stats)}
+                    {importCostCopy(
+                      stats.detectedSceneCount,
+                      stats.estimatedCostUsd,
+                      llmMode,
+                    )}
                   </p>
                   <details
                     open={textOpen}
