@@ -7,6 +7,7 @@ import type {
 } from 'contract'
 import { extractPdf, importCreateUrl } from '../../api/client'
 import { streamSse } from '../../api/sse'
+import { useLlmMode } from '../../api/useLlmMode'
 import { ImportBoard } from './board/ImportBoard'
 import {
   applyFound,
@@ -150,26 +151,12 @@ export function ImportWizard() {
   const [nowMs, setNowMs] = useState(() => Date.now())
   const [textOpen, setTextOpen] = useState(false)
   // GET /health's llmMode: whether an import spends the writer's API key.
-  const [llmMode, setLlmMode] = useState<string | null>(null)
+  const llmMode = useLlmMode()
+  const demoMode = llmMode === 'mock'
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const scriptTextRef = useRef<HTMLTextAreaElement | null>(null)
   const foundQueue = useRef<FoundFrame[]>([])
   const foundFlush = useRef<number | null>(null)
-
-  useEffect(() => {
-    let cancelled = false
-    // A bare fetch, as in AppShell, so tests that mock api/client needn't
-    // know about it. Unreachable: say nothing about whose key pays.
-    fetch('/api/v1/health')
-      .then((res) => (res.ok ? res.json() : null))
-      .then((body) => {
-        if (!cancelled && body) setLlmMode(body.llmMode)
-      })
-      .catch(() => {})
-    return () => {
-      cancelled = true
-    }
-  }, [])
 
   useEffect(() => {
     if (session.phase !== 'streaming') return
@@ -641,6 +628,7 @@ export function ImportWizard() {
                   nowMs={nowMs}
                   approxSceneCount={stats.detectedSceneCount}
                   toReview={session.result?.toReview ?? null}
+                  demoMode={demoMode}
                   onOpenStory={openYourStory}
                   onSeeInPlan={seeItInPlan}
                 />

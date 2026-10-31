@@ -25,6 +25,8 @@ export interface ImportProgressState {
   samples: ProgressSample[]
   stoppedStage: ProjectImportStageName | null
   stageStartedAtMs: Partial<Record<ProjectImportStageName, number>>
+  /** What the import has spent so far (T11.1); null until a frame says. */
+  spentUsd: number | null
 }
 
 export type StageStatus = 'done' | 'now' | 'waiting' | 'stopped'
@@ -36,6 +38,7 @@ type ImportProgressEvent =
       stage: ProjectImportStageName
       done: number
       total: number
+      spentUsd?: number | null
     }
   | { type: 'complete' }
   | { type: 'failed' }
@@ -86,6 +89,7 @@ export const initialImportProgressState: ImportProgressState = {
   samples: [],
   stoppedStage: null,
   stageStartedAtMs: {},
+  spentUsd: null,
 }
 
 export function advanceImportProgress(
@@ -147,9 +151,10 @@ export function advanceImportProgress(
     }
   }
 
+  const spentUsd = event.spentUsd ?? withStart.spentUsd
   // Every progress frame is news, even one whose fraction the client ignores.
   if (isIndeterminate(event.stage))
-    return { ...withStart, lastProgressAtMs: nowMs }
+    return { ...withStart, spentUsd, lastProgressAtMs: nowMs }
 
   const previousStage = withStart.stages[event.stage] ?? { done: 0, total: 0 }
   const nextStage = {
@@ -170,6 +175,7 @@ export function advanceImportProgress(
   return {
     ...withStart,
     stages,
+    spentUsd,
     lastProgressAtMs: nowMs,
     samples: !advanced
       ? withStart.samples

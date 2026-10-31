@@ -26,7 +26,7 @@ import {
   drawString,
   offsetIn,
 } from './boardMotion'
-import { plural } from './boardText'
+import { DEMO_COST, plural, usd } from './boardText'
 import { IndexCard } from './IndexCard'
 import { SceneReading } from './SceneReading'
 import { StepSpine } from './StepSpine'
@@ -171,6 +171,7 @@ export function ImportBoard({
   nowMs,
   approxSceneCount,
   toReview = null,
+  demoMode = false,
   onOpenStory,
   onSeeInPlan,
 }: {
@@ -184,6 +185,8 @@ export function ImportBoard({
   /** The client's slugline count, shown until the server's split lands. */
   approxSceneCount: number
   toReview?: number | null
+  /** The server runs the mock client: imports cost nothing (T11.1). */
+  demoMode?: boolean
   onOpenStory: () => void
   onSeeInPlan: () => void
 }) {
@@ -480,6 +483,21 @@ export function ImportBoard({
               min left
             </p>
           )}
+          {phase !== 'done' && progress.spentUsd !== null && (
+            <p data-testid="import-spent">
+              {demoMode ? (
+                DEMO_COST
+              ) : (
+                <>
+                  Spent{' '}
+                  <b className="font-medium text-tr-text-primary">
+                    {usd(progress.spentUsd)}
+                  </b>{' '}
+                  so far
+                </>
+              )}
+            </p>
+          )}
           {phase !== 'done' && board.factTotal > 0 && (
             <p>
               <CountUp value={board.factTotal} animate={animate} /> facts so far
@@ -650,9 +668,21 @@ export function ImportBoard({
           data-testid="board-finale"
           className="flex animate-[tr-board-fade_450ms_var(--tr-motion-settle)_both] flex-wrap items-center justify-between gap-3"
         >
-          <p className="text-[14px] text-tr-text-secondary tabular-nums">
-            {summary}
-          </p>
+          <div>
+            <p className="text-[14px] text-tr-text-secondary tabular-nums">
+              {summary}
+            </p>
+            {progress.spentUsd !== null && (
+              <p
+                data-testid="import-cost"
+                className="text-13 text-tr-text-muted tabular-nums"
+              >
+                {demoMode
+                  ? DEMO_COST
+                  : `This import cost ${usd(progress.spentUsd)}`}
+              </p>
+            )}
+          </div>
           <div className="flex gap-2">
             <button
               type="button"

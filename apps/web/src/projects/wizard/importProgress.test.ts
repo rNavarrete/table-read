@@ -26,6 +26,43 @@ function startStages(
 }
 
 describe('import progress model', () => {
+  it('keeps the latest spentUsd a progress frame carries (T11.1)', () => {
+    const started = startStages(['segmenting_beats'])
+    expect(started.spentUsd).toBeNull()
+    const spent = advanceImportProgress(
+      started,
+      {
+        type: 'progress',
+        stage: 'segmenting_beats',
+        done: 1,
+        total: 3,
+        spentUsd: 0.42,
+      },
+      2_000,
+    )
+    expect(spent.spentUsd).toBe(0.42)
+    // A single-call step's frame counts too; one without it keeps the last.
+    const acts = advanceImportProgress(
+      spent,
+      {
+        type: 'progress',
+        stage: 'inferring_acts',
+        done: 1,
+        total: 1,
+        spentUsd: 0.6,
+      },
+      3_000,
+    )
+    expect(acts.spentUsd).toBe(0.6)
+    expect(
+      advanceImportProgress(
+        acts,
+        { type: 'progress', stage: 'extracting_facts', done: 1, total: 3 },
+        4_000,
+      ).spentUsd,
+    ).toBe(0.6)
+  })
+
   it('starts a stage without completing it and completes the prior stage on next start', () => {
     const segmenting = advanceImportProgress(
       initialImportProgressState,

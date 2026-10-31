@@ -15,3 +15,10 @@ export function readState(scene: BoardScene): string {
   if (scene.read === 'failed') return "Couldn't be read"
   return `Read, ${plural(scene.beatCount, 'beat')}`
 }
+
+/** Dollars to the cent: "$2.31". */
+export function usd(amount: number): string {
+  return `$${amount.toFixed(2)}`
+}
+
+export const DEMO_COST = 'Demo mode — no cost'

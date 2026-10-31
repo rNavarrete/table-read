@@ -8,7 +8,7 @@ On a schema-invalid (or missing) tool_use response, retries **exactly once**
 with the validation error appended as an `is_error` tool_result, then raises
 `SchemaInvalidLlmError` -- never a fabricated fallback (CLAUDE.md hard rule
 9). Logs only op name, PROMPT_VERSION, model id, retry/failure flags,
-token counts, timings, rate-limit header counts, ids, the byte size of the
+token counts, cost in USD, timings, rate-limit header counts, ids, the byte size of the
 tool input, and a short sha256 hash of the user message (`input_hash=`) --
 never prompt or response content (hard rule 5).
 
@@ -37,6 +37,7 @@ from pydantic import BaseModel, ValidationError
 
 from deadline import DeadlineExceeded, call_within_deadline
 from import_diagnostics import current_import_run_id, current_import_unit
+from llm import costs
 from llm.errors import (
     LlmTimeoutError,
     SchemaInvalidLlmError,
@@ -446,10 +447,19 @@ class AnthropicClient:
                 self._in_flight -= 1
 
     def _send(self, op: LlmOp, meta: dict[str, Any], **kwargs: Any) -> Any:
-        """One op request, overload retries included; fills `meta` for `_log`."""
+        """One op request, overload retries included; fills `meta` for `_log`.
+        Every response that comes back is billed, whether or not it validates
+        (a rule-9 retry's first attempt included), so each one is priced here
+        and added to the import run's meter (T11.1)."""
         with self._counted() as in_flight:
             meta["in_flight"] = in_flight
-            return _response_with_timeout(self._sdk, self._timeout_for(op), op, meta=meta, **kwargs)
+            response = _response_with_timeout(
+                self._sdk, self._timeout_for(op), op, meta=meta, **kwargs
+            )
+        usage = getattr(response, "usage", None)
+        meta["cost_usd"] = costs.call_cost_usd(kwargs["model"], usage)
+        costs.record_call(meta["cost_usd"], usage)
+        return response
 
     def _log(
         self,
@@ -472,7 +482,8 @@ class AnthropicClient:
         _logger.info(
             "llm_call op=%s run_id=%s stage=%s scene=%s prompt_version=%s model=%s "
             "retried=%s failed=%s input_tokens=%s output_tokens=%s out_bytes=%s "
-            "cache_write=%s cache_read=%s elapsed_ms=%s ttft_ms=%s queue_ms=%s "
+            "cache_write=%s cache_write_5m=%s cache_write_1h=%s cache_read=%s cost_usd=%s "
+            "elapsed_ms=%s ttft_ms=%s queue_ms=%s "
             "in_flight=%s %s stop_reason=%s response_id=%s request_id=%s "
             "content_types=%s input_hash=%s",
             op.name,
@@ -490,7 +501,10 @@ class AnthropicClient:
             # silent invalidator (a per-call nonce, a changed tool list, a
             # changed effort). These counters are the only symptom.
             getattr(usage, "cache_creation_input_tokens", None),
+            *costs.cache_writes(usage),
             getattr(usage, "cache_read_input_tokens", None),
+            # This response's cost (each billed attempt has its own line).
+            costs.cost_field(meta.get("cost_usd")),
             # Wall time of the whole op, overload waits and the rule-9 retry
             # included; TTFT of the logged response, streamed ops only.
             round((time.monotonic() - started) * 1000),
@@ -645,15 +659,19 @@ class AnthropicClient:
             )
             return
         usage = getattr(response, "usage", None)
+        cost = costs.call_cost_usd(kwargs["model"], usage)
+        costs.record_call(cost, usage)
         _logger.info(
-            "llm_prewarm op=%s run_id=%s model=%s max_tokens=%s cache_write=%s cache_read=%s "
-            "elapsed_ms=%s",
+            "llm_prewarm op=%s run_id=%s model=%s max_tokens=%s cache_write=%s "
+            "cache_write_5m=%s cache_write_1h=%s cache_read=%s cost_usd=%s elapsed_ms=%s",
             spec.name,
             current_import_run_id(),
             kwargs["model"],
             max_tokens,
             getattr(usage, "cache_creation_input_tokens", None),
+            *costs.cache_writes(usage),
             getattr(usage, "cache_read_input_tokens", None),
+            costs.cost_field(cost),
             round((time.monotonic() - started) * 1000),
         )
 
@@ -697,6 +715,19 @@ class AnthropicClient:
                     input_hash=input_hash,
                 )
                 raise SchemaInvalidLlmError(op.name) from None
+            # The first attempt was billed too: it gets its own line (T11.1),
+            # `failed=True` for its own validation, then the retry's line.
+            self._log(
+                op,
+                prompt_version,
+                model,
+                response,
+                retried=False,
+                started=started,
+                meta=meta,
+                failed=True,
+                input_hash=input_hash,
+            )
             result = self._retry_once(
                 op, kwargs, response, first_error, prompt_version, model, input_hash, started
             )

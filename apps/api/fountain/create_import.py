@@ -46,6 +46,7 @@ from fountain.pipeline import (
     analyze_import,
 )
 from import_diagnostics import import_run_context, new_import_run_id
+from llm import costs
 from llm.errors import LlmTimeoutError, SchemaInvalidLlmError, log_llm_unavailable
 from llm.protocol import LlmClient
 from sse import format_sse
@@ -60,11 +61,12 @@ def _stage_frame(name: str) -> str:
     return format_sse("stage", {"type": "stage", "name": name})
 
 
-def _progress_frame(stage: str, done: int, total: int) -> str:
-    return format_sse(
-        "progress",
-        {"type": "progress", "stage": stage, "done": done, "total": total},
-    )
+def _progress_frame(stage: str, done: int, total: int, spent_usd: float | None = None) -> str:
+    """`spentUsd` (T11.1): what the run has spent so far, to the cent."""
+    data: dict = {"type": "progress", "stage": stage, "done": done, "total": total}
+    if spent_usd is not None:
+        data["spentUsd"] = round(spent_usd, 2)
+    return format_sse("progress", data)
 
 
 def _found_frame(event: ImportFound) -> str:
@@ -116,6 +118,22 @@ def _log_import_failed(
         type(exc).__name__,
         getattr(exc, "op", None),
         getattr(exc, "timeout_seconds", None),
+    )
+
+
+def _log_import_cost(run_id: str, stage: str, meter: costs.CostMeter) -> None:
+    """The run's spend so far and by stage: numbers only (hard rule 5)."""
+    cost = meter.snapshot()
+    _logger.info(
+        "import_cost run_id=%s stage=%s total_usd=%s unpriced_calls=%d %s",
+        run_id,
+        stage,
+        costs.cost_field(cost["importCostUsd"]),
+        cost["unpricedCalls"],
+        " ".join(
+            f"{name}_usd={costs.cost_field(totals['costUsd'])}"
+            for name, totals in cost["stages"].items()
+        ),
     )
 
 
@@ -178,6 +196,8 @@ def create_and_import_events(
         )
         return
 
+    # A resumed run keeps counting from what its earlier attempts spent.
+    meter = costs.CostMeter(import_run.cost if import_run is not None else None)
     try:
         checkpoint: dict = {}
         checkpoint_writer = None
@@ -194,6 +214,7 @@ def create_and_import_events(
                     stage=stage,
                     value=value,
                     unit_index=unit_index,
+                    cost=meter.snapshot(),
                 )
 
             checkpoint_writer = persist_checkpoint
@@ -212,7 +233,7 @@ def create_and_import_events(
             while True:
                 # Streaming resumes generators in a fresh context after each
                 # SSE frame, so scope the correlation context to each advance.
-                with import_run_context(run_id):
+                with import_run_context(run_id), costs.metering(meter):
                     event = next(analysis_gen)
                 if isinstance(event, ImportStageStarted):
                     current_stage = event.name
@@ -233,7 +254,9 @@ def create_and_import_events(
                         event.total,
                         _elapsed_ms(started_at),
                     )
-                    yield _progress_frame(event.stage, event.done, event.total)
+                    yield _progress_frame(
+                        event.stage, event.done, event.total, meter.spent_usd
+                    )
                 elif isinstance(event, ImportFound):
                     # Kind and counts only: payloads carry sluglines and readings.
                     _logger.info(
@@ -260,7 +283,7 @@ def create_and_import_events(
             _elapsed_ms(started_at),
         )
         yield _stage_frame("saving")
-        yield _progress_frame("saving", 0, 1)
+        yield _progress_frame("saving", 0, 1, meter.spent_usd)
 
         project_id = snapshots.mint_project_id()
         snapshot_id = snapshots.mint_snapshot_id()
@@ -306,8 +329,9 @@ def create_and_import_events(
                 session,
                 import_run,
                 project_id=snap.project_id,
+                cost=meter.snapshot(),
             )
-        yield _progress_frame("saving", 1, 1)
+        yield _progress_frame("saving", 1, 1, meter.spent_usd)
     except CoverageError as exc:
         _log_import_failed(run_id, current_stage, started_at, "VALIDATION", exc)
         if import_run is not None:
@@ -317,6 +341,7 @@ def create_and_import_events(
                 phase=current_stage,
                 code="VALIDATION",
                 message=str(exc),
+                cost=meter.snapshot(),
             )
         yield _failed_frame("VALIDATION", str(exc))
         return
@@ -329,6 +354,7 @@ def create_and_import_events(
                 phase=current_stage,
                 code="LOCKED_OBJECT",
                 message=str(exc),
+                cost=meter.snapshot(),
             )
         yield _failed_frame("LOCKED_OBJECT", str(exc))
         return
@@ -341,6 +367,7 @@ def create_and_import_events(
                 phase=current_stage,
                 code="SCHEMA_INVALID_LLM",
                 message=str(exc),
+                cost=meter.snapshot(),
             )
         yield _failed_frame("SCHEMA_INVALID_LLM", str(exc))
         return
@@ -360,6 +387,7 @@ def create_and_import_events(
                 phase=current_stage,
                 code=stored_code,
                 message="the language model is unavailable",
+                cost=meter.snapshot(),
             )
         yield _failed_frame("LLM_UNAVAILABLE", "the language model is unavailable")
         return
@@ -372,6 +400,7 @@ def create_and_import_events(
                 phase=current_stage,
                 code="IDEMPOTENCY_CONFLICT",
                 message=str(exc),
+                cost=meter.snapshot(),
             )
         yield _failed_frame("IDEMPOTENCY_CONFLICT", str(exc))
         return
@@ -387,6 +416,7 @@ def create_and_import_events(
                     phase=current_stage,
                     code="UNEXPECTED",
                     message="unexpected import failure",
+                    cost=meter.snapshot(),
                 )
         raise
     except BaseException:
@@ -400,7 +430,10 @@ def create_and_import_events(
                     phase=current_stage,
                     code="WORKER_INTERRUPTED",
                     message="the import worker stopped; saved checkpoints are retained",
+                    cost=meter.snapshot(),
                 )
         raise
+    finally:
+        _log_import_cost(run_id, current_stage, meter)
 
     yield _complete_frame(result)

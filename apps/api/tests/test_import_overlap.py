@@ -123,11 +123,15 @@ class _ScriptedLlm(MockLlmClient):
         digest = hashlib.sha256("\x00".join(p or "" for p in parts).encode()).hexdigest()
         self.requests.append(digest)
 
-    def _call(self, op, *, system, user_message, prompt_version):
+    def _call(self, op, *, system, user_message, prompt_version, cache_prefix=None):
         self._record(op, system, user_message)
         time.sleep(self.delays.get(op, 0))
         return super()._call(
-            op, system=system, user_message=user_message, prompt_version=prompt_version
+            op,
+            system=system,
+            user_message=user_message,
+            prompt_version=prompt_version,
+            cache_prefix=cache_prefix,
         )
 
     def prewarm_cache(self, op, *, system, user_message, cache_prefix=None):

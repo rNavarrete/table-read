@@ -193,6 +193,17 @@ def _parse_frame(text: str) -> tuple[str, dict]:
     return events[0]
 
 
+def _progress(stage: str, done: int, total: int, spent_usd: float = 0.0) -> dict:
+    """A streamed `progress` frame; the mock runs in demo mode, at $0."""
+    return {
+        "type": "progress",
+        "stage": stage,
+        "done": done,
+        "total": total,
+        "spentUsd": spent_usd,
+    }
+
+
 def _table_counts(db_session) -> dict:
     """Snapshot of row counts across every table a project touches. Fault-
     injection assertions compare *before vs. after*, never an absolute count
@@ -274,12 +285,12 @@ def test_create_and_import_events_adapts_internal_progress_events(monkeypatch, m
 
     assert events[:2] == [
         ("stage", {"type": "stage", "name": "parsing_scenes"}),
-        ("progress", {"type": "progress", "stage": "segmenting_beats", "done": 2, "total": 3}),
+        ("progress", _progress("segmenting_beats", 2, 3)),
     ]
     assert events[-4:-1] == [
         ("stage", {"type": "stage", "name": "saving"}),
-        ("progress", {"type": "progress", "stage": "saving", "done": 0, "total": 1}),
-        ("progress", {"type": "progress", "stage": "saving", "done": 1, "total": 1}),
+        ("progress", _progress("saving", 0, 1)),
+        ("progress", _progress("saving", 1, 1)),
     ]
     assert events[-1][0] == "complete"
 
@@ -310,25 +321,25 @@ def test_success_streams_named_stages_then_complete(db_session, mock_llm):
     ]
     progress = [d for n, d in events if n == "progress"]
     assert progress == [
-        {"type": "progress", "stage": "parsing_scenes", "done": 0, "total": 1},
-        {"type": "progress", "stage": "parsing_scenes", "done": 1, "total": 1},
-        {"type": "progress", "stage": "segmenting_beats", "done": 0, "total": 1},
-        {"type": "progress", "stage": "segmenting_beats", "done": 1, "total": 1},
-        {"type": "progress", "stage": "inferring_acts", "done": 0, "total": 1},
-        {"type": "progress", "stage": "inferring_acts", "done": 1, "total": 1},
-        {"type": "progress", "stage": "inferring_entities", "done": 0, "total": 1},
-        {"type": "progress", "stage": "inferring_entities", "done": 1, "total": 1},
-        {"type": "progress", "stage": "inferring_promises", "done": 0, "total": 2},
-        {"type": "progress", "stage": "inferring_promises", "done": 1, "total": 2},
-        {"type": "progress", "stage": "inferring_promises", "done": 2, "total": 2},
-        {"type": "progress", "stage": "inferring_overview", "done": 0, "total": 1},
-        {"type": "progress", "stage": "inferring_overview", "done": 1, "total": 1},
-        {"type": "progress", "stage": "extracting_facts", "done": 0, "total": 1},
-        {"type": "progress", "stage": "extracting_facts", "done": 1, "total": 1},
-        {"type": "progress", "stage": "checking_consistency", "done": 0, "total": 1},
-        {"type": "progress", "stage": "checking_consistency", "done": 1, "total": 1},
-        {"type": "progress", "stage": "saving", "done": 0, "total": 1},
-        {"type": "progress", "stage": "saving", "done": 1, "total": 1},
+        _progress("parsing_scenes", 0, 1),
+        _progress("parsing_scenes", 1, 1),
+        _progress("segmenting_beats", 0, 1),
+        _progress("segmenting_beats", 1, 1),
+        _progress("inferring_acts", 0, 1),
+        _progress("inferring_acts", 1, 1),
+        _progress("inferring_entities", 0, 1),
+        _progress("inferring_entities", 1, 1),
+        _progress("inferring_promises", 0, 2),
+        _progress("inferring_promises", 1, 2),
+        _progress("inferring_promises", 2, 2),
+        _progress("inferring_overview", 0, 1),
+        _progress("inferring_overview", 1, 1),
+        _progress("extracting_facts", 0, 1),
+        _progress("extracting_facts", 1, 1),
+        _progress("checking_consistency", 0, 1),
+        _progress("checking_consistency", 1, 1),
+        _progress("saving", 0, 1),
+        _progress("saving", 1, 1),
     ]
     assert events[-1][0] == "complete"
     for name, data in events:
@@ -1757,14 +1768,7 @@ def test_failing_scene_worker_fails_fast_with_zero_rows(db_session, monkeypatch)
     # Alpha and Beta start together (a prewarm, not a lone first scene, warms
     # the cache); Beta fails while Alpha is still running. Progress stops at
     # the failure and never reports work the run did not complete.
-    assert segment_progress == [
-        {
-            "type": "progress",
-            "stage": "segmenting_beats",
-            "done": 0,
-            "total": 3,
-        },
-    ]
+    assert segment_progress == [_progress("segmenting_beats", 0, 3)]
     _assert_no_new_rows(db_session, baseline)
 
 

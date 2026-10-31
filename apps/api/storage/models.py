@@ -105,6 +105,9 @@ class ImportRunRow(Base):
     error_code: Mapped[str | None] = mapped_column(default=None)
     error_message: Mapped[str | None] = mapped_column(default=None)
     checkpoint: Mapped[dict] = mapped_column(JSON, default=dict)
+    # T11.1: what the run has spent (`llm.costs.CostMeter.snapshot()`): kept
+    # across resumes; once completed, the import's receipt.
+    cost: Mapped[dict | None] = mapped_column(JSON, default=None)
     created_at: Mapped[datetime] = mapped_column(default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(default=_utcnow)
 

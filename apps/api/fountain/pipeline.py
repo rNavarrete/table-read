@@ -329,6 +329,7 @@ def analyze_import(
         prewarm=_prewarm(
             llm,
             "segment_scene",
+            STAGE_SEGMENTING_BEATS,
             cached_beats,
             lambda index: render.build_segment_prompt(
                 project_doc, spans[index].lines, run_nonce
@@ -573,6 +574,7 @@ def analyze_import(
     send_facts_prewarm = _prewarm(
         llm,
         "extract_ledger_facts",
+        STAGE_EXTRACTING_FACTS,
         cached_extractions,
         lambda index: render.build_extract_prompt(
             new_doc, episode_id, scene_docs[index], [], characters, run_nonce
@@ -582,9 +584,7 @@ def analyze_import(
     facts_prewarm: Callable[[], None] | None = None
     if send_facts_prewarm is not None:
         prewarm_pool = ThreadPoolExecutor(max_workers=1)
-        facts_prewarm = prewarm_pool.submit(
-            _unit(STAGE_EXTRACTING_FACTS, None, send_facts_prewarm)
-        ).result
+        facts_prewarm = prewarm_pool.submit(send_facts_prewarm).result
         prewarm_pool.shutdown(wait=False)
 
     # ── Entity inference (§5a, T7.15): import_worker (Sonnet) calls over compact
@@ -690,6 +690,7 @@ def analyze_import(
         prewarm=_prewarm(
             llm,
             "infer_story_entities",
+            STAGE_INFERRING_ENTITIES,
             entity_parts,
             lambda index: render.build_entity_prompt(
                 new_doc,
@@ -1515,20 +1516,28 @@ def _load_model_unit_checkpoints[T: BaseModel](
 def _prewarm(
     llm: LlmClient,
     op: str,
+    stage: str,
     results: list,
     prompt: Callable[[int], tuple[str, str]],
     cache_prefix: str,
 ) -> Callable[[], None] | None:
     """A `prewarm` for a per-unit stage: `op`'s exact request for the first
     OUTSTANDING unit (so a checkpointed resume warms with work it still has to
-    do), its prompt built now, on the generator's thread. None when fewer than
-    two units are outstanding: a lone call writes its own cache entry."""
+    do), its prompt built now, on the generator's thread, as an import unit of
+    `stage` for any thread to run (its cost is metered under `stage`). None
+    when fewer than two units are outstanding: a lone call writes its own
+    cache entry."""
     missing = [index for index, result in enumerate(results) if result is None]
     if len(missing) < 2:
         return None
     system, user = prompt(missing[0])
-    return lambda: llm.prewarm_cache(
-        op, system=system, user_message=user, cache_prefix=cache_prefix
+    return _unit(
+        stage,
+        None,
+        lambda: llm.prewarm_cache(
+            op, system=system, user_message=user, cache_prefix=cache_prefix
+        ),
+        pooled=False,
     )
 
 

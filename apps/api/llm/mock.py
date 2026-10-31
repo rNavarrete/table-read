@@ -20,10 +20,12 @@ import json
 import re
 import threading
 from collections.abc import Iterator
+from types import SimpleNamespace
 
 from pydantic import BaseModel
 
-from llm.ops import OP_REGISTRY
+from llm import costs
+from llm.ops import OP_REGISTRY, model_pins
 from schemas import (
     BeatCandidate,
     BlastRadius,
@@ -873,11 +875,27 @@ def _short_source_quote(script_text: str) -> str:
     return script_text.strip()[:200]
 
 
-class MockLlmClient:
-    """See module docstring for the keying strategy."""
+def _tokens(text: str) -> int:
+    """About four characters a token: close enough for a usage figure."""
+    return len(text) // 4
 
-    def __init__(self) -> None:
+
+class MockLlmClient:
+    """See module docstring for the keying strategy.
+
+    Every call reports realistic `usage` to the import cost meter (T11.1):
+    input and output tokens from the prompt and response sizes, and a cached
+    prefix written by its op's first call (or prewarm) and read by every later
+    one. Demo mode by default: that usage costs $0. `priced=True` prices it at
+    the pinned models' real rates (`usage_log` keeps each call's model and
+    usage), so tests can drive the meter and the spending limit."""
+
+    def __init__(self, *, priced: bool = False) -> None:
         self._lock = threading.Lock()
+        self.priced = priced
+        self._models = model_pins()
+        self._warm_prefixes: set[tuple[str, str]] = set()
+        self.usage_log: list[tuple[str, SimpleNamespace]] = []
         self._responses: dict[str, BaseModel] = _default_responses()
         # Per-op FIFO queues for multi-call scenarios (e.g. import calls
         # segment_scene / extract_ledger_facts once per scene): each call pops
@@ -940,14 +958,43 @@ class MockLlmClient:
         with self._lock:
             self._queues[op] = list(responses)
 
-    def _call(self, op: str, *, system: str, user_message: str, prompt_version: str) -> BaseModel:
-        del system, user_message, prompt_version  # mock never inspects prompt content
+    def _report_usage(
+        self, op: str, prompt: str, cache_prefix: str | None, output: str
+    ) -> None:
+        prefix = _tokens(cache_prefix or "")
+        with self._lock:
+            warm = cache_prefix is not None and (op, cache_prefix) in self._warm_prefixes
+            if cache_prefix is not None:
+                self._warm_prefixes.add((op, cache_prefix))
+        usage = SimpleNamespace(
+            input_tokens=_tokens(prompt),
+            cache_creation_input_tokens=0 if warm else prefix,
+            cache_read_input_tokens=prefix if warm else 0,
+            output_tokens=_tokens(output),
+        )
+        model = self._models[OP_REGISTRY[op].role]
+        with self._lock:
+            self.usage_log.append((model, usage))
+        costs.record_call(costs.call_cost_usd(model, usage) if self.priced else 0.0, usage)
+
+    def _call(
+        self,
+        op: str,
+        *,
+        system: str,
+        user_message: str,
+        prompt_version: str,
+        cache_prefix: str | None = None,
+    ) -> BaseModel:
+        del prompt_version  # mock never inspects prompt content
         with self._lock:
             self._invocations[op] = self._invocations.get(op, 0) + 1
             queue = self._queues.get(op)
-            if queue:
-                return queue.pop(0)
-            return self._responses[op]
+            response = queue.pop(0) if queue else self._responses[op]
+        self._report_usage(
+            op, system + user_message, cache_prefix, response.model_dump_json(by_alias=True)
+        )
+        return response
 
     def prewarm_cache(
         self,
@@ -957,13 +1004,14 @@ class MockLlmClient:
         user_message: str,
         cache_prefix: str | None = None,
     ) -> None:
-        """Records the prewarm under `"prewarm_cache:" + op`; makes no call."""
-        del system, user_message, cache_prefix  # mock never inspects prompt content
+        """Records the prewarm under `"prewarm_cache:" + op`; makes no call,
+        but reports the cache write a real one would."""
         if op not in OP_REGISTRY:
             raise KeyError(f"unknown LLM operation {op!r}")
         key = f"prewarm_cache:{op}"
         with self._lock:
             self._invocations[key] = self._invocations.get(key, 0) + 1
+        self._report_usage(op, system + user_message, cache_prefix, "")
 
     def set_candidate_streams(self, streams: list[list[str]]) -> None:
         """Queue raw-fragment streams for `stream_beat_candidate`, one list of
@@ -1064,7 +1112,7 @@ class MockLlmClient:
             "extract_ledger_facts",
             system=system,
             user_message=user_message,
-            prompt_version=prompt_version,
+            prompt_version=prompt_version,            cache_prefix=cache_prefix,
         )
 
     def suggest_instructions(
@@ -1102,7 +1150,7 @@ class MockLlmClient:
             "infer_story_entities",
             system=system,
             user_message=user_message,
-            prompt_version=prompt_version,
+            prompt_version=prompt_version,            cache_prefix=cache_prefix,
         )
 
     def infer_narrative_promises(
@@ -1257,7 +1305,11 @@ class MockLlmClient:
             cache_prefix
         )
         return self._call(
-            "segment_scene", system=system, user_message=user_message, prompt_version=prompt_version
+            "segment_scene",
+            system=system,
+            user_message=user_message,
+            prompt_version=prompt_version,
+            cache_prefix=cache_prefix,
         )
 
     def scan_consistency(

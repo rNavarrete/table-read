@@ -996,6 +996,8 @@ class ImportProgressItemEvent(_Base):
     stage: ImportProgressStageName
     done: int = Field(ge=0)
     total: int = Field(ge=0)
+    # T11.1: USD spent so far, to the cent.
+    spent_usd: float | None = Field(default=None, ge=0)
 
 
 class ImportFoundScene(_Base):

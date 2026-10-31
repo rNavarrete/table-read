@@ -66,6 +66,7 @@ function renderBoard({
   phase = 'streaming',
   animate = true,
   nowMs = 0,
+  demoMode = false,
   onOpenStory = () => {},
   onSeeInPlan = () => {},
 }: {
@@ -74,6 +75,7 @@ function renderBoard({
   phase?: BoardPhase
   animate?: boolean
   nowMs?: number
+  demoMode?: boolean
   onOpenStory?: () => void
   onSeeInPlan?: () => void
 } = {}) {
@@ -86,6 +88,7 @@ function renderBoard({
       animate={animate}
       nowMs={nowMs}
       approxSceneCount={24}
+      demoMode={demoMode}
       onOpenStory={onOpenStory}
       onSeeInPlan={onSeeInPlan}
     />,
@@ -357,6 +360,86 @@ describe('ImportBoard', () => {
     cleanup()
     renderBoard({ state: board(scenesFrame(24), ...reads), progress })
     expect(screen.getByRole('status').textContent).toBe('10 of 24 scenes read')
+  })
+
+  function spent(state: ImportProgressState, spentUsd: number) {
+    return advanceImportProgress(
+      state,
+      {
+        type: 'progress',
+        stage: 'segmenting_beats',
+        done: 1,
+        total: 3,
+        spentUsd,
+      },
+      1,
+    )
+  }
+
+  it('shows what the import has spent so far, once a frame says (T11.1)', () => {
+    const { rerender } = renderBoard({
+      progress: progressAt('segmenting_beats'),
+    })
+    expect(screen.queryByTestId('import-spent')).toBeNull()
+
+    rerender(
+      <ImportBoard
+        title="The Long Pour"
+        board={emptyBoard()}
+        progress={spent(progressAt('segmenting_beats'), 1.125)}
+        phase="streaming"
+        animate
+        nowMs={0}
+        approxSceneCount={24}
+        onOpenStory={() => {}}
+        onSeeInPlan={() => {}}
+      />,
+    )
+    expect(screen.getByTestId('import-spent').textContent).toBe(
+      'Spent $1.13 so far',
+    )
+  })
+
+  it('says demo mode instead of a $0 meter', () => {
+    renderBoard({
+      progress: spent(progressAt('segmenting_beats'), 0),
+      demoMode: true,
+    })
+    expect(screen.getByTestId('import-spent').textContent).toBe(
+      'Demo mode — no cost',
+    )
+  })
+
+  it('keeps the receipt on the finale: This import cost $X', () => {
+    renderBoard({
+      state: board(scenesFrame(3), ACTS),
+      progress: advanceImportProgress(
+        spent(progressAt('saving'), 2.31),
+        { type: 'complete' },
+        2,
+      ),
+      phase: 'done',
+    })
+    expect(screen.getByTestId('import-cost').textContent).toBe(
+      'This import cost $2.31',
+    )
+    // The running meter gives way to the receipt.
+    expect(screen.queryByTestId('import-spent')).toBeNull()
+  })
+
+  it('a demo finale says no cost', () => {
+    renderBoard({
+      progress: advanceImportProgress(
+        spent(progressAt('saving'), 0),
+        { type: 'complete' },
+        2,
+      ),
+      phase: 'done',
+      demoMode: true,
+    })
+    expect(screen.getByTestId('import-cost').textContent).toBe(
+      'Demo mode — no cost',
+    )
   })
 
   it('holds on the finale with Open your story focused', () => {
