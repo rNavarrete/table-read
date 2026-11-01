@@ -151,7 +151,9 @@ def _creation_request_hash(
     contract §9.3), shared by both project-creation transactions — the plain
     idea create above and `create_and_import_project` below."""
     canonical = json.dumps(
-        body.model_dump(by_alias=True, mode="json", exclude_none=True),
+        # The import's spending limit is not the request (T11.3): raising it
+        # to continue a paused import must resume the same run.
+        body.model_dump(by_alias=True, mode="json", exclude_none=True, exclude={"max_cost_usd"}),
         sort_keys=True,
         separators=(",", ":"),
     )
@@ -298,6 +300,7 @@ def create_and_import_project(
         creation_request_hash=request_hash,
         import_run=import_run,
         should_execute=should_execute,
+        max_cost_usd=body.max_cost_usd,
     )
     return StreamingResponse(
         events,

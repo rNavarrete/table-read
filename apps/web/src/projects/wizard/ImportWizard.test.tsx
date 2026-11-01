@@ -10,6 +10,7 @@ import {
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ImportWizard } from './ImportWizard'
+import { analyzeSource } from './importSourceStats'
 import { loadDraft, saveDraft } from './wizardDraft'
 import { loadLedgerView } from '../../ledger/viewPreference'
 import { extractPdf } from '../../api/client'
@@ -441,6 +442,8 @@ describe('ImportWizard', () => {
         format: 'fountain',
         content: 'INT. BAR - NIGHT\nDan pours a drink.',
       },
+      // The default limit: the estimate's "at most", up to the dollar.
+      maxCostUsd: 1,
     })
     expect(headers).toEqual({
       'Idempotency-Key': expect.stringMatching(
@@ -941,12 +944,137 @@ describe('ImportWizard', () => {
           format: 'text',
           content: 'INT. BAR - NIGHT\nDan pours a drink.',
         },
+        maxCostUsd: 1,
       })
       // Saved at once, so a reload mid-import sends the same new key.
       expect(loadDraft(IMPORT_PATH)).toMatchObject({ idempotencyKey: newKey })
       expect(loadDraft(IMPORT_PATH)).not.toHaveProperty(formatKey)
     },
   )
+
+  describe('spending limit (T11.3)', () => {
+    const SOURCE = 'INT. BAR - NIGHT\nDan pours a drink.'
+    const paused = {
+      event: 'failed',
+      data: {
+        type: 'failed',
+        error: {
+          code: 'IMPORT_SPEND_LIMIT',
+          message: 'paused at $0.40 of your $0.45 limit',
+          details: { spentUsd: 0.4, maxCostUsd: 0.45, remainingUsd: 2.1 },
+        },
+      },
+    }
+
+    async function pauseOnce(user: ReturnType<typeof userEvent.setup>) {
+      mockedStreamSse
+        .mockImplementationOnce(() =>
+          framesFrom([stage('segmenting_beats'), paused]),
+        )
+        .mockImplementationOnce(() => framesFrom([completeFrame()]))
+      render(<ImportWizard />)
+      await fillSourceAndBasics(user, 'Ferry Crossing')
+      await user.click(
+        screen.getByRole('button', { name: 'Create & analyze script' }),
+      )
+      return screen.findByTestId('import-paused')
+    }
+
+    it("defaults to the estimate's at-most, rounded up to the dollar, and sends what the writer sets", async () => {
+      const user = userEvent.setup()
+      mockedStreamSse.mockImplementation(() => framesFrom([]))
+      render(<ImportWizard />)
+      await fillSourceAndBasics(user, 'Ferry Crossing')
+
+      const { high } = analyzeSource(SOURCE).estimatedCostUsd!
+      const field = screen.getByLabelText('Spending limit ($)')
+      expect((field as HTMLInputElement).value).toBe(
+        String(Math.max(1, Math.ceil(high))),
+      )
+      expect(screen.getByText(/a few cents over/)).not.toBeNull()
+
+      await user.clear(field)
+      await user.type(field, '7')
+      await user.click(
+        screen.getByRole('button', { name: 'Create & analyze script' }),
+      )
+      await waitFor(() => expect(mockedStreamSse).toHaveBeenCalledTimes(1))
+      expect(mockedStreamSse.mock.calls[0][1]).toMatchObject({ maxCostUsd: 7 })
+    })
+
+    it('sends no limit and shows no field in demo mode', async () => {
+      const user = userEvent.setup()
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => Response.json({ status: 'ok', llmMode: 'mock' })),
+      )
+      mockedStreamSse.mockImplementation(() => framesFrom([]))
+      render(<ImportWizard />)
+      await fillSourceAndBasics(user, 'Ferry Crossing')
+      await waitFor(() =>
+        expect(screen.queryByLabelText('Spending limit ($)')).toBeNull(),
+      )
+      await user.click(
+        screen.getByRole('button', { name: 'Create & analyze script' }),
+      )
+      await waitFor(() => expect(mockedStreamSse).toHaveBeenCalledTimes(1))
+      expect(mockedStreamSse.mock.calls[0][1]).not.toHaveProperty('maxCostUsd')
+      vi.unstubAllGlobals()
+    })
+
+    it('pauses with what it spent and what is left, and Continue resumes the same run with a higher limit', async () => {
+      const user = userEvent.setup()
+      const panel = await pauseOnce(user)
+
+      expect(panel.textContent).toContain(
+        'Paused at $0.40 of your $0.45 limit. About $2.10 more should finish this import.',
+      )
+      expect(screen.queryByText(/Import failed/)).toBeNull()
+      await user.click(
+        screen.getByRole('button', { name: 'Continue (up to $3.00)' }),
+      )
+
+      await screen.findByTestId('board-finale')
+      expect(mockedStreamSse).toHaveBeenCalledTimes(2)
+      const [, body, , headers] = mockedStreamSse.mock.calls[1]
+      expect(body).toMatchObject({ maxCostUsd: 3 })
+      // Same key: the server resumes the paused run from its checkpoints.
+      expect(headers).toEqual(mockedStreamSse.mock.calls[0][3])
+    })
+
+    it('keeps a raised limit in the draft for a reload', async () => {
+      const user = userEvent.setup()
+      mockedStreamSse
+        .mockImplementationOnce(() => framesFrom([paused]))
+        .mockImplementationOnce(() => framesFrom([]))
+      render(<ImportWizard />)
+      await fillSourceAndBasics(user, 'Ferry Crossing')
+      await user.click(
+        screen.getByRole('button', { name: 'Create & analyze script' }),
+      )
+      await user.click(
+        await screen.findByRole('button', { name: /Continue \(up to/ }),
+      )
+      expect(loadDraft(IMPORT_PATH)).toMatchObject({ maxCostUsd: 3 })
+    })
+
+    it('Stop leaves a stopped import with Retry, and no Continue', async () => {
+      const user = userEvent.setup()
+      await pauseOnce(user)
+
+      await user.click(screen.getByRole('button', { name: 'Stop' }))
+
+      expect(screen.queryByTestId('import-paused')).toBeNull()
+      expect(
+        screen.getByText('Import stopped at $0.40 of your $0.45 limit.'),
+      ).not.toBeNull()
+      expect(screen.getByRole('button', { name: 'Retry' })).not.toBeNull()
+      expect(
+        screen.queryByRole('button', { name: /Continue \(up to/ }),
+      ).toBeNull()
+      expect(mockedStreamSse).toHaveBeenCalledTimes(1)
+    })
+  })
 
   it('shows the board only once the import has started', async () => {
     const user = userEvent.setup()

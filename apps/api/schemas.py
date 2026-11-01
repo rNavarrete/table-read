@@ -855,6 +855,8 @@ class ProjectImportCreateRequest(_Base):
     format: ShowFormat | None = None
     premise: str | None = None
     source: ProjectImportSource
+    # T11.3: the spending limit in USD; None is no limit. Not hashed.
+    max_cost_usd: float | None = Field(default=None, gt=0)
 
 
 class PdfExtractMethod(StrEnum):

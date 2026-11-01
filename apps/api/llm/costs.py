@@ -31,12 +31,13 @@ _USAGE_FIELDS = {
 }
 
 
-def _count(usage: Any, name: str) -> int:
+def _count(usage: Any, name: str) -> float:
+    """A usage count; fractional only in a projection (`fountain.import_spend`)."""
     value = getattr(usage, name, None)
-    return value if isinstance(value, int) else 0
+    return value if isinstance(value, int | float) else 0
 
 
-def cache_writes(usage: Any, default: Literal["5m", "1h"] = "5m") -> tuple[int, int]:
+def cache_writes(usage: Any, default: Literal["5m", "1h"] = "5m") -> tuple[float, float]:
     """`(5-minute, 1-hour)` cache-write tokens: the API's own split
     (`usage.cache_creation`) when the usage carries one, else every write at
     `default`, the tier the request sent (the 5-minute form since T11.4)."""

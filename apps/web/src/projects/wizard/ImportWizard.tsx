@@ -15,7 +15,8 @@ import {
   emptyBoard,
   reconcileWithResult,
 } from './importBoard'
-import { importCostCopy } from './importCostEstimate'
+import { importCostCopy, type ImportCostRange } from './importCostEstimate'
+import { usd } from './board/boardText'
 import {
   advanceImportProgress,
   type ImportProgressState,
@@ -44,6 +45,8 @@ interface ImportDraft {
   filename: string | null
   pdfExtract: PdfExtractMetadata | null
   title: string
+  /** The writer's spending limit in USD; null uses the default (T11.3). */
+  maxCostUsd: number | null
 }
 
 interface PdfExtractMetadata {
@@ -55,6 +58,35 @@ interface PdfExtractMetadata {
 interface AnalyzeError {
   code: string
   message: string
+  details?: unknown
+}
+
+/** `IMPORT_SPEND_LIMIT`'s details (data contract §4). */
+interface SpendLimitDetails {
+  spentUsd: number
+  maxCostUsd: number
+  remainingUsd: number
+}
+
+function spendLimitDetails(
+  error: AnalyzeError | null,
+): SpendLimitDetails | null {
+  return error?.code === 'IMPORT_SPEND_LIMIT'
+    ? (error.details as SpendLimitDetails)
+    : null
+}
+
+/** The default limit: the estimate's "at most", rounded up to the dollar. */
+function defaultLimitUsd(estimate: ImportCostRange | null): number | null {
+  return estimate === null ? null : Math.max(1, Math.ceil(estimate.high))
+}
+
+/** Continue's new limit: the old one plus about what is left, rounded up. */
+function continueLimitUsd(paused: SpendLimitDetails): number {
+  return Math.max(
+    Math.ceil(paused.maxCostUsd + paused.remainingUsd),
+    Math.floor(paused.maxCostUsd) + 1,
+  )
 }
 
 interface AnalyzeSession {
@@ -64,6 +96,8 @@ interface AnalyzeSession {
   animate: boolean
   error: AnalyzeError | null
   result: { projectId: string; toReview: number } | null
+  /** Stop on a spending-limit pause: show it as a stopped import. */
+  stopped: boolean
 }
 
 const INITIAL_SESSION: AnalyzeSession = {
@@ -73,6 +107,7 @@ const INITIAL_SESSION: AnalyzeSession = {
   animate: true,
   error: null,
   result: null,
+  stopped: false,
 }
 
 function newIdempotencyKey(): string {
@@ -88,6 +123,7 @@ function initialDraft(): ImportDraft {
     filename: null,
     pdfExtract: null,
     title: '',
+    maxCostUsd: null,
   }
 }
 
@@ -125,10 +161,14 @@ function pdfMethodLabel(method: PdfExtractMethod): string {
 
 // No format: the import works it out from the script (owner decision
 // 2026-10-11), so the writer is never asked.
-function importCreateBody(draft: ImportDraft): ProjectImportCreateRequest {
+function importCreateBody(
+  draft: ImportDraft,
+  maxCostUsd: number | null,
+): ProjectImportCreateRequest {
   return {
     title: draft.title.trim(),
     source: { format: draft.sourceFormat, content: draft.source },
+    ...(maxCostUsd === null ? {} : { maxCostUsd }),
   }
 }
 
@@ -153,6 +193,8 @@ export function ImportWizard() {
   // GET /health's llmMode: whether an import spends the writer's API key.
   const llmMode = useLlmMode()
   const demoMode = llmMode === 'mock'
+  // While the writer types in the limit field; null shows the draft's value.
+  const [limitText, setLimitText] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const scriptTextRef = useRef<HTMLTextAreaElement | null>(null)
   const foundQueue = useRef<FoundFrame[]>([])
@@ -163,6 +205,16 @@ export function ImportWizard() {
     const intervalId = window.setInterval(() => setNowMs(Date.now()), 1_000)
     return () => window.clearInterval(intervalId)
   }, [session.phase])
+
+  const stats = analyzeSource(draft.source)
+  // Demo mode costs nothing, so it sends no limit (T11.3).
+  const limitUsd = demoMode
+    ? null
+    : (draft.maxCostUsd ?? defaultLimitUsd(stats.estimatedCostUsd))
+  const paused = session.stopped ? null : spendLimitDetails(session.error)
+  const stoppedAtLimit = session.stopped
+    ? spendLimitDetails(session.error)
+    : null
 
   function updateDraft(nextDraft: ImportDraft) {
     setDraft(nextDraft)
@@ -293,6 +345,20 @@ export function ImportWizard() {
   }
 
   async function handleAnalyze() {
+    await runImport(limitUsd)
+  }
+
+  // Continue past a spending-limit pause: the same run, a higher limit.
+  async function continueImport() {
+    const details = spendLimitDetails(session.error)
+    if (details === null) return
+    const raised = continueLimitUsd(details)
+    updateDraft({ ...draft, maxCostUsd: raised })
+    setLimitText(null)
+    await runImport(raised)
+  }
+
+  async function runImport(maxCostUsd: number | null) {
     if (session.phase === 'streaming' || session.phase === 'done') return
     const now = Date.now()
     setNowMs(now)
@@ -313,7 +379,7 @@ export function ImportWizard() {
     try {
       const frames = streamSse(
         importCreateUrl(),
-        importCreateBody(draft),
+        importCreateBody(draft, maxCostUsd),
         undefined,
         { 'Idempotency-Key': draft.idempotencyKey },
       )
@@ -382,7 +448,6 @@ export function ImportWizard() {
     )
   }
 
-  const stats = analyzeSource(draft.source)
   const hasEnteredData = Boolean(draft.source || draft.title)
   const isRunning = session.phase === 'streaming' || session.phase === 'done'
 
@@ -509,10 +574,46 @@ export function ImportWizard() {
           validate: validateReview,
           body: (
             <div className="grid gap-5">
-              {session.phase === 'failed' && session.error && (
+              {session.phase === 'failed' && paused && (
+                <div
+                  data-testid="import-paused"
+                  className="grid gap-3 rounded-card border border-tr-amber bg-tr-amber-soft p-3"
+                >
+                  <p className="text-tr-text-primary">
+                    Paused at {usd(paused.spentUsd)} of your{' '}
+                    {usd(paused.maxCostUsd)} limit. About{' '}
+                    {usd(paused.remainingUsd)} more should finish this import.
+                  </p>
+                  <p className="text-13 text-tr-text-secondary">
+                    Nothing was created yet. Everything finished so far is
+                    saved, so continuing pays only for what is left.
+                  </p>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={continueImport}
+                      className="rounded-card bg-tr-coral px-3 py-2 text-13 font-medium text-tr-surface-raised"
+                    >
+                      Continue (up to {usd(continueLimitUsd(paused))})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setSession((current) => ({ ...current, stopped: true }))
+                      }
+                      className="rounded-card border border-tr-border px-3 py-2 text-13 font-medium text-tr-text-secondary"
+                    >
+                      Stop
+                    </button>
+                  </div>
+                </div>
+              )}
+              {session.phase === 'failed' && session.error && !paused && (
                 <div className="grid gap-3 rounded-card border border-tr-danger bg-tr-surface-page p-3">
                   <p className="text-tr-danger">
-                    Import failed: {session.error.message}
+                    {stoppedAtLimit
+                      ? `Import stopped at ${usd(stoppedAtLimit.spentUsd)} of your ${usd(stoppedAtLimit.maxCostUsd)} limit.`
+                      : `Import failed: ${session.error.message}`}
                   </p>
                   <p className="text-13 text-tr-text-secondary">
                     Nothing was created. Your script and settings are still
@@ -567,6 +668,33 @@ export function ImportWizard() {
                       llmMode,
                     )}
                   </p>
+                  {limitUsd !== null && (
+                    <div className="grid gap-1">
+                      <label className="text-13 font-medium text-tr-text-primary">
+                        Spending limit ($)
+                        <input
+                          type="number"
+                          min={1}
+                          step={1}
+                          inputMode="numeric"
+                          value={limitText ?? String(limitUsd)}
+                          onChange={(event) => {
+                            setLimitText(event.target.value)
+                            const value = event.target.valueAsNumber
+                            if (value > 0)
+                              updateDraft({ ...draft, maxCostUsd: value })
+                          }}
+                          onBlur={() => setLimitText(null)}
+                          className="mt-1 block w-32 rounded-card border border-tr-border bg-tr-surface-page px-3 py-2 text-13 text-tr-text-primary outline-none focus:border-tr-sky"
+                        />
+                      </label>
+                      <p className="text-12 text-tr-text-muted">
+                        The import pauses before a step that would go over this
+                        and asks before spending more. Steps already running
+                        finish, so it can end a few cents over.
+                      </p>
+                    </div>
+                  )}
                   <details
                     open={textOpen}
                     onToggle={(event) => setTextOpen(event.currentTarget.open)}

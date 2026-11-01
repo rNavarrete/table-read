@@ -49,6 +49,26 @@ describe('estimateImportCost calibration', () => {
   )
 })
 
+// Parity with the server's spending-limit projection: both evaluate
+// config/import_cost_model.json, and apps/api/tests/test_import_spend_limit.py
+// asserts these same `about` numbers from it.
+describe('estimateImportCost parity with the server projection', () => {
+  it.each([
+    [37, 41_874, pricing.cacheWrite1hMultiplier, 2.32],
+    [179, 128_303, pricing.cacheWrite1hMultiplier, 8.96],
+    [37, 41_874, pricing.cacheWrite5mMultiplier, 2.24],
+    [179, 128_303, pricing.cacheWrite5mMultiplier, 8.75],
+  ])(
+    '%i scenes, %i chars at %dx writes: about $%d',
+    (sceneCount, charCount, cacheWriteMultiplier, about) => {
+      expect(
+        estimateImportCost({ sceneCount, charCount, cacheWriteMultiplier })!
+          .about,
+      ).toBe(about)
+    },
+  )
+})
+
 describe('estimateImportCost', () => {
   it('has no estimate without scenes', () => {
     expect(estimateImportCost({ sceneCount: 0, charCount: 100 })).toBeNull()
